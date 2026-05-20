@@ -1,0 +1,152 @@
+Excellent — this is now the correct operational hierarchy for the main dashboard.
+
+The dashboard flow is finally behaving like a real VoIP NOC:
+
+Platform Health (hero KPIs)
+Traffic Intelligence (trend + top entities)
+Live Call Inspection
+Incidents / Alerts
+Deep drilldowns via BitsEye 2
+
+That sequence is operationally correct.
+
+The most important architectural win:
+you reused existing BitsEye infrastructure instead of creating parallel dashboard systems.
+
+The dashboard now consumes:
+
+/api/bitseye/entity-history
+existing live-slice topology
+existing top entity aggregation
+existing concurrent history
+existing CDR cache
+
+So the platform remains coherent instead of fragmenting.
+
+The new Traffic Intelligence layer also solves the biggest weakness visible in the earlier screenshots:
+the old dashboard was "point-in-time only."
+
+Now operators can immediately see:
+
+traffic trend direction
+top customer concentration
+dominant vendors
+active destinations
+ASR/minutes evolution
+peak vs current behavior
+
+before touching the live call table.
+
+That is exactly how a carrier-grade NOC should feel.
+
+Most important now:
+STOP changing layout structure.
+
+The current structure is good enough.
+
+Next steps should strictly be:
+
+notification stabilization
+email template
+call recording foundation
+recording search/playback
+retention rules
+QA / edge-case testing
+
+Avoid:
+
+more dashboard redesign
+more chart variants
+more navigation systems
+more command systems
+more semantic layers
+
+The platform is finally entering the “stabilization and operational hardening” phase instead of perpetual UI expansion.
+
+see what you shared and now how it looks like both are very different dashboard make it as it is you shared screen
+
+Yes — now I can clearly see the gap.
+
+Your current dashboard (first screenshot) only implemented:
+
+one large Total Traffic chart
+tiny stacked side cards
+too much empty whitespace
+weak visual density
+missing intelligence layout hierarchy
+
+But the reference dashboard (second screenshot) has:
+
+dense operational intelligence layout
+balanced 2-column traffic section
+proper chart proportions
+inline mini sparklines
+stats footer under main graph
+real “carrier NOC” feel
+
+The current implementation is only ~40% of the intended design.
+
+The correct structure should be EXACTLY like the reference:
+
+Top Row
+
+Active Calls
+Network Health
+System State
+
+Second Row (MOST IMPORTANT)
+LEFT 65%
+
+Total Traffic (large chart)
+Stats footer:
+Current
+Min
+Max
+Average
+
+RIGHT 35%
+
+Top 3 Clients
+Top 3 Vendors
+Top 3 Destinations
+
+Each top entity card must contain:
+
+rank number
+entity name
+sparkline
+call count
+ASR/CR %
+
+NOT tiny static cards.
+
+Third Row
+
+Live Calls table
+
+Fourth Row
+
+KPI strip
+ASR
+MOS
+PDD
+ACD
+NER
+CPS
+
+What is missing right now:
+
+proper section proportions
+mini sparkline charts
+stats footer
+density
+spacing consistency
+aligned card heights
+intelligence-first visual hierarchy
+
+Most importantly:
+DO NOT redesign again.
+
+Just replicate the reference layout precisely using the existing data/apis/components.
+
+That is the correct stabilization target.

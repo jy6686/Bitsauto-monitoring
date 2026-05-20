@@ -98,24 +98,71 @@ import { lookupCountry } from "@/lib/country-lookup";
 import { useTimezone, TZ_OPTIONS, getTzAbbr } from "@/context/timezone-context";
 import { formatInTz } from "@/lib/date-utils";
 
-// ── DashTopEntityCard — compact Top-3 entity card for the Traffic Intelligence row ──
-function DashTopEntityCard({ title, icon, entities, color, loading }: {
+// ── MiniSparkline — tiny SVG polyline from an array of values ────────────────
+function MiniSparkline({ values, color }: { values: number[]; color: string }) {
+  if (!values || values.length < 2) return <div style={{ width: 52, height: 18 }} />;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values);
+  const range = max - min || 1;
+  const W = 52, H = 18;
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * W;
+    const y = H - ((v - min) / range) * (H - 3) - 1.5;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return (
+    <svg width={W} height={H} className="flex-shrink-0 opacity-70">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// ── DashTopEntityCard — carrier-grade Top-3 entity card with sparklines ──────
+function DashTopEntityCard({ title, icon, entities, dim, color, loading }: {
   title: string;
   icon: 'users' | 'radio' | 'globe';
   entities: Array<{ name: string; active: number; connected: number; connectRate: number }>;
+  dim: string;
   color: 'violet' | 'blue' | 'emerald';
   loading?: boolean;
 }) {
   const IconComp = icon === 'users' ? Users : icon === 'radio' ? Radio : Globe;
   const c = {
-    violet: { border: 'border-violet-500/20', icon: 'text-violet-400', badge: 'bg-violet-500/10 text-violet-400', dot: 'bg-violet-400' },
-    blue:   { border: 'border-blue-500/20',   icon: 'text-blue-400',   badge: 'bg-blue-500/10 text-blue-400',   dot: 'bg-blue-400'   },
-    emerald:{ border: 'border-emerald-500/20', icon: 'text-emerald-400', badge: 'bg-emerald-500/10 text-emerald-400', dot: 'bg-emerald-400' },
+    violet:  { border: 'border-violet-500/25',  icon: 'text-violet-400',  badge: 'bg-violet-500/15 text-violet-300',  dot: 'bg-violet-400',  spark: '#8B5CF6' },
+    blue:    { border: 'border-blue-500/25',    icon: 'text-blue-400',    badge: 'bg-blue-500/15 text-blue-300',    dot: 'bg-blue-400',    spark: '#3B82F6' },
+    emerald: { border: 'border-emerald-500/25', icon: 'text-emerald-400', badge: 'bg-emerald-500/15 text-emerald-300', dot: 'bg-emerald-400', spark: '#10B981' },
   }[color];
+
+  // Fetch sparklines for the top 3 entities — 3 fixed hooks (Rules of Hooks safe)
+  const e0 = entities[0]?.name ?? '';
+  const e1 = entities[1]?.name ?? '';
+  const e2 = entities[2]?.name ?? '';
+  const s0 = useQuery<{ points: Array<{ total: number }> }>({
+    queryKey: ['/api/bitseye/entity-history', dim, e0, 'live', 'calls'],
+    queryFn: () => fetch(`/api/bitseye/entity-history?dim=${dim}&entity=${encodeURIComponent(e0)}&span=live&type=calls`).then(r => r.json()),
+    enabled: !!e0, staleTime: 60_000, refetchInterval: 45_000,
+  });
+  const s1 = useQuery<{ points: Array<{ total: number }> }>({
+    queryKey: ['/api/bitseye/entity-history', dim, e1, 'live', 'calls'],
+    queryFn: () => fetch(`/api/bitseye/entity-history?dim=${dim}&entity=${encodeURIComponent(e1)}&span=live&type=calls`).then(r => r.json()),
+    enabled: !!e1, staleTime: 60_000, refetchInterval: 45_000,
+  });
+  const s2 = useQuery<{ points: Array<{ total: number }> }>({
+    queryKey: ['/api/bitseye/entity-history', dim, e2, 'live', 'calls'],
+    queryFn: () => fetch(`/api/bitseye/entity-history?dim=${dim}&entity=${encodeURIComponent(e2)}&span=live&type=calls`).then(r => r.json()),
+    enabled: !!e2, staleTime: 60_000, refetchInterval: 45_000,
+  });
+  const sparklines = [
+    (s0.data?.points ?? []).map(p => p.total),
+    (s1.data?.points ?? []).map(p => p.total),
+    (s2.data?.points ?? []).map(p => p.total),
+  ];
+
   return (
-    <div className={`bg-card ${c.border} border rounded-xl p-3.5 shadow-md flex-1 min-h-0`}>
-      <div className="flex items-center justify-between mb-2.5">
-        <div className="flex items-center gap-2">
+    <div className={`bg-card ${c.border} border rounded-xl shadow-md flex-1 min-h-0 overflow-hidden`}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border/40">
+        <div className="flex items-center gap-1.5">
           <IconComp className={`w-3.5 h-3.5 ${c.icon}`} />
           <span className="text-xs font-semibold">{title}</span>
         </div>
@@ -123,29 +170,39 @@ function DashTopEntityCard({ title, icon, entities, color, loading }: {
           More <ArrowRight className="w-2.5 h-2.5" />
         </Link>
       </div>
-      {loading ? (
-        <div className="space-y-2">
-          {[0,1,2].map(i => <div key={i} className="h-5 rounded bg-muted/30 animate-pulse" />)}
-        </div>
-      ) : entities.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground/50 text-center py-3">No active traffic</p>
-      ) : (
-        <div className="space-y-1.5">
-          {entities.slice(0, 3).map((e, i) => (
-            <div key={e.name} className="flex items-center gap-2 min-w-0" data-testid={`top-entity-${color}-${i}`}>
-              <span className="text-[10px] font-bold text-muted-foreground/40 w-3 text-right flex-shrink-0">{i + 1}</span>
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.dot} ${e.active > 0 ? 'animate-pulse' : 'opacity-30'}`} />
-              <span className="text-[11px] font-medium truncate flex-1" title={e.name}>{e.name}</span>
-              <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded flex-shrink-0 ${c.badge}`}>{e.active}</span>
-              {e.connectRate > 0 && (
-                <span className={`text-[10px] tabular-nums flex-shrink-0 ${e.connectRate >= 70 ? 'text-emerald-400' : e.connectRate >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
-                  {e.connectRate}%
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Rows */}
+      <div className="px-3.5 py-2">
+        {loading ? (
+          <div className="space-y-2.5">
+            {[0,1,2].map(i => <div key={i} className="h-[30px] rounded bg-muted/30 animate-pulse" />)}
+          </div>
+        ) : entities.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground/50 text-center py-4">No active traffic</p>
+        ) : (
+          <div className="divide-y divide-border/30">
+            {entities.slice(0, 3).map((e, i) => (
+              <div key={e.name} className="flex items-center gap-2 py-2 min-w-0" data-testid={`top-entity-${color}-${i}`}>
+                {/* Rank */}
+                <span className="text-[10px] font-bold text-muted-foreground/35 w-3.5 text-right flex-shrink-0 tabular-nums">{i + 1}</span>
+                {/* Live dot */}
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.dot} ${e.active > 0 ? 'animate-pulse' : 'opacity-20'}`} />
+                {/* Name */}
+                <span className="text-[11px] font-medium truncate flex-1 min-w-0" title={e.name}>{e.name}</span>
+                {/* Sparkline */}
+                <MiniSparkline values={sparklines[i]} color={c.spark} />
+                {/* Call count */}
+                <span className={`text-[11px] font-bold tabular-nums px-1.5 py-0.5 rounded flex-shrink-0 ${c.badge}`}>{e.active}</span>
+                {/* ASR / CR */}
+                {e.connectRate > 0 ? (
+                  <span className={`text-[10px] tabular-nums font-semibold flex-shrink-0 w-8 text-right ${e.connectRate >= 70 ? 'text-emerald-400' : e.connectRate >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
+                    {e.connectRate}%
+                  </span>
+                ) : <span className="w-8 flex-shrink-0" />}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1496,85 +1553,51 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Traffic Intelligence ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-4" data-testid="section-traffic-intelligence">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,65fr)_minmax(0,35fr)] gap-4" data-testid="section-traffic-intelligence">
 
-        {/* Total Traffic — AreaChart with span + metric toggles */}
-        <div className="bg-card border border-border/50 rounded-xl shadow-lg overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/40">
+        {/* LEFT — Total Traffic chart */}
+        <div className="bg-card border border-border/50 rounded-xl shadow-lg overflow-hidden flex flex-col">
+          {/* Header with toggles */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 flex-shrink-0">
             <div className="flex items-center gap-2.5">
               <TrendingUp className="w-4 h-4 text-blue-400" />
               <span className="text-sm font-semibold">Total Traffic</span>
               {trafficHistLoading && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground/60" />}
             </div>
             <div className="flex items-center gap-2">
-              {/* Metric toggle */}
               <div className="flex items-center bg-secondary/50 rounded-lg p-0.5 gap-0.5">
                 {(['calls', 'asr', 'minutes'] as const).map(m => (
                   <button key={m} onClick={() => setTrafficMetric(m)}
                     data-testid={`button-traffic-metric-${m}`}
                     className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${
-                      trafficMetric === m
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
+                      trafficMetric === m ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    }`}>
                     {m === 'asr' ? 'ASR' : m === 'calls' ? 'Calls' : 'Minutes'}
                   </button>
                 ))}
               </div>
-              {/* Span toggle */}
               <div className="flex items-center bg-secondary/50 rounded-lg p-0.5 gap-0.5">
                 {(['live', 'daily', 'weekly'] as const).map(s => (
                   <button key={s} onClick={() => setTrafficSpan(s)}
                     data-testid={`button-traffic-span-${s}`}
                     className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${
-                      trafficSpan === s
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
+                      trafficSpan === s ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    }`}>
                     {s === 'live' ? 'LIVE' : s === 'daily' ? '24H' : '72H'}
                   </button>
                 ))}
               </div>
             </div>
           </div>
-          <div className="px-5 pt-3 pb-1">
-            {/* Stat row */}
-            <div className="flex items-end gap-6 mb-3">
-              {trafficHist?.stats ? (
-                <>
-                  <div>
-                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
-                      {trafficSpan === 'live' ? 'Now' : 'Latest'}
-                    </div>
-                    <div className="text-2xl font-bold tabular-nums text-blue-400">
-                      {trafficMetric === 'asr' ? `${trafficHist.stats.cur}%` : trafficHist.stats.cur}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">Peak</div>
-                    <div className="text-lg font-semibold tabular-nums">
-                      {trafficMetric === 'asr' ? `${trafficHist.stats.max}%` : trafficHist.stats.max}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">Avg</div>
-                    <div className="text-lg font-semibold tabular-nums text-muted-foreground">
-                      {trafficMetric === 'asr' ? `${trafficHist.stats.avg}%` : trafficHist.stats.avg}
-                    </div>
-                  </div>
-                </>
-              ) : !trafficHistLoading ? (
-                <span className="text-xs text-muted-foreground/50 pb-1">No history yet — data populates within the first polling cycle</span>
-              ) : null}
-            </div>
-            <ResponsiveContainer width="100%" height={140}>
+
+          {/* Chart area — flex-grow fills remaining height */}
+          <div className="px-4 pt-3 pb-1 flex-1">
+            <ResponsiveContainer width="100%" height={170}>
               <AreaChart data={trafficHist?.points ?? []} margin={{ top: 2, right: 2, bottom: 0, left: -22 }}>
                 <defs>
                   <linearGradient id="dash-traffic-grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'} stopOpacity={0.22} />
-                    <stop offset="95%" stopColor={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'} stopOpacity={0} />
+                    <stop offset="5%"  stopColor={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'} stopOpacity={0.25} />
+                    <stop offset="95%" stopColor={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'} stopOpacity={0}    />
                   </linearGradient>
                 </defs>
                 <CartesianGrid {...BSE_GRID_PROPS} />
@@ -1594,22 +1617,43 @@ export default function DashboardPage() {
               </AreaChart>
             </ResponsiveContainer>
           </div>
+
+          {/* Stats footer — Current | Min | Max | Average */}
+          <div className="grid grid-cols-4 border-t border-border/40 divide-x divide-border/30 flex-shrink-0">
+            {[
+              { label: trafficSpan === 'live' ? 'Current' : 'Latest', value: trafficHist?.stats?.cur, accent: true },
+              { label: 'Min',     value: trafficHist?.stats?.min, accent: false },
+              { label: 'Max',     value: trafficHist?.stats?.max, accent: false },
+              { label: 'Average', value: trafficHist?.stats?.avg, accent: false },
+            ].map(({ label, value, accent }) => (
+              <div key={label} className="px-4 py-3 text-center">
+                <div className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{label}</div>
+                {trafficHistLoading ? (
+                  <div className="h-5 w-10 mx-auto rounded bg-muted/30 animate-pulse" />
+                ) : (
+                  <div className={`text-base font-bold tabular-nums ${accent ? (trafficMetric === 'asr' ? 'text-amber-400' : 'text-blue-400') : ''}`}>
+                    {value != null ? (trafficMetric === 'asr' ? `${value}%` : value) : '—'}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Top 3 entity cards column */}
+        {/* RIGHT — Top 3 entity cards stacked */}
         <div className="flex flex-col gap-3">
           <DashTopEntityCard
-            title="Top Clients" icon="users" color="violet"
+            title="Top Clients" icon="users" dim="client" color="violet"
             entities={(topClients?.entities ?? []).filter(e => !e.idle)}
             loading={!topClients}
           />
           <DashTopEntityCard
-            title="Top Vendors" icon="radio" color="blue"
+            title="Top Vendors" icon="radio" dim="vendor" color="blue"
             entities={(topVendors?.entities ?? []).filter(e => !e.idle)}
             loading={!topVendors}
           />
           <DashTopEntityCard
-            title="Top Routes" icon="globe" color="emerald"
+            title="Top Routes" icon="globe" dim="destination" color="emerald"
             entities={(topDests?.entities ?? []).filter(e => !e.idle)}
             loading={!topDests}
           />
