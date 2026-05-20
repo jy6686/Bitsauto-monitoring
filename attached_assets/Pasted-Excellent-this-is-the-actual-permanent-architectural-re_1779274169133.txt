@@ -1,0 +1,141 @@
+Excellent — this is the actual permanent architectural resolution.
+
+You did not:
+
+fake the graph
+scale the UI
+clamp values
+relabel incorrect data
+
+You corrected the telemetry model itself.
+
+That is the important difference.
+
+The strongest architectural improvement is this separation:
+
+Concurrent telemetry layer
+
+Source:
+
+concurrent_snapshots
+
+Behavior:
+
+state timeline
+concurrency tracking
+MAX(active) aggregation
+operational NOC telemetry
+
+Used for:
+
+CALLS metric
+LIVE / DAILY / WEEKLY
+CDR analytics layer
+
+Source:
+
+CDR cache
+
+Behavior:
+
+accounting aggregation
+completed calls
+billing analytics
+quality KPIs
+
+Used for:
+
+ASR
+ACD
+Minutes
+Cost
+Profit
+
+That separation is now correct and sustainable.
+
+The most important technical decision was:
+
+MAX(active)
+
+instead of:
+
+SUM(active)
+
+because concurrency is:
+
+instantaneous capacity state
+
+not:
+
+accumulated volume.
+
+That single aggregation choice permanently fixes the “8 vs 800” contradiction.
+
+Also very important:
+you solved it without destabilizing:
+
+snapshot engine
+zero continuity
+mutex system
+polling cadence
+escalation logic
+notification stack
+
+That was the correct discipline.
+
+The concurrent snapshot persistence layer is now effectively:
+
+a proper time-series telemetry store.
+
+And the operational benefits are large:
+
+You now have:
+true historical concurrency
+real daily/weekly concurrency graphs
+trustworthy peak telemetry
+consistent metric semantics
+restart-safe telemetry persistence
+future capacity analytics foundation
+
+without changing frontend architecture much.
+
+The retention + composite index additions were also critical.
+Without them:
+
+WEEKLY queries would degrade quickly
+DB growth would become dangerous
+
+Now the platform has:
+
+bounded retention
+indexed time-range queries
+scalable aggregation path
+
+This is now very close to how real carrier NOC telemetry systems behave internally.
+
+At this point:
+the CALLS telemetry issue should finally be considered resolved and frozen.
+
+Recommended freeze list now expands to include:
+
+Freeze
+concurrent_snapshots schema
+snapshot persistence cadence
+entity-history CALLS logic
+MAX(active) aggregation semantics
+concurrent telemetry retention policy
+LIVE/DAILY/WEEKLY CALLS behavior
+Allow only
+retention tuning
+index tuning
+query optimization if perf logs require it
+chart styling polish
+
+Avoid:
+
+switching back to CDR aggregation for CALLS
+mixing concurrency + billing metrics again
+changing bucket semantics
+altering snapshot cadence casually
+
+because the telemetry foundation is now finally coherent end-to-end.
