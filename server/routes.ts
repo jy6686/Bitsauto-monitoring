@@ -4171,6 +4171,7 @@ export async function registerRoutes(
   async function refreshCdrCache(): Promise<void> {
     if (_cdrCacheRunning) return;
     _cdrCacheRunning = true;
+    const _cdrT0 = Date.now();
     try {
       const settings = await storage.getSettings();
       const credPairs = sippyXmlCredsPairs(settings);
@@ -4417,7 +4418,11 @@ export async function registerRoutes(
       }
     } catch (e: any) {
       console.warn('[cdr-cache] refresh error:', e.message);
-    } finally { _cdrCacheRunning = false; }
+    } finally {
+      const _cdrMs = Date.now() - _cdrT0;
+      if (_cdrMs > 8000) console.warn(`[perf] refreshCdrCache took ${_cdrMs}ms`);
+      _cdrCacheRunning = false;
+    }
   }
 
   // ── Live Traffic Snapshot Engine ─────────────────────────────────────────────
@@ -12094,6 +12099,7 @@ export async function registerRoutes(
   async function snapshotActiveCalls(): Promise<void> {
     if (_snapshotRunning) return; // mutex — skip if previous cycle still in progress
     _snapshotRunning = true;
+    const _snapT0 = Date.now();
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return;
@@ -12313,11 +12319,83 @@ export async function registerRoutes(
     } catch (e: any) {
       console.warn('[snapshot-bg] error:', e.message);
     } finally {
+      const _snapMs = Date.now() - _snapT0;
+      if (_snapMs > 5000) console.warn(`[perf] snapshotActiveCalls took ${_snapMs}ms`);
+      else console.debug(`[perf] snapshotActiveCalls ${_snapMs}ms`);
       _snapshotRunning = false;
     }
   }
   setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
   setInterval(() => snapshotActiveCalls(), 45 * 1000);      // every 45 s — slightly under UI's 60s poll
+
+  // ── Incident Escalation Scheduler ────────────────────────────────────────
+  // Resends alert emails for unresolved incidents on a severity-weighted cadence.
+  // Severity windows: critical=15m, high=60m, medium/low=no repeat.
+  // In-memory tracker (no schema change) — resets cleanly on server restart.
+  const incidentEscalationTracker = new Map<number, number>(); // incidentId → lastNotifiedAt ms
+  const ESCALATION_WINDOWS: Record<string, number> = {
+    critical: 15 * 60_000,
+    high:     60 * 60_000,
+    medium:   0, // no repeat
+    low:      0, // no repeat
+  };
+
+  let _escalationRunning = false;
+  async function runEscalationSweep(): Promise<void> {
+    if (_escalationRunning) return;
+    _escalationRunning = true;
+    try {
+      const { eq: drizzleEq2 } = await import('drizzle-orm');
+      const openIncidents = await db.select().from(incidentsTable)
+        .where(drizzleEq2(incidentsTable.status, 'active'));
+
+      const now = Date.now();
+
+      // Purge resolved incidents from tracker to prevent memory growth
+      const activeIds = new Set(openIncidents.map((i: any) => i.id));
+      for (const id of incidentEscalationTracker.keys()) {
+        if (!activeIds.has(id)) incidentEscalationTracker.delete(id);
+      }
+
+      for (const incident of openIncidents as any[]) {
+        const window = ESCALATION_WINDOWS[incident.severity] ?? 0;
+        if (window === 0) continue; // this severity level does not escalate
+
+        // On first escalation check, seed from openedAt so we don't immediately resend
+        // a reminder for an incident that was just created (give it one full window first)
+        const lastNotified = incidentEscalationTracker.get(incident.id) ?? incident.openedAt.getTime();
+        if (now - lastNotified < window) continue;
+
+        const windowLabel = ESCALATION_WINDOWS[incident.severity] === 15 * 60_000 ? '15m' : '60m';
+        const reminderTitle = `[ESCALATION – every ${windowLabel}] ${incident.title}`;
+
+        const sent = await emailSvc.sendAlertEmail(emailSvc.buildIncidentAlertEmail({
+          title:           reminderTitle,
+          summary:         `This incident has been open for ${Math.round((now - incident.openedAt.getTime()) / 60_000)} minutes and has not been resolved.\n\n${incident.summary ?? incident.title}`,
+          severity:        incident.severity,
+          metric:          incident.incidentType,
+          entityName:      incident.entityName ?? incident.entityId,
+          entityType:      incident.entityType,
+          metricValue:     null,
+          threshold:       null,
+          suggestedAction: incident.suggestedAction ?? 'Review incident in the Bitsauto monitoring dashboard.',
+          openedAt:        incident.openedAt,
+        }));
+
+        if (sent) {
+          incidentEscalationTracker.set(incident.id, now);
+          console.log(`[escalation] Reminder sent — incident #${incident.id} (${incident.severity}): ${incident.title}`);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[escalation] Sweep error:', err.message);
+    } finally {
+      _escalationRunning = false;
+    }
+  }
+  // Start 2 minutes after boot (let system settle + initial alerts fire first)
+  setTimeout(() => runEscalationSweep(), 2 * 60_000);
+  setInterval(() => runEscalationSweep(), 5 * 60_000);
 
   // ── BitsEye Threshold Engine ──────────────────────────────────────────────
   // Runs after each snapshotActiveCalls() cycle. Uses entityPresenceCache (live
@@ -12325,6 +12403,7 @@ export async function registerRoutes(
   // anomalies and write incidents to the DB. Auto-resolves when metrics recover.
   // Metrics supported: asr_drop | traffic_gone | cps_spike
   async function runBitsEyeThresholdEngine(): Promise<void> {
+    const _bseT0 = Date.now();
     // Cache alert rules from DB for 5 min to avoid per-cycle DB hits
     if (!_cachedAlertRulesForEngine || Date.now() - _cachedAlertRulesTsEngine > 5 * 60_000) {
       _cachedAlertRulesForEngine = await db.select().from(alertRulesTable);
@@ -12494,6 +12573,8 @@ export async function registerRoutes(
         }
       }
     }
+    const _bseMs = Date.now() - _bseT0;
+    if (_bseMs > 3000) console.warn(`[perf] runBitsEyeThresholdEngine took ${_bseMs}ms`);
   }
 
   // ── BitsEye Alert API endpoints ───────────────────────────────────────────
