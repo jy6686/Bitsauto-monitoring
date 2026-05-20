@@ -13924,10 +13924,34 @@ export async function registerRoutes(
       return b.lastSeen - a.lastSeen;
     });
 
-    // Viewer scope: restrict client dimension to assigned clients only
-    const filtered = (viewerScope !== null && dim === 'client')
-      ? entities.filter(e => viewerScope.includes(e.name))
-      : entities;
+    // Viewer scope: restrict all dimensions to entities relevant to assigned clients only
+    let filtered = entities;
+    if (viewerScope !== null) {
+      if (dim === 'client') {
+        filtered = entities.filter(e => viewerScope!.includes(e.name));
+      } else {
+        // For vendor/country/destination: only show entities that co-occurred with the viewer's
+        // assigned clients in recent live calls (crossDimCache) or currently active calls.
+        const allowedEntities = new Set<string>();
+        // From crossDimCache: recently seen cross-dim associations for viewer's clients
+        for (const clientName of viewerScope!) {
+          const subMap = crossDimCache.get('client')?.get(clientName)?.get(dim);
+          if (subMap) { for (const n of subMap.keys()) allowedEntities.add(n); }
+        }
+        // From current liveCallsCache: entities in currently active calls from viewer's clients
+        const liveCalls = (liveCallsCache as any).calls ?? [];
+        for (const c of liveCalls) {
+          const cn = c.clientName || (c.accountId ? `Acct.${c.accountId}` : null);
+          if (!cn || !viewerScope!.includes(cn)) continue;
+          let en: string | null = null;
+          if (dim === 'vendor')      en = c.vendor || c.connection || null;
+          else if (dim === 'country')     en = c.destCountry || null;
+          else if (dim === 'destination') en = c.destFull || c.destCountry || null;
+          if (en) allowedEntities.add(en);
+        }
+        filtered = entities.filter(e => allowedEntities.has(e.name));
+      }
+    }
 
     const total = filtered.filter(e => e.active > 0).reduce((s: number, e: any) => s + e.active, 0);
 
@@ -13957,6 +13981,24 @@ export async function registerRoutes(
     // Scope gate: viewers may only see their assigned clients
     if (viewerScope !== null && dim === 'client' && !viewerScope.includes(name)) {
       return res.status(403).json({ error: 'Access denied to this entity' });
+    }
+    // Scope gate: viewers may not access vendor/country/destination entities unrelated to their clients
+    if (viewerScope !== null && dim !== 'client' && name) {
+      const allowed = new Set<string>();
+      for (const cn of viewerScope) {
+        const sub = crossDimCache.get('client')?.get(cn)?.get(dim);
+        if (sub) { for (const n of sub.keys()) allowed.add(n); }
+      }
+      const liveCalls2 = (liveCallsCache as any).calls ?? [];
+      for (const c of liveCalls2) {
+        const cn = c.clientName || (c.accountId ? `Acct.${c.accountId}` : null);
+        if (!cn || !viewerScope.includes(cn)) continue;
+        const en = dim === 'vendor' ? (c.vendor || c.connection || null)
+          : dim === 'country' ? (c.destCountry || null)
+          : (c.destFull || c.destCountry || null);
+        if (en) allowed.add(en);
+      }
+      if (!allowed.has(name)) return res.status(403).json({ error: 'Access denied to this entity' });
     }
 
     const rawCalls = (liveCallsCache as any).calls ?? [];
@@ -14061,6 +14103,24 @@ export async function registerRoutes(
     // Scope gate: viewers requesting a specific client entity must own it
     if (viewerScope !== null && dim === 'client' && entity !== '' && entity !== '__total__' && !viewerScope.includes(entity)) {
       return res.status(403).json({ error: 'Access denied to this entity' });
+    }
+    // Scope gate: viewers requesting a specific vendor/country/destination entity must have it linked to their clients
+    if (viewerScope !== null && dim !== 'client' && entity !== '' && entity !== '__total__') {
+      const allowed = new Set<string>();
+      for (const cn of viewerScope) {
+        const sub = crossDimCache.get('client')?.get(cn)?.get(dim);
+        if (sub) { for (const n of sub.keys()) allowed.add(n); }
+      }
+      const lc = (liveCallsCache as any).calls ?? [];
+      for (const c of lc) {
+        const cn = c.clientName || (c.accountId ? `Acct.${c.accountId}` : null);
+        if (!cn || !viewerScope.includes(cn)) continue;
+        const en = dim === 'vendor' ? (c.vendor || c.connection || null)
+          : dim === 'country' ? (c.destCountry || null)
+          : (c.destFull || c.destCountry || null);
+        if (en) allowed.add(en);
+      }
+      if (!allowed.has(entity)) return res.status(403).json({ error: 'Access denied to this entity' });
     }
 
     // ── LIVE: entityConcurrentHistory snapshots ────────────────────────────
