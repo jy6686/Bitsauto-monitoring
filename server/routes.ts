@@ -2121,28 +2121,47 @@ export async function registerRoutes(
       // Touch last used timestamp (don't await — fire and forget)
       storage.touchPortalToken(tok.id).catch(() => {});
 
-      // Fetch CDRs for this account from Sippy
+      // Fetch CDRs for this account
       const settings = await storage.getSettings();
       const startDate = req.query.startDate as string | undefined;
       const endDate   = req.query.endDate   as string | undefined;
-
-      let cdrs: any[] = [];
-      try {
-        const portalUrl = settings.portalUrl || '';
-        const creds = sippyXmlCredsPairs(settings as any);
-        for (const { username, password } of creds) {
-          const rows = await sippy.getSippyCDRs(username, password, 200, { startDate, endDate }, portalUrl);
-          if (rows.length > 0) { cdrs = rows; break; }
-        }
-      } catch { /* use empty cdrs fallback */ }
-
-      // Filter to this account's CDRs only
       const accountIdStr = String(tok.accountId);
-      if (cdrs.length > 0) {
-        cdrs = cdrs.filter(c =>
+      const accountName  = tok.accountName ?? '';
+
+      // Primary source: cdrCache — in-memory, populated by background jobs per-account.
+      // getSippyCDRs only returns up to 200 CDRs across ALL accounts; high-traffic accounts
+      // consume all 200 slots, leaving low-traffic accounts with zero results.
+      const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 30 * 86_400_000;
+      const endMs   = endDate   ? new Date(endDate).getTime()   : Date.now() + 60_000;
+      let cdrs: any[] = [...cdrCache.values()].filter((c: any) => {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+        if (!ts || ts < startMs || ts > endMs) return false;
+        return (
           String(c.iAccount ?? c.accountId ?? '') === accountIdStr ||
-          String(c.accountId ?? '') === accountIdStr
+          c.clientName === accountName
         );
+      }).sort((a: any, b: any) => {
+        const ta = a.startTime ? new Date(a.startTime).getTime() : 0;
+        const tb = b.startTime ? new Date(b.startTime).getTime() : 0;
+        return tb - ta;
+      });
+
+      // Fallback: direct Sippy XML-RPC if cdrCache has no records for this account yet
+      if (cdrs.length === 0) {
+        try {
+          const portalUrl = settings.portalUrl || '';
+          const creds = sippyXmlCredsPairs(settings as any);
+          for (const { username, password } of creds) {
+            const rows = await sippy.getSippyCDRs(username, password, 200, { startDate, endDate }, portalUrl);
+            if (rows.length > 0) {
+              const filtered = rows.filter((c: any) =>
+                String(c.iAccount ?? c.accountId ?? '') === accountIdStr ||
+                String(c.accountId ?? '') === accountIdStr
+              );
+              if (filtered.length > 0) { cdrs = filtered; break; }
+            }
+          }
+        } catch { /* use empty cdrs */ }
       }
 
       // Fetch live balance for this account
@@ -2208,6 +2227,18 @@ export async function registerRoutes(
       const quality      = computePortalQuality(cdrs);
       const destinations = computeDestinations(cdrs);
 
+      // Live call snapshot for overview dashboard (same logic as /api/portal/live)
+      const allLiveCalls = (liveCallsCache as any).calls ?? [];
+      const accountLive  = allLiveCalls.filter((c: any) =>
+        String(c.accountId ?? c.iAccount ?? '') === accountIdStr || c.clientName === accountName
+      );
+      const liveActiveCalls    = accountLive.length;
+      const liveConnectedCalls = accountLive.filter((c: any) => c.callStatus === 'connected').length;
+      const liveRoutingCalls   = liveActiveCalls - liveConnectedCalls;
+      const liveConnectRate    = liveActiveCalls > 0 ? Math.round(liveConnectedCalls / liveActiveCalls * 100) : 0;
+      const clientHistory      = (entityConcurrentHistory.get('client')?.get(accountName) ?? []).slice(-48)
+        .map((p: any) => ({ ts: p.ts, active: p.count, connected: p.connected }));
+
       res.json({
         accountName: tok.accountName,
         accountId: tok.accountId,
@@ -2223,6 +2254,8 @@ export async function registerRoutes(
         asr,
         totalBilling,
         ratePerMin,
+        // Live snapshot (embedded so Overview can show live + historical in one fetch)
+        liveActiveCalls, liveConnectedCalls, liveRoutingCalls, liveConnectRate, clientHistory,
         daily,
         quality,
         destinations,

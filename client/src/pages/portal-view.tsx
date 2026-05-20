@@ -35,26 +35,32 @@ interface PortalDestination {
 }
 
 interface PortalData {
-  accountName:    string;
-  accountId:      string;
-  cdrs:           Array<{
+  accountName:        string;
+  accountId:          string;
+  cdrs:               Array<{
     caller?: string; callee?: string; startTime?: string;
     duration?: number; result?: string | number; cost?: number;
   }>;
-  balance?:       number | null;
-  creditLimit?:   number | null;
-  currency?:      string | null;
-  permissions?:   string[];
-  totalCalls?:    number;
-  connectedCalls?: number;
-  totalMinutes?:  number;
-  asr?:           number;
-  totalBilling?:  number;
-  ratePerMin?:    number;
-  daily?:         DailyEntry[];
-  quality?:       PortalQuality;
-  destinations?:  PortalDestination[];
-  error?:         string;
+  balance?:           number | null;
+  creditLimit?:       number | null;
+  currency?:          string | null;
+  permissions?:       string[];
+  totalCalls?:        number;
+  connectedCalls?:    number;
+  totalMinutes?:      number;
+  asr?:               number;
+  totalBilling?:      number;
+  ratePerMin?:        number;
+  daily?:             DailyEntry[];
+  quality?:           PortalQuality;
+  destinations?:      PortalDestination[];
+  // Live snapshot embedded in view response
+  liveActiveCalls?:    number;
+  liveConnectedCalls?: number;
+  liveRoutingCalls?:   number;
+  liveConnectRate?:    number;
+  clientHistory?:      Array<{ ts: number; active: number; connected: number }>;
+  error?:             string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -469,11 +475,65 @@ export default function PortalViewPage() {
         {/* ── Overview Tab ── */}
         {tab === "overview" && (
           <div className="space-y-5">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <StatCard icon={Phone}      label="Total Calls"    value={totalCalls.toLocaleString()}  color="text-blue-500" />
-              <StatCard icon={CheckCircle2} label="Connected"    value={connected.toLocaleString()}   color="text-emerald-500" />
-              <StatCard icon={TrendingUp} label="ASR"            value={`${asr.toFixed(1)}%`}          color={asrColor} sub="Answer Seizure Ratio" />
-              <StatCard icon={Clock}      label="Total Duration" value={fmtMin(totalMin)}             color="text-violet-500" />
+
+            {/* ── Live status bar ── */}
+            <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    "inline-flex h-2.5 w-2.5 rounded-full",
+                    (data?.liveActiveCalls ?? 0) > 0 ? "bg-emerald-500 animate-pulse" : "bg-gray-300 dark:bg-gray-600"
+                  )} />
+                  <span className="text-sm font-semibold text-gray-700 dark:text-foreground">
+                    {(data?.liveActiveCalls ?? 0) > 0 ? "Live — calls in progress" : "No active calls right now"}
+                  </span>
+                </div>
+                <span className="text-[10px] text-gray-400">Live snapshot</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <StatCard icon={Phone}       label="Active Calls"  value={String(data?.liveActiveCalls ?? 0)}    color="text-blue-500" />
+                <StatCard icon={CheckCircle2} label="Connected"    value={String(data?.liveConnectedCalls ?? 0)} color="text-emerald-500" />
+                <StatCard icon={Signal}       label="Routing"      value={String(data?.liveRoutingCalls ?? 0)}   color="text-amber-500" />
+                <StatCard icon={Wifi}         label="Connect Rate" value={`${data?.liveConnectRate ?? 0}%`}
+                  color={(data?.liveConnectRate ?? 0) >= 60 ? "text-emerald-500" : "text-amber-500"} />
+              </div>
+
+              {/* Concurrent sparkline */}
+              {(data?.clientHistory?.length ?? 0) > 0 && (
+                <div className="mt-4">
+                  <p className="text-[10px] text-gray-400 mb-1.5 flex items-center gap-1"><Activity className="h-3 w-3" /> Concurrent — last 36 min</p>
+                  <div className="flex items-end gap-0.5 h-10">
+                    {(() => {
+                      const pts = data!.clientHistory!;
+                      const maxV = Math.max(...pts.map(p => p.active), 1);
+                      return pts.map((p, i) => (
+                        <div key={i} className="flex-1 flex flex-col items-center justify-end"
+                          title={`${new Date(p.ts).toLocaleTimeString()}: ${p.active} active`}>
+                          <div className={cn("w-full rounded-t transition-all", p.active > 0 ? "bg-blue-500/60" : "bg-gray-200 dark:bg-gray-700")}
+                            style={{ height: `${Math.max(4, (p.active / maxV) * 100)}%` }} />
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  <div className="flex justify-between mt-0.5">
+                    <p className="text-[10px] text-gray-400">36 min ago</p>
+                    <p className="text-[10px] text-gray-400">Now</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Historical KPIs ── */}
+            <div>
+              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1">
+                <BarChart3 className="h-3 w-3" /> {timeRange === "today" ? "Today" : timeRange === "7d" ? "Last 7 days" : "Last 30 days"} · CDR summary
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <StatCard icon={Phone}        label="Total Calls"    value={totalCalls.toLocaleString()}  color="text-blue-500" />
+                <StatCard icon={CheckCircle2} label="Connected"      value={connected.toLocaleString()}   color="text-emerald-500" />
+                <StatCard icon={TrendingUp}   label="ASR"            value={`${asr.toFixed(1)}%`}          color={asrColor} sub="Answer Seizure Ratio" />
+                <StatCard icon={Clock}        label="Total Duration" value={fmtMin(totalMin)}             color="text-violet-500" />
+              </div>
             </div>
 
           {/* ── Quality Section ── */}
