@@ -863,7 +863,7 @@ function EntityIntelligenceChart({
   // CALLS always = concurrent session history (live snapshots or DB-persisted snapshots).
   // ASR/Minutes/Cost/ACD = CDR analytics path.
   const metricLabel =
-    type === 'calls'     ? (span === 'weekly' ? 'Concurrent Sessions (7d)' : span === 'daily' ? 'Concurrent Sessions (24h)' : 'Concurrent Sessions')
+    type === 'calls'     ? (span === 'weekly' ? 'Concurrent Sessions (7d)' : span === 'daily' ? 'Concurrent Sessions (72h)' : 'Concurrent Sessions')
     : type === 'asr'     ? 'ASR %'
     : type === 'minutes' ? 'Minutes'
     : type === 'cost'    ? 'Cost ($)'
@@ -887,8 +887,8 @@ function EntityIntelligenceChart({
         ? `Simultaneous active calls · ${livePoints.length} snapshots · 45s interval`
         : 'Building concurrent session history…')
     : span === 'daily'
-        ? (type === 'calls' ? 'Concurrent sessions · Last 24h · hourly MAX' : 'CDR analytics · Last 24h · hourly buckets')
-        : (type === 'calls' ? 'Concurrent sessions · Last 72h · 6h MAX'     : 'CDR analytics · Last 72h · 6h buckets');
+        ? (type === 'calls' ? 'Concurrent sessions · Last 72h · 1h MAX'  : 'CDR analytics · Last 72h · hourly buckets')
+        : (type === 'calls' ? 'Concurrent sessions · Last 7d · 6h MAX'   : 'CDR analytics · Last 7d · 6h buckets');
 
   // For historical spans: "no traffic" when all buckets are zero (CDR warmup or genuine idle)
   const hasActivity = chartData.some(p => (p.value ?? 0) > 0);

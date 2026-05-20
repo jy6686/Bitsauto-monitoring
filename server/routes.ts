@@ -13652,6 +13652,25 @@ export async function registerRoutes(
       buckets[bIdx].samples++;
     }
 
+    // Supplement empty buckets from DB (handles server restarts + in-memory gaps).
+    // Only fills buckets with no in-memory data so live overlay always wins.
+    try {
+      const emptyCnt = buckets.filter(b => b.samples === 0).length;
+      if (emptyCnt > 0) {
+        const dbRows = await storage.queryConcurrentHistory('client', '__total__', since, bucketMs);
+        for (const row of dbRows) {
+          const age  = now - row.bucketTs;
+          const bIdx = numBuckets - 1 - Math.floor(age / bucketMs);
+          if (bIdx >= 0 && bIdx < numBuckets && buckets[bIdx].samples === 0) {
+            buckets[bIdx].active    = row.maxActive;
+            buckets[bIdx].connected = row.maxConnected;
+            buckets[bIdx].routing   = row.maxRouting;
+            buckets[bIdx].samples   = 1; // sentinel — marks bucket as DB-hydrated
+          }
+        }
+      }
+    } catch (_) { /* non-fatal: in-memory data is always preferred */ }
+
     const result = buckets.map(b => ({
       ts:        b.ts,
       label:     b.label,
@@ -13973,8 +13992,8 @@ export async function registerRoutes(
     // active sessions, never CDR completed-call totals.
     if (type === 'calls') {
       try {
-        const windowMs = span === 'weekly' ? 72 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-        const bucketMs = span === 'weekly' ? 6  * 60 * 60 * 1000 :      60 * 60 * 1000;
+        const windowMs = span === 'weekly' ? 7 * 24 * 60 * 60 * 1000 : 72 * 60 * 60 * 1000;
+        const bucketMs = span === 'weekly' ? 6  * 60 * 60 * 1000   :      60 * 60 * 1000;
         const fromTs   = Date.now() - windowMs;
 
         const dbRows = await storage.queryConcurrentHistory(dim, entity || '__total__', fromTs, bucketMs);
@@ -14019,8 +14038,8 @@ export async function registerRoutes(
     }
 
     // ── DAILY / WEEKLY: aggregate from cdrCache — used for ASR/MINUTES/COST/ACD only ──
-    const windowMs = span === 'weekly' ? 72 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-    const bucketMs = span === 'weekly' ? 6  * 60 * 60 * 1000 :      60 * 60 * 1000;
+    const windowMs = span === 'weekly' ? 7 * 24 * 60 * 60 * 1000 : 72 * 60 * 60 * 1000;
+    const bucketMs = span === 'weekly' ? 6  * 60 * 60 * 1000   :      60 * 60 * 1000;
     const now      = Date.now();
     const cutoff   = now - windowMs;
 
