@@ -13707,6 +13707,42 @@ export async function registerRoutes(
     // ── LIVE: entityConcurrentHistory snapshots ────────────────────────────
     if (span === 'live') {
       const dimMap = entityConcurrentHistory.get(dim);
+
+      // __total__ aggregate: sum all entities' concurrent snapshots per timestamp
+      if (entity === '__total__') {
+        const tsMap = new Map<number, { count: number; connected: number; routing: number }>();
+        if (dimMap) {
+          for (const snaps of dimMap.values()) {
+            for (const p of snaps.slice(-48) as any[]) {
+              const ex = tsMap.get(p.ts) ?? { count: 0, connected: 0, routing: 0 };
+              ex.count     += p.count;
+              ex.connected += p.connected;
+              ex.routing   += (p.routing ?? 0);
+              tsMap.set(p.ts, ex);
+            }
+          }
+        }
+        const sorted = [...tsMap.entries()].sort((a, b) => a[0] - b[0]).slice(-48);
+        const points = sorted.map(([ts, d]) => ({
+          ts, label: new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          total: d.count, connected: d.connected, routing: d.routing,
+          asr: d.count > 0 ? Math.round(d.connected / d.count * 100) : 0,
+          minutes: 0, cost: 0, acd: 0,
+        }));
+        const vals = points.map(p => p.total);
+        const nonZ = vals.filter(v => v > 0);
+        return res.json({
+          points,
+          stats: {
+            cur: vals[vals.length - 1] ?? 0,
+            min: nonZ.length ? Math.min(...nonZ) : 0,
+            max: vals.length ? Math.max(...vals) : 0,
+            avg: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0,
+          },
+          span, type,
+        });
+      }
+
       const snaps  = entity ? (dimMap?.get(entity) ?? []).slice(-48) : [];
       const points = snaps.map((p: any) => ({
         ts: p.ts,
@@ -13753,7 +13789,10 @@ export async function registerRoutes(
       const ts = sippy.parseSippyDate((c as any).startTime)?.getTime() ?? 0;
       if (!ts || ts < cutoff) continue;
       const key = getDimKey(c as any);
-      if (entity ? key !== entity : !key) continue;
+      // __total__ aggregates ALL entities; otherwise filter to the requested entity
+      if (entity === '__total__') {
+        if (!key) continue; // skip CDRs with no resolved entity key
+      } else if (entity ? key !== entity : !key) continue;
       const bk = Math.floor(ts / bucketMs) * bucketMs;
       const b  = buckets.get(bk) ?? { total: 0, connected: 0, duration: 0, cost: 0 };
       b.total++;

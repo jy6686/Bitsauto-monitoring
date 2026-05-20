@@ -77,6 +77,7 @@ import { Switch } from "@/components/ui/switch";
 import { apiRequest, queryClient as qc } from "@/lib/queryClient";
 import { 
   ComposedChart,
+  AreaChart,
   Area, 
   Bar,
   BarChart,
@@ -96,6 +97,58 @@ import { cn } from "@/lib/utils";
 import { lookupCountry } from "@/lib/country-lookup";
 import { useTimezone, TZ_OPTIONS, getTzAbbr } from "@/context/timezone-context";
 import { formatInTz } from "@/lib/date-utils";
+
+// ── DashTopEntityCard — compact Top-3 entity card for the Traffic Intelligence row ──
+function DashTopEntityCard({ title, icon, entities, color, loading }: {
+  title: string;
+  icon: 'users' | 'radio' | 'globe';
+  entities: Array<{ name: string; active: number; connected: number; connectRate: number }>;
+  color: 'violet' | 'blue' | 'emerald';
+  loading?: boolean;
+}) {
+  const IconComp = icon === 'users' ? Users : icon === 'radio' ? Radio : Globe;
+  const c = {
+    violet: { border: 'border-violet-500/20', icon: 'text-violet-400', badge: 'bg-violet-500/10 text-violet-400', dot: 'bg-violet-400' },
+    blue:   { border: 'border-blue-500/20',   icon: 'text-blue-400',   badge: 'bg-blue-500/10 text-blue-400',   dot: 'bg-blue-400'   },
+    emerald:{ border: 'border-emerald-500/20', icon: 'text-emerald-400', badge: 'bg-emerald-500/10 text-emerald-400', dot: 'bg-emerald-400' },
+  }[color];
+  return (
+    <div className={`bg-card ${c.border} border rounded-xl p-3.5 shadow-md flex-1 min-h-0`}>
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-2">
+          <IconComp className={`w-3.5 h-3.5 ${c.icon}`} />
+          <span className="text-xs font-semibold">{title}</span>
+        </div>
+        <Link href="/bitseye2" className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
+          More <ArrowRight className="w-2.5 h-2.5" />
+        </Link>
+      </div>
+      {loading ? (
+        <div className="space-y-2">
+          {[0,1,2].map(i => <div key={i} className="h-5 rounded bg-muted/30 animate-pulse" />)}
+        </div>
+      ) : entities.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground/50 text-center py-3">No active traffic</p>
+      ) : (
+        <div className="space-y-1.5">
+          {entities.slice(0, 3).map((e, i) => (
+            <div key={e.name} className="flex items-center gap-2 min-w-0" data-testid={`top-entity-${color}-${i}`}>
+              <span className="text-[10px] font-bold text-muted-foreground/40 w-3 text-right flex-shrink-0">{i + 1}</span>
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.dot} ${e.active > 0 ? 'animate-pulse' : 'opacity-30'}`} />
+              <span className="text-[11px] font-medium truncate flex-1" title={e.name}>{e.name}</span>
+              <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded flex-shrink-0 ${c.badge}`}>{e.active}</span>
+              {e.connectRate > 0 && (
+                <span className={`text-[10px] tabular-nums flex-shrink-0 ${e.connectRate >= 70 ? 'text-emerald-400' : e.connectRate >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
+                  {e.connectRate}%
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Parses Sippy's non-standard timestamp "20260411T20:20:32.055" → ms since epoch
 function parseSippyTime(setupTime: string): number | null {
@@ -651,6 +704,10 @@ export default function DashboardPage() {
   });
   const [callsFilter, setCallsFilter] = useState<'all' | 'connected' | 'routing'>('all');
 
+  // ── Traffic Intelligence section state ────────────────────────────────────
+  const [trafficSpan,   setTrafficSpan]   = useState<'live' | 'daily' | 'weekly'>('live');
+  const [trafficMetric, setTrafficMetric] = useState<'calls' | 'asr' | 'minutes'>('calls');
+
   // ── KAM/viewer filtered analytics — revenue for assigned clients only ──────
   const kamAnalytics = useMemo(() => {
     const assignedNames = myAccountsData?.clientNames ?? [];
@@ -664,6 +721,32 @@ export default function DashboardPage() {
     };
   }, [analyticsData, myAccountsData]);
 
+
+  // ── Traffic Intelligence queries — reuse BitsEye backend, zero new API ──────
+  const { data: trafficHist, isLoading: trafficHistLoading } = useQuery<{
+    points: Array<{ ts: number; label: string; total: number; connected: number; asr: number; minutes: number }>;
+    stats: { cur: number; min: number; max: number; avg: number };
+  }>({
+    queryKey: ['/api/bitseye/entity-history', '__total__', trafficSpan, trafficMetric],
+    queryFn: () => fetch(`/api/bitseye/entity-history?dim=client&entity=__total__&span=${trafficSpan}&type=${trafficMetric}`).then(r => r.json()),
+    refetchInterval: trafficSpan === 'live' ? 45_000 : 120_000,
+    staleTime: 30_000,
+  });
+  const { data: topClients } = useQuery<{ entities: Array<{ name: string; active: number; connected: number; connectRate: number; idle?: boolean }> }>({
+    queryKey: ['/api/bitseye/live-slice', 'client'],
+    queryFn: () => fetch('/api/bitseye/live-slice?groupBy=client').then(r => r.json()),
+    refetchInterval: 45_000, staleTime: 30_000,
+  });
+  const { data: topVendors } = useQuery<{ entities: Array<{ name: string; active: number; connected: number; connectRate: number; idle?: boolean }> }>({
+    queryKey: ['/api/bitseye/live-slice', 'vendor'],
+    queryFn: () => fetch('/api/bitseye/live-slice?groupBy=vendor').then(r => r.json()),
+    refetchInterval: 45_000, staleTime: 30_000,
+  });
+  const { data: topDests } = useQuery<{ entities: Array<{ name: string; active: number; connected: number; connectRate: number; idle?: boolean }> }>({
+    queryKey: ['/api/bitseye/live-slice', 'destination'],
+    queryFn: () => fetch('/api/bitseye/live-slice?groupBy=destination').then(r => r.json()),
+    refetchInterval: 45_000, staleTime: 30_000,
+  });
 
   // ── Last refreshed countdown ──────────────────────────────────────────────
   // statsUpdatedAt changes on every successful fetch (even if data is identical),
@@ -1409,6 +1492,127 @@ export default function DashboardPage() {
               </span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ── Traffic Intelligence ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-4" data-testid="section-traffic-intelligence">
+
+        {/* Total Traffic — AreaChart with span + metric toggles */}
+        <div className="bg-card border border-border/50 rounded-xl shadow-lg overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/40">
+            <div className="flex items-center gap-2.5">
+              <TrendingUp className="w-4 h-4 text-blue-400" />
+              <span className="text-sm font-semibold">Total Traffic</span>
+              {trafficHistLoading && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground/60" />}
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Metric toggle */}
+              <div className="flex items-center bg-secondary/50 rounded-lg p-0.5 gap-0.5">
+                {(['calls', 'asr', 'minutes'] as const).map(m => (
+                  <button key={m} onClick={() => setTrafficMetric(m)}
+                    data-testid={`button-traffic-metric-${m}`}
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${
+                      trafficMetric === m
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {m === 'asr' ? 'ASR' : m === 'calls' ? 'Calls' : 'Minutes'}
+                  </button>
+                ))}
+              </div>
+              {/* Span toggle */}
+              <div className="flex items-center bg-secondary/50 rounded-lg p-0.5 gap-0.5">
+                {(['live', 'daily', 'weekly'] as const).map(s => (
+                  <button key={s} onClick={() => setTrafficSpan(s)}
+                    data-testid={`button-traffic-span-${s}`}
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${
+                      trafficSpan === s
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {s === 'live' ? 'LIVE' : s === 'daily' ? '24H' : '72H'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="px-5 pt-3 pb-1">
+            {/* Stat row */}
+            <div className="flex items-end gap-6 mb-3">
+              {trafficHist?.stats ? (
+                <>
+                  <div>
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+                      {trafficSpan === 'live' ? 'Now' : 'Latest'}
+                    </div>
+                    <div className="text-2xl font-bold tabular-nums text-blue-400">
+                      {trafficMetric === 'asr' ? `${trafficHist.stats.cur}%` : trafficHist.stats.cur}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">Peak</div>
+                    <div className="text-lg font-semibold tabular-nums">
+                      {trafficMetric === 'asr' ? `${trafficHist.stats.max}%` : trafficHist.stats.max}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">Avg</div>
+                    <div className="text-lg font-semibold tabular-nums text-muted-foreground">
+                      {trafficMetric === 'asr' ? `${trafficHist.stats.avg}%` : trafficHist.stats.avg}
+                    </div>
+                  </div>
+                </>
+              ) : !trafficHistLoading ? (
+                <span className="text-xs text-muted-foreground/50 pb-1">No history yet — data populates within the first polling cycle</span>
+              ) : null}
+            </div>
+            <ResponsiveContainer width="100%" height={140}>
+              <AreaChart data={trafficHist?.points ?? []} margin={{ top: 2, right: 2, bottom: 0, left: -22 }}>
+                <defs>
+                  <linearGradient id="dash-traffic-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'} stopOpacity={0.22} />
+                    <stop offset="95%" stopColor={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...BSE_GRID_PROPS} />
+                <XAxis dataKey="label" {...BSE_AXIS_PROPS} />
+                <YAxis {...BSE_AXIS_PROPS} domain={trafficMetric === 'asr' ? [0, 100] : ['auto', 'auto']} />
+                <Tooltip content={<BseTooltip />} cursor={BSE_CURSOR} />
+                <Area
+                  type="monotone"
+                  dataKey={trafficMetric === 'calls' ? 'total' : trafficMetric === 'asr' ? 'asr' : 'minutes'}
+                  stroke={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'}
+                  strokeWidth={2}
+                  fill="url(#dash-traffic-grad)"
+                  isAnimationActive={false}
+                  dot={false}
+                  activeDot={bseActiveDot(trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6')}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Top 3 entity cards column */}
+        <div className="flex flex-col gap-3">
+          <DashTopEntityCard
+            title="Top Clients" icon="users" color="violet"
+            entities={(topClients?.entities ?? []).filter(e => !e.idle)}
+            loading={!topClients}
+          />
+          <DashTopEntityCard
+            title="Top Vendors" icon="radio" color="blue"
+            entities={(topVendors?.entities ?? []).filter(e => !e.idle)}
+            loading={!topVendors}
+          />
+          <DashTopEntityCard
+            title="Top Routes" icon="globe" color="emerald"
+            entities={(topDests?.entities ?? []).filter(e => !e.idle)}
+            loading={!topDests}
+          />
         </div>
       </div>
 
