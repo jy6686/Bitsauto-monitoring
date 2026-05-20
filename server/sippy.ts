@@ -6091,6 +6091,49 @@ export async function pushAccountToSippy(
     }
   }
 
+  // ── Translation-rule strip cascade ───────────────────────────────────────────
+  // If all retries resulted in "Fatal error" AND we have non-empty translation rules,
+  // try one more time with blank rules.  Some Sippy versions return faultCode 501
+  // "Fatal error" when the translation_rule format is not supported, even though
+  // the routing group and billing plan are valid.  If this succeeds, the admin can
+  // set the rule manually in Sippy → Customers → Accounts → Edit.
+  if (!isVendor && lastFault.toLowerCase() === 'fatal error' &&
+      (params.translation_rule || params.cli_translation_rule)) {
+    const savedTransRule    = params.translation_rule;
+    const savedCliTransRule = params.cli_translation_rule;
+    params.translation_rule    = '';
+    params.cli_translation_rule = '';
+    console.log(`[Sippy] Strip translation rules (was: "${savedTransRule}") — final createAccount retry...`);
+    try {
+      const stripBody = xmlRpcCall('createAccount', params);
+      const stripResp = await sippyPost(apiUrl, stripBody, credentials.username, credentials.password);
+      const stripText = stripResp.body;
+      const stripFault = stripText.match(/<name>faultString<\/name>\s*<value>\s*(?:<string>)?([^<]*)(?:<\/string>)?\s*<\/value>/i)?.[1]?.trim() ?? '';
+      console.log(`[Sippy] Strip-rules retry: HTTP ${stripResp.statusCode}, fault="${stripFault.slice(0, 120)}"`);
+      if (stripResp.statusCode === 200 && !stripText.includes('<fault>') && !stripText.includes('faultCode')) {
+        const acc = extractValue(stripText, 'i_account');
+        const note = savedTransRule ? ` CLD rule "${savedTransRule}" could not be applied automatically — set it in Sippy → Accounts → Edit if needed.` : '';
+        return {
+          success: true,
+          message: `Account "${opts.name}" created on Sippy (translation rules stripped).${acc ? ` (ID: ${parseInt(acc, 10)})` : ''}${note}`,
+          method: 'createAccount',
+          i_account:     acc ? parseInt(acc, 10) : undefined,
+          username:      extractValue(stripText, 'username'),
+          authname:      extractValue(stripText, 'authname'),
+          web_password:  extractValue(stripText, 'web_password'),
+          voip_password: extractValue(stripText, 'voip_password'),
+          vm_password:   extractValue(stripText, 'vm_password'),
+        };
+      }
+      if (stripFault) lastFault = stripFault;
+    } catch (e: any) {
+      console.warn('[Sippy] Strip-rules retry error:', e.message);
+    }
+    // Restore original values regardless of outcome
+    params.translation_rule    = savedTransRule;
+    params.cli_translation_rule = savedCliTransRule;
+  }
+
   // ── Portal fallback: if XML-RPC failed (e.g. 401 / no API access) ──────────
   // Try creating the account by submitting the Sippy web-portal form instead.
   const xmlFailed = !lastFault || lastFault.includes('Authentication failed') || lastFault.includes('Access denied') || lastFault.includes('401');
