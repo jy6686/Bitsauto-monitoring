@@ -860,7 +860,15 @@ function EntityIntelligenceChart({
     enabled: span !== 'live',  // live reads livePoints passed in — no fetch needed
   });
 
-  const metricLabel = type === 'calls' ? 'Calls' : type === 'asr' ? 'ASR %' : type === 'minutes' ? 'Minutes' : type === 'cost' ? 'Cost ($)' : 'ACD (s)';
+  // LIVE = concurrent active sessions (simultaneous calls at a point in time)
+  // DAILY/WEEKLY = completed CDR volume (total calls finished in each bucket)
+  // These are fundamentally different metrics — never compare them directly.
+  const metricLabel =
+    type === 'calls'   ? (span === 'live' ? 'Concurrent Sessions' : 'Completed Calls')
+    : type === 'asr'   ? 'ASR %'
+    : type === 'minutes' ? 'Minutes'
+    : type === 'cost'  ? 'Cost ($)'
+    : 'ACD (s)';
 
   // For LIVE span use passed-in ConcurrentPoints; for others map hist.points to chart-friendly shape
   const chartData = useMemo(() => {
@@ -876,8 +884,12 @@ function EntityIntelligenceChart({
 
   const stats = span !== 'live' ? hist?.stats : null;
   const subLabel = span === 'live'
-    ? (livePoints.length > 0 ? `${livePoints.length} snapshots · 45s interval` : 'Building live history…')
-    : span === 'daily' ? 'Last 24h · hourly buckets' : 'Last 72h · 6h buckets';
+    ? (livePoints.length > 0
+        ? `Simultaneous active calls · ${livePoints.length} snapshots · 45s interval`
+        : 'Building concurrent session history…')
+    : span === 'daily'
+        ? 'Completed calls (CDR total) · Last 24h · hourly buckets'
+        : 'Completed calls (CDR total) · Last 72h · 6h buckets';
 
   // For historical spans: "no traffic" when all buckets are zero (CDR warmup or genuine idle)
   const hasActivity = chartData.some(p => (p.value ?? 0) > 0);
@@ -916,7 +928,7 @@ function EntityIntelligenceChart({
           {HIST_TYPES.map(t => (
             <button
               key={t.id}
-              onClick={() => { setType(t.id); if (span === 'live') setSpan('daily'); }}
+              onClick={() => { setType(t.id); if (span === 'live' && t.id !== 'calls') setSpan('daily'); }}
               data-testid={`btn-hist-type-${t.id}`}
               style={{
                 fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
@@ -930,15 +942,25 @@ function EntityIntelligenceChart({
         </div>
       </div>
 
+      {/* ── Semantic context banner — only shown in LIVE+CALLS mode ── */}
+      {span === 'live' && type === 'calls' && (
+        <div style={{ marginBottom: 8, padding: '5px 10px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 10, color: '#1D4ED8', lineHeight: 1.5 }}>
+            <strong>LIVE</strong> shows simultaneous active calls at each 45-second snapshot —
+            not total calls for the day. Switch to <strong>DAILY</strong> to see completed call volume (CDR totals).
+          </span>
+        </div>
+      )}
+
       {/* ── Chart area ── */}
       {isEmpty ? (
         <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 13 }}>
-          {span === 'live' ? 'Building live history…' : 'Loading historical data…'}
+          {span === 'live' ? 'Building concurrent session history…' : 'Loading historical data…'}
         </div>
       ) : !hasActivity && span !== 'live' ? (
         <div style={{ height: 140, display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 12, gap: 4 }}>
           <span style={{ fontSize: 20 }}>·</span>
-          <span>No traffic in this window</span>
+          <span>No completed calls in this window</span>
           <span style={{ fontSize: 10, color: '#E5E7EB' }}>CDR data may still be loading</span>
         </div>
       ) : (
