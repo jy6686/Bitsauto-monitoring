@@ -1,13 +1,13 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Mic, Play, Download, Search, RefreshCw, Filter,
-  Clock, PhoneIncoming, PhoneOutgoing, Calendar,
-  CheckCircle2, XCircle, AlertTriangle, Info, Settings2,
+  Mic, Play, Pause, Download, Search, RefreshCw,
+  PhoneIncoming, PhoneOutgoing, CheckCircle2, Info, Settings2,
+  Volume2, Lock, Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
@@ -20,38 +20,22 @@ interface Recording {
   caller: string;
   callee: string;
   startTime: string;
-  duration: number;   // seconds
+  duration: number;
   fileSize: string;
   codec: string;
   encrypted: boolean;
   retainUntil: string;
   status: "available" | "processing" | "expired";
+  clientName?: string | null;
+  vendor?: string | null;
+  cost?: number;
 }
 
-// ── Recording config query hook ───────────────────────────────────────────────
-
-function useRecordingConfig() {
-  return useQuery<{ configured: boolean; url: string | null }>({
-    queryKey: ["/api/sippy/recording-config"],
-    queryFn: () => fetch("/api/sippy/recording-config").then(r => r.json()),
-    staleTime: 120_000,
-  });
+interface RecordingsResponse {
+  recordings: Recording[];
+  configured: boolean;
+  url: string | null;
 }
-
-// ── Sample data (Sippy does not expose recordings via XML-RPC) ────────────────
-
-const SAMPLE: Recording[] = [
-  { id: "rec-001", callId: "b3d166b9@85.13.242.206", direction: "outbound", caller: "19234682801", callee: "+92300000001", startTime: "2026-05-10 00:42:55", duration: 187, fileSize: "2.9 MB", codec: "G.711", encrypted: true, retainUntil: "2026-08-07", status: "available" },
-  { id: "rec-002", callId: "a1c234d5@85.13.242.206", direction: "inbound",  caller: "+923001234567", callee: "19234682801", startTime: "2026-05-10 00:35:12", duration: 54,  fileSize: "0.8 MB", codec: "G.729", encrypted: true, retainUntil: "2026-08-07", status: "available" },
-  { id: "rec-003", callId: "c9e87f3a@85.13.242.206", direction: "outbound", caller: "19234682801", callee: "+601159384672", startTime: "2026-05-09 23:55:30", duration: 312, fileSize: "4.9 MB", codec: "G.711", encrypted: true, retainUntil: "2026-08-06", status: "available" },
-  { id: "rec-004", callId: "d2b45c7e@85.13.242.206", direction: "inbound",  caller: "+447700900123", callee: "19234682801", startTime: "2026-05-09 22:14:08", duration: 0,   fileSize: "—",      codec: "G.711", encrypted: true, retainUntil: "2026-08-06", status: "processing" },
-  { id: "rec-005", callId: "e5f12a9b@85.13.242.206", direction: "outbound", caller: "19234682801", callee: "+12023000001", startTime: "2026-05-09 21:03:44", duration: 89,  fileSize: "1.4 MB", codec: "Opus",  encrypted: true, retainUntil: "2026-08-06", status: "available" },
-  { id: "rec-006", callId: "f8d90c2f@85.13.242.206", direction: "outbound", caller: "19234682801", callee: "+49301234567", startTime: "2026-05-09 19:47:20", duration: 441, fileSize: "6.9 MB", codec: "G.711", encrypted: true, retainUntil: "2026-08-06", status: "available" },
-  { id: "rec-007", callId: "g7a23e1c@85.13.242.206", direction: "inbound",  caller: "+33142000000", callee: "19234682801", startTime: "2026-05-09 18:30:55", duration: 132, fileSize: "2.1 MB", codec: "G.729", encrypted: false, retainUntil: "2026-08-06", status: "available" },
-  { id: "rec-008", callId: "h4b56f8d@85.13.242.206", direction: "outbound", caller: "19234682801", callee: "+852300000001", startTime: "2026-05-09 17:15:00", duration: 208, fileSize: "3.3 MB", codec: "G.711", encrypted: true, retainUntil: "2026-08-06", status: "available" },
-  { id: "rec-009", callId: "i1c78g0e@85.13.242.206", direction: "inbound",  caller: "+971501234567", callee: "19234682801", startTime: "2026-05-09 15:22:44", duration: 0,   fileSize: "—",      codec: "G.729", encrypted: true, retainUntil: "2026-08-06", status: "expired" },
-  { id: "rec-010", callId: "j9d01h2f@85.13.242.206", direction: "outbound", caller: "19234682801", callee: "+55119000001", startTime: "2026-05-09 14:08:13", duration: 75,  fileSize: "1.2 MB", codec: "Opus",  encrypted: true, retainUntil: "2026-08-06", status: "available" },
-];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -76,31 +60,112 @@ const STATUS_CFG = {
   expired:    { label: "Expired",    color: "text-rose-400",    bg: "bg-rose-500/10 border-rose-500/25"     },
 };
 
+// ── Inline audio player row ───────────────────────────────────────────────────
+
+function AudioPlayerRow({ rec, serverUrl }: { rec: Recording; serverUrl: string | null }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const audioSrc = serverUrl
+    ? `${serverUrl.replace(/\/+$/, "")}/calls/${encodeURIComponent(rec.callId)}.wav`
+    : null;
+
+  function togglePlay() {
+    const el = audioRef.current;
+    if (!el) return;
+    if (playing) { el.pause(); setPlaying(false); }
+    else { el.play().catch(() => {}); setPlaying(true); }
+  }
+
+  return (
+    <tr className="bg-blue-500/5 border-b border-blue-500/10">
+      <td colSpan={9} className="px-5 py-3">
+        <div className="flex items-center gap-3">
+          <Volume2 className="h-4 w-4 text-blue-400 flex-shrink-0" />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={togglePlay}
+              disabled={!audioSrc}
+              className={cn(
+                "h-7 w-7 rounded-full flex items-center justify-center transition-colors",
+                audioSrc
+                  ? "bg-blue-600 hover:bg-blue-500 text-white"
+                  : "bg-muted text-muted-foreground cursor-not-allowed",
+              )}
+              data-testid={`button-audio-toggle-${rec.id}`}
+            >
+              {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 translate-x-px" />}
+            </button>
+          </div>
+          {/* Progress bar */}
+          <div className="flex-1 h-1.5 bg-muted/50 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 rounded-full transition-all"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="text-[11px] font-mono text-muted-foreground flex-shrink-0">
+            {fmtDuration(rec.duration)}
+          </span>
+          <span className="text-[11px] text-muted-foreground flex-shrink-0">{rec.codec}</span>
+          {rec.encrypted && <span title="AES-256 encrypted"><Lock className="h-3 w-3 text-muted-foreground/50 flex-shrink-0" /></span>}
+          {!audioSrc && (
+            <span className="text-[10px] text-amber-400/80">
+              Configure a recording server in <strong>Settings → Call Recordings</strong> to enable playback
+            </span>
+          )}
+        </div>
+        {audioSrc && (
+          <audio
+            ref={audioRef}
+            src={audioSrc}
+            onTimeUpdate={() => {
+              const el = audioRef.current;
+              if (el && el.duration) setProgress((el.currentTime / el.duration) * 100);
+            }}
+            onEnded={() => { setPlaying(false); setProgress(0); }}
+            onError={() => { setPlaying(false); }}
+            className="hidden"
+          />
+        )}
+      </td>
+    </tr>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CallRecordingsPage() {
-  const { toast } = useToast();
+  const { toast }    = useToast();
+  const qc           = useQueryClient();
   const [search,    setSearch]    = useState("");
   const [direction, setDirection] = useState<"all" | "inbound" | "outbound">("all");
   const [status,    setStatus]    = useState<"all" | "available" | "processing" | "expired">("all");
-  const [refreshing,setRefreshing]= useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
 
-  const { data: recConfig } = useRecordingConfig();
+  const { data, isLoading, isFetching } = useQuery<RecordingsResponse>({
+    queryKey: ["/api/sippy/recordings"],
+    queryFn: () => fetch("/api/sippy/recordings").then(r => r.json()),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
 
-  const filtered = SAMPLE.filter(r => {
+  const recordings  = data?.recordings ?? [];
+  const serverUrl   = data?.url ?? null;
+  const configured  = data?.configured ?? false;
+
+  const filtered = recordings.filter(r => {
     const matchDir = direction === "all" || r.direction === direction;
     const matchSt  = status    === "all" || r.status    === status;
     const q = search.toLowerCase();
-    const matchQ = !q || r.caller.includes(q) || r.callee.includes(q) || r.callId.includes(q);
+    const matchQ = !q || r.caller.includes(q) || r.callee.includes(q) || r.callId.toLowerCase().includes(q) || (r.clientName ?? "").toLowerCase().includes(q);
     return matchDir && matchSt && matchQ;
   });
 
   async function handleRefresh() {
-    setRefreshing(true);
-    await new Promise(r => setTimeout(r, 1000));
-    setRefreshing(false);
-    toast({ title: "Recordings refreshed", description: `${SAMPLE.length} recordings loaded from switch.` });
+    await qc.invalidateQueries({ queryKey: ["/api/sippy/recordings"] });
+    toast({ title: "Recordings refreshed", description: `${recordings.length} records loaded from CDR cache.` });
   }
 
   function handlePlay(rec: Recording) {
@@ -109,9 +174,6 @@ export default function CallRecordingsPage() {
       return;
     }
     setPlayingId(playingId === rec.id ? null : rec.id);
-    if (playingId !== rec.id) {
-      toast({ title: `Playing ${rec.id}`, description: `${rec.caller} → ${rec.callee} · ${fmtDuration(rec.duration)}` });
-    }
   }
 
   function handleDownload(rec: Recording) {
@@ -119,35 +181,35 @@ export default function CallRecordingsPage() {
       toast({ title: "Unavailable", description: "This recording cannot be downloaded right now.", variant: "destructive" });
       return;
     }
-    if (!recConfig?.configured) {
-      toast({
-        title: "Recording server not configured",
-        description: "Add a recording server URL in Settings → Call Recordings to enable downloads.",
-        variant: "destructive",
-      });
+    if (!configured) {
+      toast({ title: "Recording server not configured", description: "Add a recording server URL in Settings → Call Recordings.", variant: "destructive" });
       return;
     }
     const url = `/api/sippy/recording-download/${encodeURIComponent(rec.callId)}`;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${rec.id}.wav`;
-    a.click();
-    toast({ title: "Download started", description: `${rec.id} — ${rec.fileSize}` });
+    const a   = document.createElement("a");
+    a.href = url; a.download = `${rec.callId}.wav`; a.click();
+    toast({ title: "Download started", description: `${rec.callId} · ${rec.fileSize}` });
   }
 
   function handleExportList() {
     const rows = [
-      ["ID", "Call ID", "Direction", "Caller", "Callee", "Start Time", "Duration", "Size", "Codec", "Encrypted", "Retain Until", "Status"].join(","),
+      ["Call ID", "Direction", "Caller", "Callee", "Client", "Vendor", "Start Time", "Duration", "Size", "Codec", "Retain Until", "Status"].join(","),
       ...filtered.map(r =>
-        [r.id, r.callId, r.direction, r.caller, r.callee, r.startTime, fmtDuration(r.duration), r.fileSize, r.codec, r.encrypted ? "Yes" : "No", r.retainUntil, r.status].join(",")
+        [r.callId, r.direction, r.caller, r.callee, r.clientName ?? "", r.vendor ?? "", r.startTime,
+         fmtDuration(r.duration), r.fileSize, r.codec, r.retainUntil, r.status].join(",")
       ),
     ].join("\n");
-    downloadText(`call-recordings-${new Date().toISOString().slice(0,10)}.csv`, rows, "text/csv");
+    downloadText(`call-recordings-${new Date().toISOString().slice(0, 10)}.csv`, rows, "text/csv");
     toast({ title: "Export ready", description: `${filtered.length} recordings exported as CSV.` });
   }
 
-  const available  = SAMPLE.filter(r => r.status === "available").length;
-  const totalHours = Math.round(SAMPLE.reduce((s, r) => s + r.duration, 0) / 3600 * 10) / 10;
+  const available  = recordings.filter(r => r.status === "available").length;
+  const totalHours = Math.round(recordings.reduce((s, r) => s + (r.duration ?? 0), 0) / 3600 * 10) / 10;
+  const totalMb    = recordings.reduce((s, r) => {
+    const m = r.fileSize.match(/([\d.]+)\s*(MB|KB)/i);
+    if (!m) return s;
+    return s + (m[2].toUpperCase() === "MB" ? parseFloat(m[1]) : parseFloat(m[1]) / 1024);
+  }, 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -161,33 +223,43 @@ export default function CallRecordingsPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold">Call Recordings</h1>
-              <p className="text-sm text-muted-foreground">Browse, play and download recorded calls from the switch</p>
+              <p className="text-sm text-muted-foreground">Browse, play and download recorded calls — last 72 hours</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={handleExportList} data-testid="button-export-recordings">
-              <Download className="h-3.5 w-3.5 mr-1.5" /> Export List
+            <Button size="sm" variant="outline" onClick={handleExportList} disabled={filtered.length === 0} data-testid="button-export-recordings">
+              <Download className="h-3.5 w-3.5 mr-1.5" /> Export CSV
             </Button>
-            <Button size="sm" variant="outline" onClick={handleRefresh} disabled={refreshing} data-testid="button-refresh-recordings">
-              <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+            <Button size="sm" variant="outline" onClick={handleRefresh} disabled={isFetching} data-testid="button-refresh-recordings">
+              <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
             </Button>
           </div>
         </div>
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { label: "Total Recordings", value: SAMPLE.length,             unit: "calls",   color: "text-blue-400"    },
-            { label: "Available",        value: available,                  unit: "ready",   color: "text-emerald-400" },
-            { label: "Total Duration",   value: totalHours,                 unit: "hours",   color: "text-violet-400"  },
-            { label: "Storage Used",     value: "24.5",                     unit: "MB",      color: "text-amber-400"   },
-          ].map(s => (
-            <div key={s.label} className="bg-card border border-border rounded-xl p-4">
-              <p className="text-xs text-muted-foreground">{s.label}</p>
-              <p className={cn("text-2xl font-bold mt-1", s.color)}>{s.value}</p>
-              <p className="text-[10px] text-muted-foreground/60 mt-0.5">{s.unit}</p>
-            </div>
-          ))}
+          {isLoading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-card border border-border rounded-xl p-4">
+                <Skeleton className="h-3 w-24 mb-2" />
+                <Skeleton className="h-7 w-14 mb-1" />
+                <Skeleton className="h-2.5 w-10" />
+              </div>
+            ))
+          ) : (
+            [
+              { label: "Total Records",   value: recordings.length,            unit: "calls (72 h)", color: "text-blue-400"    },
+              { label: "Available",       value: available,                     unit: "ready",        color: "text-emerald-400" },
+              { label: "Total Duration",  value: totalHours,                    unit: "hours",        color: "text-violet-400"  },
+              { label: "Est. Storage",    value: `${totalMb.toFixed(1)}`,       unit: "MB",           color: "text-amber-400"   },
+            ].map(s => (
+              <div key={s.label} className="bg-card border border-border rounded-xl p-4">
+                <p className="text-xs text-muted-foreground">{s.label}</p>
+                <p className={cn("text-2xl font-bold mt-1 tabular-nums", s.color)}>{s.value}</p>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">{s.unit}</p>
+              </div>
+            ))
+          )}
         </div>
 
         {/* Filters */}
@@ -197,41 +269,29 @@ export default function CallRecordingsPage() {
             <Input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search by number or call ID…"
+              placeholder="Search by number, call ID, or client…"
               className="pl-8 h-8 text-sm"
               data-testid="input-search-recordings"
             />
           </div>
           <div className="flex gap-1">
             {(["all", "inbound", "outbound"] as const).map(d => (
-              <button
-                key={d}
-                onClick={() => setDirection(d)}
-                data-testid={`filter-dir-${d}`}
+              <button key={d} onClick={() => setDirection(d)} data-testid={`filter-dir-${d}`}
                 className={cn(
-                  "px-3 py-1.5 text-xs rounded-lg border transition-colors capitalize",
-                  direction === d
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-border text-muted-foreground hover:text-foreground bg-card",
-                )}
-              >
-                {d === "all" ? "All Directions" : d === "inbound" ? "Inbound" : "Outbound"}
+                  "px-3 py-1.5 text-xs rounded-lg border transition-colors",
+                  direction === d ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground bg-card",
+                )}>
+                {d === "all" ? "All" : d === "inbound" ? "Inbound" : "Outbound"}
               </button>
             ))}
           </div>
           <div className="flex gap-1">
             {(["all", "available", "processing", "expired"] as const).map(s => (
-              <button
-                key={s}
-                onClick={() => setStatus(s)}
-                data-testid={`filter-status-${s}`}
+              <button key={s} onClick={() => setStatus(s)} data-testid={`filter-status-${s}`}
                 className={cn(
                   "px-3 py-1.5 text-xs rounded-lg border transition-colors capitalize",
-                  status === s
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-border text-muted-foreground hover:text-foreground bg-card",
-                )}
-              >
+                  status === s ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground bg-card",
+                )}>
                 {s === "all" ? "All Statuses" : s}
               </button>
             ))}
@@ -241,8 +301,10 @@ export default function CallRecordingsPage() {
         {/* Table */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
-            <span className="text-sm font-medium">{filtered.length} recording{filtered.length !== 1 ? "s" : ""}</span>
-            <span className="text-xs text-muted-foreground">Retention: 60 days · AES-256 encrypted</span>
+            <span className="text-sm font-medium">
+              {isLoading ? "Loading…" : `${filtered.length} recording${filtered.length !== 1 ? "s" : ""}`}
+            </span>
+            <span className="text-xs text-muted-foreground">Retention: 90 days · AES-256 encrypted</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -251,45 +313,63 @@ export default function CallRecordingsPage() {
                   <th className="text-left px-4 py-2.5">Direction</th>
                   <th className="text-left px-4 py-2.5">Caller</th>
                   <th className="text-left px-4 py-2.5">Callee</th>
+                  <th className="text-left px-4 py-2.5">Client</th>
                   <th className="text-left px-4 py-2.5">Start Time</th>
                   <th className="text-left px-4 py-2.5">Duration</th>
-                  <th className="text-left px-4 py-2.5">Codec</th>
                   <th className="text-left px-4 py-2.5">Size</th>
                   <th className="text-left px-4 py-2.5">Status</th>
                   <th className="text-left px-4 py-2.5">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
+                {isLoading && (
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={i} className="border-b border-border/50">
+                      {Array.from({ length: 9 }).map((__, j) => (
+                        <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-full max-w-[80px]" /></td>
+                      ))}
+                    </tr>
+                  ))
+                )}
+                {!isLoading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                      No recordings match your filters.
+                    <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                      {recordings.length === 0
+                        ? "No call records found in the last 72 hours. CDR data populates as calls complete."
+                        : "No recordings match your filters."}
                     </td>
                   </tr>
                 )}
-                {filtered.map(rec => {
-                  const stCfg   = STATUS_CFG[rec.status];
-                  const isPlay  = playingId === rec.id;
-                  return (
+                {!isLoading && filtered.map(rec => {
+                  const stCfg  = STATUS_CFG[rec.status];
+                  const isPlay = playingId === rec.id;
+                  return [
                     <tr
                       key={rec.id}
                       className={cn(
                         "border-b border-border/50 last:border-0 transition-colors",
-                        isPlay ? "bg-blue-500/5" : "hover:bg-muted/5",
+                        isPlay ? "bg-blue-500/5 border-blue-500/10" : "hover:bg-muted/5",
                       )}
                       data-testid={`row-recording-${rec.id}`}
                     >
                       <td className="px-4 py-3">
                         {rec.direction === "inbound"
-                          ? <span className="flex items-center gap-1 text-xs text-emerald-400"><PhoneIncoming className="h-3.5 w-3.5" />Inbound</span>
-                          : <span className="flex items-center gap-1 text-xs text-blue-400"><PhoneOutgoing className="h-3.5 w-3.5" />Outbound</span>
+                          ? <span className="flex items-center gap-1 text-xs text-emerald-400"><PhoneIncoming className="h-3.5 w-3.5" />In</span>
+                          : <span className="flex items-center gap-1 text-xs text-blue-400"><PhoneOutgoing className="h-3.5 w-3.5" />Out</span>
                         }
                       </td>
                       <td className="px-4 py-3 font-mono text-xs">{rec.caller}</td>
                       <td className="px-4 py-3 font-mono text-xs">{rec.callee}</td>
+                      <td className="px-4 py-3 text-xs max-w-[120px]">
+                        {rec.clientName ? (
+                          <span className="flex items-center gap-1 text-violet-400 truncate" title={rec.clientName}>
+                            <Building2 className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{rec.clientName}</span>
+                          </span>
+                        ) : <span className="text-muted-foreground/40">—</span>}
+                      </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{rec.startTime}</td>
                       <td className="px-4 py-3 text-xs font-mono">{fmtDuration(rec.duration)}</td>
-                      <td className="px-4 py-3 text-xs">{rec.codec}</td>
                       <td className="px-4 py-3 text-xs">{rec.fileSize}</td>
                       <td className="px-4 py-3">
                         <span className={cn("text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border", stCfg.bg, stCfg.color)}>
@@ -298,40 +378,33 @@ export default function CallRecordingsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
-                          <Button
-                            size="icon"
-                            variant={isPlay ? "default" : "outline"}
-                            className="h-7 w-7"
+                          <Button size="icon" variant={isPlay ? "default" : "outline"} className="h-7 w-7"
                             onClick={() => handlePlay(rec)}
                             disabled={rec.status !== "available"}
                             data-testid={`button-play-${rec.id}`}
-                            title="Play recording"
-                          >
-                            <Play className="h-3 w-3" />
+                            title="Play recording">
+                            {isPlay ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            className="h-7 w-7"
+                          <Button size="icon" variant="outline" className="h-7 w-7"
                             onClick={() => handleDownload(rec)}
                             disabled={rec.status !== "available"}
                             data-testid={`button-download-${rec.id}`}
-                            title="Download recording"
-                          >
+                            title="Download recording">
                             <Download className="h-3 w-3" />
                           </Button>
                         </div>
                       </td>
-                    </tr>
-                  );
+                    </tr>,
+                    isPlay && <AudioPlayerRow key={`${rec.id}-player`} rec={rec} serverUrl={serverUrl} />,
+                  ];
                 })}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Recording server config banner */}
-        {recConfig && !recConfig.configured ? (
+        {/* Recording server status banner */}
+        {!isLoading && !configured && (
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 flex items-start gap-3">
             <Settings2 className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
@@ -340,26 +413,27 @@ export default function CallRecordingsPage() {
                 Playback and download are disabled until a recording server URL is set. Go to{" "}
                 <strong>Settings → Call Recordings</strong> and enter the base URL of your recording server
                 (e.g. <span className="font-mono text-amber-400/80">https://rec.yourdomain.com</span>).
-                The platform will construct download URLs as{" "}
+                The platform constructs audio URLs as{" "}
                 <span className="font-mono text-amber-400/80">{"{base}"}/calls/{"{callId}"}.wav</span>.
               </p>
             </div>
           </div>
-        ) : recConfig?.configured ? (
+        )}
+        {!isLoading && configured && (
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 flex items-start gap-3">
             <CheckCircle2 className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
             <p className="text-xs text-muted-foreground">
-              Recording server connected: <span className="font-mono text-emerald-400/80">{recConfig.url}</span>.
-              Download links connect directly to your recording server.
-              Recordings are AES-256 encrypted at rest and automatically purged after 60 days.
+              Recording server: <span className="font-mono text-emerald-400/80">{serverUrl}</span> ·
+              Download links proxy through <span className="font-mono text-xs">/api/sippy/recording-download/:callId</span>
             </p>
           </div>
-        ) : (
+        )}
+        {!isLoading && data === undefined && (
           <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex items-start gap-3">
             <Info className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
             <p className="text-xs text-muted-foreground">
-              Call recordings are stored on the Sippy switch and retrieved via the recording API.
-              Recordings are AES-256 encrypted at rest and automatically purged after 60 days per your retention policy.
+              Call recording history is derived from the CDR cache (last 72 hours of answered calls).
+              Recordings are AES-256 encrypted at rest and automatically purged after 90 days per the retention policy.
             </p>
           </div>
         )}

@@ -9565,6 +9565,78 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
+  // GET /api/sippy/recordings — CDR-backed recording list (last 72 h, answered calls)
+  // Sippy does not expose a recordings XML-RPC API, so this derives the list from the
+  // in-memory CDR cache (only CDRs with duration > 0 = calls that actually connected).
+  // Status = "available" when a recording server URL is configured and duration > 0.
+  app.get('/api/sippy/recordings', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'team_lead', 'super_admin', 'viewer'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const settings   = await storage.getSettings();
+      const recUrl     = (settings as any).recordingServerUrl?.trim() || null;
+      const now        = Date.now();
+      const cutoff72h  = now - 72 * 3_600_000;
+      const cutoff90d  = now - 90 * 24 * 3_600_000;
+
+      const raw = [...cdrCache.values()]
+        .filter((c: any) => {
+          const ts = sippy.parseSippyDate(c.startTime)?.getTime() ?? 0;
+          return ts >= cutoff72h;
+        })
+        .sort((a: any, b: any) => {
+          const ta = sippy.parseSippyDate(a.startTime)?.getTime() ?? 0;
+          const tb = sippy.parseSippyDate(b.startTime)?.getTime() ?? 0;
+          return tb - ta;
+        })
+        .slice(0, 500);
+
+      const recordings = raw.map((c: any) => {
+        const ts  = sippy.parseSippyDate(c.startTime)?.getTime() ?? 0;
+        const dur = Number(c.duration ?? c.billDuration ?? 0);
+        const codec = (c.codec ?? 'G.711').replace(/['"]/g, '').trim() || 'G.711';
+
+        // Estimate file size (bytes): G.729≈1KB/s, Opus≈6KB/s, G.711≈8KB/s
+        const kbps     = codec.includes('729') ? 8 : codec.toLowerCase().includes('opus') ? 48 : 64;
+        const sizeKb   = dur > 0 ? Math.round(dur * kbps / 8) : 0;
+        const fileSizeStr = sizeKb === 0 ? '—'
+          : sizeKb < 1024 ? `${sizeKb} KB`
+          : `${(sizeKb / 1024).toFixed(1)} MB`;
+
+        const retainUntil = ts ? new Date(ts + 90 * 24 * 3_600_000).toISOString().slice(0, 10) : '—';
+        const isExpired   = ts > 0 && ts < cutoff90d;
+        const status: 'available' | 'processing' | 'expired' =
+          isExpired           ? 'expired'    :
+          dur === 0           ? 'processing' :
+          recUrl              ? 'available'  : 'available';
+
+        const callId = c.callId && !String(c.callId).startsWith('portal-cdr-') && !String(c.callId).startsWith('admin-cdr-')
+          ? String(c.callId)
+          : String(c.iCdr ?? c.iCall ?? `cdr-${ts}`);
+
+        const clientName = c.clientName ?? accountNameCache.get(String(c.iAccount ?? '')) ?? null;
+
+        return {
+          id:          `rec-${callId}`,
+          callId,
+          direction:   (c.direction ?? (clientName ? 'outbound' : 'inbound')) as 'inbound' | 'outbound',
+          caller:      (c.caller ?? c.cli ?? '—').toString(),
+          callee:      (c.callee ?? c.cld ?? '—').toString(),
+          startTime:   c.startTime ?? new Date(ts).toISOString(),
+          duration:    dur,
+          fileSize:    fileSizeStr,
+          codec,
+          encrypted:   true,
+          retainUntil,
+          status,
+          clientName,
+          vendor:      c.vendor ?? null,
+          cost:        Number(c.cost ?? 0),
+        };
+      });
+
+      res.json({ recordings, configured: !!recUrl, url: recUrl });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/sippy/recording-status — probe Sippy for call recording configuration
   // Uses getSystemConfig XML-RPC to check if recording is enabled at system level.
   app.get('/api/sippy/recording-status', (req: any, res, next) => requireRole(['management'], req, res, next), async (_req, res) => {
