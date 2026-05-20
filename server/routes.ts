@@ -4162,6 +4162,7 @@ export async function registerRoutes(
   const CARRIER_HEALTH_TTL_MS                   = 5 * 60 * 1000;
 
   let _cdrCacheRunning = false;
+  let _presenceGeoBootstrapped = false; // set true after first CDR-history country/destination seed
   async function refreshCdrCache(): Promise<void> {
     if (_cdrCacheRunning) return;
     _cdrCacheRunning = true;
@@ -4382,6 +4383,33 @@ export async function registerRoutes(
 
       // Recompute and broadcast live traffic snapshots after each CDR batch
       computeAndBroadcastLiveTraffic();
+
+      // ── Seed country + destination dims from CDR history (first run only) ─────
+      // entityPresenceCache is defined later in routes.ts but captured by closure;
+      // safe to reference because refreshCdrCache only runs at T+60s+ (well after
+      // all presence-cache declarations are initialised at T+2s/T+12s).
+      if (!_presenceGeoBootstrapped && cdrCache.size > 0 && entityPresenceCache) {
+        _presenceGeoBootstrapped = true;
+        const nowMs2 = Date.now();
+        const cMap = entityPresenceCache.get('country')     ?? new Map<string, EntityPresence>();
+        const dMap = entityPresenceCache.get('destination') ?? new Map<string, EntityPresence>();
+        let cs = 0, ds = 0;
+        for (const cdr of cdrCache.values()) {
+          const country = (cdr as any).country;
+          const area    = (cdr as any).areaName || country;
+          if (country && country !== 'Unknown' && !cMap.has(country)) {
+            cMap.set(country, { lastSeen: 0, firstSeen: nowMs2, currentActive: 0, currentConnected: 0, currentRouting: 0, connectRate: 0, peakToday: 0, peakTs: nowMs2 });
+            cs++;
+          }
+          if (area && area !== 'Unknown' && !dMap.has(area)) {
+            dMap.set(area, { lastSeen: 0, firstSeen: nowMs2, currentActive: 0, currentConnected: 0, currentRouting: 0, connectRate: 0, peakToday: 0, peakTs: nowMs2 });
+            ds++;
+          }
+        }
+        if (cs > 0) { entityPresenceCache.set('country',     cMap); console.log(`[presence-bootstrap] seeded ${cs} countries from CDR history`); }
+        if (ds > 0) { entityPresenceCache.set('destination', dMap); console.log(`[presence-bootstrap] seeded ${ds} destinations from CDR history`); }
+        if (cs > 0 || ds > 0) persistPresenceToDb().catch(() => {});
+      }
     } catch (e: any) {
       console.warn('[cdr-cache] refresh error:', e.message);
     } finally { _cdrCacheRunning = false; }
@@ -12273,6 +12301,102 @@ export async function registerRoutes(
       console.warn('[presence-bootstrap] error:', e.message);
     }
   }, 2000);
+
+  // ── Phase 3: Full Sippy inventory bootstrap — runs at T+12s ─────────────────
+  // By T+12s: accountCache (T+0.5s), connectionVendorCache (T+1.5s + ~8s fetch),
+  // and first snapshotActiveCalls (T+8s, CDR cache populated) are all complete.
+  // Seeds ALL 4 dimensions from authoritative Sippy inventory so the sidebar is
+  // fully populated even before live calls arrive.
+  setTimeout(async () => {
+    try {
+      const nowMs = Date.now();
+
+      // ── Clients: all Sippy accounts from accountNameCache ─────────────────────
+      const clientPresMap = entityPresenceCache.get('client') ?? new Map<string, EntityPresence>();
+      let clientSeeded = 0;
+      for (const username of accountNameCache.values()) {
+        if (username && !clientPresMap.has(username)) {
+          clientPresMap.set(username, {
+            lastSeen: 0, firstSeen: nowMs,
+            currentActive: 0, currentConnected: 0, currentRouting: 0,
+            connectRate: 0, peakToday: 0, peakTs: nowMs,
+          });
+          clientSeeded++;
+        }
+      }
+      if (clientSeeded > 0) {
+        entityPresenceCache.set('client', clientPresMap);
+        console.log(`[presence-bootstrap] seeded ${clientSeeded} clients from Sippy account inventory`);
+      }
+
+      // ── Vendors: unique vendor names from connectionVendorCache values ─────────
+      // The cache stores many key types (iVendor ID, connection name, IP, vendor name).
+      // Extract only human-readable vendor names: non-numeric, non-IP unique values.
+      const vendorPresMap = entityPresenceCache.get('vendor') ?? new Map<string, EntityPresence>();
+      let vendorSeeded = 0;
+      const seenVendorNames = new Set<string>();
+      for (const vendorName of connectionVendorCache.values()) {
+        if (!vendorName) continue;
+        if (/^\d+$/.test(vendorName)) continue;              // skip pure-numeric IDs
+        if (/^\d{1,3}\.\d{1,3}/.test(vendorName)) continue; // skip IP addresses
+        if (seenVendorNames.has(vendorName)) continue;
+        seenVendorNames.add(vendorName);
+        if (!vendorPresMap.has(vendorName)) {
+          vendorPresMap.set(vendorName, {
+            lastSeen: 0, firstSeen: nowMs,
+            currentActive: 0, currentConnected: 0, currentRouting: 0,
+            connectRate: 0, peakToday: 0, peakTs: nowMs,
+          });
+          vendorSeeded++;
+        }
+      }
+      if (vendorSeeded > 0) {
+        entityPresenceCache.set('vendor', vendorPresMap);
+        console.log(`[presence-bootstrap] seeded ${vendorSeeded} vendors from Sippy vendor inventory`);
+      }
+
+      // ── Countries + Destinations: from 72h CDR history ────────────────────────
+      // cdrCache is the rolling 72h CDR window populated by snapshotActiveCalls.
+      // Each CDR has cdr.country and cdr.areaName fields set by dial-code lookup.
+      const countryPresMap = entityPresenceCache.get('country') ?? new Map<string, EntityPresence>();
+      const destPresMap    = entityPresenceCache.get('destination') ?? new Map<string, EntityPresence>();
+      let countrySeeded = 0, destSeeded = 0;
+      for (const cdr of cdrCache.values()) {
+        const country = (cdr as any).country;
+        const area    = (cdr as any).areaName || country;
+        if (country && country !== 'Unknown' && !countryPresMap.has(country)) {
+          countryPresMap.set(country, {
+            lastSeen: 0, firstSeen: nowMs,
+            currentActive: 0, currentConnected: 0, currentRouting: 0,
+            connectRate: 0, peakToday: 0, peakTs: nowMs,
+          });
+          countrySeeded++;
+        }
+        if (area && area !== 'Unknown' && !destPresMap.has(area)) {
+          destPresMap.set(area, {
+            lastSeen: 0, firstSeen: nowMs,
+            currentActive: 0, currentConnected: 0, currentRouting: 0,
+            connectRate: 0, peakToday: 0, peakTs: nowMs,
+          });
+          destSeeded++;
+        }
+      }
+      if (countrySeeded > 0) {
+        entityPresenceCache.set('country', countryPresMap);
+        console.log(`[presence-bootstrap] seeded ${countrySeeded} countries from CDR history`);
+      }
+      if (destSeeded > 0) {
+        entityPresenceCache.set('destination', destPresMap);
+        console.log(`[presence-bootstrap] seeded ${destSeeded} destinations from CDR history`);
+      }
+
+      // Persist the newly seeded inventory to DB immediately so they survive restart.
+      persistPresenceToDb().catch(() => {});
+
+    } catch (e: any) {
+      console.warn('[presence-bootstrap] inventory phase error:', e.message);
+    }
+  }, 12000);
 
   // Periodic DB persist — runs inside snapshotActiveCalls every 300s
   // (hoisted here so snapshotActiveCalls can call it)
