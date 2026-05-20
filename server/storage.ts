@@ -12,6 +12,7 @@ import {
   productDocs,
   approvalRequests, approvalAuditLog,
   entityPresenceRegistry,
+  concurrentSnapshots,
   portalAccessTokens,
   portalTickets, portalTicketMessages,
   type PortalTicket, type InsertPortalTicket,
@@ -375,6 +376,11 @@ export interface IStorage {
   // ── Entity Presence Registry ──────────────────────────────────────────────────
   loadEntityPresence(): Promise<{ dim: string; entityName: string; lastSeen: number; firstSeen: number; peakToday: number; peakTs: number }[]>;
   upsertEntityPresence(rows: { dim: string; entityName: string; lastSeen: number; firstSeen: number; peakToday: number; peakTs: number }[]): Promise<void>;
+
+  // Concurrent Snapshot History
+  insertConcurrentSnapshots(rows: { dim: string; entityName: string; ts: number; active: number; connected: number; routing: number }[]): Promise<void>;
+  queryConcurrentHistory(dim: string, entityName: string, fromTs: number, bucketMs: number): Promise<{ bucketTs: number; maxActive: number; avgActive: number; maxConnected: number; maxRouting: number }[]>;
+  pruneConcurrentSnapshots(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1995,6 +2001,76 @@ export class DatabaseStorage implements IStorage {
           },
         });
     }
+  }
+
+  // ── Concurrent Snapshot History ───────────────────────────────────────────────
+  async insertConcurrentSnapshots(rows: { dim: string; entityName: string; ts: number; active: number; connected: number; routing: number }[]): Promise<void> {
+    if (!rows.length) return;
+    const chunks: typeof rows[] = [];
+    for (let i = 0; i < rows.length; i += 200) chunks.push(rows.slice(i, i + 200));
+    for (const chunk of chunks) {
+      await db.insert(concurrentSnapshots).values(
+        chunk.map(r => ({ dim: r.dim, entityName: r.entityName, ts: r.ts, active: r.active, connected: r.connected, routing: r.routing }))
+      );
+    }
+  }
+
+  async queryConcurrentHistory(dim: string, entityName: string, fromTs: number, bucketMs: number): Promise<{ bucketTs: number; maxActive: number; avgActive: number; maxConnected: number; maxRouting: number }[]> {
+    if (entityName === '__total__' || entityName === '') {
+      const result = await db.execute(sql`
+        SELECT
+          (floor(ts::float8 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ts,
+          SUM(mx_active)::int                                       AS max_active,
+          ROUND(AVG(mx_active))::int                                AS avg_active,
+          SUM(mx_connected)::int                                    AS max_connected,
+          SUM(mx_routing)::int                                      AS max_routing
+        FROM (
+          SELECT
+            (floor(ts::float8 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ts,
+            entity_name,
+            MAX(active)    AS mx_active,
+            MAX(connected) AS mx_connected,
+            MAX(routing)   AS mx_routing
+          FROM concurrent_snapshots
+          WHERE dim = ${dim} AND ts >= ${fromTs}
+          GROUP BY bucket_ts, entity_name
+        ) sub
+        GROUP BY bucket_ts
+        ORDER BY bucket_ts
+      `);
+      return (result.rows as any[]).map(r => ({
+        bucketTs:     Number(r.bucket_ts),
+        maxActive:    Number(r.max_active    ?? 0),
+        avgActive:    Number(r.avg_active    ?? 0),
+        maxConnected: Number(r.max_connected ?? 0),
+        maxRouting:   Number(r.max_routing   ?? 0),
+      }));
+    }
+
+    const result = await db.execute(sql`
+      SELECT
+        (floor(ts::float8 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ts,
+        MAX(active)::int    AS max_active,
+        ROUND(AVG(active))::int AS avg_active,
+        MAX(connected)::int AS max_connected,
+        MAX(routing)::int   AS max_routing
+      FROM concurrent_snapshots
+      WHERE dim = ${dim} AND entity_name = ${entityName} AND ts >= ${fromTs}
+      GROUP BY bucket_ts
+      ORDER BY bucket_ts
+    `);
+    return (result.rows as any[]).map(r => ({
+      bucketTs:     Number(r.bucket_ts),
+      maxActive:    Number(r.max_active    ?? 0),
+      avgActive:    Number(r.avg_active    ?? 0),
+      maxConnected: Number(r.max_connected ?? 0),
+      maxRouting:   Number(r.max_routing   ?? 0),
+    }));
+  }
+
+  async pruneConcurrentSnapshots(): Promise<void> {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    await db.delete(concurrentSnapshots).where(lt(concurrentSnapshots.ts, cutoff));
   }
 }
 

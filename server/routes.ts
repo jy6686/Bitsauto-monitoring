@@ -12095,7 +12095,8 @@ export async function registerRoutes(
   // Structure: dim → entityName → crossDim → crossEntityName → lastCount
   const crossDimCache = new Map<string, Map<string, Map<string, Map<string, number>>>>();
 
-  let _snapshotRunning = false;
+  let _snapshotRunning  = false;
+  let _csnapWriteCount  = 0;   // used to throttle hourly prune (every 80 cycles ≈ 1h at 45s)
   async function snapshotActiveCalls(): Promise<void> {
     if (_snapshotRunning) return; // mutex — skip if previous cycle still in progress
     _snapshotRunning = true;
@@ -12266,6 +12267,29 @@ export async function registerRoutes(
 
           entityPresenceCache.set(dim, presMap);
           entityConcurrentHistory.set(dim, dimMap);
+        }
+      }
+
+      // ── Persist concurrent snapshots to DB (CALLS metric source for DAILY/WEEKLY) ──
+      // Reads the last point from each entity's in-memory history and batch-writes to
+      // concurrent_snapshots table. MAX(active) per bucket in queryConcurrentHistory()
+      // ensures DAILY/WEEKLY CALLS graphs always reflect true concurrency peaks, not CDR totals.
+      {
+        const snapRows: { dim: string; entityName: string; ts: number; active: number; connected: number; routing: number }[] = [];
+        for (const [csDim, dimMap] of entityConcurrentHistory) {
+          for (const [entityName, snaps] of dimMap) {
+            const last = snaps[snaps.length - 1];
+            if (last) {
+              snapRows.push({ dim: csDim, entityName, ts: last.ts, active: last.count, connected: last.connected, routing: last.routing ?? 0 });
+            }
+          }
+        }
+        if (snapRows.length > 0) {
+          storage.insertConcurrentSnapshots(snapRows).catch((e: any) => console.warn('[csnap] insert error:', e.message));
+        }
+        _csnapWriteCount = (_csnapWriteCount + 1) % 80;
+        if (_csnapWriteCount === 0) {
+          storage.pruneConcurrentSnapshots().catch((e: any) => console.warn('[csnap] prune error:', e.message));
         }
       }
 
@@ -13872,7 +13896,7 @@ export async function registerRoutes(
   // GET /api/bitseye/entity-history
   // Historical metric aggregation — live (entityConcurrentHistory) or daily/weekly (cdrCache).
   // Sippy-safe: zero Sippy calls — reads in-memory caches only.
-  app.get('/api/bitseye/entity-history', (req: any, res: any) => {
+  app.get('/api/bitseye/entity-history', async (req: any, res: any) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const VALID_DIMS  = ['client', 'vendor', 'country', 'destination'];
     const VALID_SPANS = ['live', 'daily', 'weekly'];
@@ -13943,7 +13967,58 @@ export async function registerRoutes(
       });
     }
 
-    // ── DAILY / WEEKLY: aggregate from cdrCache (72h rolling window) ───────
+    // ── DAILY / WEEKLY + CALLS: concurrent session history from DB ─────────
+    // CALLS always uses concurrent snapshot history regardless of span.
+    // This keeps LIVE/DAILY/WEEKLY semantically consistent: "Calls" = simultaneous
+    // active sessions, never CDR completed-call totals.
+    if (type === 'calls') {
+      try {
+        const windowMs = span === 'weekly' ? 72 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+        const bucketMs = span === 'weekly' ? 6  * 60 * 60 * 1000 :      60 * 60 * 1000;
+        const fromTs   = Date.now() - windowMs;
+
+        const dbRows = await storage.queryConcurrentHistory(dim, entity || '__total__', fromTs, bucketMs);
+
+        // Build contiguous bucket array (fill gaps with zeros so graph is continuous)
+        const now    = Date.now();
+        const startBk = Math.floor(fromTs / bucketMs) * bucketMs;
+        const endBk   = Math.floor(now    / bucketMs) * bucketMs;
+        const dbMap   = new Map(dbRows.map(r => [r.bucketTs, r]));
+        const points: any[] = [];
+        for (let bk = startBk; bk <= endBk; bk += bucketMs) {
+          const r = dbMap.get(bk);
+          const d = new Date(bk);
+          const label = span === 'weekly'
+            ? `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${String(d.getHours()).padStart(2, '0')}h`
+            : d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          points.push({
+            ts: bk, label,
+            total:     r?.maxActive    ?? 0,
+            connected: r?.maxConnected ?? 0,
+            routing:   r?.maxRouting   ?? 0,
+            asr:       (r?.maxActive ?? 0) > 0 ? Math.round((r?.maxConnected ?? 0) / r!.maxActive * 100) : 0,
+            minutes: 0, cost: 0, acd: 0,
+          });
+        }
+        const mv    = points.map((p: any) => p.total);
+        const nonZv = mv.filter((v: number) => v > 0);
+        return res.json({
+          points,
+          stats: {
+            cur: mv[mv.length - 1] ?? 0,
+            min: nonZv.length ? Math.min(...nonZv) : 0,
+            max: mv.length    ? Math.max(...mv)    : 0,
+            avg: mv.length    ? Math.round(mv.reduce((a: number, b: number) => a + b, 0) / mv.length) : 0,
+          },
+          span, type,
+        });
+      } catch (e: any) {
+        console.warn('[entity-history] concurrent DB query error:', e.message);
+        return res.json({ points: [], stats: { cur: 0, min: 0, max: 0, avg: 0 }, span, type });
+      }
+    }
+
+    // ── DAILY / WEEKLY: aggregate from cdrCache — used for ASR/MINUTES/COST/ACD only ──
     const windowMs = span === 'weekly' ? 72 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
     const bucketMs = span === 'weekly' ? 6  * 60 * 60 * 1000 :      60 * 60 * 1000;
     const now      = Date.now();

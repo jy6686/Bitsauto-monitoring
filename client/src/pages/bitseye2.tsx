@@ -860,14 +860,13 @@ function EntityIntelligenceChart({
     enabled: span !== 'live',  // live reads livePoints passed in — no fetch needed
   });
 
-  // LIVE = concurrent active sessions (simultaneous calls at a point in time)
-  // DAILY/WEEKLY = completed CDR volume (total calls finished in each bucket)
-  // These are fundamentally different metrics — never compare them directly.
+  // CALLS always = concurrent session history (live snapshots or DB-persisted snapshots).
+  // ASR/Minutes/Cost/ACD = CDR analytics path.
   const metricLabel =
-    type === 'calls'   ? (span === 'live' ? 'Concurrent Sessions' : 'Completed Calls')
-    : type === 'asr'   ? 'ASR %'
+    type === 'calls'     ? (span === 'weekly' ? 'Concurrent Sessions (7d)' : span === 'daily' ? 'Concurrent Sessions (24h)' : 'Concurrent Sessions')
+    : type === 'asr'     ? 'ASR %'
     : type === 'minutes' ? 'Minutes'
-    : type === 'cost'  ? 'Cost ($)'
+    : type === 'cost'    ? 'Cost ($)'
     : 'ACD (s)';
 
   // For LIVE span use passed-in ConcurrentPoints; for others map hist.points to chart-friendly shape
@@ -888,8 +887,8 @@ function EntityIntelligenceChart({
         ? `Simultaneous active calls · ${livePoints.length} snapshots · 45s interval`
         : 'Building concurrent session history…')
     : span === 'daily'
-        ? 'Completed calls (CDR total) · Last 24h · hourly buckets'
-        : 'Completed calls (CDR total) · Last 72h · 6h buckets';
+        ? (type === 'calls' ? 'Concurrent sessions · Last 24h · hourly MAX' : 'CDR analytics · Last 24h · hourly buckets')
+        : (type === 'calls' ? 'Concurrent sessions · Last 72h · 6h MAX'     : 'CDR analytics · Last 72h · 6h buckets');
 
   // For historical spans: "no traffic" when all buckets are zero (CDR warmup or genuine idle)
   const hasActivity = chartData.some(p => (p.value ?? 0) > 0);

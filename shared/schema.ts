@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json, uniqueIndex, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json, uniqueIndex, bigint, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1744,6 +1744,22 @@ export const incidentLifecycleEvents = pgTable("incident_lifecycle_events", {
   createdAt:  timestamp("created_at").defaultNow(),
 });
 export type IncidentLifecycleEvent = typeof incidentLifecycleEvents.$inferSelect;
+
+// ── Concurrent Snapshot History — persists concurrent session telemetry for DAILY/WEEKLY graphs ──
+// Written every 45s poll cycle. MAX(active) per bucket gives true concurrency peak.
+// Retention: 7 days. Indexed for fast bucket-range queries.
+export const concurrentSnapshots = pgTable("concurrent_snapshots", {
+  id:         serial("id").primaryKey(),
+  dim:        varchar("dim",         { length: 32  }).notNull(),
+  entityName: varchar("entity_name", { length: 256 }).notNull(),
+  ts:         bigint("ts",           { mode: "number" }).notNull(),
+  active:     integer("active").notNull().default(0),
+  connected:  integer("connected").notNull().default(0),
+  routing:    integer("routing").notNull().default(0),
+}, (t) => [
+  index("csnap_dim_name_ts_idx").on(t.dim, t.entityName, t.ts),
+]);
+export type ConcurrentSnapshot = typeof concurrentSnapshots.$inferSelect;
 
 // ── Entity Presence Registry — persists across server restarts ────────────────
 // Stores idle entity state for all 4 dimensions (client, vendor, country, destination)
