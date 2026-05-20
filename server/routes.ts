@@ -13479,6 +13479,117 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/bitseye/entity-history
+  // Historical metric aggregation — live (entityConcurrentHistory) or daily/weekly (cdrCache).
+  // Sippy-safe: zero Sippy calls — reads in-memory caches only.
+  app.get('/api/bitseye/entity-history', (req: any, res: any) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const VALID_DIMS  = ['client', 'vendor', 'country', 'destination'];
+    const VALID_SPANS = ['live', 'daily', 'weekly'];
+    const VALID_TYPES = ['calls', 'asr', 'minutes', 'cost', 'acd'];
+    const dim    = VALID_DIMS.includes(req.query.dim   as string) ? (req.query.dim   as string) : 'client';
+    const entity = req.query.entity ? String(req.query.entity) : '';
+    const span   = VALID_SPANS.includes(req.query.span as string) ? (req.query.span as string) : 'live';
+    const type   = VALID_TYPES.includes(req.query.type as string) ? (req.query.type as string) : 'calls';
+
+    // ── LIVE: entityConcurrentHistory snapshots ────────────────────────────
+    if (span === 'live') {
+      const dimMap = entityConcurrentHistory.get(dim);
+      const snaps  = entity ? (dimMap?.get(entity) ?? []).slice(-48) : [];
+      const points = snaps.map((p: any) => ({
+        ts: p.ts,
+        label: new Date(p.ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        total: p.count, connected: p.connected, routing: p.routing,
+        asr:  p.count > 0 ? Math.round(p.connected / p.count * 100) : 0,
+        minutes: 0, cost: 0, acd: 0,
+      }));
+      const vals = points.map((p: any) => p.total);
+      const nonZ = vals.filter((v: number) => v > 0);
+      return res.json({
+        points,
+        stats: {
+          cur: vals[vals.length - 1] ?? 0,
+          min: nonZ.length ? Math.min(...nonZ) : 0,
+          max: vals.length ? Math.max(...vals) : 0,
+          avg: vals.length ? Math.round(vals.reduce((a: number, b: number) => a + b, 0) / vals.length) : 0,
+        },
+        span, type,
+      });
+    }
+
+    // ── DAILY / WEEKLY: aggregate from cdrCache (72h rolling window) ───────
+    const windowMs = span === 'weekly' ? 72 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const bucketMs = span === 'weekly' ? 6  * 60 * 60 * 1000 :      60 * 60 * 1000;
+    const now      = Date.now();
+    const cutoff   = now - windowMs;
+
+    const getDimKey = (c: any): string | null => {
+      if (dim === 'client')
+        return c.clientName
+          || accountNameCache.get(String(c.iAccount ?? ''))
+          || (c.iAccount ? `Acct.${c.iAccount}` : null);
+      if (dim === 'vendor')      return c.vendor || null;
+      if (dim === 'country')     return c.country || null;
+      if (dim === 'destination') return c.areaName || c.country || null;
+      return null;
+    };
+
+    type Bkt = { total: number; connected: number; duration: number; cost: number };
+    const buckets = new Map<number, Bkt>();
+
+    for (const c of cdrCache.values()) {
+      const ts = sippy.parseSippyDate((c as any).startTime)?.getTime() ?? 0;
+      if (!ts || ts < cutoff) continue;
+      const key = getDimKey(c as any);
+      if (entity ? key !== entity : !key) continue;
+      const bk = Math.floor(ts / bucketMs) * bucketMs;
+      const b  = buckets.get(bk) ?? { total: 0, connected: 0, duration: 0, cost: 0 };
+      b.total++;
+      const dur = Number((c as any).duration ?? (c as any).billDuration ?? 0);
+      if (dur > 0) { b.connected++; b.duration += dur; }
+      b.cost += Number((c as any).cost ?? 0);
+      buckets.set(bk, b);
+    }
+
+    // Build contiguous bucket array (fill gaps with zeros)
+    const startBk = Math.floor(cutoff / bucketMs) * bucketMs;
+    const endBk   = Math.floor(now   / bucketMs) * bucketMs;
+    const points: any[] = [];
+    for (let bk = startBk; bk <= endBk; bk += bucketMs) {
+      const b = buckets.get(bk) ?? { total: 0, connected: 0, duration: 0, cost: 0 };
+      const d = new Date(bk);
+      const label = span === 'weekly'
+        ? `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${String(d.getHours()).padStart(2, '0')}h`
+        : d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      points.push({
+        ts: bk, label,
+        total:     b.total,
+        connected: b.connected,
+        asr:       b.total > 0 ? Math.round(b.connected / b.total * 100) : 0,
+        minutes:   Math.round(b.duration / 60 * 10) / 10,
+        cost:      Math.round(b.cost * 1000) / 1000,
+        acd:       b.connected > 0 ? Math.round(b.duration / b.connected) : 0,
+      });
+    }
+
+    // Stats for selected metric
+    const mv = points.map((p: any) =>
+      type === 'asr' ? p.asr : type === 'minutes' ? p.minutes :
+      type === 'cost' ? p.cost : type === 'acd' ? p.acd : p.total
+    );
+    const nonZero = mv.filter((v: number) => v > 0);
+    return res.json({
+      points,
+      stats: {
+        cur: mv[mv.length - 1] ?? 0,
+        min: nonZero.length ? Math.min(...nonZero) : 0,
+        max: mv.length ? Math.max(...mv) : 0,
+        avg: mv.length ? Math.round(mv.reduce((a: number, b: number) => a + b, 0) / mv.length * 10) / 10 : 0,
+      },
+      span, type,
+    });
+  });
+
   // GET /api/bitseye/kam-live
   // Returns live traffic stats per KAM, aggregated from liveCallsCache.
   // Optional ?kamId=N for single KAM filter. Sippy-safe: zero Sippy calls.

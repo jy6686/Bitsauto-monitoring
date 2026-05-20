@@ -803,6 +803,173 @@ function ConcurrentChart({ points, color = '#2563EB', title, sub, height = 140 }
   );
 }
 
+// ── Entity Intelligence Chart ─────────────────────────────────────────────────
+// Replaces bare ConcurrentChart in entity detail view.
+// Adds: Graph Span (LIVE / DAILY / WEEKLY), Graph Type (CALLS / ASR / MINUTES / COST / ACD),
+//       historical bucket aggregation via /api/bitseye/entity-history, and a stats table.
+const HIST_SPANS = [
+  { id: 'live',   label: 'LIVE'   },
+  { id: 'daily',  label: 'DAILY'  },
+  { id: 'weekly', label: 'WEEKLY' },
+] as const;
+const HIST_TYPES = [
+  { id: 'calls',   label: 'CALLS'   },
+  { id: 'asr',     label: 'ASR'     },
+  { id: 'minutes', label: 'MINUTES' },
+  { id: 'cost',    label: 'COST'    },
+  { id: 'acd',     label: 'ACD'     },
+] as const;
+
+type HistSpan = (typeof HIST_SPANS)[number]['id'];
+type HistType = (typeof HIST_TYPES)[number]['id'];
+
+interface HistPoint {
+  ts: number; label: string;
+  total: number; connected: number; routing?: number;
+  asr: number; minutes: number; cost: number; acd: number;
+}
+interface HistResponse {
+  points: HistPoint[];
+  stats: { cur: number; min: number; max: number; avg: number };
+  span: string; type: string;
+}
+
+function EntityIntelligenceChart({
+  dim, entity, color = '#2563EB', livePoints,
+}: {
+  dim: string; entity: string; color?: string; livePoints: ConcurrentPoint[];
+}) {
+  const [span, setSpan] = useState<HistSpan>('live');
+  const [type, setType] = useState<HistType>('calls');
+  const gradId = `ent-grad-${color.replace('#', '')}`;
+
+  const { data: hist, isFetching: histFetching } = useQuery<HistResponse>({
+    queryKey: ['/api/bitseye/entity-history', dim, entity, span, type],
+    queryFn: () =>
+      fetch(`/api/bitseye/entity-history?dim=${dim}&entity=${encodeURIComponent(entity)}&span=${span}&type=${type}`)
+        .then(r => r.json()),
+    staleTime: span === 'live' ? 20_000 : 90_000,
+    refetchInterval: span === 'live' ? 30_000 : 300_000,
+    enabled: span !== 'live',  // live reads livePoints passed in — no fetch needed
+  });
+
+  const metricLabel = type === 'calls' ? 'Calls' : type === 'asr' ? 'ASR %' : type === 'minutes' ? 'Minutes' : type === 'cost' ? 'Cost ($)' : 'ACD (s)';
+
+  // For LIVE span use passed-in ConcurrentPoints; for others map hist.points to chart-friendly shape
+  const chartData = useMemo(() => {
+    if (span === 'live') {
+      return livePoints.map(p => ({ ...p, value: p.active, secondary: p.connected }));
+    }
+    return (hist?.points ?? []).map((p: HistPoint) => ({
+      ts: p.ts, label: p.label,
+      value:     type === 'calls' ? p.total : type === 'asr' ? p.asr : type === 'minutes' ? p.minutes : type === 'cost' ? p.cost : p.acd,
+      secondary: type === 'calls' ? p.connected : undefined,
+    }));
+  }, [span, type, livePoints, hist]);
+
+  const stats = span !== 'live' ? hist?.stats : null;
+  const subLabel = span === 'live'
+    ? (livePoints.length > 0 ? `${livePoints.length} snapshots · 45s interval` : 'Building live history…')
+    : span === 'daily' ? 'Last 24h · hourly buckets' : 'Last 72h · 6h buckets';
+
+  const isEmpty = chartData.length === 0;
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 16, padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      {/* ── Header row: title + selectors ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 12, flexWrap: 'wrap' as const }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>{entity} — {metricLabel}</div>
+          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{subLabel}{histFetching && span !== 'live' ? ' · refreshing…' : ''}</div>
+        </div>
+        {/* Span pill group */}
+        <div style={{ display: 'flex', gap: 1, background: '#F3F4F6', borderRadius: 8, padding: 2, flexShrink: 0 }}>
+          {HIST_SPANS.map(s => (
+            <button
+              key={s.id}
+              onClick={() => setSpan(s.id)}
+              data-testid={`btn-hist-span-${s.id}`}
+              style={{
+                fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                background: span === s.id ? '#fff' : 'transparent',
+                color: span === s.id ? color : '#9CA3AF',
+                boxShadow: span === s.id ? '0 1px 3px rgba(0,0,0,0.10)' : 'none',
+                transition: 'all 0.15s',
+              }}
+            >{s.label}</button>
+          ))}
+        </div>
+        {/* Type pill group */}
+        <div style={{ display: 'flex', gap: 1, background: '#F3F4F6', borderRadius: 8, padding: 2, flexShrink: 0 }}>
+          {HIST_TYPES.map(t => (
+            <button
+              key={t.id}
+              onClick={() => { setType(t.id); if (span === 'live') setSpan('daily'); }}
+              data-testid={`btn-hist-type-${t.id}`}
+              style={{
+                fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                background: type === t.id ? '#fff' : 'transparent',
+                color: type === t.id ? color : '#9CA3AF',
+                boxShadow: type === t.id ? '0 1px 3px rgba(0,0,0,0.10)' : 'none',
+                transition: 'all 0.15s',
+              }}
+            >{t.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Chart area ── */}
+      {isEmpty
+        ? (
+          <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 13 }}>
+            {span === 'live' ? 'Building live history…' : histFetching ? 'Loading…' : 'No data for this period'}
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={140}>
+            <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={color} stopOpacity={0.22} />
+                  <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#9CA3AF' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+              <Tooltip
+                contentStyle={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10, fontSize: 12 }}
+                formatter={(val: any, name: string) => [val, name === 'value' ? metricLabel : name === 'secondary' ? 'Connected' : name]}
+              />
+              <Area type="monotone" dataKey="value" stroke={color} strokeWidth={2}
+                fill={`url(#${gradId})`} dot={false} isAnimationActive animationDuration={600} animationEasing="ease-out" />
+              {(type === 'calls') && (
+                <Area type="monotone" dataKey="secondary" stroke="#16A34A" strokeWidth={1.5}
+                  fill="transparent" dot={false} strokeDasharray="4 2" isAnimationActive animationDuration={600} animationEasing="ease-out" />
+              )}
+            </AreaChart>
+          </ResponsiveContainer>
+        )
+      }
+
+      {/* ── Stats table — shown for daily/weekly spans ── */}
+      {stats && !isEmpty && (
+        <div style={{ marginTop: 10, borderTop: '1px solid #F3F4F6', paddingTop: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 1fr 1fr 1fr', gap: '4px 12px', fontSize: 11 }}>
+            <div style={{ color: '#9CA3AF', fontWeight: 600 }}></div>
+            {['Cur', 'Min', 'Max', 'Avg'].map(h => (
+              <div key={h} style={{ color: '#9CA3AF', fontWeight: 600, textAlign: 'right' as const }}>{h}</div>
+            ))}
+            <div style={{ color: '#374151', fontWeight: 600 }}>{metricLabel}</div>
+            {[stats.cur, stats.min, stats.max, stats.avg].map((v, i) => (
+              <div key={i} style={{ color: '#1F2937', textAlign: 'right' as const, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── CPS Chart ─────────────────────────────────────────────────────────────────
 function CpsChart({ points, height = 100 }: { points: ConcurrentPoint[]; height?: number }) {
   const cpsData = useMemo(() =>
@@ -1655,11 +1822,11 @@ export default function BitsEye2Page() {
             />
           </div>
 
-          <ConcurrentChart
-            points={entityHistoryPts.length > 0 ? entityHistoryPts : concPoints}
+          <EntityIntelligenceChart
+            dim={activeSec.dim ?? 'client'}
+            entity={selectedEntity}
             color={activeSec.color}
-            title={`${selectedEntity} — Concurrent Calls`}
-            sub={entityHistoryPts.length > 0 ? `${entityHistoryPts.length} snapshots · 45s interval` : 'Global chart shown — entity history building…'}
+            livePoints={entityHistoryPts.length > 0 ? entityHistoryPts : concPoints}
           />
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
