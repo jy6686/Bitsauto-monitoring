@@ -7,6 +7,7 @@ import {
   CheckCircle2, AlertTriangle, Download, BarChart3,
   RefreshCw, XCircle, CreditCard, FileText, Zap,
   Activity, Signal, Wifi, MessageSquare, Send, ChevronRight, Plus,
+  Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -136,7 +137,7 @@ function MiniBarChart({ data, valueKey, color }: {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = "overview" | "calls" | "billing" | "support" | "reports";
+type Tab = "overview" | "calls" | "billing" | "support" | "reports" | "live";
 
 export default function PortalViewPage() {
   const params = useParams<{ token: string }>();
@@ -192,6 +193,14 @@ export default function PortalViewPage() {
       fetch(`/api/portal/tickets/${selectedTicketId}?token=${encodeURIComponent(token)}`).then(r => r.json()),
     enabled: selectedTicketId !== null,
     staleTime: 10_000,
+  });
+
+  const { data: liveData, isLoading: liveLoading, dataUpdatedAt: liveUpdatedAt } = useQuery<any>({
+    queryKey: ["/api/portal/live", token],
+    queryFn: () => fetch(`/api/portal/live?token=${encodeURIComponent(token)}`).then(r => r.json()),
+    enabled: !!token && tab === "live",
+    refetchInterval: 30_000,
+    staleTime: 25_000,
   });
 
   const createTicketMut = useMutation({
@@ -365,6 +374,7 @@ export default function PortalViewPage() {
 
   const tabs: { id: Tab; label: string; icon: any; perm?: string }[] = [
     { id: "overview", label: "Overview",      icon: Zap },
+    { id: "live",     label: "Live Traffic",  icon: Radio },
     { id: "calls",    label: "Call History",  icon: Phone,      perm: "cdrs" },
     { id: "billing",  label: "Billing",       icon: CreditCard,   perm: "billing" },
     { id: "reports",  label: "SLA Report",    icon: BarChart3 },
@@ -610,6 +620,174 @@ export default function PortalViewPage() {
                   ))}
                 </div>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Live Traffic Tab ── */}
+        {tab === "live" && (
+          <div className="space-y-5">
+            {liveLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <RefreshCw className="h-6 w-6 text-blue-400 animate-spin" />
+              </div>
+            ) : liveData?.error ? (
+              <div className="text-center py-12 text-sm text-gray-400">{liveData.error}</div>
+            ) : (
+              <>
+                {/* Status banner */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      "inline-flex h-2.5 w-2.5 rounded-full",
+                      (liveData?.activeCalls ?? 0) > 0 ? "bg-emerald-500 animate-pulse" : "bg-gray-300 dark:bg-gray-600"
+                    )} />
+                    <span className="text-sm font-medium text-gray-700 dark:text-foreground">
+                      {(liveData?.activeCalls ?? 0) > 0 ? "Live — calls in progress" : "No active calls right now"}
+                    </span>
+                    {liveData?.stale && (
+                      <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25 text-[10px]">Stale data</Badge>
+                    )}
+                  </div>
+                  {liveUpdatedAt > 0 && (
+                    <p className="text-[10px] text-gray-400">
+                      Updated {new Date(liveUpdatedAt).toISOString().replace("T", " ").slice(0, 19)} UTC
+                    </p>
+                  )}
+                </div>
+
+                {/* Live KPI cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <StatCard icon={Phone}       label="Active Calls"  value={String(liveData?.activeCalls ?? 0)}    color="text-blue-500" />
+                  <StatCard icon={CheckCircle2} label="Connected"    value={String(liveData?.connectedCalls ?? 0)} color="text-emerald-500" />
+                  <StatCard icon={Signal}       label="Routing"      value={String(liveData?.routingCalls ?? 0)}   color="text-amber-500" />
+                  <StatCard icon={Wifi}         label="Connect Rate" value={`${liveData?.connectRate ?? 0}%`}      color={(liveData?.connectRate ?? 0) >= 60 ? "text-emerald-500" : "text-amber-500"} />
+                </div>
+
+                {/* Concurrent history sparkline */}
+                {(liveData?.clientHistory?.length ?? 0) > 0 && (
+                  <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-5 shadow-sm">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-foreground mb-3 flex items-center gap-2">
+                      <Activity className="h-4 w-4 text-blue-500" /> Concurrent Calls — Last 36 Minutes
+                    </h3>
+                    <div className="flex items-end gap-0.5 h-16">
+                      {(() => {
+                        const pts: any[] = liveData.clientHistory;
+                        const maxV = Math.max(...pts.map((p: any) => p.active), 1);
+                        return pts.map((p: any, i: number) => (
+                          <div
+                            key={i}
+                            className="flex-1 flex flex-col items-center justify-end"
+                            title={`${new Date(p.ts).toLocaleTimeString()}: ${p.active} active`}
+                          >
+                            <div
+                              className={cn("w-full rounded-t transition-all", p.active > 0 ? "bg-blue-500/70" : "bg-gray-200 dark:bg-gray-700")}
+                              style={{ height: `${Math.max(4, (p.active / maxV) * 100)}%` }}
+                            />
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <p className="text-[10px] text-gray-400">36 min ago</p>
+                      <p className="text-[10px] text-gray-400">Now</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ASR / ACD trend (last 24h) */}
+                {(liveData?.asrTrend?.length ?? 0) > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-5 shadow-sm">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-foreground mb-3 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-emerald-500" /> ASR Trend — Last 24h
+                      </h3>
+                      <div className="flex items-end gap-0.5 h-16">
+                        {liveData.asrTrend.map((p: any, i: number) => (
+                          <div
+                            key={i}
+                            className="flex-1 flex flex-col items-center justify-end"
+                            title={`${p.label}: ${p.asr}% ASR (${p.connectedCalls}/${p.totalCalls})`}
+                          >
+                            <div
+                              className={cn("w-full rounded-t", p.asr >= 60 ? "bg-emerald-500/70" : p.asr >= 40 ? "bg-amber-500/70" : "bg-rose-500/70")}
+                              style={{ height: `${Math.max(4, p.asr)}%` }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between mt-1">
+                        <p className="text-[10px] text-gray-400">24h ago</p>
+                        <p className="text-[10px] text-gray-400">Now</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-5 shadow-sm">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-foreground mb-3 flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-violet-500" /> ACD Trend — Last 24h
+                      </h3>
+                      <div className="flex items-end gap-0.5 h-16">
+                        {(() => {
+                          const pts: any[] = liveData.asrTrend;
+                          const maxV = Math.max(...pts.map((p: any) => p.acd), 1);
+                          return pts.map((p: any, i: number) => (
+                            <div
+                              key={i}
+                              className="flex-1 flex flex-col items-center justify-end"
+                              title={`${p.label}: ${p.acd.toFixed(1)} min ACD`}
+                            >
+                              <div
+                                className="w-full rounded-t bg-violet-500/70"
+                                style={{ height: `${Math.max(4, (p.acd / maxV) * 100)}%` }}
+                              />
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                      <div className="flex justify-between mt-1">
+                        <p className="text-[10px] text-gray-400">24h ago</p>
+                        <p className="text-[10px] text-gray-400">Now</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Top live destinations */}
+                {(liveData?.topDestinations?.length ?? 0) > 0 && (
+                  <div className="bg-white dark:bg-card border border-gray-200 dark:border-border rounded-xl p-5 shadow-sm">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-foreground mb-3 flex items-center gap-2">
+                      <Globe className="h-4 w-4 text-blue-500" /> Active Destinations
+                    </h3>
+                    <div className="space-y-2">
+                      {liveData.topDestinations.map((d: any) => {
+                        const pct = liveData.activeCalls > 0 ? Math.round(d.active / liveData.activeCalls * 100) : 0;
+                        return (
+                          <div key={d.name} className="flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between mb-0.5">
+                                <span className="text-xs font-medium text-gray-700 dark:text-foreground truncate">{d.name}</span>
+                                <span className="text-xs text-gray-400 ml-2 shrink-0">{d.active} call{d.active !== 1 ? "s" : ""}</span>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-gray-100 dark:bg-muted overflow-hidden">
+                                <div className="h-full rounded-full bg-blue-500/60" style={{ width: `${pct}%` }} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state when no active calls and no history */}
+                {(liveData?.activeCalls ?? 0) === 0 && (liveData?.clientHistory?.length ?? 0) === 0 && (liveData?.asrTrend?.length ?? 0) === 0 && (
+                  <div className="text-center py-12">
+                    <Radio className="h-8 w-8 text-gray-300 mx-auto mb-3" />
+                    <p className="text-sm text-gray-400">No live traffic data available yet.</p>
+                    <p className="text-xs text-gray-400 mt-1">Data will appear once calls are in progress.</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

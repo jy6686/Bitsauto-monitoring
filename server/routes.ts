@@ -1413,6 +1413,26 @@ export async function registerRoutes(
     }
   });
 
+  // Helper — returns the set of clientNames a viewer-role user is allowed to see.
+  // Returns null for non-viewer roles (no filtering needed).
+  // Returns string[] (may be empty) for viewers — only those clients are visible.
+  async function getViewerClientScope(req: any): Promise<string[] | null> {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return null;
+    try {
+      const allUsers = await storage.getAllUsersWithRoles();
+      const currentUser = allUsers.find((u: any) => u.id === userId);
+      if (!currentUser || currentUser.role !== 'viewer') return null;
+      const userEmail = currentUser.email;
+      if (!userEmail) return [];
+      const allKams = await storage.getKams();
+      const matchedKam = allKams.find((k: any) => k.email?.toLowerCase() === userEmail.toLowerCase());
+      if (!matchedKam) return [];
+      const kamAccts = await storage.getKamAccounts(matchedKam.id);
+      return kamAccts.map((a: any) => a.clientName).filter(Boolean);
+    } catch { return []; }
+  }
+
   // GET /api/user/config — returns the logged-in user's personal config
   app.get('/api/user/config', async (req: any, res) => {
     const userId = req.user?.claims?.sub;
@@ -2245,6 +2265,88 @@ export async function registerRoutes(
       const asr            = totalCalls > 0 ? Math.round((connectedCalls / totalCalls) * 1000) / 10 : 0;
 
       res.json({ totalCalls, connectedCalls, totalMinutes, asr, days, accountId: tok.accountId, accountName: tok.accountName });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/portal/live?token=xxx — scoped live traffic + concurrent history for client portal
+  app.get('/api/portal/live', async (req: any, res) => {
+    try {
+      const tokenStr = req.query.token as string;
+      if (!tokenStr) return res.status(400).json({ error: 'token required' });
+      const tok = await storage.getPortalToken(tokenStr);
+      if (!tok) return res.status(403).json({ error: 'Invalid or revoked token' });
+      if (tok.expiresAt && new Date(tok.expiresAt) < new Date()) {
+        return res.status(403).json({ error: 'Token expired' });
+      }
+
+      const accountIdStr = String(tok.accountId);
+      const accountName  = tok.accountName ?? '';
+
+      // Filter live calls to this account only
+      const allCalls = (liveCallsCache as any).calls ?? [];
+      const clientCalls = allCalls.filter((c: any) =>
+        String(c.accountId ?? c.iAccount ?? '') === accountIdStr ||
+        c.clientName === accountName
+      );
+
+      const activeCalls    = clientCalls.length;
+      const connectedCalls = clientCalls.filter((c: any) => c.callStatus === 'connected').length;
+      const routingCalls   = activeCalls - connectedCalls;
+      const connectRate    = activeCalls > 0 ? Math.round(connectedCalls / activeCalls * 100) : 0;
+
+      // Top live destinations for this client
+      const destMap = new Map<string, number>();
+      for (const c of clientCalls) {
+        const dest = c.destCountry || c.destFull || 'Unknown';
+        destMap.set(dest, (destMap.get(dest) ?? 0) + 1);
+      }
+      const topDestinations = [...destMap.entries()]
+        .sort((a, b) => b[1] - a[1]).slice(0, 6)
+        .map(([name, active]) => ({ name, active }));
+
+      // Concurrent history for this client (last 48 snapshots ≈ 36 min)
+      const clientHistory = (entityConcurrentHistory.get('client')?.get(accountName) ?? []).slice(-48)
+        .map((p: any) => ({ ts: p.ts, active: p.count, connected: p.connected }));
+
+      // CDR-based ASR/ACD trend for this account (last 24h in 1h buckets)
+      const cutoff   = Date.now() - 24 * 3_600_000;
+      const bkMs     = 3_600_000;
+      const accountCdrs = [...cdrCache.values()].filter((c: any) => {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+        return ts >= cutoff && (
+          String(c.iAccount ?? c.accountId ?? '') === accountIdStr ||
+          c.clientName === accountName
+        );
+      });
+
+      type TrendBkt = { total: number; connected: number; durSec: number };
+      const trendMap = new Map<number, TrendBkt>();
+      for (const c of accountCdrs) {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+        if (!ts) continue;
+        const bk = Math.floor(ts / bkMs) * bkMs;
+        const ex = trendMap.get(bk) ?? { total: 0, connected: 0, durSec: 0 };
+        ex.total++;
+        if ((c.duration ?? 0) > 0) { ex.connected++; ex.durSec += c.duration; }
+        trendMap.set(bk, ex);
+      }
+      const asrTrend = [...trendMap.entries()].sort((a, b) => a[0] - b[0]).map(([bk, v]) => ({
+        ts:    bk,
+        label: new Date(bk).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        totalCalls:     v.total,
+        connectedCalls: v.connected,
+        asr:  v.total     > 0 ? Math.round(v.connected / v.total * 100) : 0,
+        acd:  v.connected > 0 ? Math.round(v.durSec / v.connected / 60 * 10) / 10 : 0,
+      }));
+
+      const ts = (liveCallsCache as any).ts ?? 0;
+      res.json({
+        activeCalls, connectedCalls, routingCalls, connectRate,
+        topDestinations, clientHistory, asrTrend,
+        accountId: tok.accountId, accountName,
+        stale: ts > 0 ? Date.now() - ts > 90_000 : false,
+        lastUpdated: ts,
+      });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -13706,9 +13808,17 @@ export async function registerRoutes(
   // GET /api/bitseye/live-summary — live call breakdown from liveCallsCache (active calls).
   // Source: snapshotActiveCalls() → liveCallsCache (refreshed every 60s by background job).
   // Returns: vendor/client/destination breakdowns + CPS estimate. No Sippy calls.
-  app.get('/api/bitseye/live-summary', async (_req: any, res: any) => {
+  app.get('/api/bitseye/live-summary', async (req: any, res: any) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const calls = (liveCallsCache as any).calls ?? [];
+    const viewerScope = await getViewerClientScope(req);
+    const rawCalls = (liveCallsCache as any).calls ?? [];
+    const calls = viewerScope !== null
+      ? rawCalls.filter((c: any) => {
+          const cn = c.clientName || (c.accountId ? `Acct.${c.accountId}` : null);
+          return cn !== null && viewerScope.includes(cn);
+        })
+      : rawCalls;
     const ts    = (liveCallsCache as any).ts ?? 0;
 
     const vendorMap  = new Map<string, number>();
@@ -13761,11 +13871,13 @@ export async function registerRoutes(
   // Reads from entityPresenceCache — returns ALL known entities including idle ones (active=0).
   // Entities persist up to 24h (clients/vendors) or 12h/6h (countries/destinations) after last call.
   // Sippy-safe: zero Sippy calls — reads only from in-memory caches.
-  app.get('/api/bitseye/live-slice', async (_req: any, res: any) => {
+  app.get('/api/bitseye/live-slice', async (req: any, res: any) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const dim    = (['client', 'vendor', 'country', 'destination'].includes(_req.query.groupBy as string)
-      ? _req.query.groupBy as string : 'client');
-    const entity = _req.query.entity ? String(_req.query.entity) : null;
+    const viewerScope = await getViewerClientScope(req);
+    const dim    = (['client', 'vendor', 'country', 'destination'].includes(req.query.groupBy as string)
+      ? req.query.groupBy as string : 'client');
+    const entity = req.query.entity ? String(req.query.entity) : null;
     const ts     = (liveCallsCache as any).ts ?? 0;
 
     // Build entity list from persistent registry (includes idle entities with active=0)
@@ -13812,7 +13924,12 @@ export async function registerRoutes(
       return b.lastSeen - a.lastSeen;
     });
 
-    const total = entities.filter(e => e.active > 0).reduce((s: number, e: any) => s + e.active, 0);
+    // Viewer scope: restrict client dimension to assigned clients only
+    const filtered = (viewerScope !== null && dim === 'client')
+      ? entities.filter(e => viewerScope.includes(e.name))
+      : entities;
+
+    const total = filtered.filter(e => e.active > 0).reduce((s: number, e: any) => s + e.active, 0);
 
     // Per-entity history (last 48 snapshots ≈ 36 minutes at 45s interval)
     let entityHistory: EntSnap[] = [];
@@ -13822,20 +13939,34 @@ export async function registerRoutes(
     }
 
     const cacheAgeMs = ts > 0 ? Date.now() - ts : null;
-    res.json({ groupBy: dim, entities, total, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts, ...(entity ? { entityHistory } : {}) });
+    res.json({ groupBy: dim, entities: filtered, total, stale: cacheAgeMs !== null && cacheAgeMs > 90_000, lastUpdated: ts, ...(entity ? { entityHistory } : {}) });
   });
 
   // GET /api/bitseye/entity-detail?dim=client|vendor|country|destination&name=<entity>
   // Returns live KPIs + cross-dimensional breakdowns for a single entity.
   // Sippy-safe: zero Sippy calls — reads only from liveCallsCache + entityConcurrentHistory.
-  app.get('/api/bitseye/entity-detail', async (_req: any, res: any) => {
+  app.get('/api/bitseye/entity-detail', async (req: any, res: any) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const dim  = (['client', 'vendor', 'country', 'destination'].includes(_req.query.dim as string)
-      ? _req.query.dim as string : 'client');
-    const name = _req.query.name ? String(_req.query.name) : '';
+    const viewerScope = await getViewerClientScope(req);
+    const dim  = (['client', 'vendor', 'country', 'destination'].includes(req.query.dim as string)
+      ? req.query.dim as string : 'client');
+    const name = req.query.name ? String(req.query.name) : '';
     if (!name) { res.status(400).json({ error: 'name is required' }); return; }
 
-    const calls = (liveCallsCache as any).calls ?? [];
+    // Scope gate: viewers may only see their assigned clients
+    if (viewerScope !== null && dim === 'client' && !viewerScope.includes(name)) {
+      return res.status(403).json({ error: 'Access denied to this entity' });
+    }
+
+    const rawCalls = (liveCallsCache as any).calls ?? [];
+    // For viewers, filter calls to their scoped clients so cross-dim tables don't leak other client data
+    const calls = viewerScope !== null
+      ? rawCalls.filter((c: any) => {
+          const cn = c.clientName || (c.accountId ? `Acct.${c.accountId}` : null);
+          return cn !== null && viewerScope.includes(cn);
+        })
+      : rawCalls;
     const ts    = (liveCallsCache as any).ts ?? 0;
 
     const getDimKey = (c: any, d: string): string | null => {
@@ -13916,7 +14047,9 @@ export async function registerRoutes(
   // Historical metric aggregation — live (entityConcurrentHistory) or daily/weekly (cdrCache).
   // Sippy-safe: zero Sippy calls — reads in-memory caches only.
   app.get('/api/bitseye/entity-history', async (req: any, res: any) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    const viewerScope = await getViewerClientScope(req);
     const VALID_DIMS  = ['client', 'vendor', 'country', 'destination'];
     const VALID_SPANS = ['live', 'daily', 'weekly'];
     const VALID_TYPES = ['calls', 'asr', 'minutes', 'cost', 'acd'];
@@ -13924,6 +14057,11 @@ export async function registerRoutes(
     const entity = req.query.entity ? String(req.query.entity) : '';
     const span   = VALID_SPANS.includes(req.query.span as string) ? (req.query.span as string) : 'live';
     const type   = VALID_TYPES.includes(req.query.type as string) ? (req.query.type as string) : 'calls';
+
+    // Scope gate: viewers requesting a specific client entity must own it
+    if (viewerScope !== null && dim === 'client' && entity !== '' && entity !== '__total__' && !viewerScope.includes(entity)) {
+      return res.status(403).json({ error: 'Access denied to this entity' });
+    }
 
     // ── LIVE: entityConcurrentHistory snapshots ────────────────────────────
     if (span === 'live') {
@@ -13933,7 +14071,9 @@ export async function registerRoutes(
       if (entity === '__total__') {
         const tsMap = new Map<number, { count: number; connected: number; routing: number }>();
         if (dimMap) {
-          for (const snaps of dimMap.values()) {
+          for (const [entityName, snaps] of dimMap.entries()) {
+            // Viewer scope: only aggregate their assigned clients in the client dimension
+            if (viewerScope !== null && dim === 'client' && !viewerScope.includes(entityName)) continue;
             for (const p of snaps.slice(-48) as any[]) {
               const ex = tsMap.get(p.ts) ?? { count: 0, connected: 0, routing: 0 };
               ex.count     += p.count;
