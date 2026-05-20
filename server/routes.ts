@@ -12208,10 +12208,12 @@ export async function registerRoutes(
             presMap.set(name, ex);
           }
 
-          // For entities that were active last cycle but have no calls now → mark idle
-          // Push a zero-snapshot so their charts continue rendering flat at 0
+          // For every known entity NOT in the current active set → push a zero-snapshot.
+          // This runs every poll cycle regardless of whether the entity was active last cycle.
+          // Guarantees continuous time-series continuity: idle traffic becomes flat-at-zero,
+          // not "missing data" that collapses the chart line.
           for (const [name, pres] of presMap.entries()) {
-            if (!aggMap.has(name) && pres.currentActive > 0) {
+            if (!aggMap.has(name)) {
               pres.currentActive = 0; pres.currentConnected = 0;
               pres.currentRouting = 0; pres.connectRate = 0;
               const hist = dimMap.get(name) ?? [];
