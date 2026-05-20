@@ -73,7 +73,7 @@ import {
   consoleIncidents, incidentLifecycleEvents,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, desc, asc, and, sql, gte, lt, inArray } from "drizzle-orm";
 
 export interface IStorage {
@@ -2017,34 +2017,45 @@ export class DatabaseStorage implements IStorage {
 
   async queryConcurrentHistory(dim: string, entityName: string, fromTs: number, bucketMs: number): Promise<{ bucketTs: number; maxActive: number; avgActive: number; maxConnected: number; maxRouting: number }[]> {
     if (entityName === '__total__' || entityName === '') {
-      const result = await db.execute(sql`
-        SELECT
-          (floor(ts::float8 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ts,
-          SUM(mx_active)::int                                       AS max_active,
-          ROUND(AVG(mx_active))::int                                AS avg_active,
-          SUM(mx_connected)::int                                    AS max_connected,
-          SUM(mx_routing)::int                                      AS max_routing
-        FROM (
-          SELECT
-            (floor(ts::float8 / ${bucketMs}) * ${bucketMs})::bigint AS bucket_ts,
-            entity_name,
-            MAX(active)    AS mx_active,
-            MAX(connected) AS mx_connected,
-            MAX(routing)   AS mx_routing
-          FROM concurrent_snapshots
-          WHERE dim = ${dim} AND ts >= ${fromTs}
-          GROUP BY bucket_ts, entity_name
-        ) sub
-        GROUP BY bucket_ts
-        ORDER BY bucket_ts
-      `);
-      return (result.rows as any[]).map(r => ({
-        bucketTs:     Number(r.bucket_ts),
-        maxActive:    Number(r.max_active    ?? 0),
-        avgActive:    Number(r.avg_active    ?? 0),
-        maxConnected: Number(r.max_connected ?? 0),
-        maxRouting:   Number(r.max_routing   ?? 0),
-      }));
+      // Fetch per-entity per-snapshot rows and bucket in JS.
+      // Avoids all SQL GROUP BY expression-matching issues with Drizzle/pg parameterization.
+      const pgResult = await pool.query(
+        `SELECT ts, entity_name,
+                MAX(active)    AS peak_active,
+                MAX(connected) AS peak_connected,
+                MAX(routing)   AS peak_routing
+         FROM concurrent_snapshots
+         WHERE dim = $1 AND ts >= $2
+         GROUP BY ts, entity_name
+         ORDER BY ts`,
+        [dim, fromTs],
+      );
+      // JS bucketing: floor(ts / bucketMs) * bucketMs → sum entity peaks within bucket
+      const entityBuckets = new Map<number, Map<string, { a: number; c: number; r: number }>>();
+      for (const row of pgResult.rows as any[]) {
+        const bk = Math.floor(Number(row.ts) / bucketMs) * bucketMs;
+        if (!entityBuckets.has(bk)) entityBuckets.set(bk, new Map());
+        const ent = entityBuckets.get(bk)!;
+        const prev = ent.get(row.entity_name) ?? { a: 0, c: 0, r: 0 };
+        ent.set(row.entity_name, {
+          a: Math.max(prev.a, Number(row.peak_active   ?? 0)),
+          c: Math.max(prev.c, Number(row.peak_connected ?? 0)),
+          r: Math.max(prev.r, Number(row.peak_routing   ?? 0)),
+        });
+      }
+      return [...entityBuckets.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([bk, entities]) => {
+          let maxActive = 0, sumConnected = 0, sumRouting = 0, count = 0;
+          for (const v of entities.values()) { maxActive += v.a; sumConnected += v.c; sumRouting += v.r; count++; }
+          return {
+            bucketTs:     bk,
+            maxActive,
+            avgActive:    count > 0 ? Math.round(maxActive / count) : 0,
+            maxConnected: sumConnected,
+            maxRouting:   sumRouting,
+          };
+        });
     }
 
     const result = await db.execute(sql`
