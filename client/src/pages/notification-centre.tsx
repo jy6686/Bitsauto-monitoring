@@ -6,7 +6,8 @@ import {
   Clock, ArrowRight, ShieldAlert, Activity, Info, Zap,
   BellOff, ExternalLink, RefreshCw, Search, ChevronDown,
   ChevronUp, User, Timer, FileText, X, CheckCheck, ShieldCheck,
-  RotateCcw, Filter, Inbox,
+  RotateCcw, Filter, Inbox, UserCheck, UserPlus, Users,
+  GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatUTC } from "@/lib/date-utils";
@@ -17,20 +18,33 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface TimelineEvent {
+interface AssignmentEntry {
+  at: string;
+  from: string | null;
+  to: string;
+  actor: string;
+  note: string | null;
+}
+
+interface TimelineEntry {
   id: string; kind: string; ts: string;
   label: string; actor?: string; note?: string;
+}
+
+interface Operator {
+  id: string; name: string; role: string; email: string | null;
 }
 
 interface ConsoleIncident {
   id: number; entityKey: string; entity: string;
   severity: string; state: string; title: string;
-  alerts: any[]; rootCause: any; timeline: TimelineEvent[];
+  alerts: any[]; rootCause: any; timeline: TimelineEntry[];
   actions: any[]; startedAt: string; lastSeenAt: string;
   resolvedAt?: string; estimatedImpactPerHr?: number | null;
   acknowledgedBy?: string | null; acknowledgedAt?: string | null;
   acknowledgeNote?: string | null; resolvedBy?: string | null;
   resolutionNote?: string | null; nextEscalationMs?: number | null;
+  assignedTo?: string | null; assignmentHistory?: AssignmentEntry[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -68,16 +82,17 @@ function timeAgo(isoOrDate: string | Date | null | undefined): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+function initials(name: string): string {
+  return name.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
+}
+
 // ── Escalation countdown (live ticker) ───────────────────────────────────────
 
 function EscalationCountdown({ nextEscalationMs }: { nextEscalationMs: number | null | undefined }) {
   const [remaining, setRemaining] = useState<number | null>(null);
 
   useEffect(() => {
-    if (nextEscalationMs == null || nextEscalationMs <= 0) {
-      setRemaining(null);
-      return;
-    }
+    if (nextEscalationMs == null || nextEscalationMs <= 0) { setRemaining(null); return; }
     const deadline = Date.now() + nextEscalationMs;
     const tick = () => setRemaining(Math.max(0, deadline - Date.now()));
     tick();
@@ -87,10 +102,10 @@ function EscalationCountdown({ nextEscalationMs }: { nextEscalationMs: number | 
 
   if (remaining == null) return null;
 
-  const mins = Math.floor(remaining / 60_000);
-  const secs = Math.floor((remaining % 60_000) / 1000);
-  const label = remaining <= 0 ? "Escalating…" : `${mins}m ${secs.toString().padStart(2, "0")}s`;
-  const urgent = remaining < 2 * 60_000; // < 2 min
+  const mins   = Math.floor(remaining / 60_000);
+  const secs   = Math.floor((remaining % 60_000) / 1000);
+  const label  = remaining <= 0 ? "Escalating…" : `${mins}m ${secs.toString().padStart(2, "0")}s`;
+  const urgent = remaining < 2 * 60_000;
 
   return (
     <span className={cn(
@@ -105,12 +120,38 @@ function EscalationCountdown({ nextEscalationMs }: { nextEscalationMs: number | 
   );
 }
 
+// ── Owner avatar pill ─────────────────────────────────────────────────────────
+
+function OwnerPill({ name, dim = false }: { name: string; dim?: boolean }) {
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border",
+      dim
+        ? "text-muted-foreground/60 border-border/40 bg-muted/20"
+        : "text-blue-400 border-blue-500/30 bg-blue-500/10"
+    )} data-testid={`pill-owner-${name}`}>
+      <span className={cn(
+        "w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold",
+        dim ? "bg-muted/40" : "bg-blue-500/30"
+      )}>
+        {initials(name)}
+      </span>
+      {name}
+    </span>
+  );
+}
+
 // ── Timeline view ─────────────────────────────────────────────────────────────
 
-function TimelineView({ timeline, alerts }: { timeline: TimelineEvent[]; alerts: any[] }) {
+function TimelineView({
+  timeline, alerts, assignmentHistory,
+}: {
+  timeline: TimelineEntry[];
+  alerts: any[];
+  assignmentHistory?: AssignmentEntry[];
+}) {
   const events: { ts: string; icon: any; label: string; sub?: string; color: string }[] = [];
 
-  // Seed with original alerts
   for (const a of (alerts ?? []).slice(0, 3)) {
     events.push({
       ts: a.createdAt ?? a.ts ?? "",
@@ -121,25 +162,35 @@ function TimelineView({ timeline, alerts }: { timeline: TimelineEvent[]; alerts:
     });
   }
 
-  // Lifecycle events from timeline
   for (const ev of (timeline ?? [])) {
-    const isAck = ev.kind === "transition" && (ev.label?.toLowerCase().includes("acknowledged") || ev.label?.toLowerCase().includes("ack"));
+    const isAck = ev.kind === "transition" && ev.label?.toLowerCase().includes("acknowledg");
     const isRes = ev.kind === "transition" && ev.label?.toLowerCase().includes("resolved");
+    const isAsgn = ev.label?.toLowerCase().includes("assigned to");
     events.push({
       ts: ev.ts,
-      icon: isRes ? CheckCircle2 : isAck ? CheckCheck : Activity,
+      icon: isRes ? CheckCircle2 : isAck ? CheckCheck : isAsgn ? UserCheck : Activity,
       label: ev.label ?? ev.kind,
       sub: ev.actor ? `by ${ev.actor}` + (ev.note ? ` — ${ev.note}` : "") : ev.note ?? undefined,
-      color: isRes ? "text-emerald-400" : isAck ? "text-blue-400" : "text-muted-foreground",
+      color: isRes ? "text-emerald-400" : isAck ? "text-blue-400" : isAsgn ? "text-violet-400" : "text-muted-foreground",
     });
   }
 
-  // Sort by timestamp
+  for (const asgn of (assignmentHistory ?? [])) {
+    const alreadyPresent = events.some(e => e.ts === asgn.at && e.label.includes(asgn.to));
+    if (!alreadyPresent) {
+      events.push({
+        ts: asgn.at,
+        icon: asgn.from ? GitBranch : UserPlus,
+        label: asgn.from ? `Reassigned → ${asgn.to}` : `Assigned to ${asgn.to}`,
+        sub: asgn.actor !== asgn.to ? `by ${asgn.actor}` + (asgn.note ? ` — ${asgn.note}` : "") : asgn.note ?? undefined,
+        color: "text-violet-400",
+      });
+    }
+  }
+
   events.sort((a, b) => new Date(a.ts || 0).getTime() - new Date(b.ts || 0).getTime());
 
-  if (events.length === 0) {
-    return <p className="text-xs text-muted-foreground/50 py-2">No timeline events.</p>;
-  }
+  if (events.length === 0) return <p className="text-xs text-muted-foreground/50 py-2">No timeline events yet.</p>;
 
   return (
     <div className="relative">
@@ -164,6 +215,115 @@ function TimelineView({ timeline, alerts }: { timeline: TimelineEvent[]; alerts:
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ── Assign dialog ─────────────────────────────────────────────────────────────
+
+function AssignDialog({
+  open, currentOwner, operators, onConfirm, onCancel, isPending,
+}: {
+  open: boolean;
+  currentOwner?: string | null;
+  operators: Operator[];
+  onConfirm: (assignee: string, note: string) => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [assignee, setAssignee] = useState("");
+  const [note,     setNote]     = useState("");
+
+  useEffect(() => {
+    if (open) { setAssignee(""); setNote(""); }
+  }, [open]);
+
+  if (!open) return null;
+
+  const handleConfirm = () => {
+    if (!assignee.trim()) return;
+    onConfirm(assignee.trim(), note);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-2xl space-y-4"
+           data-testid="dialog-assign">
+        <div className="flex items-center justify-between">
+          <p className="font-semibold text-sm flex items-center gap-2">
+            <UserCheck className="w-4 h-4 text-violet-400" />
+            {currentOwner ? "Reassign Incident" : "Assign Incident"}
+          </p>
+          <button onClick={onCancel} className="text-muted-foreground hover:text-foreground p-0.5 rounded" data-testid="button-assign-close">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {currentOwner && (
+          <p className="text-xs text-muted-foreground rounded-lg border border-border/40 bg-muted/20 px-3 py-2">
+            Currently assigned to <span className="font-semibold text-foreground">{currentOwner}</span>
+          </p>
+        )}
+
+        <div>
+          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
+            Assign to
+          </label>
+          {operators.length > 0 ? (
+            <select
+              value={assignee}
+              onChange={e => setAssignee(e.target.value)}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+              data-testid="select-assignee"
+            >
+              <option value="">Select operator…</option>
+              {operators.map(op => (
+                <option key={op.id} value={op.name}>{op.name} ({op.role})</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={assignee}
+              onChange={e => setAssignee(e.target.value)}
+              placeholder="Operator name…"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+              data-testid="input-assignee"
+            />
+          )}
+        </div>
+
+        <div>
+          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
+            Note (optional)
+          </label>
+          <textarea
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder="e.g. Handing off for night shift…"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+            data-testid="input-assign-note"
+          />
+        </div>
+
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 rounded-lg text-sm text-muted-foreground hover:text-foreground border border-border hover:border-border/80 transition-colors"
+            data-testid="button-assign-cancel"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={isPending || !assignee.trim()}
+            className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white bg-violet-600 hover:bg-violet-500 transition-all disabled:opacity-50"
+            data-testid="button-assign-confirm"
+          >
+            {isPending ? "Saving…" : currentOwner ? "Reassign" : "Assign"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -224,10 +384,65 @@ function NoteDialog({
   );
 }
 
+// ── Escalation visibility block ────────────────────────────────────────────────
+
+function EscalationBlock({ inc }: { inc: ConsoleIncident }) {
+  const SEVERITY_CADENCE: Record<string, string> = {
+    critical: "every 15 min",
+    high:     "every 60 min",
+    medium:   "no repeat",
+    low:      "no repeat",
+  };
+  const hasEscalation = inc.severity === "critical" || inc.severity === "high";
+  const cadence = SEVERITY_CADENCE[inc.severity] ?? "no repeat";
+
+  if (inc.state === "resolved") return null;
+
+  return (
+    <div className={cn(
+      "rounded-lg border px-3 py-3 space-y-2",
+      inc.state === "active" && hasEscalation
+        ? "border-amber-500/20 bg-amber-500/5"
+        : "border-border/40 bg-muted/10"
+    )}>
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+        <Timer className="w-3 h-3" />
+        Escalation Status
+      </p>
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Owner</p>
+          {inc.assignedTo
+            ? <OwnerPill name={inc.assignedTo} />
+            : <span className="text-muted-foreground/40 italic text-[10px]">Unassigned</span>}
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Cadence</p>
+          <p className={cn("text-[10px] font-semibold", hasEscalation ? "text-amber-400" : "text-muted-foreground/50")}>
+            {cadence}
+          </p>
+        </div>
+        {inc.nextEscalationMs != null && inc.state === "active" && (
+          <div className="col-span-2">
+            <p className="text-[10px] text-muted-foreground/60 mb-0.5">Next escalation in</p>
+            <EscalationCountdown nextEscalationMs={inc.nextEscalationMs} />
+          </div>
+        )}
+        {inc.acknowledgedBy && (
+          <div className="col-span-2">
+            <p className="text-[10px] text-muted-foreground/60 mb-0.5">Acknowledged by</p>
+            <OwnerPill name={inc.acknowledgedBy} dim />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Incident row ──────────────────────────────────────────────────────────────
 
 function IncidentRow({
-  inc, isExpanded, onToggle, onAcknowledge, onResolve, onReopen,
+  inc, isExpanded, onToggle, onAcknowledge, onResolve, onReopen, onAssign, actorName,
 }: {
   inc: ConsoleIncident;
   isExpanded: boolean;
@@ -235,10 +450,14 @@ function IncidentRow({
   onAcknowledge: (id: number) => void;
   onResolve: (id: number) => void;
   onReopen: (id: number) => void;
+  onAssign: (id: number) => void;
+  actorName: string;
 }) {
   const canAcknowledge = inc.state === "active";
   const canResolve     = inc.state === "active" || inc.state === "acknowledged";
   const canReopen      = inc.state === "resolved";
+  const canReassign    = inc.state !== "resolved";
+  const isMyIncident   = inc.assignedTo === actorName;
 
   return (
     <div
@@ -249,13 +468,12 @@ function IncidentRow({
       )}
       data-testid={`card-incident-${inc.id}`}
     >
-      {/* ── Collapsed row ── */}
+      {/* ── Collapsed header ── */}
       <button
         onClick={onToggle}
         className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-muted/20 transition-colors rounded-xl"
         data-testid={`button-toggle-incident-${inc.id}`}
       >
-        {/* Severity badge */}
         <span className={cn(
           "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest border flex-shrink-0 mt-0.5",
           severityColor(inc.severity)
@@ -263,7 +481,6 @@ function IncidentRow({
           {inc.severity}
         </span>
 
-        {/* Main content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[11px] font-semibold text-muted-foreground/70 truncate max-w-[140px]">
@@ -272,9 +489,16 @@ function IncidentRow({
             <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold", statePill(inc.state))}>
               {inc.state}
             </span>
-            {inc.state === "acknowledged" && inc.acknowledgedBy && (
-              <span className="inline-flex items-center gap-1 text-[10px] text-blue-400/80">
-                <User className="w-3 h-3" />{inc.acknowledgedBy}
+            {/* Owner chip */}
+            {inc.assignedTo && (
+              <span className={cn(
+                "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border",
+                isMyIncident
+                  ? "text-violet-400 border-violet-500/30 bg-violet-500/10"
+                  : "text-muted-foreground/60 border-border/40 bg-muted/20"
+              )} data-testid={`chip-owner-${inc.id}`}>
+                <User className="w-3 h-3" />
+                {isMyIncident ? "You" : inc.assignedTo}
               </span>
             )}
           </div>
@@ -286,7 +510,6 @@ function IncidentRow({
           )}
         </div>
 
-        {/* Right side: age + escalation + chevron */}
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
           <span className="text-[10px] text-muted-foreground/50 font-mono">{timeAgo(inc.startedAt)}</span>
           {inc.nextEscalationMs != null && inc.state === "active" && (
@@ -302,20 +525,25 @@ function IncidentRow({
       {/* ── Expanded detail ── */}
       {isExpanded && (
         <div className="border-t border-border/40 px-4 py-4 space-y-4">
-          <div className="grid sm:grid-cols-2 gap-4">
 
-            {/* Timeline */}
+          {/* Escalation visibility block — Phase 4 */}
+          <EscalationBlock inc={inc} />
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            {/* Timeline — Phase 3 */}
             <div>
               <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <Clock className="w-3 h-3" /> Timeline
               </p>
-              <TimelineView timeline={inc.timeline} alerts={inc.alerts} />
+              <TimelineView
+                timeline={inc.timeline}
+                alerts={inc.alerts}
+                assignmentHistory={inc.assignmentHistory}
+              />
             </div>
 
-            {/* Metadata */}
+            {/* Metadata panel */}
             <div className="space-y-3">
-
-              {/* Acknowledge note */}
               {inc.acknowledgeNote && (
                 <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
                   <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider mb-1">Ack Note</p>
@@ -328,7 +556,6 @@ function IncidentRow({
                 </div>
               )}
 
-              {/* Resolution note */}
               {inc.resolutionNote && (
                 <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
                   <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider mb-1">Resolution</p>
@@ -339,7 +566,30 @@ function IncidentRow({
                 </div>
               )}
 
-              {/* Root cause */}
+              {/* Assignment history — Phase 1 */}
+              {(inc.assignmentHistory ?? []).length > 0 && (
+                <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
+                  <p className="text-[10px] font-semibold text-violet-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                    <Users className="w-3 h-3" /> Ownership History
+                  </p>
+                  <div className="space-y-1.5">
+                    {(inc.assignmentHistory ?? []).map((entry, i) => (
+                      <div key={i} className="flex items-start gap-1.5 text-[11px]">
+                        <GitBranch className="w-3 h-3 text-violet-400 flex-shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                          <span className="font-medium">{entry.to}</span>
+                          {entry.from && <span className="text-muted-foreground/50"> (from {entry.from})</span>}
+                          {entry.note && <span className="text-muted-foreground/60 block text-[10px]">{entry.note}</span>}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/40 font-mono ml-auto flex-shrink-0">
+                          {timeAgo(entry.at)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {inc.rootCause && (
                 <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -349,7 +599,6 @@ function IncidentRow({
                 </div>
               )}
 
-              {/* Alerts list */}
               {inc.alerts?.length > 0 && (
                 <div>
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
@@ -372,7 +621,7 @@ function IncidentRow({
             </div>
           </div>
 
-          {/* Action buttons */}
+          {/* ── Action buttons — Phase 2 ── */}
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border/30">
             {canAcknowledge && (
               <button
@@ -392,6 +641,16 @@ function IncidentRow({
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 Resolve
+              </button>
+            )}
+            {canReassign && (
+              <button
+                onClick={() => onAssign(inc.id)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-500/10 text-violet-400 border border-violet-500/30 hover:bg-violet-500/20 transition-colors"
+                data-testid={`button-assign-${inc.id}`}
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                {inc.assignedTo ? "Reassign" : "Assign"}
               </button>
             )}
             {canReopen && (
@@ -419,7 +678,7 @@ function IncidentRow({
   );
 }
 
-// ── Channel card ─────────────────────────────────────────────────────────────
+// ── Channel card ──────────────────────────────────────────────────────────────
 
 function ChannelCard({
   icon: Icon, iconColor, bgColor, borderColor, title, description, href, badge,
@@ -464,43 +723,48 @@ export default function NotificationCentrePage() {
     [(user as any)?.firstName, (user as any)?.lastName].filter(Boolean).join(" ") ||
     (user as any)?.email || (user as any)?.id || "operator";
 
-  const [stateFilter, setStateFilter]     = useState<StateFilter>("active");
+  const [stateFilter,    setStateFilter]    = useState<StateFilter>("active");
   const [severityFilter, setSeverityFilter] = useState("all");
-  const [search, setSearch]               = useState("");
-  const [expandedId, setExpandedId]       = useState<number | null>(null);
+  const [search,         setSearch]         = useState("");
+  const [expandedId,     setExpandedId]     = useState<number | null>(null);
 
   const [ackDialog,     setAckDialog]     = useState({ open: false, incidentId: 0, note: "" });
   const [resolveDialog, setResolveDialog] = useState({ open: false, incidentId: 0, note: "" });
+  const [assignDialog,  setAssignDialog]  = useState({ open: false, incidentId: 0, currentOwner: null as string | null });
 
   // ── Data ──
   const { data, isLoading, refetch, isFetching } = useQuery<{ incidents: ConsoleIncident[]; summary: any }>({
     queryKey: ["/api/console/incidents"],
     refetchInterval: 30_000,
   });
+  const { data: operators = [] } = useQuery<Operator[]>({
+    queryKey: ["/api/console/incidents/operators"],
+    staleTime: 5 * 60_000,
+  });
   const { data: alerts } = useAlerts();
 
   const allIncidents = data?.incidents ?? [];
   const activeAlerts = (alerts ?? []).filter((a: any) => !a.resolved);
 
-  // ── Counts for summary strip ──
   const activeCount   = allIncidents.filter(i => i.state === "active").length;
   const ackedCount    = allIncidents.filter(i => i.state === "acknowledged").length;
   const resolvedCount = allIncidents.filter(i => i.state === "resolved").length;
-  const criticalCount = allIncidents.filter(i => i.severity === "critical" && i.state !== "resolved").length;
+  const unownedActive = allIncidents.filter(i => i.state === "active" && !i.assignedTo).length;
 
   // ── Filtered + sorted list ──
   const filtered = useMemo(() => {
     let list = [...allIncidents];
-    if (stateFilter !== "all")     list = list.filter(i => i.state === stateFilter);
-    if (severityFilter !== "all")  list = list.filter(i => i.severity === severityFilter);
+    if (stateFilter !== "all")    list = list.filter(i => i.state === stateFilter);
+    if (severityFilter !== "all") list = list.filter(i => i.severity === severityFilter);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(i =>
         i.title.toLowerCase().includes(q) ||
-        (i.entity ?? "").toLowerCase().includes(q)
+        (i.entity ?? "").toLowerCase().includes(q) ||
+        (i.assignedTo ?? "").toLowerCase().includes(q)
       );
     }
-    const stateOrder: Record<string, number>    = { active: 0, acknowledged: 1, resolved: 2 };
+    const stateOrder:    Record<string, number> = { active: 0, acknowledged: 1, resolved: 2 };
     const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     list.sort((a, b) => {
       const sd = (stateOrder[a.state] ?? 1) - (stateOrder[b.state] ?? 1);
@@ -518,8 +782,8 @@ export default function NotificationCentrePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           toState, actor: actorName, note,
-          acknowledgedBy:  actorName, acknowledgeNote: note,
-          resolvedBy:      actorName, resolutionNote:  note,
+          acknowledgedBy: actorName, acknowledgeNote: note,
+          resolvedBy:     actorName, resolutionNote:  note,
         }),
       }),
     onSuccess: () => {
@@ -529,24 +793,31 @@ export default function NotificationCentrePage() {
     },
   });
 
+  const assign = useMutation({
+    mutationFn: ({ id, assignee, note }: { id: number; assignee: string; note?: string }) =>
+      apiRequest(`/api/console/incidents/${id}/assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignee, actor: actorName, note }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/console/incidents"] });
+      setAssignDialog(d => ({ ...d, open: false }));
+    },
+  });
+
   // ── Handlers ──
-  const handleAcknowledge = useCallback((id: number) => {
-    setAckDialog({ open: true, incidentId: id, note: "" });
-  }, []);
-
-  const handleResolve = useCallback((id: number) => {
-    setResolveDialog({ open: true, incidentId: id, note: "" });
-  }, []);
-
-  const handleReopen = useCallback((id: number) => {
+  const handleAcknowledge = useCallback((id: number) => setAckDialog({ open: true, incidentId: id, note: "" }), []);
+  const handleResolve     = useCallback((id: number) => setResolveDialog({ open: true, incidentId: id, note: "" }), []);
+  const handleAssign      = useCallback((id: number) => {
+    const inc = allIncidents.find(i => i.id === id);
+    setAssignDialog({ open: true, incidentId: id, currentOwner: inc?.assignedTo ?? null });
+  }, [allIncidents]);
+  const handleReopen      = useCallback((id: number) => {
     transition.mutate({ id, toState: "active", note: "Reopened by operator" });
   }, [transition]);
+  const toggleExpand      = useCallback((id: number) => setExpandedId(prev => prev === id ? null : id), []);
 
-  const toggleExpand = useCallback((id: number) => {
-    setExpandedId(prev => prev === id ? null : id);
-  }, []);
-
-  // ── State filter tab def ──
   const stateTabs: { key: StateFilter; label: string; count?: number }[] = [
     { key: "all",          label: "All",          count: allIncidents.length },
     { key: "active",       label: "Active",       count: activeCount },
@@ -570,7 +841,7 @@ export default function NotificationCentrePage() {
             )}
           </div>
           <p className="text-muted-foreground text-sm mt-1">
-            Operational alert inbox — acknowledge, investigate, and resolve system incidents.
+            Operational alert inbox — acknowledge, assign ownership, and resolve system incidents.
           </p>
         </div>
         <button
@@ -590,8 +861,7 @@ export default function NotificationCentrePage() {
           { label: "Active Incidents",  value: activeCount,   color: activeCount > 0   ? "text-rose-400"    : "text-muted-foreground", icon: ShieldAlert },
           { label: "Acknowledged",      value: ackedCount,    color: ackedCount > 0    ? "text-blue-400"    : "text-muted-foreground", icon: CheckCheck  },
           { label: "Resolved (24h)",    value: resolvedCount, color: resolvedCount > 0 ? "text-emerald-400" : "text-muted-foreground", icon: ShieldCheck },
-          { label: "Critical Alerts",   value: activeAlerts.filter((a: any) => a.severity === "critical").length,
-                                        color: criticalCount > 0 ? "text-rose-400" : "text-muted-foreground", icon: AlertTriangle },
+          { label: "Unowned Active",    value: unownedActive, color: unownedActive > 0 ? "text-amber-400"   : "text-muted-foreground", icon: UserPlus    },
         ].map(({ label, value, color, icon: Icon }) => (
           <div key={label} className="rounded-xl border border-border/50 bg-card p-4 space-y-1">
             <div className="flex items-center gap-1.5">
@@ -603,6 +873,17 @@ export default function NotificationCentrePage() {
         ))}
       </div>
 
+      {/* ── Unowned warning banner ── */}
+      {unownedActive > 0 && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3 flex items-center gap-3">
+          <UserPlus className="w-4 h-4 text-amber-400 flex-shrink-0" />
+          <p className="text-xs text-amber-300/90">
+            <span className="font-semibold">{unownedActive} active incident{unownedActive > 1 ? "s" : ""} unowned.</span>
+            {" "}Open each incident and assign an operator to ensure accountability and stop escalation reminders.
+          </p>
+        </div>
+      )}
+
       {/* ── Alert Inbox ── */}
       <div>
         <div className="flex items-center gap-2 mb-3">
@@ -612,7 +893,6 @@ export default function NotificationCentrePage() {
 
         {/* Filter bar */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
-          {/* State tabs */}
           <div className="flex rounded-lg border border-border/50 overflow-hidden text-xs font-medium">
             {stateTabs.map(({ key, label, count }) => (
               <button
@@ -639,7 +919,6 @@ export default function NotificationCentrePage() {
             ))}
           </div>
 
-          {/* Severity filter */}
           <div className="relative">
             <Filter className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 pointer-events-none" />
             <select
@@ -656,13 +935,12 @@ export default function NotificationCentrePage() {
             </select>
           </div>
 
-          {/* Search */}
           <div className="relative flex-1 min-w-[180px]">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 pointer-events-none" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search incidents…"
+              placeholder="Search title, entity, owner…"
               className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border/50 bg-card focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
               data-testid="input-incident-search"
             />
@@ -710,12 +988,13 @@ export default function NotificationCentrePage() {
                 onAcknowledge={handleAcknowledge}
                 onResolve={handleResolve}
                 onReopen={handleReopen}
+                onAssign={handleAssign}
+                actorName={actorName}
               />
             ))}
           </div>
         )}
 
-        {/* Bulk action hint */}
         {filtered.length > 0 && (
           <p className="text-[11px] text-muted-foreground/40 mt-2 text-right">
             Showing {filtered.length} of {allIncidents.length} incidents
@@ -731,24 +1010,21 @@ export default function NotificationCentrePage() {
         </h3>
         <div className="grid sm:grid-cols-2 gap-3">
           <ChannelCard
-            icon={Mail}
-            iconColor="text-blue-400" bgColor="bg-blue-500/10"
+            icon={Mail} iconColor="text-blue-400" bgColor="bg-blue-500/10"
             borderColor="border-blue-500/20 hover:border-blue-500/40"
             title="Email Notifications"
             description="Compose and send balance alerts, threshold warnings, and custom messages."
             href="/email-centre"
           />
           <ChannelCard
-            icon={MessageSquare}
-            iconColor="text-green-400" bgColor="bg-green-500/10"
+            icon={MessageSquare} iconColor="text-green-400" bgColor="bg-green-500/10"
             borderColor="border-green-500/20 hover:border-green-500/40"
             title="WhatsApp Alerts"
             description="Configure real-time WhatsApp notifications for critical events."
             href="/whatsapp-alerts"
           />
           <ChannelCard
-            icon={Bell}
-            iconColor="text-amber-400" bgColor="bg-amber-500/10"
+            icon={Bell} iconColor="text-amber-400" bgColor="bg-amber-500/10"
             borderColor="border-amber-500/20 hover:border-amber-500/40"
             title="System Alerts"
             description="View all threshold breach alerts and system warnings."
@@ -756,8 +1032,7 @@ export default function NotificationCentrePage() {
             badge={activeAlerts.length}
           />
           <ChannelCard
-            icon={Activity}
-            iconColor="text-violet-400" bgColor="bg-violet-500/10"
+            icon={Activity} iconColor="text-violet-400" bgColor="bg-violet-500/10"
             borderColor="border-violet-500/20 hover:border-violet-500/40"
             title="Alert Rules & Monitoring"
             description="Configure monitoring rules and alert thresholds per switch."
@@ -770,14 +1045,14 @@ export default function NotificationCentrePage() {
       <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 flex items-start gap-3">
         <Info className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-muted-foreground">
-          Incidents are auto-grouped from system alerts every 30 seconds. Acknowledging stops escalation reminders;
-          resolving closes the incident and clears it from the active view.{" "}
+          Incidents are auto-grouped from system alerts. Acknowledging an incident auto-assigns it to you and stops
+          escalation reminders. Reassigning transfers ownership with a full audit trail.{" "}
           <Link href="/ops-console" className="text-indigo-400 hover:underline">Open Ops Console</Link>
-          {" "}for deep-dive forensics and replay.
+          {" "}for deep-dive forensics.
         </p>
       </div>
 
-      {/* ── Acknowledge dialog ── */}
+      {/* ── Dialogs ── */}
       <NoteDialog
         open={ackDialog.open}
         title="Acknowledge Incident"
@@ -790,7 +1065,6 @@ export default function NotificationCentrePage() {
         isPending={transition.isPending}
       />
 
-      {/* ── Resolve dialog ── */}
       <NoteDialog
         open={resolveDialog.open}
         title="Resolve Incident"
@@ -801,6 +1075,15 @@ export default function NotificationCentrePage() {
         onConfirm={() => transition.mutate({ id: resolveDialog.incidentId, toState: "resolved", note: resolveDialog.note })}
         onCancel={() => setResolveDialog(d => ({ ...d, open: false }))}
         isPending={transition.isPending}
+      />
+
+      <AssignDialog
+        open={assignDialog.open}
+        currentOwner={assignDialog.currentOwner}
+        operators={operators}
+        onConfirm={(assignee, note) => assign.mutate({ id: assignDialog.incidentId, assignee, note })}
+        onCancel={() => setAssignDialog(d => ({ ...d, open: false }))}
+        isPending={assign.isPending}
       />
 
     </div>

@@ -23163,6 +23163,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             acknowledgeNote: row.acknowledgeNote  ?? null,
             resolvedBy:      row.resolvedBy       ?? null,
             resolutionNote:  row.resolutionNote   ?? null,
+            assignedTo:      row.assignedTo       ?? null,
+            assignmentHistory: row.assignmentHistoryJson ? JSON.parse(row.assignmentHistoryJson) : [],
             nextEscalationMs,
           });
         }
@@ -23196,6 +23198,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             acknowledgeNote: r.acknowledgeNote  ?? null,
             resolvedBy:      r.resolvedBy       ?? null,
             resolutionNote:  r.resolutionNote   ?? null,
+            assignedTo:      r.assignedTo       ?? null,
+            assignmentHistory: r.assignmentHistoryJson ? JSON.parse(r.assignmentHistoryJson) : [],
             nextEscalationMs: null,
           });
         }
@@ -23247,11 +23251,22 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         // Persist ownership and notes for acknowledged/resolved transitions
         if (toState === 'acknowledged') {
+          const ackBy = acknowledgedBy ?? (req as any).user?.claims?.sub ?? actor;
           await storage.updateConsoleIncidentFields(id, {
-            acknowledgedBy:  acknowledgedBy  ?? (req as any).user?.claims?.sub ?? actor,
+            acknowledgedBy:  ackBy,
             acknowledgedAt:  new Date(),
             acknowledgeNote: acknowledgeNote ?? note ?? null,
           } as any);
+          // Auto-assign on first acknowledge if no owner yet
+          const freshInc = await storage.getConsoleIncident(id);
+          if (freshInc && !freshInc.assignedTo) {
+            const hist: any[] = freshInc.assignmentHistoryJson
+              ? JSON.parse(freshInc.assignmentHistoryJson) : [];
+            hist.push({ at: new Date().toISOString(), from: null, to: ackBy, actor: ackBy, note: 'Auto-assigned on acknowledge' });
+            await storage.updateConsoleIncidentFields(id, {
+              assignedTo: ackBy, assignmentHistoryJson: JSON.stringify(hist),
+            } as any);
+          }
         } else if (toState === 'resolved') {
           await storage.updateConsoleIncidentFields(id, {
             resolvedBy:     resolvedBy     ?? (req as any).user?.claims?.sub ?? actor,
@@ -23285,6 +23300,55 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         await storage.updateConsoleIncidentFields(id, { actionsJson: JSON.stringify(actions) });
 
         res.json({ success: true, action });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // POST /api/console/incidents/:id/assign — assign or reassign ownership with audit trail
+  app.post("/api/console/incidents/:id/assign",
+    (req: any, res: any, next: any) => requireRole(["admin","management","noc_operator","team_lead","super_admin"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = Number(req.params.id);
+        const { assignee, actor = "operator", note } = req.body;
+        if (!assignee?.trim()) return res.status(400).json({ error: "assignee required" });
+
+        const inc = await storage.getConsoleIncident(id);
+        if (!inc) return res.status(404).json({ error: "Incident not found" });
+
+        const from = inc.assignedTo ?? null;
+        const hist: any[] = inc.assignmentHistoryJson ? JSON.parse(inc.assignmentHistoryJson) : [];
+        hist.push({ at: new Date().toISOString(), from, to: assignee.trim(), actor, note: note ?? null });
+
+        await storage.updateConsoleIncidentFields(id, {
+          assignedTo: assignee.trim(),
+          assignmentHistoryJson: JSON.stringify(hist),
+        } as any);
+        await storage.addLifecycleEvent({
+          incidentId: id, fromState: null, toState: inc.state, actor,
+          note: `Assigned to ${assignee}${from ? ` (from ${from})` : ''}${note ? ` — ${note}` : ''}`,
+        });
+
+        res.json({ success: true, assignedTo: assignee.trim(), history: hist });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
+  // GET /api/console/incidents/operators — list assignable operators for the ownership picker
+  app.get("/api/console/incidents/operators",
+    (req: any, res: any, next: any) => requireRole(["admin","management","noc_operator","team_lead","super_admin"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const members = await storage.getAllUsersWithRoles();
+        const operators = (members as any[])
+          .filter(m => ['admin', 'super_admin', 'noc_operator', 'team_lead', 'management'].includes(m.role))
+          .map(m => ({
+            id: m.id,
+            name: [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email || m.id,
+            role: m.role,
+            email: m.email ?? null,
+          }));
+        res.json(operators);
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     }
   );
