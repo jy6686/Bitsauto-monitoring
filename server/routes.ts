@@ -4311,6 +4311,132 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── GET /api/reports/route-degradation ─────────────────────────────────────
+  // Live route degradation intelligence: compares two consecutive CDR-cache time
+  // windows to detect which vendors are degrading in quality (Q-Score, ASR, NER,
+  // FAS, PDD) and surfaces human-readable signals explaining what collapsed.
+  // Parameters:
+  //   window  — minutes per window (15-360, default 60)
+  //   groupBy — 'callee' (vendor, default) | 'caller' (client)
+  // Returns: { generatedAt, windowMinutes, totalVendors, cdrCount, alerts[] }
+  app.get('/api/reports/route-degradation', (req: any, res, next) => requireRole(['admin', 'management', 'noc', 'viewer'], req, res, next), async (req: any, res) => {
+    try {
+      const windowMin = Math.min(Math.max(parseInt(req.query.window as string) || 60, 15), 360);
+      const groupBy   = req.query.groupBy === 'caller' ? 'caller' : 'callee';
+      const now       = Date.now();
+      const windowMs  = windowMin * 60_000;
+
+      // Current window: [now - w, now]
+      const currentCdrs = (cdrWindowValues(now - windowMs) as any[]);
+      // Previous window: [now - 2w, now - w]  →  slice the 2w set, exclude current
+      const allTwoW    = (cdrWindowValues(now - 2 * windowMs) as any[]);
+      const prevCdrs   = allTwoW.filter((c: any) => {
+        const ts = new Date(c.startTime || c.connectTime || 0).getTime();
+        return ts < now - windowMs;
+      });
+
+      // Aggregate CDRs into per-vendor quality metrics
+      function aggByKey(cdrs: any[]): Map<string, { tc: number; bc: number; rna: number; dur: number; fas: number; pddSum: number; pddN: number }> {
+        const m = new Map<string, { tc: number; bc: number; rna: number; dur: number; fas: number; pddSum: number; pddN: number }>();
+        for (const c of cdrs) {
+          const key = groupBy === 'callee'
+            ? (c.vendor || c.callee || c.cld || '').trim()
+            : (c.caller || c.cli  || '').trim();
+          if (!key) continue;
+          const row = m.get(key) ?? { tc: 0, bc: 0, rna: 0, dur: 0, fas: 0, pddSum: 0, pddN: 0 };
+          const d   = Number(c.duration) || 0;
+          const p   = Number(c.pdd1xx ?? c.pdd) || 0;
+          const ok  = String(c.result) === '0';
+          row.tc++;
+          if (ok && d > 0) { row.bc++; row.dur += d; if (d <= 5) row.fas++; }
+          if (ok && d === 0) row.rna++;
+          if (p > 0) { row.pddSum += p; row.pddN++; }
+          m.set(key, row);
+        }
+        return m;
+      }
+
+      // Q-score formula (mirrors client-side computeQuality)
+      function qScore(tc: number, bc: number, rna: number, fas: number, pddSum: number, pddN: number): number {
+        if (tc === 0) return 0;
+        const asr = (bc / tc) * 100;
+        const ner = ((bc + rna) / tc) * 100;
+        const fr  = bc > 0 ? (fas / bc) * 100 : 0;
+        const pdd = pddN > 0 ? pddSum / pddN : 0;
+        return Math.round(
+          Math.min(asr, 100) * 0.40 +
+          Math.min(ner, 100) * 0.30 +
+          Math.max(0, 100 - fr * 4) * 0.20 +
+          (pdd <= 1 ? 100 : pdd <= 3 ? 85 : pdd <= 6 ? 65 : pdd <= 10 ? 40 : 20) * 0.10
+        );
+      }
+
+      const curAgg  = aggByKey(currentCdrs);
+      const prevAgg = aggByKey(prevCdrs);
+      const MIN_CALLS = 5;
+      const alerts: object[] = [];
+
+      for (const [vendor, cur] of curAgg.entries()) {
+        if (cur.tc < MIN_CALLS) continue;
+        const prev = prevAgg.get(vendor);
+        const curQ  = qScore(cur.tc, cur.bc, cur.rna, cur.fas, cur.pddSum, cur.pddN);
+        const prevQ = prev && prev.tc >= MIN_CALLS ? qScore(prev.tc, prev.bc, prev.rna, prev.fas, prev.pddSum, prev.pddN) : null;
+        const deltaQ = prevQ !== null ? curQ - prevQ : 0;
+
+        const curAsr  = cur.tc > 0 ? cur.bc / cur.tc * 100 : 0;
+        const curNer  = cur.tc > 0 ? (cur.bc + cur.rna) / cur.tc * 100 : 0;
+        const curFas  = cur.bc > 0 ? cur.fas / cur.bc * 100 : 0;
+        const curPdd  = cur.pddN > 0 ? cur.pddSum / cur.pddN : 0;
+        const prevAsr = prev && prev.tc > 0 ? prev.bc / prev.tc * 100 : null;
+        const prevNer = prev && prev.tc > 0 ? (prev.bc + prev.rna) / prev.tc * 100 : null;
+        const prevFas = prev && prev.bc > 0 ? prev.fas / prev.bc * 100 : null;
+        const prevPdd = prev && prev.pddN > 0 ? prev.pddSum / prev.pddN : null;
+
+        const trend    = Math.abs(deltaQ) < 3 ? 'stable' : deltaQ < 0 ? 'degrading' : 'improving';
+        const severity = deltaQ <= -20 ? 'critical' : deltaQ <= -10 ? 'warning' : trend === 'degrading' ? 'info' : 'ok';
+
+        const signals: string[] = [];
+        if (prevAsr !== null && Math.abs(curAsr - prevAsr) >= 5)
+          signals.push(`ASR ${prevAsr < curAsr ? '↑' : '↓'} ${prevAsr.toFixed(0)}% → ${curAsr.toFixed(0)}%`);
+        if (prevNer !== null && Math.abs(curNer - prevNer) >= 5)
+          signals.push(`NER ${prevNer < curNer ? '↑' : '↓'} ${prevNer.toFixed(0)}% → ${curNer.toFixed(0)}%`);
+        if (prevFas !== null && curFas - prevFas >= 5)
+          signals.push(`FAS spike ${prevFas.toFixed(0)}% → ${curFas.toFixed(0)}%`);
+        else if (curFas >= 15 && prevFas === null)
+          signals.push(`FAS elevated: ${curFas.toFixed(0)}%`);
+        if (prevFas !== null && prevFas - curFas >= 5)
+          signals.push(`FAS eased ${prevFas.toFixed(0)}% → ${curFas.toFixed(0)}%`);
+        if (prevPdd !== null && curPdd - prevPdd >= 1.5)
+          signals.push(`PDD degrading ${prevPdd.toFixed(1)}s → ${curPdd.toFixed(1)}s`);
+        if (prevPdd !== null && prevPdd - curPdd >= 1.5)
+          signals.push(`PDD improving ${prevPdd.toFixed(1)}s → ${curPdd.toFixed(1)}s`);
+        // Special pattern: ASR collapsing while NER stable → far-end rejection
+        if (prevAsr !== null && prevNer !== null && curAsr - prevAsr <= -8 && Math.abs(curNer - prevNer) < 3)
+          signals.push('ASR collapse with NER stable — possible far-end subscriber rejection');
+        if (curQ < 30 && signals.length === 0)
+          signals.push(`Low quality route — Q${curQ}`);
+
+        alerts.push({
+          vendor, currentQ: curQ, previousQ: prevQ, deltaQ, trend, severity, signals,
+          callCount: cur.tc, prevCallCount: prev?.tc ?? 0,
+          currentAsr: parseFloat(curAsr.toFixed(1)),
+          previousAsr: prevAsr !== null ? parseFloat(prevAsr.toFixed(1)) : null,
+          currentFas: parseFloat(curFas.toFixed(1)),
+          currentPdd: parseFloat(curPdd.toFixed(2)),
+        });
+      }
+
+      // Sort: critical / warning first, then by deltaQ ascending (most degraded)
+      (alerts as any[]).sort((a, b) => {
+        const sev = { critical: 0, warning: 1, info: 2, ok: 3 };
+        const sd = (sev[a.severity as keyof typeof sev] ?? 3) - (sev[b.severity as keyof typeof sev] ?? 3);
+        return sd !== 0 ? sd : a.deltaQ - b.deltaQ;
+      });
+
+      res.json({ generatedAt: new Date().toISOString(), windowMinutes: windowMin, totalVendors: curAgg.size, cdrCount: currentCdrs.length, alerts });
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Rolling CDR Cache (for /api/sippy/cdr/graphs) ───────────────────────────
   // Fetches latest 500 CDRs without date filter (fast, no timeout) every 5 minutes,
   // deduplicates by callId, and keeps a rolling 72-hour window.

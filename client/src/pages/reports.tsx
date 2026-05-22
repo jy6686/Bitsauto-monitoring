@@ -64,6 +64,29 @@ const COUNTRY_TO_ISO: Record<string, string> = {
   "Zambia":"ZM","Zimbabwe":"ZW",
 };
 
+// ── Degradation Intelligence types ────────────────────────────────────────────
+type DegradationAlert = {
+  vendor: string;
+  currentQ: number;
+  previousQ: number | null;
+  deltaQ: number;
+  trend: 'degrading' | 'improving' | 'stable';
+  severity: 'critical' | 'warning' | 'info' | 'ok';
+  signals: string[];
+  callCount: number;
+  currentAsr: number;
+  previousAsr: number | null;
+  currentFas: number;
+  currentPdd: number;
+};
+type DegradationResponse = {
+  generatedAt: string;
+  windowMinutes: number;
+  totalVendors: number;
+  cdrCount: number;
+  alerts: DegradationAlert[];
+};
+
 function countryFlag(countryName?: string): string {
   if (!countryName) return '';
   const iso = COUNTRY_TO_ISO[countryName] ?? Object.entries(COUNTRY_TO_ISO)
@@ -192,6 +215,21 @@ export default function ReportsPage() {
   const [revDays, setRevDays] = useState(7);
   const [revRevSort, setRevRevSort] = useState<'revenue' | 'cost' | 'margin'>('revenue');
 
+  // ── Live Degradation Intelligence ───────────────────────────────────────────
+  const [degradeWindow, setDegradeWindow] = useState(60);
+  const { data: degradeData, isLoading: degradeLoading } = useQuery<DegradationResponse>({
+    queryKey: ['/api/reports/route-degradation', degradeWindow],
+    queryFn: async () => {
+      const params = new URLSearchParams({ window: String(degradeWindow), groupBy: 'callee' });
+      const res = await fetch(`/api/reports/route-degradation?${params}`);
+      if (!res.ok) throw new Error('Failed to fetch degradation data');
+      return res.json();
+    },
+    enabled: activeTab === 'vendor',
+    refetchInterval: 2 * 60_000,
+    staleTime: 90_000,
+  });
+
   // ── Monitor ─────────────────────────────────────────────────────────────────
   const [monitorHours, setMonitorHours] = useState<number>(24);
 
@@ -233,6 +271,13 @@ export default function ReportsPage() {
     }
     return filtered;
   }, [rows, partyType, sortBy]);
+
+  // Map from vendor key → degradation alert (for O(1) per-row lookup in table)
+  const degradeAlertMap = useMemo(() => {
+    const m = new Map<string, DegradationAlert>();
+    for (const a of (degradeData?.alerts ?? [])) m.set(a.vendor, a);
+    return m;
+  }, [degradeData]);
 
   // ── Connection query ────────────────────────────────────────────────────────
   type ConnRow = { name: string; totalCalls: number; billableCalls: number; durationSec: number; acdSec: number; asr: number; avgPdd: number; amount: number };
@@ -616,6 +661,121 @@ export default function ReportsPage() {
             </div>
           )}
 
+          {/* ── Live Degradation Monitor (vendor tab only) ──────────────── */}
+          {activeTab === 'vendor' && (() => {
+            const alerts = degradeData?.alerts ?? [];
+            const degrading = alerts.filter(a => a.trend === 'degrading');
+            const critical  = alerts.filter(a => a.severity === 'critical');
+            const improving = alerts.filter(a => a.trend === 'improving');
+            const displayed = degrading.slice(0, 5);
+            const isStable  = !degradeLoading && alerts.length > 0 && degrading.length === 0;
+            return (
+              <div className={cn(
+                "rounded-xl border overflow-hidden",
+                critical.length > 0 ? "border-rose-500/40 bg-rose-500/5" :
+                degrading.length > 0 ? "border-amber-500/30 bg-amber-500/5" :
+                "border-border/50 bg-card/50"
+              )} data-testid="degradation-panel">
+                <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 bg-muted/10 flex-wrap">
+                  <Activity className={cn("w-4 h-4", critical.length > 0 ? "text-rose-400 animate-pulse" : degrading.length > 0 ? "text-amber-400" : "text-emerald-400")} />
+                  <span className="text-sm font-semibold">Live Degradation Monitor</span>
+                  {degradeData && (
+                    <span className="text-[10px] text-muted-foreground">
+                      comparing last {degradeData.windowMinutes}m vs prior {degradeData.windowMinutes}m · {degradeData.cdrCount} CDRs · updated {new Date(degradeData.generatedAt).toLocaleTimeString()}
+                    </span>
+                  )}
+                  <div className="ml-auto flex items-center gap-2">
+                    <label className="text-[10px] text-muted-foreground">Window:</label>
+                    <select data-testid="select-degrade-window" value={degradeWindow}
+                      onChange={e => setDegradeWindow(Number(e.target.value))}
+                      className="h-7 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-1 focus:ring-primary/30">
+                      <option value={15}>15 min</option>
+                      <option value={30}>30 min</option>
+                      <option value={60}>1 hour</option>
+                      <option value={120}>2 hours</option>
+                      <option value={240}>4 hours</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="p-4">
+                  {degradeLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Analyzing route quality trends…
+                    </div>
+                  ) : isStable ? (
+                    <div className="flex items-center gap-2 py-2">
+                      <BadgeCheck className="w-4 h-4 text-emerald-400" />
+                      <span className="text-sm text-emerald-400 font-medium">All {degradeData?.totalVendors} routes stable</span>
+                      {improving.length > 0 && (
+                        <span className="text-xs text-muted-foreground">· {improving.length} improving</span>
+                      )}
+                    </div>
+                  ) : degradeData && alerts.length === 0 ? (
+                    <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                      <Minus className="w-3.5 h-3.5" />
+                      Insufficient CDR history for comparison — needs ≥5 calls per vendor per window
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {displayed.map((alert) => (
+                        <div key={alert.vendor}
+                          data-testid={`degrade-alert-${alert.vendor}`}
+                          className={cn(
+                            "flex items-start gap-3 px-3 py-2.5 rounded-lg border",
+                            alert.severity === 'critical' ? "border-rose-500/40 bg-rose-500/10" :
+                            alert.severity === 'warning'  ? "border-amber-500/30 bg-amber-500/10" :
+                                                            "border-orange-500/20 bg-orange-500/5"
+                          )}>
+                          <div className="flex-shrink-0 mt-0.5">
+                            {alert.severity === 'critical' ? (
+                              <TriangleAlert className="w-4 h-4 text-rose-400" />
+                            ) : alert.severity === 'warning' ? (
+                              <AlertTriangle className="w-4 h-4 text-amber-400" />
+                            ) : (
+                              <TrendingDown className="w-4 h-4 text-orange-400" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-foreground">{alert.vendor}</span>
+                              <span className={cn(
+                                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold",
+                                alert.severity === 'critical' ? "bg-rose-500/20 text-rose-300" :
+                                alert.severity === 'warning'  ? "bg-amber-500/20 text-amber-300" :
+                                                                "bg-orange-500/20 text-orange-300"
+                              )}>
+                                <TrendingDown className="w-2.5 h-2.5" />
+                                Q {alert.previousQ ?? '?'} → {alert.currentQ}
+                                {' '}({alert.deltaQ > 0 ? '+' : ''}{alert.deltaQ})
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {alert.callCount} calls · ASR {alert.currentAsr}%
+                              </span>
+                            </div>
+                            {alert.signals.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {alert.signals.map((sig, si) => (
+                                  <span key={si} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/50 text-muted-foreground font-mono">
+                                    {sig}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {degrading.length > 5 && (
+                        <p className="text-[10px] text-muted-foreground text-center pt-1">
+                          +{degrading.length - 5} more degrading routes
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ── Route Intelligence Panel (vendor tab only) ─────────────── */}
           {activeTab === 'vendor' && !reportLoading && displayRows.length > 0 && (() => {
             const scored = displayRows.map(r => ({ ...r, q: computeQuality(r) }));
@@ -787,16 +947,35 @@ export default function ReportsPage() {
                               )}
                             </td>
                           )}
-                          {/* Q-Score cell — composite route quality */}
+                          {/* Q-Score cell — composite route quality + live trend arrow */}
                           {(() => {
-                            const q = computeQuality(row);
+                            const q      = computeQuality(row);
+                            const dalert = activeTab === 'vendor' ? degradeAlertMap.get(row.caller) : undefined;
+                            const deltaQ = dalert?.deltaQ;
+                            const trend  = dalert?.trend;
                             return (
                               <td className="px-4 py-2.5 text-right" data-testid={`qscore-${i}`}>
                                 <div className="flex flex-col items-end gap-0.5">
-                                  <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold tabular-nums", qualityBg(q), qualityColor(q))}>
-                                    <Gauge className="w-2.5 h-2.5" />
-                                    {q}
-                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    {/* Trend arrow */}
+                                    {trend === 'degrading' && (
+                                      <span className={cn(
+                                        "text-[9px] font-bold tabular-nums",
+                                        dalert?.severity === 'critical' ? "text-rose-400" : "text-amber-400"
+                                      )} title={`Q-Score trend: ${deltaQ}`}>
+                                        ↓{Math.abs(deltaQ!)}
+                                      </span>
+                                    )}
+                                    {trend === 'improving' && (
+                                      <span className="text-[9px] font-bold tabular-nums text-emerald-400" title={`Q-Score trend: +${deltaQ}`}>
+                                        ↑{deltaQ}
+                                      </span>
+                                    )}
+                                    <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold tabular-nums", qualityBg(q), qualityColor(q))}>
+                                      <Gauge className="w-2.5 h-2.5" />
+                                      {q}
+                                    </span>
+                                  </div>
                                   <span className={`text-[9px] font-medium ${qualityColor(q)}`}>{qualityLabel(q)}</span>
                                 </div>
                               </td>
