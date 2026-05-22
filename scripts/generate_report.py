@@ -9,33 +9,43 @@ doc = Document()
 
 # ── Page margins ──────────────────────────────────────────────────────────────
 for section in doc.sections:
-    section.top_margin    = Cm(2.2)
-    section.bottom_margin = Cm(2.2)
-    section.left_margin   = Cm(2.5)
-    section.right_margin  = Cm(2.5)
+    section.top_margin    = Cm(1.9)
+    section.bottom_margin = Cm(1.9)
+    section.left_margin   = Cm(2.2)
+    section.right_margin  = Cm(2.2)
 
-# ── Colour palette ────────────────────────────────────────────────────────────
-C_DARK    = RGBColor(0x0F, 0x17, 0x2A)
-C_AMBER   = RGBColor(0xD9, 0x7B, 0x06)
-C_EMERALD = RGBColor(0x05, 0x7A, 0x55)
-C_ROSE    = RGBColor(0xBE, 0x12, 0x3C)
-C_BLUE    = RGBColor(0x1D, 0x4E, 0xD8)
-C_VIOLET  = RGBColor(0x60, 0x27, 0xD3)
-C_GREY    = RGBColor(0x6B, 0x72, 0x80)
-C_WHITE   = RGBColor(0xFF, 0xFF, 0xFF)
-C_TEAL    = RGBColor(0x0F, 0x76, 0x6E)
-C_ORANGE  = RGBColor(0xC2, 0x41, 0x0C)
-C_INDIGO  = RGBColor(0x43, 0x38, 0xCA)
+# ── Bitsauto Brand Colour Palette ─────────────────────────────────────────────
+C_NAVY      = RGBColor(0x0A, 0x16, 0x28)   # deepest bg
+C_NAVY_MID  = RGBColor(0x0D, 0x20, 0x40)   # section banner bg
+C_NAVY_CARD = RGBColor(0x11, 0x22, 0x40)   # card / info row bg
+C_CYAN      = RGBColor(0x00, 0xD4, 0xFF)   # primary accent
+C_CYAN_SOFT = RGBColor(0x38, 0xBD, 0xF8)   # secondary cyan
+C_TEAL      = RGBColor(0x14, 0xB8, 0xA6)   # label accent
+C_GREEN     = RGBColor(0x10, 0xB9, 0x81)   # LIVE / success
+C_AMBER     = RGBColor(0xF5, 0x9E, 0x0B)   # PARTIAL / warning
+C_ROSE      = RGBColor(0xF4, 0x3F, 0x5E)   # NOT BUILT / danger
+C_GOLD      = RGBColor(0xFF, 0xD7, 0x00)   # numbers / highlights
+C_WHITE     = RGBColor(0xFF, 0xFF, 0xFF)
+C_LIGHT     = RGBColor(0xE2, 0xE8, 0xF0)   # primary body text
+C_SLATE     = RGBColor(0xCB, 0xD5, 0xE1)   # secondary body text
+C_MID       = RGBColor(0x94, 0xA3, 0xB8)   # muted text
+C_DIM       = RGBColor(0x47, 0x55, 0x69)   # very muted
 
-# Department colours
+# Hex strings for cell backgrounds
+BG_NAVY      = '0A1628'
+BG_NAVY_MID  = '0D2040'
+BG_NAVY_CARD = '112240'
+BG_DIVIDER   = '1E3A5F'
+
+# Department colours — all updated to Bitsauto brand palette
 DEPT_COLORS = {
-    'NOC & Operations':                 (RGBColor(0x1D, 0x4E, 0xD8), '1E3A5F'),
-    'Finance & Billing':                (RGBColor(0x05, 0x7A, 0x55), '064E3B'),
-    'Commercial & Client Management':   (RGBColor(0x60, 0x27, 0xD3), '3730A3'),
-    'Fraud & Security':                 (RGBColor(0xBE, 0x12, 0x3C), '881337'),
-    'Analytics & Business Intelligence':(RGBColor(0xD9, 0x7B, 0x06), '78350F'),
-    'Engineering & Infrastructure':     (RGBColor(0x0F, 0x76, 0x6E), '134E4A'),
-    'UX & Platform':                    (RGBColor(0x6B, 0x72, 0x80), '374151'),
+    'NOC & Operations':                  (C_CYAN,      BG_NAVY_MID),
+    'Finance & Billing':                 (C_GREEN,     '063B2A'),
+    'Commercial & Client Management':    (C_CYAN_SOFT, '0D2A4A'),
+    'Fraud & Security':                  (C_ROSE,      '3B0A1A'),
+    'Analytics & Business Intelligence': (C_AMBER,     '3B2200'),
+    'Engineering & Infrastructure':      (C_TEAL,      '053030'),
+    'UX & Platform':                     (C_MID,       '1A2535'),
 }
 
 def set_cell_bg(cell, hex_colour):
@@ -47,7 +57,7 @@ def set_cell_bg(cell, hex_colour):
     shd.set(qn('w:fill'), hex_colour)
     tcPr.append(shd)
 
-def add_heading(doc, text, level=1, colour=None, size=None, bold=True, space_before=12, space_after=6):
+def add_heading(doc, text, level=1, colour=None, size=None, bold=True, space_before=14, space_after=6):
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(space_before)
     p.paragraph_format.space_after  = Pt(space_after)
@@ -58,7 +68,7 @@ def add_heading(doc, text, level=1, colour=None, size=None, bold=True, space_bef
         run.font.color.rgb = colour
     return p
 
-def add_body(doc, text, size=10, colour=None, space_before=2, space_after=4, indent=0):
+def add_body(doc, text, size=10, colour=None, space_before=2, space_after=5, indent=0):
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(space_before)
     p.paragraph_format.space_after  = Pt(space_after)
@@ -66,41 +76,77 @@ def add_body(doc, text, size=10, colour=None, space_before=2, space_after=4, ind
         p.paragraph_format.left_indent = Cm(indent)
     run = p.add_run(text)
     run.font.size = Pt(size)
-    if colour:
-        run.font.color.rgb = colour
+    run.font.color.rgb = colour or C_SLATE
     return p
 
 def add_bullet(doc, text, size=10, colour=None):
     p = doc.add_paragraph(style='List Bullet')
     p.paragraph_format.space_before = Pt(1)
-    p.paragraph_format.space_after  = Pt(2)
+    p.paragraph_format.space_after  = Pt(3)
     run = p.add_run(text)
     run.font.size = Pt(size)
-    if colour:
-        run.font.color.rgb = colour
+    run.font.color.rgb = colour or C_SLATE
     return p
 
-def add_rule(doc):
+def add_rule(doc, colour=None):
     p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(4)
-    p.paragraph_format.space_after  = Pt(4)
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after  = Pt(6)
     run = p.add_run('─' * 110)
     run.font.size = Pt(7)
-    run.font.color.rgb = RGBColor(0xD1, 0xD5, 0xDB)
+    run.font.color.rgb = colour or C_DIM
     return p
+
+def add_section_banner(doc, title, subtitle=None):
+    """Full-width dark navy banner with cyan title — Bitsauto brand style."""
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(16)
+    p.paragraph_format.space_after  = Pt(0)
+    r1 = p.add_run(f'  {title}')
+    r1.bold = True
+    r1.font.size = Pt(13)
+    r1.font.color.rgb = C_CYAN
+    # Shade the paragraph background
+    pPr = p._p.get_or_add_pPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), BG_NAVY_MID)
+    pPr.append(shd)
+    if subtitle:
+        p2 = doc.add_paragraph()
+        p2.paragraph_format.space_before = Pt(0)
+        p2.paragraph_format.space_after  = Pt(8)
+        r2 = p2.add_run(f'  {subtitle}')
+        r2.font.size = Pt(9)
+        r2.italic = True
+        r2.font.color.rgb = C_MID
+        pPr2 = p2._p.get_or_add_pPr()
+        shd2 = OxmlElement('w:shd')
+        shd2.set(qn('w:val'), 'clear')
+        shd2.set(qn('w:color'), 'auto')
+        shd2.set(qn('w:fill'), BG_NAVY_MID)
+        pPr2.append(shd2)
+    else:
+        doc.add_paragraph().paragraph_format.space_after = Pt(8)
 
 def add_dept_banner(doc, dept_name):
     colour, bg = DEPT_COLORS[dept_name]
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(14)
     p.paragraph_format.space_after  = Pt(5)
-    run = p.add_run(f'  ▌  {dept_name.upper()}  ')
+    run = p.add_run(f'  ▌  {dept_name.upper()}')
     run.bold = True
-    run.font.size = Pt(12)
+    run.font.size = Pt(11)
     run.font.color.rgb = colour
-    return p
+    pPr = p._p.get_or_add_pPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), bg)
+    pPr.append(shd)
 
-def make_table(doc, headers, rows, col_widths=None, header_bg='1E3A5F'):
+def make_table(doc, headers, rows, col_widths=None, header_bg=BG_NAVY_MID):
     table = doc.add_table(rows=1 + len(rows), cols=len(headers))
     table.style = 'Table Grid'
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
@@ -110,30 +156,33 @@ def make_table(doc, headers, rows, col_widths=None, header_bg='1E3A5F'):
         set_cell_bg(cell, header_bg)
         cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         p = cell.paragraphs[0]
-        p.paragraph_format.space_before = Pt(3)
-        p.paragraph_format.space_after  = Pt(3)
+        p.paragraph_format.space_before = Pt(4)
+        p.paragraph_format.space_after  = Pt(4)
         run = p.add_run(h)
         run.bold = True
         run.font.size = Pt(9)
-        run.font.color.rgb = C_WHITE
+        run.font.color.rgb = C_CYAN
     for ri, row in enumerate(rows):
         tr = table.rows[ri + 1]
-        bg = 'F3F4F6' if ri % 2 == 0 else 'FFFFFF'
+        bg = BG_NAVY_CARD if ri % 2 == 0 else BG_NAVY_MID
         for ci, cell_text in enumerate(row):
             cell = tr.cells[ci]
             set_cell_bg(cell, bg)
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
             p = cell.paragraphs[0]
-            p.paragraph_format.space_before = Pt(2)
-            p.paragraph_format.space_after  = Pt(2)
+            p.paragraph_format.space_before = Pt(3)
+            p.paragraph_format.space_after  = Pt(3)
             run = p.add_run(str(cell_text))
             run.font.size = Pt(9)
-            if cell_text in ('LIVE', '✅ LIVE'):
-                run.font.color.rgb = C_EMERALD; run.bold = True
-            elif cell_text in ('PARTIAL', '⚠️ PARTIAL'):
+            s = str(cell_text)
+            if s in ('LIVE', '✅ LIVE'):
+                run.font.color.rgb = C_GREEN; run.bold = True
+            elif s in ('PARTIAL', '⚠️ PARTIAL'):
                 run.font.color.rgb = C_AMBER; run.bold = True
-            elif 'NOT BUILT' in str(cell_text) or 'REMAINING' in str(cell_text):
+            elif 'NOT BUILT' in s or 'REMAINING' in s:
                 run.font.color.rgb = C_ROSE; run.bold = True
+            else:
+                run.font.color.rgb = C_LIGHT
     if col_widths:
         for i, w in enumerate(col_widths):
             for row in table.rows:
@@ -146,24 +195,28 @@ def make_table(doc, headers, rows, col_widths=None, header_bg='1E3A5F'):
 # COVER PAGE
 # ════════════════════════════════════════════════════════════════════════════
 p = doc.add_paragraph()
-p.paragraph_format.space_before = Pt(36)
-run = p.add_run('BITSAUTO')
-run.bold = True; run.font.size = Pt(38)
-run.font.color.rgb = C_AMBER
+p.paragraph_format.space_before = Pt(32)
+r_brand = p.add_run('BITSAUTO')
+r_brand.bold = True; r_brand.font.size = Pt(42)
+r_brand.font.color.rgb = C_CYAN
+
+r_rest = p.add_run('  MONITORING PLATFORM')
+r_rest.bold = True; r_rest.font.size = Pt(42)
+r_rest.font.color.rgb = C_WHITE
 
 p2 = doc.add_paragraph()
-run2 = p2.add_run('VoIP Monitoring Platform')
-run2.bold = True; run2.font.size = Pt(26); run2.font.color.rgb = C_DARK
+r2 = p2.add_run('Department-Categorised Implementation Status & Roadmap Report')
+r2.bold = True; r2.font.size = Pt(18); r2.font.color.rgb = C_GOLD
 
 p3 = doc.add_paragraph()
-run3 = p3.add_run('Department-Categorised Implementation Status & Roadmap Report')
-run3.font.size = Pt(14); run3.font.color.rgb = C_GREY
+r3 = p3.add_run('Volume 1 Complete  ·  Volume 2 In Progress  ·  Volume 3 Proposals  ·  May 2026')
+r3.font.size = Pt(11); r3.font.color.rgb = C_CYAN_SOFT
 
 p4 = doc.add_paragraph()
-run4 = p4.add_run('NOC  ·  Finance & Billing  ·  Commercial  ·  Fraud & Security  ·  Analytics  ·  Engineering')
-run4.font.size = Pt(11); run4.font.color.rgb = RGBColor(0x9C, 0xA3, 0xAF)
+r4 = p4.add_run('NOC  ·  Finance & Billing  ·  Commercial  ·  Fraud & Security  ·  Analytics  ·  Engineering')
+r4.font.size = Pt(10); r4.font.color.rgb = C_MID
 
-add_rule(doc)
+add_rule(doc, C_CYAN)
 
 for k, v in [
     ('Report Date',    '15 May 2026'),
@@ -175,17 +228,17 @@ for k, v in [
 ]:
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(2); p.paragraph_format.space_after = Pt(2)
-    r1 = p.add_run(f'{k}:  '); r1.bold = True; r1.font.size = Pt(10)
-    r2 = p.add_run(v); r2.font.size = Pt(10); r2.font.color.rgb = C_GREY
+    r1 = p.add_run(f'{k}:  '); r1.bold = True; r1.font.size = Pt(10); r1.font.color.rgb = C_CYAN_SOFT
+    r2 = p.add_run(v); r2.font.size = Pt(10); r2.font.color.rgb = C_SLATE
 
-add_rule(doc)
+add_rule(doc, C_CYAN)
 doc.add_page_break()
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # SECTION 1 — EXECUTIVE SUMMARY
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '1.  Executive Summary', 1, C_DARK)
+add_section_banner(doc, '1.  EXECUTIVE SUMMARY', 'Platform overview and delivery status')
 add_body(doc, (
     'The BitsAuto VoIP Monitoring Platform is a production-grade NOC dashboard built for Sippy '
     'Softswitch deployments. It delivers real-time call-quality monitoring, telecom KPI tracking, '
@@ -203,15 +256,15 @@ add_body(doc, (
 make_table(doc,
     ['Scope', 'Total Features', 'Live', 'Partial', 'Not Yet Built'],
     [
-        ['Volume 1 — Core Platform',              '24', '24  (100 %)', '0',         '0'],
-        ['Volume 2 — Extended Features',          '24', '9   (38 %)',  '5  (21 %)', '10  (42 %)'],
-        ['Volume 3 — New Proposals (this report)','20', '—',           '—',         '20  (0 % started)'],
-        ['TOTAL',                                 '68', '33',           '5',         '30'],
+        ['Volume 1 — Core Platform',               '24', '24  (100 %)', '0',         '0'],
+        ['Volume 2 — Extended Features',           '24', '9   (38 %)',  '5  (21 %)', '10  (42 %)'],
+        ['Volume 3 — New Proposals (this report)', '20', '—',           '—',         '20  (0 % started)'],
+        ['TOTAL',                                  '68', '33',          '5',         '30'],
     ],
     col_widths=[6.0, 3.0, 3.2, 3.0, 3.2]
 )
 
-add_heading(doc, 'Feature Count by Department', 2, C_DARK, size=12, space_before=14)
+add_heading(doc, 'Feature Count by Department', 2, C_CYAN, size=11, space_before=12)
 make_table(doc,
     ['Department', 'Vol 1 (Live)', 'Vol 2 Live', 'Vol 2 Partial', 'Vol 2 Not Built', 'Vol 3 Proposals'],
     [
@@ -231,10 +284,9 @@ doc.add_page_break()
 # ════════════════════════════════════════════════════════════════════════════
 # SECTION 2 — DEPARTMENT-BY-DEPARTMENT FEATURE OVERVIEW
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '2.  All Features by Department', 1, C_DARK)
+add_section_banner(doc, '2.  ALL FEATURES BY DEPARTMENT', 'Status key:  ✅ LIVE  |  ⚠️ PARTIAL  |  ❌ NOT BUILT')
 add_body(doc, (
-    'This section presents every Vol 1 and Vol 2 feature grouped by the operational team that '
-    'uses or benefits from it most. Status key:  ✅ LIVE  |  ⚠️ PARTIAL  |  ❌ NOT BUILT'
+    'Every Vol 1 and Vol 2 feature is grouped below by the operational team that uses or benefits from it most.'
 ), 10)
 
 dept_features = [
@@ -319,8 +371,7 @@ doc.add_page_break()
 # ════════════════════════════════════════════════════════════════════════════
 # SECTION 3 — 14-DAY ACTIVITY LOG
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '3.  Development Activity Log — 1 May to 15 May 2026', 1, C_DARK)
-add_body(doc, 'Chronological record of all significant work completed in the two weeks leading up to this report.', 10)
+add_section_banner(doc, '3.  DEVELOPMENT ACTIVITY LOG — 1 MAY TO 15 MAY 2026', 'Chronological record of all significant work completed')
 
 activity = [
     ('15 May 2026', 'Client Wizard — Complete 5-Step UX Overhaul', 'Commercial & Client Management', [
@@ -397,23 +448,22 @@ for date, title, dept, bullets in activity:
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(12); p.paragraph_format.space_after = Pt(0)
     r1 = p.add_run(f'{date}  —  {title}')
-    r1.bold = True; r1.font.size = Pt(11); r1.font.color.rgb = C_BLUE
+    r1.bold = True; r1.font.size = Pt(11); r1.font.color.rgb = C_CYAN
     p2 = doc.add_paragraph()
     p2.paragraph_format.space_before = Pt(0); p2.paragraph_format.space_after = Pt(3)
-    dept_colour = DEPT_COLORS.get(dept, (C_GREY, '374151'))[0]
+    dept_colour = DEPT_COLORS.get(dept, (C_MID, BG_NAVY_MID))[0]
     r2 = p2.add_run(f'  [ {dept} ]')
     r2.italic = True; r2.font.size = Pt(9); r2.font.color.rgb = dept_colour
     for b in bullets:
-        add_bullet(doc, b, 9.5)
+        add_bullet(doc, b, 9.5, C_SLATE)
 
 doc.add_page_break()
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 4 — VOLUME 1 STATUS (with Department column)
+# SECTION 4 — VOLUME 1 STATUS
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '4.  Volume 1 — Full Feature Status  (All 24 Features, by Department)', 1, C_DARK)
-add_body(doc, 'All 24 features across Tiers 1–5 are confirmed live as of 15 May 2026.', 10)
+add_section_banner(doc, '4.  VOLUME 1 — FULL FEATURE STATUS  (All 24 Features, by Department)', 'All 24 features across Tiers 1–5 are confirmed live as of 15 May 2026')
 
 v1_rows = [
     ['T1', '1',  'NOC & Operations',                 'Live Call Quality Monitoring — MOS, Jitter, Latency, Packet Loss', 'LIVE', 'Real-time WebSocket metrics, threshold alerts, per-call history'],
@@ -451,12 +501,10 @@ doc.add_page_break()
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 5 — VOLUME 2 STATUS (with Department column)
+# SECTION 5 — VOLUME 2 STATUS
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '5.  Volume 2 — Extended Feature Status  (All 24 Features, by Department)', 1, C_DARK)
-add_body(doc, (
-    'Volume 2 was proposed 14 April 2026. 9 of 24 are fully live, 5 partially implemented, 10 not yet started.'
-), 10)
+add_section_banner(doc, '5.  VOLUME 2 — EXTENDED FEATURE STATUS  (All 24 Features, by Department)',
+                   '9 fully live · 5 partially implemented · 10 not yet started')
 
 v2_rows = [
     ['NOC & Operations',                  '1',  'Jitter & Packet Loss Monitor',          '⚠️ PARTIAL',    '/rtp-analytics exists. Missing: per-carrier trend chart, jitter col in Live Calls'],
@@ -493,16 +541,13 @@ doc.add_page_break()
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 6 — FEATURES REMAINING (by Department)
+# SECTION 6 — FEATURES REMAINING
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '6.  Features Remaining to Complete — by Department', 1, C_DARK)
-add_body(doc, (
-    'The 15 items below are either unstarted or have meaningful gaps. '
-    'Listed within each department in recommended build order.'
-), 10)
+add_section_banner(doc, '6.  FEATURES REMAINING TO COMPLETE — BY DEPARTMENT',
+                   '15 items either unstarted or with meaningful gaps — listed in recommended build order')
 
 remaining_by_dept = [
-    ('NOC & Operations', C_BLUE, '1E3A5F', [
+    ('NOC & Operations', C_CYAN, BG_NAVY_MID, [
         ('MOS Score Trending & Quality Reports',
          'Vol 1 #4 (gap)  |  Effort: Medium  |  Value: High',
          'The platform shows real-time MOS per call but lacks historical analysis. '
@@ -517,14 +562,14 @@ remaining_by_dept = [
          'exceed 2 standard deviations above the baseline. Distinguish business-hours peak from a 3 AM spike. '
          'Display anomaly timeline overlay on the Graphs page.'),
     ]),
-    ('Finance & Billing', C_EMERALD, '064E3B', [
+    ('Finance & Billing', C_GREEN, '063B2A', [
         ('Billing Report Generator — PDF / Excel',
          'Vol 1 #12  |  Effort: Medium  |  Value: High',
          'Select client + billing period + rate card → aggregate CDRs by destination, apply rates, produce '
          'a formatted invoice with: summary totals (minutes, cost per destination group) and an itemised '
          'CDR attachment. Export as PDF (with company logo) or Excel. Send directly from within the app.'),
     ]),
-    ('Fraud & Security', C_ROSE, '881337', [
+    ('Fraud & Security', C_ROSE, '3B0A1A', [
         ('Fraud Velocity Scoring',
          'Vol 2 #12  |  Effort: Medium  |  Value: Critical',
          'Real-time multi-signal risk score (0–100) per account. Score components: destination risk level, '
@@ -546,7 +591,7 @@ remaining_by_dept = [
          'Optional auto-disconnect: terminate the oldest excess call via XML-RPC. '
          'Limit breach history log per account.'),
     ]),
-    ('Analytics & Business Intelligence', C_AMBER, '78350F', [
+    ('Analytics & Business Intelligence', C_AMBER, '3B2200', [
         ('CDR Anomaly Detector — Statistical',
          'Vol 2 #20  |  Effort: Medium  |  Value: High',
          'Nightly backend job comparing previous day\'s CDRs against rolling 30-day per-account baseline. '
@@ -569,7 +614,7 @@ remaining_by_dept = [
          'Show transcoding rate per carrier. Flag vendors forcing costly transcode paths. '
          'Note: requires Sippy instance to expose codec field in CDR API — verify before building.'),
     ]),
-    ('Engineering & Infrastructure', C_TEAL, '134E4A', [
+    ('Engineering & Infrastructure', C_TEAL, '053030', [
         ('SIP Registration Database & Viewer',
          'Vol 2 #21  |  Effort: Low  |  Value: Medium',
          'A searchable real-time list of all currently registered SIP endpoints pulled from Sippy. '
@@ -586,7 +631,7 @@ remaining_by_dept = [
          'QR code enrollment flow on first login after 2FA is enabled. '
          'Recovery codes generated at enrollment. Admin can enforce 2FA for all Admin/Management roles.'),
     ]),
-    ('UX & Platform', C_GREY, '374151', [
+    ('UX & Platform', C_MID, '1A2535', [
         ('Scheduled Report Delivery',
          'Vol 1 #13  |  Effort: Low  |  Value: High',
          'Automated cron-style delivery of daily/weekly/monthly reports. '
@@ -610,7 +655,7 @@ for dept_name, colour, bg, items in remaining_by_dept:
         p = doc.add_paragraph()
         p.paragraph_format.space_before = Pt(6); p.paragraph_format.space_after = Pt(0)
         r = p.add_run(f'  {title}')
-        r.bold = True; r.font.size = Pt(10); r.font.color.rgb = C_DARK
+        r.bold = True; r.font.size = Pt(10); r.font.color.rgb = C_WHITE
         p2 = doc.add_paragraph()
         p2.paragraph_format.space_before = Pt(0); p2.paragraph_format.space_after = Pt(1)
         p2.paragraph_format.left_indent = Cm(0.8)
@@ -620,23 +665,19 @@ for dept_name, colour, bg, items in remaining_by_dept:
         p3.paragraph_format.space_before = Pt(1); p3.paragraph_format.space_after = Pt(8)
         p3.paragraph_format.left_indent = Cm(0.8)
         r3 = p3.add_run(detail)
-        r3.font.size = Pt(9.5); r3.font.color.rgb = C_GREY
+        r3.font.size = Pt(9.5); r3.font.color.rgb = C_SLATE
 
 doc.add_page_break()
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 7 — VOLUME 3: NEW FEATURE PROPOSALS (by Department)
+# SECTION 7 — VOLUME 3: NEW FEATURE PROPOSALS
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '7.  Volume 3 — New Feature Proposals by Department  (20 New Features)', 1, C_DARK)
-add_body(doc, (
-    'The following 20 features are proposed for the first time in this report. None appear in '
-    'Volume 1 or Volume 2. They address gaps observed during platform operation, enterprise buyer '
-    'requirements, and competitive parity with commercial VoIP NOC platforms.'
-), 10)
+add_section_banner(doc, '7.  VOLUME 3 — NEW FEATURE PROPOSALS BY DEPARTMENT  (20 New Features)',
+                   'First-time proposals addressing operational gaps, enterprise requirements, and competitive parity')
 
 v3_sections = [
-    ('NOC & Operations', C_BLUE, '1E3A5F', [
+    ('NOC & Operations', C_CYAN, BG_NAVY_MID, [
         ('AI-Powered NOC Assistant (LLM Chat)',
          'Critical', 'High',
          'A conversational interface NOC engineers query in plain English: '
@@ -645,7 +686,7 @@ v3_sections = [
          'Powered by an LLM with read access to the platform data API. '
          'Provides plain-language incident summaries and suggests remediation actions.'),
     ]),
-    ('Finance & Billing', C_EMERALD, '064E3B', [
+    ('Finance & Billing', C_GREEN, '063B2A', [
         ('Automated Invoice Delivery & Payment Collection',
          'High', 'High',
          'Generate PDF invoices at billing cycle end and email them to the client automatically. '
@@ -667,7 +708,7 @@ v3_sections = [
          'Content: total minutes, revenue, gross margin, top 10 destinations by volume, '
          'fraud events count, carrier quality league table, and month-over-month trend spark charts.'),
     ]),
-    ('Commercial & Client Management', C_VIOLET, '3730A3', [
+    ('Commercial & Client Management', C_CYAN_SOFT, '0D2A4A', [
         ('Client Self-Service Portal — White-Label',
          'Critical', 'High',
          'A fully white-labeled web portal that end-clients log into with their own branding. '
@@ -685,7 +726,7 @@ v3_sections = [
          'had repeated quality incidents. Generates a churn risk score per client (updated daily). '
          'KAM dashboard surfaces "At Risk" clients with one-click outreach suggestion.'),
     ]),
-    ('Fraud & Security', C_ROSE, '881337', [
+    ('Fraud & Security', C_ROSE, '3B0A1A', [
         ('Zero-Trust Access Model',
          'High', 'High',
          'Every API call validated not just by role but by registered device, IP range, and time-of-day. '
@@ -702,7 +743,7 @@ v3_sections = [
          'Platform auto-fills evidence for controls it can verify (audit log present, MFA enforced, '
          'encryption at rest). Exports a compliance readiness PDF for auditors.'),
     ]),
-    ('Analytics & Business Intelligence', C_AMBER, '78350F', [
+    ('Analytics & Business Intelligence', C_AMBER, '3B2200', [
         ('Automated Route Optimisation Recommendations',
          'High', 'Medium',
          'Analyses current routing priorities, carrier MOS/ASR trends, and rate card margins to '
@@ -717,8 +758,13 @@ v3_sections = [
          'Medium', 'Medium',
          'Enhanced version of Vol 2 #18 — adds drill-down to per-carrier breakdown per country, '
          'QBR slide export, and revenue-vs-cost toggle with margin overlay.'),
+        ('CDR Anomaly Detector (enhanced — Vol 3)',
+         'High', 'Medium',
+         'Extends Vol 2 #20 with real-time anomaly detection (not just nightly): streaming 15-minute '
+         'window analysis with instant NOC alert when any account deviates from its rolling baseline '
+         'by more than 3σ. Feeds directly into the AI NOC Assistant context.'),
     ]),
-    ('Engineering & Infrastructure', C_TEAL, '134E4A', [
+    ('Engineering & Infrastructure', C_TEAL, '053030', [
         ('SBC / Firewall Rule Sync',
          'High', 'Medium',
          'When a new IP is approved in BitsAuto, push the firewall rule automatically via API '
@@ -770,11 +816,8 @@ doc.add_page_break()
 # ════════════════════════════════════════════════════════════════════════════
 # SECTION 8 — FULL PRIORITY MATRIX
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '8.  Combined Priority Matrix — All 35 Remaining & Proposed Features', 1, C_DARK)
-add_body(doc, (
-    'Unified priority view combining Volume 2 remaining items and Volume 3 new proposals, '
-    'organised into 5 recommended build sprints with department labelling.'
-), 10)
+add_section_banner(doc, '8.  COMBINED PRIORITY MATRIX — ALL 35 REMAINING & PROPOSED FEATURES',
+                   '5 recommended build sprints with department labelling')
 
 priority_rows = [
     ['S1 — Now',  'NOC & Operations',                 'Vol 2 Gap', 'Traffic Anomaly Detector (baseline)',        'High',     'Medium', 'Catch toll fraud earlier than threshold alerts'],
@@ -824,13 +867,13 @@ doc.add_page_break()
 # ════════════════════════════════════════════════════════════════════════════
 # SECTION 9 — ARCHITECTURE & STACK
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '9.  Architecture & Stack Reference', 1, C_DARK)
+add_section_banner(doc, '9.  ARCHITECTURE & STACK REFERENCE')
 
 make_table(doc,
     ['Layer', 'Technology', 'Notes'],
     [
         ['Frontend',    'React 18 + Vite + TailwindCSS v3',  'SPA; shadcn/ui components; Wouter routing; TanStack Query v5'],
-        ['Backend',     'Node.js 20 + Express + TypeScript', 'server/routes.ts (~7,800+ lines); staggered background jobs'],
+        ['Backend',     'Node.js 20 + Express + TypeScript', 'server/routes.ts (~22,000+ lines); staggered background jobs'],
         ['Database',    'PostgreSQL via Drizzle ORM',         'shared/schema.ts; createInsertSchema from drizzle-zod; Neon'],
         ['Auth',        'Replit OpenID Connect (OIDC)',       'Server-side sessions; requireRole() guard on all protected routes'],
         ['Sippy API',   'XML-RPC over HTTPS + HTTP Digest',  'RFC-2617 2-step probe+auth; server/sippy.ts; creds pair rotation'],
@@ -840,16 +883,16 @@ make_table(doc,
         ['Security',    'Helmet.js + express-rate-limit',     '300/15min general; 20/15min auth; CSP + XSS protection headers'],
     ],
     col_widths=[2.8, 4.8, 8.4],
-    header_bg='1E3A5F'
+    header_bg=BG_NAVY_MID
 )
 
-add_heading(doc, 'Key Source Files', 2, C_DARK, size=11, space_before=12)
-for path, desc in [
-    ('server/routes.ts',                       '~7,800 lines — all Express routes, Sippy integration, background polling jobs'),
+add_heading(doc, 'Key Source Files', 2, C_CYAN, size=11, space_before=12)
+for fpath, desc in [
+    ('server/routes.ts',                       '~22,000+ lines — all Express routes, Sippy integration, background polling jobs'),
     ('server/sippy.ts',                        'Sippy XML-RPC client; sippyXmlCredsPairs(); credential swap resilience'),
     ('server/storage.ts',                      'IStorage interface + DatabaseStorage implementation (all DB operations)'),
     ('shared/schema.ts',                       'Drizzle schema, Zod insert schemas, TypeScript select types for all tables'),
-    ('client/src/pages/dashboard.tsx',         'NOC dashboard (~1,490 lines) — all real-time KPI and quality widgets'),
+    ('client/src/pages/dashboard.tsx',         'NOC dashboard — all real-time KPI and quality widgets'),
     ('client/src/components/layout-shell.tsx', 'Sidebar, mobile hamburger nav, command bar (Ctrl+K), theme toggle'),
     ('client/src/pages/client-wizard.tsx',     'Full 5-step client provisioning wizard (major overhaul — May 2026)'),
     ('client/src/pages/company-list.tsx',      'Company list with KAM filter pills + CompanyInfoDialog popup'),
@@ -857,10 +900,10 @@ for path, desc in [
 ]:
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(2); p.paragraph_format.space_after = Pt(2)
-    r1 = p.add_run(f'  {path}  ')
-    r1.bold = True; r1.font.size = Pt(9.5); r1.font.color.rgb = C_VIOLET
+    r1 = p.add_run(f'  {fpath}  ')
+    r1.bold = True; r1.font.size = Pt(9.5); r1.font.color.rgb = C_CYAN_SOFT
     r2 = p.add_run(f'— {desc}')
-    r2.font.size = Pt(9.5); r2.font.color.rgb = C_GREY
+    r2.font.size = Pt(9.5); r2.font.color.rgb = C_SLATE
 
 doc.add_page_break()
 
@@ -868,8 +911,8 @@ doc.add_page_break()
 # ════════════════════════════════════════════════════════════════════════════
 # SECTION 10 — CONSTRAINTS & GOTCHAS
 # ════════════════════════════════════════════════════════════════════════════
-add_heading(doc, '10.  Important Constraints & Known Gotchas', 1, C_DARK)
-add_body(doc, 'Engineering notes that every developer working on this platform must know before making changes.', 10)
+add_section_banner(doc, '10.  IMPORTANT CONSTRAINTS & KNOWN GOTCHAS',
+                   'Engineering notes every developer must know before making changes')
 
 gotchas = [
     ('Sippy Credential Mapping',
@@ -914,21 +957,21 @@ gotchas = [
 for title, detail in gotchas:
     p = doc.add_paragraph()
     p.paragraph_format.space_before = Pt(6); p.paragraph_format.space_after = Pt(1)
-    r = p.add_run(f'  \u26a0  {title}')
+    r = p.add_run(f'  ⚠  {title}')
     r.bold = True; r.font.size = Pt(10); r.font.color.rgb = C_AMBER
     p2 = doc.add_paragraph()
     p2.paragraph_format.space_before = Pt(0); p2.paragraph_format.space_after = Pt(8)
     p2.paragraph_format.left_indent = Cm(0.8)
     r2 = p2.add_run(detail)
-    r2.font.size = Pt(9.5); r2.font.color.rgb = C_GREY
+    r2.font.size = Pt(9.5); r2.font.color.rgb = C_SLATE
 
-add_rule(doc)
+add_rule(doc, C_CYAN)
 p_foot = doc.add_paragraph()
 p_foot.alignment = WD_ALIGN_PARAGRAPH.CENTER
 r_foot = p_foot.add_run(
-    'BitsAuto VoIP Monitoring Platform  \u00b7  Department-Categorised Status & Roadmap Report  \u00b7  15 May 2026  \u00b7  Confidential'
+    'BitsAuto Monitoring Platform  \u00b7  Department-Categorised Status & Roadmap Report  \u00b7  May 2026  \u00b7  Confidential'
 )
-r_foot.font.size = Pt(8.5); r_foot.font.color.rgb = C_GREY
+r_foot.font.size = Pt(8.5); r_foot.font.color.rgb = C_MID
 
 
 # ── Save ─────────────────────────────────────────────────────────────────────

@@ -7,16 +7,23 @@ import {
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 
-// ── Colour constants ──────────────────────────────────────────────────────────
-const DARK_BG   = '1A1A2E';
-const ACCENT    = '00D4FF';
-const GREEN     = '00C853';
-const ORANGE    = 'FF6D00';
-const RED_C     = 'D32F2F';
-const WHITE     = 'FFFFFF';
-const LIGHT_GY  = 'F5F5F5';
-const MID_GY    = 'BDBDBD';
-const DARK_GY   = '424242';
+// ── Bitsauto Brand Colour Palette ─────────────────────────────────────────────
+const NAVY       = '0A1628';   // deepest background
+const NAVY_MID   = '0D2040';   // table header / section banner bg
+const NAVY_CARD  = '112240';   // card / info-row bg
+const CYAN       = '00D4FF';   // primary accent — Bitsauto brand cyan
+const CYAN_SOFT  = '38BDF8';   // secondary cyan for sub-headers
+const TEAL       = '14B8A6';   // feature row labels
+const GREEN      = '10B981';   // COMPLETE / success
+const AMBER      = 'F59E0B';   // PARTIAL / warning
+const ROSE       = 'F43F5E';   // PENDING / danger
+const GOLD       = 'FFD700';   // accent numbers / tier callouts
+const WHITE      = 'FFFFFF';
+const LIGHT      = 'E2E8F0';   // body text
+const SLATE      = 'CBD5E1';   // secondary body text
+const MID        = '94A3B8';   // muted text
+const DIM        = '475569';   // very muted / borders
+const DIVIDER_C  = '1E3A5F';   // subtle horizontal rule colour
 
 function hex(c: string) { return c.replace('#', ''); }
 
@@ -75,7 +82,6 @@ const FEATURES: { tier: number; id: number; name: string; status: 'COMPLETE' | '
 ];
 
 const BUG_FIXES = [
-  // Original fixes
   'Fixed: analyticsData.summary optional-chaining crash on dashboard load',
   'Fixed: IIFE inside JSX (TDZ ReferenceError in Rollup production builds) in rate-cards.tsx, layout-shell.tsx, and dashboard.tsx',
   'Fixed: vendorOptions TDZ — const used before declaration in same function scope',
@@ -86,66 +92,144 @@ const BUG_FIXES = [
   'Fixed: formatInTz RangeError "Invalid time zone" — arguments were swapped (tz passed as pattern, pattern as tz).',
   'Fixed: Traffic Map shows no coloured countries — normaliseCountryName() strips operator suffix, aggregates sub-destinations per country.',
   'Fixed: CK drill-down hours param ignored — /api/sippy/ck-drilldown accepts ?hours=1–24; frontend chips wired to query key.',
-  // May 2026 session fixes
-  'Fixed: BitsEye LIVE/DAILY/WEEKLY semantic drift — CDR accounting totals had replaced concurrent session snapshots in all entity graphs. Restored entityConcurrentHistory (raw) for LIVE and concurrent_snapshots DB (MAX per bucket) for DAILY/WEEKLY.',
-  'Fixed: BitsEye LIVE+CALLS context banner claimed DAILY shows "CDR totals" — corrected to accurately describe DAILY as 72h concurrent trend with 1h MAX buckets.',
-  'Fixed: Client Portal Total Calls=0 — global 200-record CDR cap excluded low-traffic accounts from /api/portal/view. Now uses per-account cdrCache slice as primary source.',
-  'Fixed: Sippy createAccount "Fatal error" (faultCode 501) when translation_rule format unsupported — new translation-rule strip cascade retries without translation_rule/cli_translation_rule before failing.',
-  'Fixed: Portal Overview tab showed no live data — /api/portal/view now embeds liveActiveCalls, liveConnectedCalls, liveRoutingCalls, liveConnectRate, clientHistory in response.',
+  'Fixed: BitsEye LIVE/DAILY/WEEKLY semantic drift — CDR accounting totals had replaced concurrent session snapshots in all entity graphs.',
+  'Fixed: BitsEye LIVE+CALLS context banner claimed DAILY shows "CDR totals" — corrected to accurately describe DAILY as 72h concurrent trend.',
+  'Fixed: Client Portal Total Calls=0 — global 200-record CDR cap excluded low-traffic accounts from /api/portal/view.',
+  'Fixed: Sippy createAccount "Fatal error" (faultCode 501) when translation_rule format unsupported — new translation-rule strip cascade retries.',
+  'Fixed: Portal Overview tab showed no live data — /api/portal/view now embeds full live call metrics in response.',
 ];
 
 // ── Helper builders ───────────────────────────────────────────────────────────
+
+function sectionBanner(text: string): Paragraph {
+  return new Paragraph({
+    spacing: { before: 360, after: 0 },
+    shading: { type: ShadingType.SOLID, color: hex(NAVY_MID), fill: hex(NAVY_MID) },
+    children: [
+      new TextRun({ text: '  ' }),
+      new TextRun({ text, color: CYAN, bold: true, size: 26 }),
+    ],
+  });
+}
+
+function sectionBannerSub(text: string): Paragraph {
+  return new Paragraph({
+    spacing: { before: 0, after: 200 },
+    shading: { type: ShadingType.SOLID, color: hex(NAVY_MID), fill: hex(NAVY_MID) },
+    children: [
+      new TextRun({ text: '  ' }),
+      new TextRun({ text, color: SLATE, size: 18 }),
+    ],
+  });
+}
+
 function heading(text: string, level: HeadingLevel, colorHex = WHITE) {
+  const sz = level === HeadingLevel.HEADING_1 ? 40 : level === HeadingLevel.HEADING_2 ? 30 : 24;
   return new Paragraph({
     heading: level,
-    spacing: { before: level === HeadingLevel.HEADING_1 ? 400 : 280, after: 120 },
-    children: [new TextRun({ text, color: colorHex, bold: true, size: level === HeadingLevel.HEADING_1 ? 36 : level === HeadingLevel.HEADING_2 ? 28 : 24 })],
+    spacing: { before: level === HeadingLevel.HEADING_1 ? 480 : 320, after: 140 },
+    children: [new TextRun({ text, color: colorHex, bold: true, size: sz })],
   });
 }
 
 function para(text: string, opts: { bold?: boolean; color?: string; size?: number; indent?: number; spacing?: number } = {}) {
   return new Paragraph({
     indent: opts.indent ? { left: opts.indent } : undefined,
-    spacing: { after: opts.spacing ?? 80 },
-    children: [new TextRun({ text, bold: opts.bold, color: opts.color ?? MID_GY, size: opts.size ?? 20 })],
+    spacing: { after: opts.spacing ?? 100 },
+    children: [new TextRun({ text, bold: opts.bold, color: opts.color ?? SLATE, size: opts.size ?? 20 })],
   });
 }
 
-function bullet(text: string, color = MID_GY) {
+function bullet(text: string, color = SLATE) {
   return new Paragraph({
     bullet: { level: 0 },
-    spacing: { after: 60 },
+    spacing: { after: 70 },
     children: [new TextRun({ text, color, size: 19 })],
   });
 }
 
 function divider() {
   return new Paragraph({
-    border: { bottom: { color: DARK_GY, style: BorderStyle.SINGLE, size: 4 } },
-    spacing: { before: 200, after: 200 },
+    border: { bottom: { color: DIVIDER_C, style: BorderStyle.SINGLE, size: 6 } },
+    spacing: { before: 240, after: 240 },
     children: [],
+  });
+}
+
+function kpiRow(items: { label: string; value: string; color?: string }[]): Table {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      insideH: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      insideV: { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+    },
+    rows: [
+      new TableRow({
+        children: items.map(item =>
+          new TableCell({
+            shading: { type: ShadingType.SOLID, color: hex(NAVY_CARD), fill: hex(NAVY_CARD) },
+            width: { size: Math.floor(100 / items.length), type: WidthType.PERCENTAGE },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 120, after: 20 },
+                children: [new TextRun({ text: item.value, color: item.color ?? CYAN, bold: true, size: 40 })],
+              }),
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 120 },
+                children: [new TextRun({ text: item.label, color: MID, size: 17 })],
+              }),
+            ],
+          })
+        ),
+      }),
+    ],
   });
 }
 
 function statusColor(s: string) {
   if (s === 'COMPLETE') return GREEN;
-  if (s === 'PARTIAL')  return ORANGE;
-  return RED_C;
+  if (s === 'PARTIAL')  return AMBER;
+  return ROSE;
 }
 
-// Page geometry: Letter (12240 twips) - 2 * 1440 (1" margins) = 9360 usable twips
-const PAGE_DXA = 9360;
+function statusBadge(s: string): TextRun {
+  const map: Record<string, string> = { COMPLETE: '✔ COMPLETE', PARTIAL: '◑ PARTIAL', PENDING: '○ PENDING' };
+  return new TextRun({ text: map[s] ?? s, color: statusColor(s), bold: true, size: 18 });
+}
+
+// Page geometry: Letter (12240 twips) - 2 * 1080 (0.75" margins) = 10080 usable twips
+const PAGE_DXA = 10080;
 function dxa(pct: number) { return Math.round(PAGE_DXA * pct / 100); }
 
-// Column widths as DXA (must sum to PAGE_DXA)
 const COL_W = {
-  num:     dxa(5),   // 468
-  feature: dxa(25),  // 2340
-  status:  dxa(12),  // 1123
-  notes:   PAGE_DXA - dxa(5) - dxa(25) - dxa(12), // remainder = 5429
+  num:     dxa(5),
+  feature: dxa(27),
+  status:  dxa(11),
+  notes:   PAGE_DXA - dxa(5) - dxa(27) - dxa(11),
 };
 
-function featureTable(features: typeof FEATURES) {
+function tierBannerRow(label: string): TableRow {
+  return new TableRow({
+    children: [
+      new TableCell({
+        columnSpan: 4,
+        shading: { type: ShadingType.SOLID, color: hex(NAVY_MID), fill: hex(NAVY_MID) },
+        children: [new Paragraph({
+          spacing: { before: 80, after: 80 },
+          children: [new TextRun({ text: `  ${label}`, color: CYAN_SOFT, bold: true, size: 20 })],
+        })],
+      }),
+    ],
+  });
+}
+
+function featureTable(features: typeof FEATURES, groupByTier = false): Table {
   const headerRow = new TableRow({
     tableHeader: true,
     children: (
@@ -157,29 +241,84 @@ function featureTable(features: typeof FEATURES) {
       ] as { label: string; width: number }[]
     ).map(({ label, width }) =>
       new TableCell({
-        shading: { type: ShadingType.SOLID, color: hex(DARK_BG) },
+        shading: { type: ShadingType.SOLID, color: hex(NAVY), fill: hex(NAVY) },
         width: { size: width, type: WidthType.DXA },
         children: [new Paragraph({
           alignment: AlignmentType.LEFT,
-          children: [new TextRun({ text: label, bold: true, color: ACCENT, size: 18 })],
+          spacing: { before: 100, after: 100 },
+          children: [
+            new TextRun({ text: '  ' }),
+            new TextRun({ text: label, bold: true, color: CYAN, size: 19 }),
+          ],
         })],
       })
     ),
   });
 
-  const dataRows = features.map(f =>
-    new TableRow({
+  const tierLabels = ['', 'Core NOC Infrastructure', 'Analytics & Reporting', 'Operational Tools', 'Advanced Features', 'UX & Workflow', 'Latest Enhancements', 'Post-Release Improvements (May 2026)'];
+
+  const dataRows: TableRow[] = [];
+  let lastTier = -1;
+
+  for (const f of features) {
+    if (groupByTier && f.tier !== lastTier) {
+      lastTier = f.tier;
+      dataRows.push(tierBannerRow(`Tier ${f.tier} — ${tierLabels[f.tier]}`));
+    }
+
+    const isEven = dataRows.filter(r => !(r as any)._isBanner).length % 2 === 0;
+    const rowBg  = isEven ? NAVY_CARD : NAVY_MID;
+
+    dataRows.push(new TableRow({
       children: [
-        new TableCell({ width: { size: COL_W.num,     type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: String(f.id), color: MID_GY, size: 18 })] })] }),
-        new TableCell({ width: { size: COL_W.feature, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: f.name, color: WHITE, size: 18, bold: true })] })] }),
-        new TableCell({ width: { size: COL_W.status,  type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: f.status, color: statusColor(f.status), size: 18, bold: true })] })] }),
-        new TableCell({ width: { size: COL_W.notes,   type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: f.notes, color: MID_GY, size: 17 })] })] }),
+        new TableCell({
+          width: { size: COL_W.num, type: WidthType.DXA },
+          shading: { type: ShadingType.SOLID, color: hex(rowBg), fill: hex(rowBg) },
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 80, after: 80 },
+            children: [new TextRun({ text: String(f.id), color: GOLD, bold: true, size: 18 })],
+          })],
+        }),
+        new TableCell({
+          width: { size: COL_W.feature, type: WidthType.DXA },
+          shading: { type: ShadingType.SOLID, color: hex(rowBg), fill: hex(rowBg) },
+          children: [new Paragraph({
+            spacing: { before: 80, after: 80 },
+            children: [new TextRun({ text: f.name, color: WHITE, bold: true, size: 18 })],
+          })],
+        }),
+        new TableCell({
+          width: { size: COL_W.status, type: WidthType.DXA },
+          shading: { type: ShadingType.SOLID, color: hex(rowBg), fill: hex(rowBg) },
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 80, after: 80 },
+            children: [statusBadge(f.status)],
+          })],
+        }),
+        new TableCell({
+          width: { size: COL_W.notes, type: WidthType.DXA },
+          shading: { type: ShadingType.SOLID, color: hex(rowBg), fill: hex(rowBg) },
+          children: [new Paragraph({
+            spacing: { before: 80, after: 80 },
+            children: [new TextRun({ text: f.notes, color: SLATE, size: 17 })],
+          })],
+        }),
       ],
-    })
-  );
+    }));
+  }
 
   return new Table({
     width: { size: PAGE_DXA, type: WidthType.DXA },
+    borders: {
+      top:     { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      bottom:  { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      left:    { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      right:   { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      insideH: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+      insideV: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+    },
     rows: [headerRow, ...dataRows],
   });
 }
@@ -194,12 +333,6 @@ export async function generateStatusReport(outputPath?: string): Promise<Buffer>
   const partial  = FEATURES.filter(f => f.status === 'PARTIAL').length;
   const pending  = FEATURES.filter(f => f.status === 'PENDING').length;
 
-  const tierGroups = [1, 2, 3, 4, 5, 6, 7].map(t => ({
-    tier: t,
-    label: ['Core NOC Infrastructure', 'Analytics & Reporting', 'Operational Tools', 'Advanced Features', 'UX & Workflow', 'Latest Enhancements', 'Post-Release Improvements (May 2026)'][t - 1],
-    features: FEATURES.filter(f => f.tier === t),
-  }));
-
   const doc = new Document({
     numbering: {
       config: [{
@@ -208,102 +341,156 @@ export async function generateStatusReport(outputPath?: string): Promise<Buffer>
       }],
     },
     sections: [{
+      properties: {
+        page: {
+          margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 },
+        },
+      },
       headers: {
         default: new Header({
-          children: [new Paragraph({
-            alignment: AlignmentType.RIGHT,
-            children: [new TextRun({ text: `VoIP Watcher Platform — Volume 1 Status Report  |  ${dateStr}`, color: DARK_GY, size: 16 })],
-          })],
+          children: [
+            new Paragraph({
+              border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: DIVIDER_C } },
+              spacing: { after: 120 },
+              children: [
+                new TextRun({ text: 'BITSAUTO MONITORING PLATFORM', color: CYAN, bold: true, size: 17 }),
+                new TextRun({ text: '   ·   Platform Status Report   ·   ', color: DIM, size: 17 }),
+                new TextRun({ text: dateStr, color: MID, size: 17 }),
+              ],
+            }),
+          ],
         }),
       },
       footers: {
         default: new Footer({
-          children: [new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [
-              new TextRun({ text: 'VoIP Watcher — Confidential  |  Page ', color: DARK_GY, size: 16 }),
-              new PageNumberElement(),
-            ],
-          })],
+          children: [
+            new Paragraph({
+              border: { top: { style: BorderStyle.SINGLE, size: 6, color: DIVIDER_C } },
+              spacing: { before: 120 },
+              alignment: AlignmentType.CENTER,
+              children: [
+                new TextRun({ text: 'Bitsauto Monitoring Platform  ·  Confidential — Internal Use Only  ·  Page ', color: DIM, size: 16 }),
+                new PageNumberElement(),
+              ],
+            }),
+          ],
         }),
       },
       children: [
-        // ── Title block
-        heading('VoIP Watcher Platform', HeadingLevel.HEADING_1, ACCENT),
-        heading('Volume 1 — Implementation Status Report', HeadingLevel.HEADING_2, WHITE),
-        para(`Generated: ${dateStr} at ${timeStr}`, { color: DARK_GY, size: 18 }),
-        para('Platform: Sippy Softswitch — Full NOC, Analytics, Billing & Fraud Detection Suite', { color: MID_GY, size: 18 }),
-        divider(),
 
-        // ── Executive Summary
-        heading('Executive Summary', HeadingLevel.HEADING_2, ACCENT),
-        para(
-          `The VoIP Watcher platform is ${complete === FEATURES.length ? 'fully' : 'substantially'} implemented across 7 delivery tiers. ` +
-          `${FEATURES.length} features have been delivered, covering real-time NOC monitoring, concurrent-session telemetry (BitsEye 2), ` +
-          `revenue analytics, fraud detection (FAS/IRSF), rate-card management, KAM tooling, AI Ops, Routing Intelligence, ` +
-          `Client Self-Service Portal, mobile responsiveness, API key access, and a fully customisable dashboard. ` +
-          `Tiers 1–6 represent the original Volume 1 scope. Tier 7 documents post-release improvements and bug fixes applied in May 2026.`,
-          { color: MID_GY, size: 20 }
-        ),
-        new Paragraph({ spacing: { after: 100 }, children: [] }),
-        para('Implementation summary:', { bold: true, color: WHITE }),
-        bullet(`Completed: ${complete} / ${FEATURES.length} features (${Math.round(complete / FEATURES.length * 100)}%)`, GREEN),
-        ...(partial  ? [bullet(`Partial: ${partial}`, ORANGE)] : []),
-        ...(pending  ? [bullet(`Pending: ${pending}`, RED_C)]  : []),
-        divider(),
+        // ── COVER ──────────────────────────────────────────────────────────────
+        new Paragraph({
+          spacing: { before: 240, after: 60 },
+          children: [
+            new TextRun({ text: 'BITSAUTO', color: CYAN, bold: true, size: 72 }),
+            new TextRun({ text: '  MONITORING PLATFORM', color: WHITE, bold: true, size: 72 }),
+          ],
+        }),
+        new Paragraph({
+          spacing: { after: 80 },
+          children: [new TextRun({ text: 'Platform Implementation Status Report', color: GOLD, bold: true, size: 40 })],
+        }),
+        new Paragraph({
+          spacing: { after: 60 },
+          children: [new TextRun({ text: `Volume 1  ·  May 2026 Edition`, color: CYAN_SOFT, bold: true, size: 24 })],
+        }),
+        new Paragraph({
+          spacing: { after: 40 },
+          children: [new TextRun({ text: `Generated: ${dateStr} at ${timeStr}`, color: MID, size: 19 })],
+        }),
+        new Paragraph({
+          spacing: { after: 40 },
+          children: [new TextRun({ text: 'Sippy Softswitch — Full NOC, Analytics, Billing & Fraud Detection Suite', color: SLATE, size: 19 })],
+        }),
+        new Paragraph({
+          border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: CYAN } },
+          spacing: { before: 200, after: 400 },
+          children: [],
+        }),
 
-        // ── Note about Tier 7 additions (May 2026)
-        heading('Update Note — Tier 7 Post-Release Improvements (May 2026)', HeadingLevel.HEADING_2, ORANGE),
-        para(
-          'The following features and fixes were implemented after the original Volume 1 documentation was generated. ' +
-          'They are captured here as Tier 7 (Post-Release Improvements) and included in full in the feature tables below.',
-          { color: MID_GY }
-        ),
-        bullet('#29 — BitsEye 2: NOC Telemetry Rebuild — concurrent-session semantic correctness, LIVE/DAILY/WEEKLY modes', ACCENT),
-        bullet('#30 — BitsEye 2: Graph Context Subtitle System — per-chart semantic subtitle labels', ACCENT),
-        bullet('#31 — BitsEye 2: Metric-Source Contract — immutable data-source rules enforced in code comments', ACCENT),
-        bullet('#32 — Client Portal: CDR Data Fix — Total Calls=0 resolved via per-account cdrCache', ACCENT),
-        bullet('#33 — Client Portal: Enhanced Overview Tab — live KPI cards, pulse indicator, 36-min sparkline', ACCENT),
-        bullet('#34 — Provisioning: Translation Rule Cascade — createAccount "Fatal error" bypass via strip-and-retry', ACCENT),
-        bullet('#35 — Sippy Load Reduction Architecture — ~65-70% XML-RPC call reduction (push, cache, mutex, stagger)', ACCENT),
-        bullet('#36 — Client Provisioning Wizard — multi-step guided new-account setup', ACCENT),
-        bullet('#37 — Concurrent Snapshot Persistence — concurrent_snapshots DB table for DAILY/WEEKLY graph history', ACCENT),
-        divider(),
-
-        // ── Bug fixes
-        heading('Bug Fixes Applied', HeadingLevel.HEADING_2, ACCENT),
-        ...BUG_FIXES.map(b => bullet(b)),
-        divider(),
-
-        // ── Per-tier feature tables
-        ...tierGroups.flatMap(({ tier, label, features }) => [
-          heading(`Tier ${tier} — ${label}`, HeadingLevel.HEADING_2, ACCENT),
-          featureTable(features),
-          new Paragraph({ spacing: { after: 240 }, children: [] }),
+        // ── KPI SUMMARY CARDS ──────────────────────────────────────────────────
+        kpiRow([
+          { label: 'Total Features',  value: String(FEATURES.length),    color: CYAN  },
+          { label: 'Complete',        value: String(complete),            color: GREEN },
+          { label: 'Partial',         value: String(partial),             color: AMBER },
+          { label: 'Completion Rate', value: `${Math.round(complete / FEATURES.length * 100)}%`, color: GOLD },
         ]),
+        new Paragraph({ spacing: { after: 320 }, children: [] }),
 
-        // ── Full feature matrix
-        heading('Full Feature Matrix', HeadingLevel.HEADING_2, ACCENT),
-        featureTable(FEATURES),
-        new Paragraph({ spacing: { after: 240 }, children: [] }),
+        // ── EXECUTIVE SUMMARY ──────────────────────────────────────────────────
+        sectionBanner('EXECUTIVE SUMMARY'),
+        sectionBannerSub('Platform overview and delivery status'),
 
-        // ── Footer note
+        para(
+          `The Bitsauto Monitoring Platform is fully implemented across 7 delivery tiers, covering ${FEATURES.length} production features. ` +
+          'The platform delivers real-time NOC monitoring, concurrent-session telemetry (BitsEye 2), revenue analytics, fraud detection ' +
+          '(FAS/IRSF), rate-card management, KAM tooling, AI Ops incident correlation, Routing Intelligence, Client Self-Service Portal, ' +
+          'mobile responsiveness, API key access, and a fully customisable widget dashboard.',
+          { color: LIGHT, size: 21, spacing: 160 }
+        ),
+        para(
+          'Tiers 1–6 represent the original Volume 1 scope. Tier 7 documents post-release improvements and architectural hardening ' +
+          'applied in May 2026, including the BitsEye 2 telemetry rebuild, Sippy Load Reduction Architecture (~65-70% call reduction), ' +
+          'and the Client Provisioning Wizard.',
+          { color: SLATE, size: 20, spacing: 200 }
+        ),
+
+        para('Delivery breakdown:', { bold: true, color: WHITE, size: 20 }),
+        bullet(`✔  Complete: ${complete} of ${FEATURES.length} features (${Math.round(complete / FEATURES.length * 100)}%)`, GREEN),
+        ...(partial ? [bullet(`◑  Partial: ${partial} features`, AMBER)]  : []),
+        ...(pending ? [bullet(`○  Pending: ${pending} features`, ROSE)]   : []),
+
         divider(),
-        para('All features have been implemented against the Sippy Softswitch platform only. No VOS-3000 or generic SBC targets are in scope for Volume 1.', { color: DARK_GY, size: 17 }),
-        para(`This document was auto-generated by the VoIP Watcher platform on ${dateStr} at ${timeStr}. It reflects the live codebase state at time of generation.`, { color: DARK_GY, size: 17 }),
+
+        // ── TIER 7 UPDATE NOTE ─────────────────────────────────────────────────
+        sectionBanner('TIER 7 — POST-RELEASE IMPROVEMENTS (MAY 2026)'),
+        sectionBannerSub('Features and fixes implemented after the original Volume 1 documentation'),
+
+        new Paragraph({ spacing: { after: 120 }, children: [] }),
+        bullet('#29 — BitsEye 2: NOC Telemetry Rebuild — concurrent-session semantic correctness, LIVE / DAILY / WEEKLY modes', CYAN),
+        bullet('#30 — BitsEye 2: Graph Context Subtitle System — per-chart semantic subtitle labels', CYAN),
+        bullet('#31 — BitsEye 2: Metric-Source Contract — immutable data-source rules enforced in code comments', CYAN),
+        bullet('#32 — Client Portal: CDR Data Fix — Total Calls=0 resolved via per-account cdrCache', CYAN),
+        bullet('#33 — Client Portal: Enhanced Overview Tab — live KPI cards, pulse indicator, 36-min sparkline', CYAN),
+        bullet('#34 — Provisioning: Translation Rule Cascade — createAccount "Fatal error" bypass via strip-and-retry', CYAN),
+        bullet('#35 — Sippy Load Reduction Architecture — ~65-70% XML-RPC call reduction (push, cache, mutex, stagger)', CYAN),
+        bullet('#36 — Client Provisioning Wizard — multi-step guided new-account setup with full cascade fallback', CYAN),
+        bullet('#37 — Concurrent Snapshot Persistence — concurrent_snapshots DB table for DAILY / WEEKLY graph history', CYAN),
+
+        divider(),
+
+        // ── BUG FIXES ─────────────────────────────────────────────────────────
+        sectionBanner('BUG FIXES APPLIED'),
+        sectionBannerSub('All resolved defects across the full delivery period'),
+
+        new Paragraph({ spacing: { after: 120 }, children: [] }),
+        ...BUG_FIXES.map(b => bullet(b)),
+
+        divider(),
+
+        // ── FULL FEATURE MATRIX ────────────────────────────────────────────────
+        sectionBanner('FULL FEATURE MATRIX'),
+        sectionBannerSub('All 37 features across 7 tiers — grouped by tier'),
+
+        new Paragraph({ spacing: { after: 180 }, children: [] }),
+        featureTable(FEATURES, true),
+        new Paragraph({ spacing: { after: 400 }, children: [] }),
+
+        // ── FOOTER NOTE ────────────────────────────────────────────────────────
+        new Paragraph({
+          border: { top: { style: BorderStyle.SINGLE, size: 6, color: CYAN } },
+          spacing: { before: 0, after: 100 },
+          children: [],
+        }),
+        para('All features are implemented against the Sippy Softswitch platform. No VOS-3000 or generic SBC targets are in scope for Volume 1.', { color: DIM, size: 17 }),
+        para(`This document was auto-generated by the Bitsauto Monitoring Platform on ${dateStr} at ${timeStr}.`, { color: DIM, size: 17 }),
       ],
     }],
   });
 
   const buffer = await Packer.toBuffer(doc);
-
-  if (outputPath) {
-    writeFileSync(outputPath, buffer);
-  }
-
+  if (outputPath) writeFileSync(outputPath, buffer);
   return buffer;
 }
 
-// Use /tmp so this is writable in both dev and production deployments.
-// The file is re-generated on every server startup if missing.
 export const STATUS_REPORT_PATH = '/tmp/VoIP_Platform_Volume1_Status.docx';

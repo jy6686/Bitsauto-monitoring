@@ -4,118 +4,162 @@
  * Generates a professional .docx covering all 9 Sippy routing features:
  * 5 high-value + 2 medium-value + 2 (additional) — each with description,
  * implementation scope, Sippy API methods, and current status.
+ *
+ * Brand: Bitsauto — dark navy background, cyan accent, teal highlights.
  */
 
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel,
   Table, TableRow, TableCell, WidthType, AlignmentType,
-  BorderStyle, Header, Footer, PageBreak,
+  BorderStyle, ShadingType, Header, Footer, PageNumberElement,
+  NumberFormat,
 } from 'docx';
 import { writeFileSync, mkdirSync } from 'fs';
 import path from 'path';
 
 export const ROUTING_FEATURES_PATH = path.join(process.cwd(), 'generated_docs', 'Bitsauto_Routing_Features_Plan.docx');
 
-// ── Colour palette ─────────────────────────────────────────────────────────────
-const DARK_BG  = '0D1117';
-const ACCENT   = '00D4FF';
-const GOLD     = 'FFD700';
-const GREEN    = '10B981';
-const VIOLET   = 'A855F7';
-const ROSE     = 'F43F5E';
-const ORANGE   = 'F97316';
-const AMBER    = 'F59E0B';
-const WHITE    = 'FFFFFF';
-const LIGHT_GY = 'E2E8F0';
-const MID_GY   = 'A0AEC0';
-const DARK_GY  = '4A5568';
-const CYAN     = '06B6D4';
+// ── Bitsauto Brand Colour Palette ──────────────────────────────────────────────
+const NAVY       = '0A1628';   // deepest background
+const NAVY_MID   = '0D2040';   // section banner / table header bg
+const NAVY_CARD  = '112240';   // info-row / card bg
+const CYAN       = '00D4FF';   // primary accent
+const CYAN_SOFT  = '38BDF8';   // sub-header cyan
+const TEAL       = '14B8A6';   // label accent
+const GREEN      = '10B981';   // DONE / implemented
+const AMBER      = 'F59E0B';   // PARTIAL / warning
+const ROSE       = 'F43F5E';   // PLANNED / not started
+const GOLD       = 'FFD700';   // feature numbers / tier callouts
+const WHITE      = 'FFFFFF';
+const LIGHT      = 'E2E8F0';   // primary body text
+const SLATE      = 'CBD5E1';   // secondary body text
+const MID        = '94A3B8';   // muted text
+const DIM        = '475569';   // very muted / borders
+const DIVIDER_C  = '1E3A5F';   // horizontal rule
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function h1(text: string) {
+// ── Page geometry ─────────────────────────────────────────────────────────────
+// Letter: 12240 twips − 2 × 1080 (0.75" margins) = 10080 usable
+const PAGE_DXA = 10080;
+function dxa(pct: number) { return Math.round(PAGE_DXA * pct / 100); }
+
+// ── Shared helpers ─────────────────────────────────────────────────────────────
+function sectionBanner(title: string, sub?: string): Paragraph[] {
+  const result: Paragraph[] = [
+    new Paragraph({
+      spacing: { before: 400, after: 0 },
+      shading: { type: ShadingType.SOLID, color: NAVY_MID, fill: NAVY_MID },
+      children: [
+        new TextRun({ text: '  ' }),
+        new TextRun({ text: title, color: CYAN, bold: true, size: 26 }),
+      ],
+    }),
+  ];
+  if (sub) {
+    result.push(new Paragraph({
+      spacing: { before: 0, after: 220 },
+      shading: { type: ShadingType.SOLID, color: NAVY_MID, fill: NAVY_MID },
+      children: [
+        new TextRun({ text: '  ' }),
+        new TextRun({ text: sub, color: SLATE, size: 18 }),
+      ],
+    }));
+  } else {
+    result.push(new Paragraph({ spacing: { before: 0, after: 220 }, children: [] }));
+  }
+  return result;
+}
+
+function h1(text: string): Paragraph {
   return new Paragraph({
     heading: HeadingLevel.HEADING_1,
-    spacing: { before: 520, after: 180 },
-    children: [new TextRun({ text, color: ACCENT, bold: true, size: 48 })],
+    spacing: { before: 480, after: 160 },
+    children: [new TextRun({ text, color: CYAN, bold: true, size: 44 })],
   });
 }
-function h2(text: string, color = WHITE) {
+function h2(text: string, color = WHITE): Paragraph {
   return new Paragraph({
     heading: HeadingLevel.HEADING_2,
-    spacing: { before: 400, after: 140 },
-    children: [new TextRun({ text, color, bold: true, size: 34 })],
+    spacing: { before: 360, after: 140 },
+    children: [new TextRun({ text, color, bold: true, size: 32 })],
   });
 }
-function h3(text: string, color = LIGHT_GY) {
+function h3(text: string, color = CYAN_SOFT): Paragraph {
   return new Paragraph({
     heading: HeadingLevel.HEADING_3,
-    spacing: { before: 280, after: 100 },
-    children: [new TextRun({ text, color, bold: true, size: 26 })],
+    spacing: { before: 260, after: 100 },
+    children: [new TextRun({ text, color, bold: true, size: 24 })],
   });
 }
-function p(text: string, opts: { bold?: boolean; color?: string; size?: number; indent?: number; italic?: boolean } = {}) {
+function p(text: string, opts: { bold?: boolean; color?: string; size?: number; indent?: number; italic?: boolean; spacing?: number } = {}): Paragraph {
   return new Paragraph({
     indent: opts.indent ? { left: opts.indent } : undefined,
-    spacing: { after: 120 },
+    spacing: { after: opts.spacing ?? 100 },
     children: [new TextRun({
-      text, bold: opts.bold, color: opts.color ?? MID_GY,
+      text, bold: opts.bold, color: opts.color ?? SLATE,
       size: opts.size ?? 20, italics: opts.italic,
     })],
   });
 }
-function bullet(text: string, color = MID_GY, level = 0) {
+function bullet(text: string, color = SLATE, level = 0): Paragraph {
   return new Paragraph({
     bullet: { level },
     spacing: { after: 70 },
     children: [new TextRun({ text, color, size: 19 })],
   });
 }
-function blank(before = 80, after = 80) {
+function blank(before = 80, after = 80): Paragraph {
   return new Paragraph({ spacing: { before, after }, children: [] });
 }
-function divider(color = DARK_GY) {
+function divider(color = DIVIDER_C): Paragraph {
   return new Paragraph({
-    spacing: { before: 160, after: 160 },
+    spacing: { before: 200, after: 200 },
     border: { bottom: { style: BorderStyle.SINGLE, size: 6, color, space: 1 } },
     children: [],
   });
 }
 
-// Status badge text
-function statusText(status: 'DONE' | 'PARTIAL' | 'PLANNED') {
-  const map = { DONE: '✔ IMPLEMENTED', PARTIAL: '◑ PARTIAL', PLANNED: '○ PLANNED' };
-  const col  = { DONE: GREEN, PARTIAL: AMBER, PLANNED: ROSE };
-  return new TextRun({ text: map[status], color: col[status], bold: true, size: 18 });
+// Status badge
+function statusRun(status: 'DONE' | 'PARTIAL' | 'PLANNED'): TextRun {
+  const map  = { DONE: '✔ IMPLEMENTED', PARTIAL: '◑ PARTIAL', PLANNED: '○ PLANNED' };
+  const cols = { DONE: GREEN, PARTIAL: AMBER, PLANNED: ROSE };
+  return new TextRun({ text: map[status], color: cols[status], bold: true, size: 18 });
 }
 
-// Two-column info table (label | value)
+// ── Info table (label | value) — brand themed ─────────────────────────────────
 function infoTable(rows: [string, string][]): Table {
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: {
-      top:           { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
-      bottom:        { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
-      left:          { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
-      right:         { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
-      insideH:       { style: BorderStyle.SINGLE, size: 2, color: DARK_GY },
-      insideV:       { style: BorderStyle.SINGLE, size: 2, color: DARK_GY },
+      top:     { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      bottom:  { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      left:    { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      right:   { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      insideH: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+      insideV: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
     },
     rows: rows.map(([label, value]) =>
       new TableRow({
         children: [
           new TableCell({
-            width: { size: 22, type: WidthType.PERCENTAGE },
-            shading: { type: 'solid' as any, color: '1A2233', fill: '1A2233' },
+            width: { size: 20, type: WidthType.PERCENTAGE },
+            shading: { type: ShadingType.SOLID, color: NAVY_MID, fill: NAVY_MID },
             children: [new Paragraph({
-              spacing: { before: 80, after: 80 },
-              children: [new TextRun({ text: label, color: ACCENT, bold: true, size: 18 })],
+              spacing: { before: 90, after: 90 },
+              children: [
+                new TextRun({ text: '  ' }),
+                new TextRun({ text: label, color: TEAL, bold: true, size: 18 }),
+              ],
             })],
           }),
           new TableCell({
-            width: { size: 78, type: WidthType.PERCENTAGE },
+            width: { size: 80, type: WidthType.PERCENTAGE },
+            shading: { type: ShadingType.SOLID, color: NAVY_CARD, fill: NAVY_CARD },
             children: [new Paragraph({
-              spacing: { before: 80, after: 80 },
-              children: [new TextRun({ text: value, color: LIGHT_GY, size: 18 })],
+              spacing: { before: 90, after: 90 },
+              children: [
+                new TextRun({ text: '  ' }),
+                new TextRun({ text: value, color: LIGHT, size: 18 }),
+              ],
             })],
           }),
         ],
@@ -124,14 +168,102 @@ function infoTable(rows: [string, string][]): Table {
   });
 }
 
+// ── Summary table ──────────────────────────────────────────────────────────────
+function summaryTable(): Table {
+  const headers = ['#', 'Feature', 'Tier', 'Status', 'Route / Location'];
+  const colPcts = [5, 28, 10, 13, 44];
+
+  const headerRow = new TableRow({
+    tableHeader: true,
+    children: headers.map((label, i) =>
+      new TableCell({
+        width: { size: colPcts[i], type: WidthType.PERCENTAGE },
+        shading: { type: ShadingType.SOLID, color: NAVY, fill: NAVY },
+        children: [new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 100, after: 100 },
+          children: [
+            new TextRun({ text: '  ' }),
+            new TextRun({ text: label, color: CYAN, bold: true, size: 18 }),
+          ],
+        })],
+      })
+    ),
+  });
+
+  const dataRows = FEATURES.map((f, idx) => {
+    const bg = idx % 2 === 0 ? NAVY_CARD : NAVY_MID;
+    return new TableRow({
+      children: [
+        new TableCell({
+          width: { size: colPcts[0], type: WidthType.PERCENTAGE },
+          shading: { type: ShadingType.SOLID, color: bg, fill: bg },
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 80, after: 80 },
+            children: [new TextRun({ text: String(f.num), color: GOLD, bold: true, size: 18 })],
+          })],
+        }),
+        new TableCell({
+          width: { size: colPcts[1], type: WidthType.PERCENTAGE },
+          shading: { type: ShadingType.SOLID, color: bg, fill: bg },
+          children: [new Paragraph({
+            spacing: { before: 80, after: 80 },
+            children: [new TextRun({ text: f.name, color: WHITE, bold: true, size: 18 })],
+          })],
+        }),
+        new TableCell({
+          width: { size: colPcts[2], type: WidthType.PERCENTAGE },
+          shading: { type: ShadingType.SOLID, color: bg, fill: bg },
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 80, after: 80 },
+            children: [new TextRun({ text: f.tier, color: f.tier === 'HIGH' ? CYAN : AMBER, bold: true, size: 18 })],
+          })],
+        }),
+        new TableCell({
+          width: { size: colPcts[3], type: WidthType.PERCENTAGE },
+          shading: { type: ShadingType.SOLID, color: bg, fill: bg },
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 80, after: 80 },
+            children: [statusRun(f.status)],
+          })],
+        }),
+        new TableCell({
+          width: { size: colPcts[4], type: WidthType.PERCENTAGE },
+          shading: { type: ShadingType.SOLID, color: bg, fill: bg },
+          children: [new Paragraph({
+            spacing: { before: 80, after: 80 },
+            children: [new TextRun({ text: f.route, color: MID, size: 17 })],
+          })],
+        }),
+      ],
+    });
+  });
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top:     { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      bottom:  { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      left:    { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      right:   { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      insideH: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+      insideV: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+    },
+    rows: [headerRow, ...dataRows],
+  });
+}
+
 // ── Feature definitions ────────────────────────────────────────────────────────
 type FeatureTier = 'HIGH' | 'MEDIUM';
 interface RoutingFeature {
-  num:        number;
-  tier:       FeatureTier;
-  name:       string;
-  tagline:    string;
-  status:     'DONE' | 'PARTIAL' | 'PLANNED';
+  num:         number;
+  tier:        FeatureTier;
+  name:        string;
+  tagline:     string;
+  status:      'DONE' | 'PARTIAL' | 'PLANNED';
   description: string;
   whatYouSee:  string[];
   sippyApi:    string[];
@@ -394,72 +526,40 @@ const FEATURES: RoutingFeature[] = [
   },
 ];
 
-// ── Summary table ──────────────────────────────────────────────────────────────
-function summaryTable(): Table {
-  const headerRow = new TableRow({
-    tableHeader: true,
-    children: ['#', 'Feature', 'Tier', 'Status', 'Route / Location'].map(label =>
-      new TableCell({
-        shading: { type: 'solid' as any, color: '0D2040', fill: '0D2040' },
-        children: [new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 80, after: 80 },
-          children: [new TextRun({ text: label, color: ACCENT, bold: true, size: 18 })],
-        })],
-      })
-    ),
-  });
-
-  const rows = FEATURES.map(f =>
-    new TableRow({
-      children: [
-        new TableCell({
-          children: [new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [new TextRun({ text: String(f.num), color: GOLD, bold: true, size: 18 })],
-          })],
-        }),
-        new TableCell({
-          children: [new Paragraph({
-            children: [new TextRun({ text: f.name, color: WHITE, bold: true, size: 18 })],
-          })],
-        }),
-        new TableCell({
-          children: [new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [new TextRun({
-              text: f.tier,
-              color: f.tier === 'HIGH' ? ACCENT : AMBER,
-              bold: true, size: 18,
-            })],
-          })],
-        }),
-        new TableCell({
-          children: [new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [statusText(f.status)],
-          })],
-        }),
-        new TableCell({
-          children: [new Paragraph({
-            children: [new TextRun({ text: f.route, color: MID_GY, size: 17 })],
-          })],
-        }),
-      ],
-    })
-  );
-
+// ── KPI stat row ───────────────────────────────────────────────────────────────
+function kpiRow(items: { label: string; value: string; color?: string }[]): Table {
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: {
-      top:     { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
-      bottom:  { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
-      left:    { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
-      right:   { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
-      insideH: { style: BorderStyle.SINGLE, size: 2, color: DARK_GY },
-      insideV: { style: BorderStyle.SINGLE, size: 2, color: DARK_GY },
+      top:     { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      bottom:  { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      left:    { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      right:   { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      insideH: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      insideV: { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
     },
-    rows: [headerRow, ...rows],
+    rows: [
+      new TableRow({
+        children: items.map(item =>
+          new TableCell({
+            shading: { type: ShadingType.SOLID, color: NAVY_CARD, fill: NAVY_CARD },
+            width: { size: Math.floor(100 / items.length), type: WidthType.PERCENTAGE },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 120, after: 20 },
+                children: [new TextRun({ text: item.value, color: item.color ?? CYAN, bold: true, size: 44 })],
+              }),
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 0, after: 120 },
+                children: [new TextRun({ text: item.label, color: MID, size: 17 })],
+              }),
+            ],
+          })
+        ),
+      }),
+    ],
   });
 }
 
@@ -467,171 +567,224 @@ function summaryTable(): Table {
 export async function generateRoutingFeaturesDoc(outputPath: string): Promise<void> {
   mkdirSync(path.dirname(outputPath), { recursive: true });
 
+  const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+  const highCount    = FEATURES.filter(f => f.tier === 'HIGH').length;
+  const medCount     = FEATURES.filter(f => f.tier === 'MEDIUM').length;
+  const doneCount    = FEATURES.filter(f => f.status === 'DONE').length;
+  const partialCount = FEATURES.filter(f => f.status === 'PARTIAL').length;
+  const plannedCount = FEATURES.filter(f => f.status === 'PLANNED').length;
+
   const children: (Paragraph | Table)[] = [];
 
-  // Cover
+  // ── COVER ───────────────────────────────────────────────────────────────────
   children.push(
     new Paragraph({
-      spacing: { before: 0, after: 200 },
-      children: [new TextRun({ text: 'BITSAUTO MONITORING PLATFORM', color: ACCENT, bold: true, size: 56 })],
-    }),
-    new Paragraph({
-      spacing: { after: 120 },
-      children: [new TextRun({ text: 'Sippy Routing Features — Implementation Plan', color: GOLD, bold: true, size: 36 })],
+      spacing: { before: 240, after: 60 },
+      children: [
+        new TextRun({ text: 'BITSAUTO', color: CYAN, bold: true, size: 72 }),
+        new TextRun({ text: '  MONITORING PLATFORM', color: WHITE, bold: true, size: 72 }),
+      ],
     }),
     new Paragraph({
       spacing: { after: 80 },
-      children: [new TextRun({ text: `Generated: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}`, color: MID_GY, size: 20 })],
+      children: [new TextRun({ text: 'Sippy Routing Features — Implementation Plan', color: GOLD, bold: true, size: 40 })],
     }),
-    divider(ACCENT),
-    blank(),
-    p('This document covers all 9 routing features recommended for the Bitsauto Monitoring Platform. ' +
-      'Features 1–6 are high-value (Sippy API fully supports them). Features 7–9 are medium-value. ' +
-      'The platform\'s local routing cache (synced every 15 minutes from the Sippy XML-RPC API) powers ' +
-      'most features without adding load to the live switch.', { color: LIGHT_GY, size: 21 }),
-    blank(),
+    new Paragraph({
+      spacing: { after: 60 },
+      children: [new TextRun({ text: `9 Features  ·  ${highCount} High Value  ·  ${medCount} Medium Value`, color: CYAN_SOFT, bold: true, size: 24 })],
+    }),
+    new Paragraph({
+      spacing: { after: 40 },
+      children: [new TextRun({ text: `Generated: ${dateStr}`, color: MID, size: 19 })],
+    }),
+    new Paragraph({
+      spacing: { after: 40 },
+      children: [new TextRun({ text: 'Sippy XML-RPC API  ·  Local Routing Cache (15-min sync)  ·  PostgreSQL', color: SLATE, size: 19 })],
+    }),
+    new Paragraph({
+      border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: CYAN } },
+      spacing: { before: 200, after: 360 },
+      children: [],
+    }),
   );
 
-  // Legend
+  // ── KPI CARDS ───────────────────────────────────────────────────────────────
   children.push(
-    h2('Legend'),
-    bullet('✔ IMPLEMENTED — feature is live in the platform', GREEN),
-    bullet('◑ PARTIAL — scaffolding or cache exists; UI/logic to complete', AMBER),
+    kpiRow([
+      { label: 'Total Features',  value: '9',               color: CYAN  },
+      { label: 'High Value',      value: String(highCount),  color: CYAN_SOFT },
+      { label: 'Medium Value',    value: String(medCount),   color: AMBER },
+      { label: 'Implemented',     value: String(doneCount),  color: GREEN },
+      { label: 'Partial',         value: String(partialCount), color: AMBER },
+      { label: 'Planned',         value: String(plannedCount), color: ROSE  },
+    ]),
+    blank(320, 100),
+  );
+
+  // ── INTRODUCTION ────────────────────────────────────────────────────────────
+  children.push(...sectionBanner('INTRODUCTION', 'About this document and the routing cache architecture'));
+  children.push(
+    p('This document covers all 9 routing features recommended for the Bitsauto Monitoring Platform. ' +
+      'Features 1–6 are high-value and fully supported by the Sippy XML-RPC API. Features 7–9 are medium-value ' +
+      'enhancements that require less backend work and are primarily frontend-driven.', { color: LIGHT, size: 21, spacing: 140 }),
+    p('The platform\'s local routing cache (server/routing-cache.ts) syncs from the Sippy switch every 15 minutes ' +
+      'and stores routing data in PostgreSQL. All 9 features query the local database — never the live switch — ' +
+      'keeping Sippy load to an absolute minimum.', { color: SLATE, size: 20, spacing: 200 }),
+  );
+
+  // ── LEGEND ──────────────────────────────────────────────────────────────────
+  children.push(...sectionBanner('STATUS LEGEND'));
+  children.push(
+    bullet('✔ IMPLEMENTED — feature is fully live in the platform', GREEN),
+    bullet('◑ PARTIAL — scaffolding or cache exists; UI/logic remaining', AMBER),
     bullet('○ PLANNED — not yet started; effort estimate provided', ROSE),
     blank(),
   );
 
-  // Summary table
-  children.push(
-    h2('Summary — All 9 Features'),
-    blank(40, 80),
-    summaryTable(),
-    blank(),
-    divider(),
-  );
+  // ── SUMMARY TABLE ───────────────────────────────────────────────────────────
+  children.push(...sectionBanner('FEATURE SUMMARY', 'All 9 routing features at a glance'));
+  children.push(summaryTable(), blank(200, 100), divider());
 
-  // ── Feature sections ─────────────────────────────────────────────────────────
-  const tierColors = { HIGH: ACCENT, MEDIUM: AMBER };
+  // ── FEATURE SECTIONS ────────────────────────────────────────────────────────
   let currentTier: FeatureTier | null = null;
 
   for (const f of FEATURES) {
     if (f.tier !== currentTier) {
       currentTier = f.tier;
-      children.push(
-        blank(200, 100),
-        new Paragraph({
-          spacing: { before: 0, after: 120 },
-          children: [
-            new TextRun({ text: `── ${f.tier === 'HIGH' ? 'HIGH VALUE' : 'MEDIUM VALUE'} FEATURES ──`, color: tierColors[f.tier], bold: true, size: 22 }),
-          ],
-        }),
-      );
+      const tierLabel = f.tier === 'HIGH' ? 'HIGH VALUE FEATURES' : 'MEDIUM VALUE FEATURES';
+      const tierSub   = f.tier === 'HIGH'
+        ? 'Sippy API fully supports all — highest ROI for implementation effort'
+        : 'Primarily frontend-driven — lower complexity, high operator utility';
+      children.push(...sectionBanner(tierLabel, tierSub));
     }
 
-    // Feature header
+    // Feature heading block
     children.push(
-      blank(160, 60),
+      blank(120, 40),
       new Paragraph({
         spacing: { before: 0, after: 100 },
         children: [
-          new TextRun({ text: `${f.num}. `, color: GOLD, bold: true, size: 38 }),
-          new TextRun({ text: f.name, color: WHITE, bold: true, size: 38 }),
-          new TextRun({ text: '  ' }),
-          statusText(f.status),
+          new TextRun({ text: `${f.num}.  `, color: GOLD, bold: true, size: 40 }),
+          new TextRun({ text: f.name, color: WHITE, bold: true, size: 40 }),
         ],
       }),
-      p(f.tagline, { italic: true, color: ACCENT, size: 22 }),
-      blank(40, 40),
+      new Paragraph({
+        spacing: { before: 0, after: 80 },
+        children: [
+          new TextRun({ text: f.tagline, color: CYAN, italics: true, size: 22 }),
+          new TextRun({ text: '    ' }),
+          statusRun(f.status),
+        ],
+      }),
+      blank(20, 80),
     );
 
     // Info table
     children.push(
       infoTable([
-        ['Tier',    f.tier === 'HIGH' ? 'High Value — Sippy API fully supports it' : 'Medium Value'],
-        ['Status',  f.status === 'DONE' ? 'Implemented' : f.status === 'PARTIAL' ? 'Partially implemented — cache exists' : 'Planned'],
+        ['Tier',    f.tier === 'HIGH' ? 'High Value — Sippy API fully supports it' : 'Medium Value — primarily frontend-driven'],
+        ['Status',  f.status === 'DONE' ? 'Fully implemented and live' : f.status === 'PARTIAL' ? 'Partially implemented — cache/scaffold exists' : 'Planned — not yet started'],
         ['Route',   f.route],
         ['Effort',  f.effort],
       ]),
-      blank(60, 80),
+      blank(80, 100),
     );
 
     // Description
-    children.push(
-      h3('Description'),
-      p(f.description, { color: LIGHT_GY }),
-      blank(40, 40),
-    );
+    children.push(h3('Description'), p(f.description, { color: LIGHT, size: 20 }), blank(40, 60));
 
-    // What you see
+    // What users see
     children.push(h3('What Users See'));
-    for (const line of f.whatYouSee) children.push(bullet(line));
-    children.push(blank(40, 40));
+    for (const line of f.whatYouSee) children.push(bullet(line, SLATE));
+    children.push(blank(40, 60));
 
     // Sippy API
-    children.push(h3('Sippy API Methods Used'));
-    for (const line of f.sippyApi) children.push(bullet(line, CYAN));
-    children.push(blank(40, 40));
+    children.push(h3('Sippy API Methods'));
+    for (const line of f.sippyApi) children.push(bullet(line, CYAN_SOFT));
+    children.push(blank(40, 60));
 
     // Local DB
     children.push(h3('Local Database / Cache'));
-    for (const line of f.localDb) children.push(bullet(line, VIOLET));
+    for (const line of f.localDb) children.push(bullet(line, TEAL));
     children.push(divider());
   }
 
-  // ── Architecture note ─────────────────────────────────────────────────────
+  // ── ARCHITECTURE NOTE ────────────────────────────────────────────────────────
   children.push(
-    blank(200, 80),
-    h1('Routing Cache Architecture'),
-    p('All 9 routing features share a common foundation: the Routing Cache Service ' +
-      '(server/routing-cache.ts). This service polls the Sippy XML-RPC API every 15 minutes ' +
-      'and stores routing data in the local PostgreSQL database. Features query the local DB — ' +
-      'never the live switch — keeping switch load to a minimum.', { color: LIGHT_GY, size: 21 }),
+    ...sectionBanner('ROUTING CACHE ARCHITECTURE', 'Shared foundation powering all 9 features'),
+    p('All 9 routing features share a common foundation: the Routing Cache Service (server/routing-cache.ts). ' +
+      'This service polls the Sippy XML-RPC API every 15 minutes and stores routing data in the local PostgreSQL ' +
+      'database. Features query the local DB — never the live switch — keeping switch load to a minimum.',
+      { color: LIGHT, size: 21, spacing: 140 }),
     blank(),
-    h2('Cache Tables'),
-    bullet('routing_groups_cache — all routing groups with policy, on-net fields, member count', ACCENT),
-    bullet('destination_sets_cache — all destination sets with translation rules and route count', ACCENT),
-    bullet('connection_vendor_cache2 — all vendor connections with host, protocol, blocked flag', ACCENT),
-    bullet('routing_cache_meta — last sync timestamp, status, row counts', ACCENT),
+    h3('Cache Tables'),
+    bullet('routing_groups_cache — all routing groups with policy, on-net fields, member count', CYAN),
+    bullet('destination_sets_cache — all destination sets with translation rules and route count', CYAN),
+    bullet('connection_vendor_cache2 — all vendor connections with host, protocol, blocked flag', CYAN),
+    bullet('routing_cache_meta — last sync timestamp, status, row counts per table', CYAN),
     blank(),
-    h2('Sync Lifecycle'),
+    h3('Sync Lifecycle'),
     bullet('Server start: first sync fires 10 seconds after boot (Sippy session warm-up)', GREEN),
     bullet('Periodic sync: every 15 minutes via setInterval', GREEN),
     bullet('Manual sync: POST /api/routing-cache/sync (admin only) — forces immediate refresh', GREEN),
-    bullet('Status: GET /api/routing-cache/status — returns last_sync_at, counts, any error', GREEN),
+    bullet('Status: GET /api/routing-cache/status — returns last_sync_at, row counts, and any error', GREEN),
     blank(),
-    h2('UI Entry Point'),
-    p('Settings → Administration → Routing Cache (/routing-manager)', { color: ACCENT }),
-    p('Three tabs: Routing Groups | Destination Sets | Connections', { color: MID_GY }),
-    blank(200, 100),
-    divider(ACCENT),
-    blank(80, 80),
-    p(`Document generated by Bitsauto Monitoring Platform  ·  ${new Date().toLocaleString()}`, { color: DARK_GY, size: 17, italic: true }),
+    h3('UI Entry Point'),
+    p('Settings → Administration → Routing Cache  ·  /routing-manager', { color: CYAN }),
+    p('Three tabs: Routing Groups  |  Destination Sets  |  Connections', { color: SLATE }),
+    blank(200, 80),
+    new Paragraph({
+      border: { top: { style: BorderStyle.SINGLE, size: 6, color: CYAN } },
+      spacing: { before: 0, after: 100 },
+      children: [],
+    }),
+    p(`Document generated by Bitsauto Monitoring Platform  ·  ${new Date().toLocaleString()}`, { color: DIM, size: 17, italic: true }),
   );
 
   const doc = new Document({
     creator: 'Bitsauto Monitoring Platform',
     title: 'Sippy Routing Features — Implementation Plan',
     description: 'All 9 routing features: descriptions, Sippy API methods, local DB tables, status and effort.',
+    numbering: {
+      config: [{
+        reference: 'bullet-list',
+        levels: [{ level: 0, format: NumberFormat.BULLET, text: '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 360, hanging: 260 } } } }],
+      }],
+    },
     sections: [{
+      properties: {
+        page: {
+          margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 },
+        },
+      },
       headers: {
         default: new Header({
-          children: [new Paragraph({
-            alignment: AlignmentType.RIGHT,
-            children: [
-              new TextRun({ text: 'BITSAUTO MONITORING  ·  Routing Features Plan', color: DARK_GY, size: 16 }),
-            ],
-          })],
+          children: [
+            new Paragraph({
+              border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: DIVIDER_C } },
+              spacing: { after: 120 },
+              children: [
+                new TextRun({ text: 'BITSAUTO MONITORING PLATFORM', color: CYAN, bold: true, size: 17 }),
+                new TextRun({ text: '   ·   Routing Features Plan   ·   ', color: DIM, size: 17 }),
+                new TextRun({ text: dateStr, color: MID, size: 17 }),
+              ],
+            }),
+          ],
         }),
       },
       footers: {
         default: new Footer({
-          children: [new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [
-              new TextRun({ text: 'Confidential — Internal Use Only  ·  ', color: DARK_GY, size: 16 }),
-              new TextRun({ text: `Generated ${new Date().toLocaleDateString('en-GB')}`, color: DARK_GY, size: 16 }),
-            ],
-          })],
+          children: [
+            new Paragraph({
+              border: { top: { style: BorderStyle.SINGLE, size: 6, color: DIVIDER_C } },
+              spacing: { before: 120 },
+              alignment: AlignmentType.CENTER,
+              children: [
+                new TextRun({ text: 'Bitsauto Monitoring Platform  ·  Confidential — Internal Use Only  ·  Page ', color: DIM, size: 16 }),
+                new PageNumberElement(),
+              ],
+            }),
+          ],
         }),
       },
       children,
