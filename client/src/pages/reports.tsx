@@ -13,7 +13,7 @@ import {
   AlertTriangle, Users, DollarSign, Flag, ArrowRight,
   PhoneForwarded, PhoneIncoming, Activity, BarChart2, Layers, Server,
   Percent, ArrowUpRight, ArrowDownRight, Wifi, Gauge, Zap, ShieldCheck,
-  TriangleAlert, BadgeCheck,
+  TriangleAlert, BadgeCheck, ChevronDown,
 } from "lucide-react";
 import {
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip as RcTooltip,
@@ -102,6 +102,15 @@ type RouteRecommendation = {
   callCount: number;
   asr: number;
   fas: number;
+  rca: {
+    signals: {
+      prev: { asr: number|null; ner: number|null; fas: number|null; pdd: number|null; q: number|null };
+      cur:  { asr: number; ner: number; fas: number; pdd: number; q: number };
+    };
+    ruleDescription: string;
+    topDestinations: Array<{ cld: string; calls: number; asr: number; fas: number; q: number }>;
+    signalContributions: Array<{ signal: string; weight: string; value: string; prev: string|null; status: 'critical'|'warning'|'ok' }>;
+  };
 };
 type RouteRecommendationsResponse = {
   generatedAt: string;
@@ -266,6 +275,7 @@ export default function ReportsPage() {
     refetchInterval: 5 * 60_000,
     staleTime: 3 * 60_000,
   });
+  const [expandedRec, setExpandedRec] = useState<string | null>(null);
 
   // ── Monitor ─────────────────────────────────────────────────────────────────
   const [monitorHours, setMonitorHours] = useState<number>(24);
@@ -822,12 +832,225 @@ export default function ReportsPage() {
             const hasUrgent  = urgent.length > 0;
 
             // Type metadata
-            const typeConfig: Record<RouteRecommendationType, { label: string; color: string; bg: string }> = {
-              INVESTIGATE:     { label: 'Investigate',     color: 'text-rose-300',   bg: 'bg-rose-500/20 border-rose-500/40'   },
-              FAS_ALERT:       { label: 'FAS Alert',       color: 'text-rose-300',   bg: 'bg-rose-500/15 border-rose-500/30'   },
-              REDUCE_PRIORITY: { label: 'Reduce Priority', color: 'text-amber-300',  bg: 'bg-amber-500/15 border-amber-500/30' },
-              MONITOR:         { label: 'Monitor',         color: 'text-sky-300',    bg: 'bg-sky-500/10 border-sky-500/20'     },
-              PROMOTE:         { label: 'Promote',         color: 'text-emerald-300',bg: 'bg-emerald-500/10 border-emerald-500/25' },
+            const typeConfig: Record<RouteRecommendationType, { label: string; color: string; bg: string; accent: string; border: string }> = {
+              INVESTIGATE:     { label: 'Investigate',     color: 'text-rose-300',    bg: 'bg-rose-500/20 border-rose-500/40',    accent: 'text-rose-200',    border: 'border-rose-500/30'    },
+              FAS_ALERT:       { label: 'FAS Alert',       color: 'text-rose-300',    bg: 'bg-rose-500/15 border-rose-500/30',    accent: 'text-rose-200',    border: 'border-rose-500/25'    },
+              REDUCE_PRIORITY: { label: 'Reduce Priority', color: 'text-amber-300',   bg: 'bg-amber-500/15 border-amber-500/30',  accent: 'text-amber-200',   border: 'border-amber-500/25'   },
+              MONITOR:         { label: 'Monitor',         color: 'text-sky-300',     bg: 'bg-sky-500/10 border-sky-500/20',      accent: 'text-sky-200',     border: 'border-sky-500/20'     },
+              PROMOTE:         { label: 'Promote',         color: 'text-emerald-300', bg: 'bg-emerald-500/10 border-emerald-500/25', accent: 'text-emerald-200', border: 'border-emerald-500/20' },
+            };
+
+            // Shared RCA drawer component
+            const RcaDrawer = ({ rec }: { rec: RouteRecommendation }) => {
+              const { rca } = rec;
+              const correlatedAlert = degradeAlertMap?.get(rec.vendor);
+              const sigStatusCls = (s: 'critical'|'warning'|'ok') =>
+                s === 'critical' ? 'text-rose-400' : s === 'warning' ? 'text-amber-400' : 'text-emerald-400';
+              const deltaFmt = (cur: number|null, prev: number|null) => {
+                if (cur === null || prev === null) return null;
+                const d = parseFloat((cur - prev).toFixed(1));
+                return d === 0 ? '—' : (d > 0 ? `+${d}` : `${d}`);
+              };
+              const deltaColor = (cur: number|null, prev: number|null, higher = true) => {
+                if (cur === null || prev === null) return 'text-muted-foreground';
+                const d = cur - prev;
+                if (Math.abs(d) < 0.5) return 'text-muted-foreground';
+                return (d > 0) === higher ? 'text-emerald-400' : 'text-rose-400';
+              };
+
+              return (
+                <div className="mt-2 border-t border-border/40 pt-3 space-y-4" data-testid={`rca-drawer-${rec.vendor}`}>
+
+                  {/* ── Section 1: Signal comparison table ── */}
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest text-muted-foreground/60 mb-1.5 font-semibold">Signal Comparison — Previous 60m vs Current 60m</p>
+                    <div className="rounded-lg border border-border/40 overflow-hidden">
+                      <table className="w-full text-[10px]">
+                        <thead>
+                          <tr className="bg-muted/20 border-b border-border/30">
+                            <th className="text-left px-2.5 py-1.5 text-muted-foreground font-medium">Signal</th>
+                            <th className="text-center px-2.5 py-1.5 text-muted-foreground font-medium">Weight</th>
+                            <th className="text-right px-2.5 py-1.5 text-muted-foreground font-medium">Previous</th>
+                            <th className="text-right px-2.5 py-1.5 text-muted-foreground font-medium">Current</th>
+                            <th className="text-right px-2.5 py-1.5 text-muted-foreground font-medium">Delta</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/20">
+                          {rca.signalContributions.map((sc) => {
+                            const curVal  = sc.signal === 'ASR' ? rca.signals.cur.asr
+                                          : sc.signal === 'NER' ? rca.signals.cur.ner
+                                          : sc.signal === 'FAS' ? rca.signals.cur.fas
+                                          : rca.signals.cur.pdd;
+                            const prevVal = sc.signal === 'ASR' ? rca.signals.prev.asr
+                                          : sc.signal === 'NER' ? rca.signals.prev.ner
+                                          : sc.signal === 'FAS' ? rca.signals.prev.fas
+                                          : rca.signals.prev.pdd;
+                            const higher  = sc.signal !== 'FAS' && sc.signal !== 'PDD';
+                            const dStr    = deltaFmt(curVal, prevVal);
+                            const dCls    = deltaColor(curVal, prevVal, higher);
+                            return (
+                              <tr key={sc.signal} className="hover:bg-muted/5">
+                                <td className="px-2.5 py-1.5 font-mono font-semibold">
+                                  <span className={sigStatusCls(sc.status)}>{sc.signal}</span>
+                                </td>
+                                <td className="px-2.5 py-1.5 text-center text-muted-foreground/60 font-mono">{sc.weight}</td>
+                                <td className="px-2.5 py-1.5 text-right text-muted-foreground font-mono">
+                                  {prevVal !== null ? sc.prev : <span className="text-muted-foreground/40">—</span>}
+                                </td>
+                                <td className={cn("px-2.5 py-1.5 text-right font-mono font-semibold", sigStatusCls(sc.status))}>{sc.value}</td>
+                                <td className={cn("px-2.5 py-1.5 text-right font-mono font-bold", dCls)}>{dStr ?? '—'}</td>
+                              </tr>
+                            );
+                          })}
+                          {/* Q-Score summary row */}
+                          <tr className="bg-muted/10 border-t border-border/40">
+                            <td className="px-2.5 py-1.5 font-semibold text-foreground">Q-Score</td>
+                            <td className="px-2.5 py-1.5 text-center text-muted-foreground/60 font-mono">composite</td>
+                            <td className="px-2.5 py-1.5 text-right text-muted-foreground font-mono">
+                              {rca.signals.prev.q !== null ? `Q${rca.signals.prev.q}` : <span className="text-muted-foreground/40">—</span>}
+                            </td>
+                            <td className={cn("px-2.5 py-1.5 text-right font-mono font-bold",
+                              rec.currentQ < 25 ? 'text-rose-400' : rec.currentQ < 55 ? 'text-amber-400' : 'text-emerald-400')}>
+                              Q{rca.signals.cur.q}
+                            </td>
+                            <td className={cn("px-2.5 py-1.5 text-right font-mono font-bold",
+                              rec.deltaQ === null ? 'text-muted-foreground' : rec.deltaQ < 0 ? 'text-rose-400' : rec.deltaQ > 0 ? 'text-emerald-400' : 'text-muted-foreground')}>
+                              {rec.deltaQ !== null ? (rec.deltaQ > 0 ? `+${rec.deltaQ}` : `${rec.deltaQ}`) : '—'}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* ── Section 2: Rule trigger ── */}
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest text-muted-foreground/60 mb-1.5 font-semibold">Rule Trigger</p>
+                    <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-muted/10 border border-border/30">
+                      <span className={cn("px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider flex-shrink-0 mt-0.5",
+                        typeConfig[rec.type].bg, typeConfig[rec.type].color)}>
+                        {typeConfig[rec.type].label}
+                      </span>
+                      <p className="text-[10px] text-muted-foreground font-mono leading-relaxed">{rca.ruleDescription}</p>
+                    </div>
+                  </div>
+
+                  {/* ── Section 3: Top destinations ── */}
+                  {rca.topDestinations.length > 0 && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground/60 mb-1.5 font-semibold">
+                        Top Destinations via {rec.vendor} — Last 60m
+                      </p>
+                      <div className="rounded-lg border border-border/40 overflow-hidden">
+                        <table className="w-full text-[10px]">
+                          <thead>
+                            <tr className="bg-muted/20 border-b border-border/30">
+                              <th className="text-left px-2.5 py-1.5 text-muted-foreground font-medium">Destination</th>
+                              <th className="text-right px-2.5 py-1.5 text-muted-foreground font-medium">Calls</th>
+                              <th className="text-right px-2.5 py-1.5 text-muted-foreground font-medium">ASR</th>
+                              <th className="text-right px-2.5 py-1.5 text-muted-foreground font-medium">FAS</th>
+                              <th className="text-right px-2.5 py-1.5 text-muted-foreground font-medium">Est. Q</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/20">
+                            {rca.topDestinations.map((dest) => (
+                              <tr key={dest.cld} className="hover:bg-muted/5">
+                                <td className="px-2.5 py-1.5 font-mono text-foreground/80">{dest.cld}</td>
+                                <td className="px-2.5 py-1.5 text-right text-muted-foreground">{dest.calls}</td>
+                                <td className={cn("px-2.5 py-1.5 text-right font-mono",
+                                  dest.asr < 30 ? 'text-rose-400' : dest.asr < 55 ? 'text-amber-400' : 'text-emerald-400')}>
+                                  {dest.asr}%
+                                </td>
+                                <td className={cn("px-2.5 py-1.5 text-right font-mono",
+                                  dest.fas > 20 ? 'text-rose-400' : dest.fas > 8 ? 'text-amber-400' : 'text-muted-foreground')}>
+                                  {dest.fas}%
+                                </td>
+                                <td className={cn("px-2.5 py-1.5 text-right font-mono font-semibold",
+                                  dest.q < 40 ? 'text-rose-400' : dest.q < 65 ? 'text-amber-400' : 'text-emerald-400')}>
+                                  Q{dest.q}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Section 4: Correlated degradation alerts ── */}
+                  {correlatedAlert && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground/60 mb-1.5 font-semibold">
+                        Correlated Degradation Signals
+                      </p>
+                      <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-amber-500/20 bg-amber-500/5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] text-amber-300 font-semibold">
+                            Degradation monitor also flagged this vendor
+                            {correlatedAlert.severity !== 'ok' && ` — ${correlatedAlert.severity.toUpperCase()}`}
+                          </p>
+                          {correlatedAlert.signals?.map((sig: string, si: number) => (
+                            <p key={si} className="text-[10px] text-muted-foreground font-mono">› {sig}</p>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            };
+
+            // Shared recommendation card renderer (used by all sections)
+            const RecCard = ({ rec, defaultOpen = false }: { rec: RouteRecommendation; defaultOpen?: boolean }) => {
+              const cfg      = typeConfig[rec.type];
+              const isOpen   = expandedRec === rec.vendor;
+              const icon     = rec.urgency === 'immediate'
+                ? <TriangleAlert className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                : rec.type === 'PROMOTE'
+                  ? <BadgeCheck className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  : <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />;
+              const cardBorder = rec.urgency === 'immediate' ? 'border-rose-500/30 bg-rose-500/5'
+                : rec.type === 'PROMOTE' ? 'border-emerald-500/20 bg-emerald-500/5'
+                : 'border-amber-500/20 bg-amber-500/5';
+
+              return (
+                <div className={cn("rounded-lg border overflow-hidden transition-all", cardBorder)}
+                  data-testid={`rec-${rec.type}-${rec.vendor}`}>
+                  {/* Card header — clickable */}
+                  <button
+                    className="w-full flex items-start gap-3 px-3 py-2.5 text-left hover:bg-muted/5 transition-colors"
+                    onClick={() => setExpandedRec(isOpen ? null : rec.vendor)}
+                    data-testid={`rec-expand-${rec.vendor}`}
+                  >
+                    {icon}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <span className="text-xs font-bold text-foreground">{rec.vendor}</span>
+                        <span className={cn("px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider", cfg.bg, cfg.color)}>
+                          {cfg.label}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">Q{rec.currentQ} · {rec.callCount} calls</span>
+                        <span className="ml-auto flex items-center gap-1.5">
+                          <span className="text-[10px] text-muted-foreground/60">{rec.confidence}% conf.</span>
+                          <ChevronDown className={cn("w-3 h-3 text-muted-foreground/50 transition-transform", isOpen && "rotate-180")} />
+                        </span>
+                      </div>
+                      <p className={cn("text-[11px] font-semibold", cfg.accent)}>{rec.title}</p>
+                      {!isOpen && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{rec.detail[0]}</p>
+                      )}
+                    </div>
+                  </button>
+
+                  {/* RCA drawer */}
+                  {isOpen && (
+                    <div className="px-3 pb-3">
+                      <RcaDrawer rec={rec} />
+                    </div>
+                  )}
+                </div>
+              );
             };
 
             return (
@@ -851,7 +1074,7 @@ export default function ReportsPage() {
                   )}
                   {routeRecData && (
                     <span className="ml-auto text-[10px] text-muted-foreground">
-                      updated {new Date(routeRecData.generatedAt).toLocaleTimeString()}
+                      click any card for RCA · updated {new Date(routeRecData.generatedAt).toLocaleTimeString()}
                     </span>
                   )}
                 </div>
@@ -868,98 +1091,36 @@ export default function ReportsPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {/* Immediate actions group */}
+                      {/* Immediate actions */}
                       {urgent.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-[10px] uppercase tracking-wider text-rose-400/80 font-semibold flex items-center gap-1.5">
                             <TriangleAlert className="w-3 h-3" /> Immediate Actions
                           </p>
-                          {urgent.map((rec) => {
-                            const cfg = typeConfig[rec.type];
-                            return (
-                              <div key={rec.vendor} data-testid={`rec-${rec.type}-${rec.vendor}`}
-                                className="flex items-start gap-3 px-3 py-2.5 rounded-lg border border-rose-500/30 bg-rose-500/5">
-                                <div className="flex-shrink-0 mt-0.5">
-                                  <TriangleAlert className="w-4 h-4 text-rose-400" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                                    <span className="text-xs font-bold text-foreground">{rec.vendor}</span>
-                                    <span className={cn("px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider", cfg.bg, cfg.color)}>
-                                      {cfg.label}
-                                    </span>
-                                    <span className="text-[10px] text-muted-foreground">Q{rec.currentQ} · {rec.callCount} calls</span>
-                                    <span className="ml-auto text-[10px] text-muted-foreground/60">{rec.confidence}% confidence</span>
-                                  </div>
-                                  <p className="text-xs font-semibold text-rose-200 mb-1">{rec.title}</p>
-                                  <ul className="space-y-0.5">
-                                    {rec.detail.map((d, di) => (
-                                      <li key={di} className="text-[10px] text-muted-foreground font-mono flex items-start gap-1">
-                                        <span className="text-rose-400/50 flex-shrink-0">›</span>{d}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              </div>
-                            );
-                          })}
+                          {urgent.map((rec) => <RecCard key={rec.vendor} rec={rec} defaultOpen />)}
                         </div>
                       )}
 
-                      {/* Today / monitor group — non-critical, non-positive */}
+                      {/* Review today */}
                       {todayRecs.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-[10px] uppercase tracking-wider text-amber-400/80 font-semibold flex items-center gap-1.5">
                             <Activity className="w-3 h-3" /> Review Today
                           </p>
-                          {todayRecs.slice(0, 3).map((rec) => {
-                            const cfg = typeConfig[rec.type];
-                            return (
-                              <div key={rec.vendor} data-testid={`rec-${rec.type}-${rec.vendor}`}
-                                className="flex items-start gap-3 px-3 py-2 rounded-lg border border-amber-500/20 bg-amber-500/5">
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                                    <span className="text-xs font-bold text-foreground">{rec.vendor}</span>
-                                    <span className={cn("px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider", cfg.bg, cfg.color)}>
-                                      {cfg.label}
-                                    </span>
-                                    <span className="text-[10px] text-muted-foreground">Q{rec.currentQ}</span>
-                                    <span className="ml-auto text-[10px] text-muted-foreground/60">{rec.confidence}% confidence</span>
-                                  </div>
-                                  <p className="text-[11px] font-medium text-amber-200">{rec.title}</p>
-                                  <p className="text-[10px] text-muted-foreground mt-0.5">{rec.detail[0]}</p>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {todayRecs.length > 3 && (
-                            <p className="text-[10px] text-muted-foreground pl-1">+{todayRecs.length - 3} more to review</p>
+                          {todayRecs.slice(0, 4).map((rec) => <RecCard key={rec.vendor} rec={rec} />)}
+                          {todayRecs.length > 4 && (
+                            <p className="text-[10px] text-muted-foreground pl-1">+{todayRecs.length - 4} more to review</p>
                           )}
                         </div>
                       )}
 
-                      {/* Positive — strong routes */}
+                      {/* Strong routes */}
                       {positive.length > 0 && (
                         <div className="space-y-2">
                           <p className="text-[10px] uppercase tracking-wider text-emerald-400/80 font-semibold flex items-center gap-1.5">
                             <BadgeCheck className="w-3 h-3" /> Strong Routes
                           </p>
-                          <div className="flex flex-wrap gap-2">
-                            {positive.map((rec) => (
-                              <div key={rec.vendor} data-testid={`rec-PROMOTE-${rec.vendor}`}
-                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/5">
-                                <BadgeCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                                <div>
-                                  <span className="text-xs font-bold text-emerald-300">{rec.vendor}</span>
-                                  <span className="text-[10px] text-emerald-400/70 ml-1.5">Q{rec.currentQ}</span>
-                                  {rec.deltaQ !== null && rec.deltaQ > 0 && (
-                                    <span className="text-[9px] text-emerald-400 ml-1">↑{rec.deltaQ}</span>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                          {positive.map((rec) => <RecCard key={rec.vendor} rec={rec} />)}
                         </div>
                       )}
                     </div>

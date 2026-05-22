@@ -4488,19 +4488,118 @@ export async function registerRoutes(
       const curM  = agg(currentCdrs);
       const prevM = agg(prevCdrs);
 
+      // ── Destination-level aggregation (for RCA top-destinations) ────────────
+      function aggDest(cdrs: any[]): Map<string, Map<string, { tc: number; bc: number; fas: number }>> {
+        const m = new Map<string, Map<string, { tc: number; bc: number; fas: number }>>();
+        for (const c of cdrs) {
+          const vendor = (c.vendor || c.callee || c.cld || '').trim();
+          const cld    = String(c.cld || c.callee || '').trim();
+          if (!vendor || !cld || vendor === cld) continue;
+          if (!m.has(vendor)) m.set(vendor, new Map());
+          const vm  = m.get(vendor)!;
+          const row = vm.get(cld) ?? { tc: 0, bc: 0, fas: 0 };
+          const d = Number(c.duration) || 0;
+          row.tc++;
+          if (String(c.result) === '0' && d > 0) { row.bc++; if (d <= 5) row.fas++; }
+          vm.set(cld, row);
+        }
+        return m;
+      }
+      const destM = aggDest(currentCdrs);
+
+      // ── RCA builder — shared across all rule branches ───────────────────────
+      type SignalContrib = { signal: string; weight: string; value: string; prev: string | null; status: 'critical' | 'warning' | 'ok' };
+      type TopDest       = { cld: string; calls: number; asr: number; fas: number; q: number };
+      type RcaPayload    = {
+        signals: {
+          prev: { asr: number|null; ner: number|null; fas: number|null; pdd: number|null; q: number|null };
+          cur:  { asr: number; ner: number; fas: number; pdd: number; q: number };
+        };
+        ruleDescription: string;
+        topDestinations: TopDest[];
+        signalContributions: SignalContrib[];
+      };
+
+      function buildRca(
+        vendor: string,
+        cur: { tc: number; bc: number; rna: number; fas: number; pddSum: number; pddN: number },
+        prev: { tc: number; bc: number; rna: number; fas: number; pddSum: number; pddN: number } | undefined,
+        curQ: number,
+        prevQ: number | null,
+        ruleDescription: string,
+      ): RcaPayload {
+        const curAsr = cur.tc > 0 ? parseFloat((cur.bc / cur.tc * 100).toFixed(1)) : 0;
+        const curNer = cur.tc > 0 ? parseFloat(((cur.bc + cur.rna) / cur.tc * 100).toFixed(1)) : 0;
+        const curFas = cur.bc > 0 ? parseFloat((cur.fas / cur.bc * 100).toFixed(1)) : 0;
+        const curPdd = cur.pddN > 0 ? parseFloat((cur.pddSum / cur.pddN).toFixed(2)) : 0;
+
+        const prevAsr = prev && prev.tc > 0 ? parseFloat((prev.bc / prev.tc * 100).toFixed(1)) : null;
+        const prevNer = prev && prev.tc > 0 ? parseFloat(((prev.bc + prev.rna) / prev.tc * 100).toFixed(1)) : null;
+        const prevFas = prev && prev.bc > 0 ? parseFloat((prev.fas / prev.bc * 100).toFixed(1)) : null;
+        const prevPdd = prev && prev.pddN > 0 ? parseFloat((prev.pddSum / prev.pddN).toFixed(2)) : null;
+
+        // Top 5 destinations by call volume
+        const dmap = destM.get(vendor);
+        const topDestinations: TopDest[] = [];
+        if (dmap) {
+          const entries = [...dmap.entries()].sort((a, b) => b[1].tc - a[1].tc).slice(0, 5);
+          for (const [cld, ds] of entries) {
+            const dasr = ds.tc > 0 ? parseFloat((ds.bc / ds.tc * 100).toFixed(1)) : 0;
+            const dfas = ds.bc > 0 ? parseFloat((ds.fas / ds.bc * 100).toFixed(1)) : 0;
+            // Simplified Q for destination (no NER/PDD decomposition available)
+            const dq = Math.round(Math.min(dasr, 100) * 0.55 + Math.max(0, 100 - dfas * 4) * 0.25 + 20 * 0.20);
+            topDestinations.push({ cld, calls: ds.tc, asr: dasr, fas: dfas, q: dq });
+          }
+        }
+
+        // Signal contributions — explains what each metric contributes to confidence
+        const sc: SignalContrib[] = [
+          {
+            signal: 'ASR', weight: '40%', value: `${curAsr}%`,
+            prev: prevAsr !== null ? `${prevAsr}%` : null,
+            status: curAsr < 30 ? 'critical' : curAsr < 55 ? 'warning' : 'ok',
+          },
+          {
+            signal: 'NER', weight: '30%', value: `${curNer}%`,
+            prev: prevNer !== null ? `${prevNer}%` : null,
+            status: curNer < 40 ? 'critical' : curNer < 65 ? 'warning' : 'ok',
+          },
+          {
+            signal: 'FAS', weight: '20%', value: `${curFas}%`,
+            prev: prevFas !== null ? `${prevFas}%` : null,
+            status: curFas > 20 ? 'critical' : curFas > 8 ? 'warning' : 'ok',
+          },
+          {
+            signal: 'PDD', weight: '10%', value: `${curPdd}s`,
+            prev: prevPdd !== null ? `${prevPdd}s` : null,
+            status: curPdd > 10 ? 'critical' : curPdd > 6 ? 'warning' : 'ok',
+          },
+        ];
+
+        return {
+          signals: {
+            prev: { asr: prevAsr, ner: prevNer, fas: prevFas, pdd: prevPdd, q: prevQ },
+            cur:  { asr: curAsr, ner: curNer, fas: curFas, pdd: curPdd, q: curQ },
+          },
+          ruleDescription,
+          topDestinations,
+          signalContributions: sc,
+        };
+      }
+
       type Rec = {
         vendor: string; type: string; urgency: string; priority: number;
         title: string; detail: string[]; confidence: number;
         currentQ: number; deltaQ: number | null; callCount: number;
-        asr: number; fas: number;
+        asr: number; fas: number; rca: RcaPayload;
       };
       const recs: Rec[] = [];
 
       for (const [vendor, cur] of curM.entries()) {
         if (cur.tc < MIN_CALLS) continue;
-        const prev  = prevM.get(vendor);
-        const curQ  = qs(cur.tc, cur.bc, cur.rna, cur.fas, cur.pddSum, cur.pddN);
-        const prevQ = prev && prev.tc >= MIN_CALLS ? qs(prev.tc, prev.bc, prev.rna, prev.fas, prev.pddSum, prev.pddN) : null;
+        const prev   = prevM.get(vendor);
+        const curQ   = qs(cur.tc, cur.bc, cur.rna, cur.fas, cur.pddSum, cur.pddN);
+        const prevQ  = prev && prev.tc >= MIN_CALLS ? qs(prev.tc, prev.bc, prev.rna, prev.fas, prev.pddSum, prev.pddN) : null;
         const deltaQ = prevQ !== null ? curQ - prevQ : null;
         const curAsr = cur.tc > 0 ? parseFloat((cur.bc / cur.tc * 100).toFixed(1)) : 0;
         const curFas = cur.bc > 0 ? parseFloat((cur.fas / cur.bc * 100).toFixed(1)) : 0;
@@ -4508,6 +4607,9 @@ export async function registerRoutes(
 
         // Rule: INVESTIGATE — dangerously low quality or extreme FAS
         if (curQ < 25 || curFas > 30) {
+          const rdesc = curFas > 30
+            ? `FAS rate ${curFas.toFixed(0)}% exceeds critical threshold (>30%) — INVESTIGATE rule triggered`
+            : `Q-Score ${curQ} below critical floor (<25)${deltaQ !== null ? ` — fell ${Math.abs(deltaQ!)} pts from Q${prevQ}` : ''} — INVESTIGATE rule triggered`;
           recs.push({
             vendor, type: 'INVESTIGATE', urgency: 'immediate', priority: 1,
             title: curFas > 30 ? `Investigate FAS anomaly — ${curFas.toFixed(0)}% short-billed calls` : `Investigate route quality collapse — Q${curQ}`,
@@ -4519,12 +4621,14 @@ export async function registerRoutes(
             ].filter(Boolean),
             confidence: Math.min(95, 60 + Math.round((curFas > 30 ? curFas * 0.5 : (25 - curQ) * 1.5))),
             currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+            rca: buildRca(vendor, cur, prev, curQ, prevQ, rdesc),
           });
           continue;
         }
 
         // Rule: FAS_ALERT — elevated FAS without full quality collapse
         if (curFas >= 15 && cur.bc >= MIN_CALLS) {
+          const rdesc = `FAS rate ${curFas.toFixed(0)}% exceeds elevated threshold (≥15%) with ${cur.bc} billable calls — FAS_ALERT rule triggered`;
           recs.push({
             vendor, type: 'FAS_ALERT', urgency: 'immediate', priority: 2,
             title: `FAS risk elevated — ${curFas.toFixed(0)}% short-billed calls`,
@@ -4536,6 +4640,7 @@ export async function registerRoutes(
             ].filter(Boolean),
             confidence: Math.min(90, 50 + Math.round(curFas * 1.5)),
             currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+            rca: buildRca(vendor, cur, prev, curQ, prevQ, rdesc),
           });
           continue;
         }
@@ -4543,6 +4648,9 @@ export async function registerRoutes(
         // Rule: REDUCE — low quality or significant degradation
         if (curQ < 40 || (deltaQ !== null && deltaQ <= -20)) {
           const isDegrading = deltaQ !== null && deltaQ <= -20;
+          const rdesc = isDegrading
+            ? `Q-Score dropped ${Math.abs(deltaQ!)} pts (Q${prevQ} → Q${curQ}) in 60m window — threshold: ≥20 pt drop triggers REDUCE_PRIORITY`
+            : `Q-Score ${curQ} below routing threshold (<40) — REDUCE_PRIORITY rule triggered`;
           recs.push({
             vendor, type: 'REDUCE_PRIORITY', urgency: isDegrading ? 'immediate' : 'today', priority: 3,
             title: isDegrading
@@ -4556,12 +4664,16 @@ export async function registerRoutes(
             ].filter(Boolean),
             confidence: Math.min(85, 50 + Math.round(isDegrading ? Math.abs(deltaQ!) * 1.5 : (40 - curQ) * 1.2)),
             currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+            rca: buildRca(vendor, cur, prev, curQ, prevQ, rdesc),
           });
           continue;
         }
 
         // Rule: MONITOR — soft degradation or borderline quality
         if (curQ < 55 || (deltaQ !== null && deltaQ <= -10)) {
+          const rdesc = (deltaQ !== null && deltaQ <= -10)
+            ? `Q-Score declined ${Math.abs(deltaQ!)} pts (Q${prevQ} → Q${curQ}) — threshold: ≥10 pt drop triggers MONITOR`
+            : `Q-Score ${curQ} in borderline range (40–55) — MONITOR rule triggered`;
           recs.push({
             vendor, type: 'MONITOR', urgency: 'today', priority: 4,
             title: (deltaQ !== null && deltaQ <= -10)
@@ -4572,14 +4684,16 @@ export async function registerRoutes(
               deltaQ !== null ? `Change this window: ${deltaQ > 0 ? '+' : ''}${deltaQ} pts` : 'First observation window',
               `ASR: ${curAsr}% · PDD: ${curPdd.toFixed(1)}s`,
             ].filter(Boolean),
-            confidence: 55 + Math.round(Math.abs(deltaQ ?? 5) * 1.0),
+            confidence: Math.min(80, 55 + Math.round(Math.abs(deltaQ ?? 5) * 1.0)),
             currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+            rca: buildRca(vendor, cur, prev, curQ, prevQ, rdesc),
           });
           continue;
         }
 
         // Rule: PROMOTE — high quality, stable or improving
         if (curQ >= 80 && (deltaQ === null || deltaQ >= -3)) {
+          const rdesc = `Q-Score ${curQ} ≥ 80${deltaQ !== null && deltaQ > 0 ? ` and improving (+${deltaQ} pts)` : ' and stable'} — PROMOTE rule triggered`;
           recs.push({
             vendor, type: 'PROMOTE', urgency: 'monitor', priority: 5,
             title: `Strong route — consider increasing priority (Q${curQ})`,
@@ -4590,6 +4704,7 @@ export async function registerRoutes(
             ].filter(Boolean),
             confidence: Math.min(90, 60 + Math.round(curQ * 0.3)),
             currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+            rca: buildRca(vendor, cur, prev, curQ, prevQ, rdesc),
           });
         }
       }
