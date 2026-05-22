@@ -884,11 +884,11 @@ function EntityIntelligenceChart({
   const stats = span !== 'live' ? hist?.stats : null;
   const subLabel = span === 'live'
     ? (livePoints.length > 0
-        ? `Simultaneous active calls · ${livePoints.length} snapshots · 45s interval`
+        ? `Real-time · 45s snapshots · ~4h window · ${livePoints.length} points`
         : 'Building concurrent session history…')
     : span === 'daily'
-        ? (type === 'calls' ? 'Concurrent sessions · Last 72h · 1h MAX'  : 'CDR analytics · Last 72h · hourly buckets')
-        : (type === 'calls' ? 'Concurrent sessions · Last 7d · 6h MAX'   : 'CDR analytics · Last 7d · 6h buckets');
+        ? (type === 'calls' ? 'Tactical view · 1h MAX buckets · 72h window'   : 'CDR analytics · 1h buckets · 72h window')
+        : (type === 'calls' ? 'Strategic view · 6h MAX buckets · 7-day window' : 'CDR analytics · 6h buckets · 7-day window');
 
   // For historical spans: "no traffic" when all buckets are zero (CDR warmup or genuine idle)
   const hasActivity = chartData.some(p => (p.value ?? 0) > 0);
@@ -946,7 +946,7 @@ function EntityIntelligenceChart({
         <div style={{ marginBottom: 8, padding: '5px 10px', background: '#EFF6FF', borderRadius: 8, borderLeft: '3px solid #3B82F6', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 10, color: '#1D4ED8', lineHeight: 1.5 }}>
             <strong>LIVE</strong> shows simultaneous active calls at each 45-second snapshot —
-            not total calls for the day. Switch to <strong>DAILY</strong> to see completed call volume (CDR totals).
+            not call totals. Switch to <strong>DAILY</strong> for 72h tactical trend, or change type for CDR analytics (ASR · Minutes · Cost · ACD).
           </span>
         </div>
       )}

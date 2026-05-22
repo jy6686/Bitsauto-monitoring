@@ -14118,6 +14118,25 @@ export async function registerRoutes(
     });
   });
 
+  // ── BitsEye Metric Source Contract ───────────────────────────────────────────
+  // IMMUTABLE: Do not substitute CDR accounting totals for concurrent session metrics.
+  // The original telemetry regression was caused by exactly this semantic drift.
+  //
+  // Metric          │ Correct Source              │ Correct Aggregation
+  // ────────────────┼─────────────────────────────┼──────────────────────────────
+  // LIVE calls      │ entityConcurrentHistory      │ raw snapshots (no aggregation)
+  // DAILY calls     │ concurrent_snapshots (DB)    │ MAX per 1h bucket · 72h window
+  // WEEKLY calls    │ concurrent_snapshots (DB)    │ MAX per 6h bucket · 7-day window
+  // ASR             │ cdrCache                     │ answered / attempted × 100
+  // ACD             │ cdrCache                     │ SUM(duration) / answered calls
+  // Minutes         │ cdrCache                     │ SUM(duration / 60)
+  // Cost            │ cdrCache                     │ SUM(cost)
+  // Profit          │ cdrCache                     │ SUM(revenue) − SUM(cost)
+  //
+  // LIVE/DAILY/WEEKLY concurrent graphs must NEVER read from cdrCache.
+  // CDR analytics (ASR/ACD/Minutes/Cost) must NEVER use concurrent snapshots.
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // GET /api/bitseye/entity-history
   // Historical metric aggregation — live (entityConcurrentHistory) or daily/weekly (cdrCache).
   // Sippy-safe: zero Sippy calls — reads in-memory caches only.
