@@ -2,7 +2,7 @@
 // Unified incident engine: normalizes signals from account_state + fasEvents into incidents table.
 
 import { db } from "./db";
-import { incidents, accountState, fasEvents } from "@shared/schema";
+import { incidents, incidentLifecycleEvents, accountState, fasEvents } from "@shared/schema";
 import { eq, and, gte, inArray } from "drizzle-orm";
 
 export const INC_TYPES = {
@@ -10,6 +10,22 @@ export const INC_TYPES = {
   FAS_SPIKE:        'FAS_SPIKE',
   ACCOUNT_EXPOSURE: 'ACCOUNT_EXPOSURE',
 } as const;
+
+// ── Lifecycle event logger ─────────────────────────────────────────────────────
+async function logLifecycle(
+  incidentId: number,
+  fromState: string | null,
+  toState: string,
+  note: string,
+): Promise<void> {
+  await db.insert(incidentLifecycleEvents).values({
+    incidentId,
+    fromState,
+    toState,
+    actor: 'system',
+    note,
+  }).catch(() => {});
+}
 
 // ── Upsert helper ─────────────────────────────────────────────────────────────
 async function upsertIncident(data: {
@@ -37,6 +53,7 @@ async function upsertIncident(data: {
   );
 
   if (existing) {
+    const severityChanged = existing.severity !== data.severity;
     await db.update(incidents)
       .set({
         severity:        data.severity,
@@ -48,10 +65,13 @@ async function upsertIncident(data: {
         updatedAt:       now,
       })
       .where(eq(incidents.id, existing.id));
+    if (severityChanged) {
+      await logLifecycle(existing.id, existing.severity, data.severity, `Severity escalated by ${data.source}`);
+    }
     return 'updated';
   }
 
-  await db.insert(incidents).values({
+  const [inserted] = await db.insert(incidents).values({
     entityType:      data.entityType,
     entityId:        data.entityId,
     entityName:      data.entityName,
@@ -66,8 +86,51 @@ async function upsertIncident(data: {
     source:          data.source,
     openedAt:        now,
     updatedAt:       now,
-  });
+  }).returning({ id: incidents.id }).catch(() => [] as { id: number }[]);
+
+  if (inserted?.id) {
+    await logLifecycle(inserted.id, null, 'active', `Opened by ${data.source}`);
+  }
   return 'opened';
+}
+
+// ── Entity ID normalizer ───────────────────────────────────────────────────────
+// Builds a map from lowercased accountName → accountId (Sippy numeric ID).
+// Both engines must use the numeric accountId as the canonical entityId so that
+// ACCOUNT_HEALTH and FAS_SPIKE incidents for the same physical account share
+// the same entityId and can be cross-referenced.
+async function buildNameToAccountIdMap(): Promise<Map<string, string>> {
+  const rows = await db.select({
+    accountId:   accountState.accountId,
+    accountName: accountState.accountName,
+  }).from(accountState);
+  const m = new Map<string, string>();
+  for (const r of rows) {
+    if (r.accountName) m.set(r.accountName.toLowerCase().trim(), r.accountId);
+    // Also map accountId → accountId so numeric keys pass through unchanged
+    m.set(r.accountId.toLowerCase().trim(), r.accountId);
+  }
+  return m;
+}
+
+// ── One-time migration: normalize pre-existing FAS_SPIKE entityIds ─────────────
+// Historic FAS_SPIKE incidents used clientName (string) as entityId. After this
+// migration they will use the canonical numeric accountId where available, so
+// auto-resolution and cross-engine correlation work correctly.
+async function migrateFasEntityIds(nameToId: Map<string, string>): Promise<void> {
+  const activeFas = await db.select().from(incidents).where(
+    and(eq(incidents.incidentType, INC_TYPES.FAS_SPIKE), eq(incidents.status, 'active'))
+  );
+  for (const inc of activeFas) {
+    const canonical = nameToId.get((inc.entityId ?? '').toLowerCase().trim());
+    if (canonical && canonical !== inc.entityId) {
+      await db.update(incidents)
+        .set({ entityId: canonical, updatedAt: new Date() })
+        .where(eq(incidents.id, inc.id))
+        .catch(() => {});
+      await logLifecycle(inc.id, inc.entityId, canonical, 'entityId normalized to canonical accountId by migration');
+    }
+  }
 }
 
 // ── Main engine function ──────────────────────────────────────────────────────
@@ -79,6 +142,12 @@ export async function runIncidentEngine(): Promise<{ opened: number; updated: nu
   try {
     const now    = new Date();
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    // Build canonical name → accountId lookup (used by FAS engine and migration)
+    const nameToId = await buildNameToAccountIdMap();
+
+    // Ensure historic FAS_SPIKE incidents use the canonical entityId
+    await migrateFasEntityIds(nameToId);
 
     // ── 1. Account health incidents ──────────────────────────────────────────
     const allStates = await db.select().from(accountState);
@@ -140,6 +209,7 @@ export async function runIncidentEngine(): Promise<{ opened: number; updated: nu
         await db.update(incidents)
           .set({ status: 'resolved', resolvedAt: now, updatedAt: now })
           .where(eq(incidents.id, inc.id));
+        await logLifecycle(inc.id, 'active', 'resolved', 'Auto-resolved: account health recovered to healthy state');
         resolved++;
       }
     }
@@ -147,33 +217,41 @@ export async function runIncidentEngine(): Promise<{ opened: number; updated: nu
     // ── 2. FAS spike incidents ────────────────────────────────────────────────
     const recentFas = await db.select().from(fasEvents).where(gte(fasEvents.detectedAt, dayAgo));
 
-    const fasMap = new Map<string, { count: number; maxScore: number }>();
+    // Group by clientName, then normalize to canonical accountId
+    const fasMap = new Map<string, { count: number; maxScore: number; displayName: string }>();
     for (const ev of recentFas) {
-      const key = (ev.clientName ?? '').toLowerCase().trim();
-      if (!key) continue;
-      const cur = fasMap.get(key) ?? { count: 0, maxScore: 0 };
+      const rawName = (ev.clientName ?? '').toLowerCase().trim();
+      if (!rawName) continue;
+      // Resolve to canonical accountId; fall back to raw clientName if not in state table
+      const canonicalId = nameToId.get(rawName) ?? rawName;
+      const cur = fasMap.get(canonicalId) ?? { count: 0, maxScore: 0, displayName: ev.clientName ?? rawName };
       cur.count++;
       cur.maxScore = Math.max(cur.maxScore, Number((ev as any).fraudScore ?? 0));
-      fasMap.set(key, cur);
+      fasMap.set(canonicalId, cur);
     }
 
+    // Track canonical entityIds that are currently active (for auto-resolution)
     const activeFasKeys: string[] = [];
-    for (const [clientName, stats] of fasMap) {
+    for (const [canonicalId, stats] of Array.from(fasMap.entries())) {
       if (stats.count < 3) continue;
 
-      activeFasKeys.push(clientName);
+      activeFasKeys.push(canonicalId);
       const severity   = stats.count >= 10 || stats.maxScore >= 80 ? 'critical'
         : stats.count >= 5 ? 'high' : 'medium';
       const confidence = Math.min(95, 60 + stats.count * 3);
 
+      // Resolve display name: prefer accountName from accountState, else displayName
+      const stateRow = allStates.find(s => s.accountId === canonicalId);
+      const displayName = stateRow?.accountName ?? stats.displayName;
+
       const result = await upsertIncident({
         entityType:      'account',
-        entityId:        clientName,
-        entityName:      clientName,
+        entityId:        canonicalId,
+        entityName:      displayName,
         incidentType:    INC_TYPES.FAS_SPIKE,
         severity,
         confidence,
-        title:           `${clientName}: FAS spike — ${stats.count} events in 24h`,
+        title:           `${displayName}: FAS spike — ${stats.count} events in 24h`,
         summary:         `False Answer Supervision detected ${stats.count} times in the last 24 hours. Peak fraud score: ${stats.maxScore.toFixed(0)}/100.`,
         reasons:         [
           `${stats.count} FAS events in last 24h`,
@@ -187,7 +265,7 @@ export async function runIncidentEngine(): Promise<{ opened: number; updated: nu
       else updated++;
     }
 
-    // Auto-resolve FAS incidents with no recent events
+    // Auto-resolve FAS incidents whose signal has cleared
     const activeFasIncidents = await db.select().from(incidents).where(
       and(eq(incidents.incidentType, INC_TYPES.FAS_SPIKE), eq(incidents.status, 'active'))
     );
@@ -196,6 +274,7 @@ export async function runIncidentEngine(): Promise<{ opened: number; updated: nu
         await db.update(incidents)
           .set({ status: 'resolved', resolvedAt: now, updatedAt: now })
           .where(eq(incidents.id, inc.id));
+        await logLifecycle(inc.id, 'active', 'resolved', 'Auto-resolved: FAS events dropped below threshold in 24h window');
         resolved++;
       }
     }
@@ -244,6 +323,7 @@ export async function runIncidentEngine(): Promise<{ opened: number; updated: nu
         await db.update(incidents)
           .set({ status: 'resolved', resolvedAt: now, updatedAt: now })
           .where(eq(incidents.id, inc.id));
+        await logLifecycle(inc.id, 'active', 'resolved', 'Auto-resolved: auth exposure score dropped below threshold');
         resolved++;
       }
     }
