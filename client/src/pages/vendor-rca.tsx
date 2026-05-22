@@ -40,7 +40,7 @@ export default function VendorRcaPage() {
   const [activeVendor, setActive] = useState<string | null>(null);
   const [drawerOpen, setDrawer]   = useState(false);
 
-  const { data, isLoading } = useQuery<VendorListResponse>({
+  const { data, isLoading, isFetching } = useQuery<VendorListResponse>({
     queryKey: ['/api/vendor-rca'],
     queryFn:  async () => {
       const r = await fetch('/api/vendor-rca');
@@ -76,10 +76,13 @@ export default function VendorRcaPage() {
             </div>
             <Button
               size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
-              onClick={() => qc.invalidateQueries({ queryKey: ['/api/vendor-rca'] })}
+              onClick={() => {
+                qc.invalidateQueries({ queryKey: ['/api/vendor-rca'] });
+                if (activeVendor) qc.invalidateQueries({ queryKey: ['/api/vendor-rca', activeVendor] });
+              }}
               data-testid="btn-refresh-vendors"
             >
-              <RefreshCw className={cn("w-3.5 h-3.5", isLoading && "animate-spin")} />
+              <RefreshCw className={cn("w-3.5 h-3.5", isFetching && "animate-spin")} />
               Refresh
             </Button>
           </div>

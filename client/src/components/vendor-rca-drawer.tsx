@@ -175,7 +175,7 @@ interface VendorRcaDrawerProps {
 }
 
 export function VendorRcaDrawer({ vendor, onClose }: VendorRcaDrawerProps) {
-  const { data, isLoading, error } = useQuery<VendorRcaPayload>({
+  const { data, isLoading, isFetching, error } = useQuery<VendorRcaPayload>({
     queryKey: ['/api/vendor-rca', vendor],
     queryFn: async () => {
       const r = await fetch(`/api/vendor-rca/${encodeURIComponent(vendor!)}`);
@@ -214,7 +214,12 @@ export function VendorRcaDrawer({ vendor, onClose }: VendorRcaDrawerProps) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground truncate">{vendor}</p>
-            <p className="text-[10px] text-muted-foreground">Root Cause Analysis</p>
+            <p className="text-[10px] text-muted-foreground">
+              Root Cause Analysis
+              {isFetching && !isLoading && (
+                <span className="ml-1.5 text-violet-400/70">· refreshing…</span>
+              )}
+            </p>
           </div>
           <button
             onClick={onClose}
