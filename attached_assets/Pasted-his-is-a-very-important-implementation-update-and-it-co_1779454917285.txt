@@ -1,0 +1,172 @@
+his is a very important implementation update and it confirms several major architectural improvements were successfully completed.
+
+What Was Actually Fixed
+
+A major underlying bug was identified:
+
+the ASR/ACD report backend route was returning:
+{ origination, termination }
+while the frontend expected:
+{ rows }
+
+Because of this mismatch:
+
+Client/Vendor report tabs were silently showing empty or incorrect data,
+and the secondary compatibility route was never actually being used.
+
+This explains many of the recurring reporting inconsistencies you were seeing.
+
+What Was Added
+1. NER Overlay
+
+New metric added:
+
+NER %
+includes:
+Answered calls
+RNA calls
+calculated as:
+(answered + RNA) / total
+
+This gives a much more realistic route effectiveness picture than ASR alone.
+
+2. FAS Risk Overlay
+
+New:
+
+FAS detection indicators inside reports
+
+Now:
+
+short-duration traffic patterns
+suspicious answer behavior
+potential false answer supervision
+
+can surface directly inside vendor reporting.
+
+This is a major operational improvement.
+
+3. Reports Compatibility Layer
+
+Now both:
+
+portal path,
+and CDR-cache fallback
+
+return:
+
+rows
+_source
+_cdrCount
+
+This stabilizes frontend reporting behavior.
+
+4. KPI Expansion
+
+Reports expanded:
+
+from 4 KPI cards
+to 6 KPI cards
+
+Now includes:
+
+Total Calls
+Billable
+Avg ASR
+NER
+Avg ACD
+Revenue
+
+This is much closer to carrier-grade reporting.
+
+5. Vendor Risk Visibility
+
+Vendor tabs now show:
+
+FAS risk badges
+severity colouring
+warning indicators
+
+This is useful for:
+
+routing decisions,
+vendor quality analysis,
+fraud visibility,
+and operational troubleshooting.
+Most Important Strategic Improvement
+
+The reporting layer is now evolving from:
+
+“basic ASR/ACD reporting”
+
+toward:
+
+“carrier intelligence reporting”
+
+That is a major architectural upgrade.
+
+Why This Matters Operationally
+
+Previously:
+
+reports only showed performance.
+
+Now:
+
+reports also show quality context,
+risk context,
+and route reliability signals.
+
+That is much more useful for:
+
+NOC teams,
+routing managers,
+KAMs,
+and commercial operations.
+Very Important Limitation Noted
+
+Portal-based reports still approximate:
+
+NER ≈ ASR
+
+because portal aggregates do not expose:
+
+explicit RNA counts.
+
+But:
+
+XML-RPC CDR data paths now support proper RNA-aware calculations.
+
+That is still the correct implementation approach.
+
+My Recommendation Next
+
+Now that:
+
+NER,
+FAS,
+and reporting overlays
+
+exist,
+
+the next high-value upgrade would be:
+
+ASR/ACD Trend Intelligence
+
+Add:
+
+rolling degradation indicators,
+vendor quality trends,
+route instability detection,
+anomaly overlays,
+and live route ranking.
+
+That would transform reports from:
+
+“historical tables”
+
+into:
+
+“decision-support intelligence.”
+
+Reference implementation update file:

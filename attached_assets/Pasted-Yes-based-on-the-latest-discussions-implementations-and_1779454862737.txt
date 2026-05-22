@@ -1,0 +1,153 @@
+Yes — based on the latest discussions, implementations, and UI changes, the platform status has changed significantly compared to the original documentation. The current documents are now partially outdated and should be updated.
+
+Major changes/additions after the documentation include:
+
+Newly Implemented / Enhanced Features
+BitsEye 2 Major Upgrade
+
+Not reflected properly in old docs.
+
+New additions include:
+
+Sidebar search
+Pinned/favorite entities
+Live sparklines
+Fullscreen wallboard mode
+Smooth live transitions
+Sticky alert bar
+Live anomaly highlights
+Attention Mode
+Entity prioritization
+Event-driven monitoring concept
+KAM-wise BitsEye 2 direction
+Live alert surfacing
+
+This is a major architectural/UI evolution.
+
+Multi-Tenant / White-Label Direction
+
+The documentation currently mentions reseller/portal concepts, but not the newer:
+
+tenant-aware architecture,
+viewer restrictions,
+client-specific visibility,
+white-label deployments,
+feature flags,
+partner SaaS model,
+demo environment logic,
+and role-isolated analytics.
+
+These should now be formally documented.
+
+Viewer & Client Portal Policy Changes
+
+New requirements discussed:
+
+Read-only portals
+No CDR access for viewers
+Assigned-account-only visibility
+Client-specific analytics
+Client live graphs
+Client portal dashboard concept
+
+These are not fully reflected in existing documents.
+
+GCC / Rate Management Expansion
+
+Big new commercial direction added:
+
+GCC rate management
+Product-class routing
+First/Business/Charlie/Bravo logic
+Rate-sheet normalization
+Duplicate code cleanup
+Naming convention validation
+Vendor/client rate workflows
+
+This is now becoming a major module and should be added formally.
+
+Operational Intelligence Layer
+
+Your platform has shifted from:
+
+“dashboard/reporting”
+
+toward:
+
+“operational intelligence”
+
+New concepts now discussed:
+
+anomaly-driven UI,
+live prioritization,
+AI Ops,
+telecom decision support,
+incident surfacing,
+attention ranking,
+event-driven NOC.
+
+This is a major strategic change.
+
+Current Documentation Gap
+
+The current reports still describe the platform mainly as:
+
+monitoring,
+billing,
+and reporting software.
+
+But the platform is now evolving into:
+
+“AI-powered telecom operational intelligence platform.”
+
+That positioning change is not yet reflected properly.
+
+Features That Changed Status
+
+Some features originally marked:
+
+“proposal,”
+“partial,”
+or “planned”
+
+have now moved closer to:
+
+active implementation,
+UI live state,
+or architecture-ready state.
+
+Especially:
+
+anomaly engine,
+incident engine,
+BitsEye 2,
+attention mode,
+wallboard,
+live prioritization,
+multi-tenant design,
+and client portal concepts.
+My Recommendation
+
+The documentation should now be split into:
+
+Document	Purpose
+Executive/Product Deck	CEO/operator presentations
+Technical Architecture Report	Engineering + roadmap
+Commercial SaaS Deployment Guide	Partner onboarding
+Feature Matrix & Status Tracker	Live implementation tracking
+Operations Manual	NOC/operator usage
+Most Important Missing Section
+
+You now need:
+
+“Platform Evolution Timeline”
+
+Example:
+
+Phase 1 → Monitoring Platform
+Phase 2 → Operational Dashboard
+Phase 3 → Event-Driven NOC
+Phase 4 → AI Ops Platform
+Phase 5 → Telecom Operating System
+
+That would clearly explain the strategic direction of BitsAuto.

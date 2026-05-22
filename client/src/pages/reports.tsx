@@ -12,7 +12,8 @@ import {
   Calendar, Clock, Globe, Building2, PhoneCall, CheckCircle2, PhoneOff,
   AlertTriangle, Users, DollarSign, Flag, ArrowRight,
   PhoneForwarded, PhoneIncoming, Activity, BarChart2, Layers, Server,
-  Percent, ArrowUpRight, ArrowDownRight, Wifi,
+  Percent, ArrowUpRight, ArrowDownRight, Wifi, Gauge, Zap, ShieldCheck,
+  TriangleAlert, BadgeCheck,
 } from "lucide-react";
 import {
   ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip as RcTooltip,
@@ -91,6 +92,30 @@ function fmtMins(minutes: number): string {
 
 function toInput(d: Date, tz: string): string { return toTzDateInput(d, tz); }
 
+// ── Route Quality Score (0–100) ─────────────────────────────────────────────
+// Composite carrier-grade signal: ASR + NER + FAS penalty + PDD penalty
+// Used for vendor ranking, degradation badges, and route intelligence panel.
+function computeQuality(row: ReportRow): number {
+  if (row.totalCalls === 0) return 0;
+  const asrScore  = Math.min(row.asr, 100) * 0.40;
+  const ner       = row.nerPct ?? row.asr;
+  const nerScore  = Math.min(ner, 100) * 0.30;
+  const fas       = row.fasRate ?? 0;
+  const fasScore  = Math.max(0, 100 - fas * 4) * 0.20;         // FAS ≥ 25% → 0 pts
+  const pdd       = row.avgPdd;
+  const pddScore  = (pdd <= 1 ? 100 : pdd <= 3 ? 85 : pdd <= 6 ? 65 : pdd <= 10 ? 40 : 20) * 0.10;
+  return Math.round(asrScore + nerScore + fasScore + pddScore);
+}
+function qualityLabel(q: number): string {
+  return q >= 70 ? 'Good' : q >= 50 ? 'Fair' : q >= 30 ? 'Poor' : 'Critical';
+}
+function qualityColor(q: number): string {
+  return q >= 70 ? 'text-emerald-400' : q >= 50 ? 'text-amber-400' : q >= 30 ? 'text-orange-400' : 'text-rose-400';
+}
+function qualityBg(q: number): string {
+  return q >= 70 ? 'bg-emerald-500/15 border-emerald-500/30' : q >= 50 ? 'bg-amber-500/15 border-amber-500/30' : q >= 30 ? 'bg-orange-500/15 border-orange-500/30' : 'bg-rose-500/15 border-rose-500/30';
+}
+
 const PRESET_GROUPS = [
   { label: "Quick", presets: [
     { label: "Last 15 min",  fn: () => [subMinutesUTC(new Date(), 15), new Date()] as [Date,Date] },
@@ -155,7 +180,7 @@ export default function ReportsPage() {
   const [cldFilter, setCldFilter]  = useState("");
   const [partyType, setPartyType]  = useState<'all' | 'client' | 'vendor'>('all');
   const [highlightBelow, setHighlightBelow] = useState(10);
-  const [sortBy, setSortBy]    = useState<'totalCalls' | 'asr' | 'billableCalls' | 'revenueUsd'>("totalCalls");
+  const [sortBy, setSortBy]    = useState<'totalCalls' | 'asr' | 'billableCalls' | 'revenueUsd' | 'quality'>("totalCalls");
   const [hideEmpty, setHideEmpty] = useState(true);
 
   const [applied, setApplied] = useState({ cliFilter, cldFilter, startTime, endTime, sortBy, hideEmpty, tz });
@@ -188,7 +213,8 @@ export default function ReportsPage() {
       if (applied.startTime) params.set('startTime', tzDateToUTC(applied.startTime, applied.tz).toISOString());
       if (applied.endTime)   params.set('endTime',   tzDateToUTC(applied.endTime,   applied.tz).toISOString());
       params.set('groupBy',   groupBy);
-      params.set('sortBy',    applied.sortBy);
+      // 'quality' is client-side only — tell the API to return all rows sorted by totalCalls
+      params.set('sortBy',    applied.sortBy === 'quality' ? 'totalCalls' : applied.sortBy);
       params.set('hideEmpty', String(applied.hideEmpty));
       const res = await fetch(`/api/reports/asr-acd?${params}`);
       if (!res.ok) throw new Error('Failed to fetch report');
@@ -201,13 +227,12 @@ export default function ReportsPage() {
   const reportCdrCount: number = Array.isArray(reportData) ? rows.length : (reportData?._cdrCount ?? rows.length);
 
   const displayRows = useMemo(() => {
-    if (partyType === 'all') return rows;
-    return rows.filter(() => {
-      if (partyType === 'client') return true;
-      if (partyType === 'vendor') return true;
-      return true;
-    });
-  }, [rows, partyType]);
+    const filtered = rows; // partyType filter placeholder
+    if (sortBy === 'quality') {
+      return [...filtered].sort((a, b) => computeQuality(b) - computeQuality(a));
+    }
+    return filtered;
+  }, [rows, partyType, sortBy]);
 
   // ── Connection query ────────────────────────────────────────────────────────
   type ConnRow = { name: string; totalCalls: number; billableCalls: number; durationSec: number; acdSec: number; asr: number; avgPdd: number; amount: number };
@@ -267,7 +292,7 @@ export default function ReportsPage() {
     return { totalCalls, billableCalls, billedDurationSeconds, revenueUsd, asr, acdSeconds, avgPdd, nerPct, fasRate };
   }, [displayRows]);
 
-  function applyFilters() { setApplied({ cliFilter, cldFilter, startTime, endTime, sortBy, hideEmpty, tz }); }
+  function applyFilters() { setApplied({ cliFilter, cldFilter, startTime, endTime, sortBy: sortBy as any, hideEmpty, tz }); }
   function applyPreset(label: string, fn: () => [Date, Date]) {
     const [start, end] = fn();
     setStartTime(toInput(start, tz));
@@ -439,6 +464,7 @@ export default function ReportsPage() {
                     <option value="billableCalls">Billable Calls</option>
                     <option value="asr">ASR %</option>
                     <option value="revenueUsd">Revenue</option>
+                    <option value="quality">Quality Score ↓</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -590,6 +616,77 @@ export default function ReportsPage() {
             </div>
           )}
 
+          {/* ── Route Intelligence Panel (vendor tab only) ─────────────── */}
+          {activeTab === 'vendor' && !reportLoading && displayRows.length > 0 && (() => {
+            const scored = displayRows.map(r => ({ ...r, q: computeQuality(r) }));
+            const avgQ      = Math.round(scored.reduce((s, r) => s + r.q, 0) / scored.length);
+            const critical  = scored.filter(r => r.q < 30);
+            const highFas   = scored.filter(r => (r.fasRate ?? 0) >= 15 && r.billableCalls > 0);
+            const topVendor = [...scored].sort((a, b) => b.q - a.q)[0];
+            const worst     = [...scored].sort((a, b) => a.q - b.q).slice(0, 3).filter(r => r.q < 50);
+            return (
+              <div className="rounded-xl border border-violet-500/20 bg-card/50 overflow-hidden">
+                <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 bg-muted/10">
+                  <Gauge className="w-4 h-4 text-violet-400" />
+                  <span className="text-sm font-semibold">Route Intelligence</span>
+                  <span className="text-xs text-muted-foreground ml-1">— composite quality signals across all termination routes</span>
+                  {sortBy !== 'quality' && (
+                    <button onClick={() => setSortBy('quality')}
+                      className="ml-auto text-xs px-2.5 py-1 rounded-md border border-violet-500/30 text-violet-400 hover:bg-violet-500/10 transition-colors">
+                      Sort by Q-Score ↓
+                    </button>
+                  )}
+                </div>
+                <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className={cn("rounded-lg border p-3", avgQ >= 70 ? "border-emerald-500/30 bg-emerald-500/5" : avgQ >= 50 ? "border-amber-500/30 bg-amber-500/5" : "border-rose-500/30 bg-rose-500/5")} data-testid="stat-avg-quality">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Gauge className={`w-3.5 h-3.5 ${qualityColor(avgQ)}`} />
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Avg Q-Score</span>
+                    </div>
+                    <p className={`text-2xl font-bold tabular-nums ${qualityColor(avgQ)}`}>{avgQ}</p>
+                    <p className={`text-[10px] font-medium mt-0.5 ${qualityColor(avgQ)}`}>{qualityLabel(avgQ)}</p>
+                  </div>
+                  <div className={cn("rounded-lg border p-3", critical.length === 0 ? "border-emerald-500/20 bg-emerald-500/5" : "border-rose-500/30 bg-rose-500/5")} data-testid="stat-critical-routes">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <TriangleAlert className={`w-3.5 h-3.5 ${critical.length === 0 ? 'text-emerald-400' : 'text-rose-400'}`} />
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Critical Routes</span>
+                    </div>
+                    <p className={`text-2xl font-bold tabular-nums ${critical.length === 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{critical.length}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Q-score &lt; 30</p>
+                  </div>
+                  <div className={cn("rounded-lg border p-3", highFas.length === 0 ? "border-emerald-500/20 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/5")} data-testid="stat-fas-elevated">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Zap className={`w-3.5 h-3.5 ${highFas.length === 0 ? 'text-emerald-400' : 'text-amber-400'}`} />
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">FAS Elevated</span>
+                    </div>
+                    <p className={`text-2xl font-bold tabular-nums ${highFas.length === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>{highFas.length}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">FAS risk ≥ 15 %</p>
+                  </div>
+                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3" data-testid="stat-top-vendor">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <BadgeCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Top Route</span>
+                    </div>
+                    <p className="text-sm font-semibold text-emerald-400 truncate">{topVendor?.caller || '—'}</p>
+                    <p className="text-[10px] text-emerald-400/70 mt-0.5">Q-score: {topVendor?.q ?? 0}</p>
+                  </div>
+                </div>
+                {worst.length > 0 && (
+                  <div className="border-t border-border/40 px-5 py-3 bg-rose-500/5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] uppercase tracking-wider text-rose-400/80 font-semibold flex-shrink-0">Routes needing attention:</span>
+                      {worst.map(r => (
+                        <span key={r.caller} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-medium", qualityBg(r.q), qualityColor(r.q))}>
+                          {r.caller} · Q:{r.q}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* ── ASR/ACD Table ─────────────────────────────────────────────── */}
           <div className="rounded-xl border border-border/50 bg-card/60 overflow-hidden">
             <div className="px-6 py-3 border-b border-border/50 bg-muted/20 flex items-center justify-between flex-wrap gap-2">
@@ -623,6 +720,7 @@ export default function ReportsPage() {
                       {activeTab === 'vendor' && (
                         <th className="px-4 py-3 text-right font-semibold" title="FAS risk — short-billed answered calls ≤ 5 s">FAS Risk</th>
                       )}
+                      <th className="px-4 py-3 text-right font-semibold" title="Composite Route Quality Score — ASR 40% + NER 30% + FAS 20% + PDD 10%">Q-Score</th>
                       <th className="px-4 py-3 text-right font-semibold">Avg PDD</th>
                       <th className="px-4 py-3 text-right font-semibold">Revenue USD</th>
                     </tr>
@@ -689,6 +787,21 @@ export default function ReportsPage() {
                               )}
                             </td>
                           )}
+                          {/* Q-Score cell — composite route quality */}
+                          {(() => {
+                            const q = computeQuality(row);
+                            return (
+                              <td className="px-4 py-2.5 text-right" data-testid={`qscore-${i}`}>
+                                <div className="flex flex-col items-end gap-0.5">
+                                  <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold tabular-nums", qualityBg(q), qualityColor(q))}>
+                                    <Gauge className="w-2.5 h-2.5" />
+                                    {q}
+                                  </span>
+                                  <span className={`text-[9px] font-medium ${qualityColor(q)}`}>{qualityLabel(q)}</span>
+                                </div>
+                              </td>
+                            );
+                          })()}
                           <td className="px-4 py-2.5 text-right tabular-nums">{row.avgPdd.toFixed(2)}s</td>
                           <td className="px-4 py-2.5 text-right tabular-nums text-emerald-400 font-medium">${row.revenueUsd.toFixed(4)}</td>
                         </tr>
@@ -713,6 +826,20 @@ export default function ReportsPage() {
                           {totals.fasRate.toFixed(1)}%
                         </td>
                       )}
+                      {/* Q-Score totals cell — avg across all rows */}
+                      {(() => {
+                        const avgQ = displayRows.length > 0
+                          ? Math.round(displayRows.reduce((s, r) => s + computeQuality(r), 0) / displayRows.length)
+                          : 0;
+                        return (
+                          <td className="px-4 py-3 text-right">
+                            <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold tabular-nums", qualityBg(avgQ), qualityColor(avgQ))}>
+                              <Gauge className="w-2.5 h-2.5" />
+                              {avgQ} avg
+                            </span>
+                          </td>
+                        );
+                      })()}
                       <td className="px-4 py-3 text-right tabular-nums">{totals.avgPdd.toFixed(2)}s</td>
                       <td className="px-4 py-3 text-right tabular-nums text-emerald-400">${totals.revenueUsd.toFixed(4)}</td>
                     </tr>
