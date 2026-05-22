@@ -18,6 +18,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
+import { useChatDrawer } from "@/context/chat-drawer-context";
 
 function openCommandBar() {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
@@ -249,6 +250,8 @@ export function AppNavShell() {
 
   if (compact || wallboard) return null;
 
+  const { isOpen: chatOpen, toggle: toggleChat } = useChatDrawer();
+
   const meta          = inferMeta(location);
   const activeDomain  = DOMAINS.find(d => d.id === meta.domain);
   const isDashboard   = location === '/';
@@ -309,25 +312,25 @@ export function AppNavShell() {
             <span className="hidden md:inline">Dashboard</span>
           </Link>
 
-          {/* Team Chat */}
-          <Link
-            href="/chat"
+          {/* Team Chat — opens floating drawer */}
+          <button
+            onClick={toggleChat}
             data-testid="nav-team-chat"
             className={cn(
               "relative flex items-center gap-1.5 h-[30px] px-2.5 rounded-md text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
-              isChat
+              chatOpen || isChat
                 ? "text-foreground bg-white/[0.08]"
                 : "text-muted-foreground/65 hover:text-foreground hover:bg-white/[0.05]"
             )}
           >
-            <MessageSquare className={cn("w-3.5 h-3.5", isChat ? "text-emerald-400" : "")} />
+            <MessageSquare className={cn("w-3.5 h-3.5", chatOpen || isChat ? "text-emerald-400" : "")} />
             <span className="hidden md:inline">Chat</span>
-            {activeIncidents > 0 && !isChat && (
+            {activeIncidents > 0 && !chatOpen && !isChat && (
               <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center text-[9px] font-bold bg-rose-500 text-white rounded-full px-0.5 leading-none">
                 {activeIncidents > 9 ? '9+' : activeIncidents}
               </span>
             )}
-          </Link>
+          </button>
 
           {/* Live call count chip */}
           {liveCallCount > 0 && role !== 'viewer' && (

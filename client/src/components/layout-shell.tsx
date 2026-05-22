@@ -13,6 +13,8 @@ import { CommandBar } from "@/components/command-bar";
 import { FixButton } from "@/components/fix-button";
 import { AppNavShell } from "@/components/app-nav-shell";
 import { SippyHealthBadge } from "@/components/sippy-health-badge";
+import { ChatDrawerProvider } from "@/context/chat-drawer-context";
+import { ChatDrawer } from "@/components/chat-drawer";
 import { useOrgScope } from "@/context/org-scope-context";
 import { inferWorkspace, WORKSPACE_SIDEBAR_GROUPS, WORKSPACE_LABELS, WORKSPACE_TEXT_COLOR, WORKSPACE_DOT_BG } from "@/lib/workspace";
 import type { WorkspaceDomain } from "@/lib/workspace";
@@ -1486,6 +1488,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const sidebarCls = "border-r border-white/[0.05] bg-[hsl(var(--background)/0.75)] backdrop-blur-xl";
 
   return (
+    <ChatDrawerProvider>
     <div className="min-h-screen bg-background flex flex-col">
       <AppNavShell />
 
@@ -1599,11 +1602,13 @@ export function LayoutShell({ children }: LayoutShellProps) {
       {/* ── Globals ──────────────────────────────────────────────────────────── */}
       <CommandBar />
       <FixButton />
+      <ChatDrawer />
       <GroupPlusDialog
         open={groupPlusOpen}
         onClose={() => setGroupPlusOpen(false)}
         onCreate={handleCreateCustomGroup}
       />
     </div>
+    </ChatDrawerProvider>
   );
 }
