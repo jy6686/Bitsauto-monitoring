@@ -200,6 +200,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/carrier-intelligence",      label: "Carrier Intelligence", icon: Activity,  roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
       { href: "/carrier-scoring",           label: "Carrier Scoring",      icon: BarChart3, roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
       { href: "/intelligence",              label: "Intelligence Hub",     icon: Brain,     roles: ['admin','management'], isNew: true },
+      { href: "/intelligence-validation",   label: "Validation Console",   icon: FlaskConical, roles: ['admin','management'], isNew: true },
       { href: "/ai-ops?tab=decision-overlay", label: "Decision Overlay",  icon: Eye,       roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
     ],
   },

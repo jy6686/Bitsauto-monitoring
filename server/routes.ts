@@ -4716,6 +4716,176 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── GET /api/intelligence/validation ────────────────────────────────────────
+  // Passive read-only observer of all intelligence engines.
+  // Uses ONLY real CDR cache + incident DB — zero new Sippy calls, no synthetic data.
+  // Returns: telemetry health, Q-score decomposition, recommendation audit,
+  //          degradation audit, incident attribution, and cross-engine assertions.
+  app.get('/api/intelligence/validation', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+    try {
+      const { desc: _desc, gte: _gte } = await import('drizzle-orm');
+      const now = Date.now();
+      const W1  = 60 * 60_000;
+
+      // ── Telemetry ─────────────────────────────────────────────────────────
+      const allCdrs = [...cdrCache.values()];
+      const cdrCacheSize = allCdrs.length;
+      const lastRefresh  = cdrCacheUpdatedAt;
+      const cacheAgeMin  = lastRefresh ? Math.round((now - lastRefresh.getTime()) / 60_000) : null;
+      let oldestTs: number|null = null, newestTs: number|null = null;
+      for (const c of allCdrs) {
+        const ts = new Date((c as any).startTime || (c as any).connectTime || 0).getTime();
+        if (ts > 0) { if (!oldestTs || ts < oldestTs) oldestTs = ts; if (!newestTs || ts > newestTs) newestTs = ts; }
+      }
+      const windowCdrs = cdrWindowValues(now - W1) as any[];
+      const telChecks = [
+        { check: 'CDR cache populated',       status: cdrCacheSize >= 100 ? 'pass' : cdrCacheSize >= 10 ? 'warn' : 'fail' as any, detail: `${cdrCacheSize.toLocaleString()} records in cache` },
+        { check: 'Cache freshness',           status: (cacheAgeMin === null ? 'warn' : cacheAgeMin <= 10 ? 'pass' : cacheAgeMin <= 30 ? 'warn' : 'fail') as any, detail: cacheAgeMin !== null ? `Last refresh ${cacheAgeMin}m ago` : 'No refresh timestamp' },
+        { check: 'Current window coverage',   status: (windowCdrs.length >= 10 ? 'pass' : windowCdrs.length >= 1 ? 'warn' : 'fail') as any, detail: `${windowCdrs.length} CDRs in last 60 minutes` },
+      ];
+      const telStatus = telChecks.some(c => c.status === 'fail') ? 'fail' : telChecks.some(c => c.status === 'warn') ? 'warn' : 'pass';
+
+      // ── Q-Score decomposition ─────────────────────────────────────────────
+      const vAgg = new Map<string, { tc: number; bc: number; rna: number; fas: number; pddSum: number; pddN: number }>();
+      for (const c of windowCdrs) {
+        const k = ((c.vendor || c.callee || c.cld || '') as string).trim(); if (!k) continue;
+        const r = vAgg.get(k) ?? { tc: 0, bc: 0, rna: 0, fas: 0, pddSum: 0, pddN: 0 };
+        const d = Number(c.duration) || 0; const p = Number(c.pdd1xx ?? c.pdd) || 0; const ok = String(c.result) === '0';
+        r.tc++; if (ok && d > 0) { r.bc++; if (d <= 5) r.fas++; } if (ok && d === 0) r.rna++; if (p > 0) { r.pddSum += p; r.pddN++; }
+        vAgg.set(k, r);
+      }
+      const qVendors = [...vAgg.entries()].filter(([, s]) => s.tc >= 5).map(([vendor, s]) => {
+        const asr = s.tc > 0 ? s.bc / s.tc * 100 : 0;
+        const ner = s.tc > 0 ? (s.bc + s.rna) / s.tc * 100 : 0;
+        const fas = s.bc > 0 ? s.fas / s.bc * 100 : 0;
+        const pdd = s.pddN > 0 ? s.pddSum / s.pddN : 0;
+        const fasScore = Math.max(0, 100 - fas * 4);
+        const pddScore = pdd <= 1 ? 100 : pdd <= 3 ? 85 : pdd <= 6 ? 65 : pdd <= 10 ? 40 : 20;
+        const q = Math.round(Math.min(asr,100)*0.40 + Math.min(ner,100)*0.30 + fasScore*0.20 + pddScore*0.10);
+        const st = (v: number, lo: number, hi: number): 'pass'|'warn'|'fail' => v >= hi ? 'pass' : v >= lo ? 'warn' : 'fail';
+        return {
+          vendor, callCount: s.tc, q,
+          components: {
+            asr: { value: +asr.toFixed(1), contribution: +(Math.min(asr,100)*0.40).toFixed(1), status: st(asr, 35, 60) },
+            ner: { value: +ner.toFixed(1), contribution: +(Math.min(ner,100)*0.30).toFixed(1), status: st(ner, 45, 70) },
+            fas: { value: +fas.toFixed(1), fasScore: +fasScore.toFixed(1), contribution: +(fasScore*0.20).toFixed(1), status: (fas <= 5 ? 'pass' : fas <= 15 ? 'warn' : 'fail') as 'pass'|'warn'|'fail' },
+            pdd: { value: +pdd.toFixed(2), score: pddScore, contribution: +(pddScore*0.10).toFixed(1), status: (pdd <= 3 ? 'pass' : pdd <= 6 ? 'warn' : 'fail') as 'pass'|'warn'|'fail' },
+          },
+          interpretation: q >= 80 ? 'Strong — optimal range' : q >= 60 ? 'Acceptable — monitor trending' : q >= 40 ? 'Borderline — review recommended' : q >= 25 ? 'Poor — action required' : 'Critical — investigate immediately',
+        };
+      }).sort((a, b) => a.q - b.q);
+      const qStatus: 'pass'|'warn'|'fail' = qVendors.some(v => v.q < 25) ? 'fail' : qVendors.some(v => v.q < 40) ? 'warn' : 'pass';
+
+      // ── Recommendation audit (current window, rule-matched) ───────────────
+      type RecItem = { vendor: string; type: string; urgency: string; title: string; confidence: number; ruleDescription: string };
+      const recItems: RecItem[] = [];
+      for (const qv of qVendors) {
+        const { asr, fas } = { asr: qv.components.asr.value, fas: qv.components.fas.value };
+        if (qv.q < 25 || fas > 30)   recItems.push({ vendor: qv.vendor, type: 'INVESTIGATE',     urgency: 'immediate', title: fas > 30 ? `FAS anomaly — ${fas}%` : `Quality collapse — Q${qv.q}`, confidence: Math.min(95, 60 + Math.round(fas > 30 ? fas * 0.5 : (25 - qv.q) * 1.5)), ruleDescription: fas > 30 ? 'FAS>30% critical threshold' : 'Q-score<25 critical floor' });
+        else if (fas >= 15)           recItems.push({ vendor: qv.vendor, type: 'FAS_ALERT',       urgency: 'immediate', title: `FAS risk — ${fas}%`, confidence: Math.min(90, 50 + Math.round(fas * 1.5)), ruleDescription: 'FAS≥15% with billable call volume' });
+        else if (qv.q < 40)          recItems.push({ vendor: qv.vendor, type: 'REDUCE_PRIORITY', urgency: 'today',     title: `Low quality — Q${qv.q}`, confidence: Math.min(85, 50 + Math.round((40 - qv.q) * 1.2)), ruleDescription: 'Q-score<40 sustained routing threshold' });
+        else if (qv.q < 55)          recItems.push({ vendor: qv.vendor, type: 'MONITOR',         urgency: 'today',     title: `Borderline — Q${qv.q}`, confidence: 60, ruleDescription: 'Q-score in 40–55 borderline range' });
+        else if (qv.q >= 80)         recItems.push({ vendor: qv.vendor, type: 'PROMOTE',         urgency: 'monitor',   title: `Strong — Q${qv.q}`, confidence: Math.min(90, 60 + Math.round(qv.q * 0.3)), ruleDescription: 'Q-score≥80 stable quality threshold' });
+      }
+      const recBreakdown = { immediate: recItems.filter(r => r.urgency === 'immediate').length, today: recItems.filter(r => r.urgency === 'today').length, monitor: recItems.filter(r => r.urgency === 'monitor').length, promote: recItems.filter(r => r.type === 'PROMOTE').length };
+      const recStatus: 'pass'|'warn'|'fail' = recBreakdown.immediate > 3 ? 'fail' : recBreakdown.immediate > 0 ? 'warn' : 'pass';
+
+      // ── Degradation audit ─────────────────────────────────────────────────
+      const prevCdrsD = (cdrWindowValues(now - 2 * W1) as any[]).filter((c: any) => new Date(c.startTime || c.connectTime || 0).getTime() < now - W1);
+      function aggD(cdrs: any[]) {
+        const m = new Map<string, {tc:number;bc:number;rna:number;fas:number;pddSum:number;pddN:number}>();
+        for (const c of cdrs) { const k = ((c.vendor||c.callee||c.cld||'')).trim(); if (!k) continue; const r = m.get(k) ?? {tc:0,bc:0,rna:0,fas:0,pddSum:0,pddN:0}; const d=Number(c.duration)||0; const p=Number(c.pdd1xx??c.pdd)||0; const ok=String(c.result)==='0'; r.tc++; if(ok&&d>0){r.bc++;if(d<=5)r.fas++;} if(ok&&d===0)r.rna++; if(p>0){r.pddSum+=p;r.pddN++;} m.set(k,r); } return m;
+      }
+      function qsD(tc:number,bc:number,rna:number,fas:number,pddSum:number,pddN:number){if(!tc)return 0;const asr=bc/tc*100;const ner=(bc+rna)/tc*100;const fr=bc>0?fas/bc*100:0;const pdd=pddN>0?pddSum/pddN:0;return Math.round(Math.min(asr,100)*0.40+Math.min(ner,100)*0.30+Math.max(0,100-fr*4)*0.20+(pdd<=1?100:pdd<=3?85:pdd<=6?65:pdd<=10?40:20)*0.10);}
+      const curD = aggD(windowCdrs); const prevD = aggD(prevCdrsD);
+      const degAlerts: Array<{vendor:string;severity:'critical'|'warning'|'info';deltaQ:number;curQ:number;prevQ:number;signals:string[]}> = [];
+      for (const [vendor, cur] of curD.entries()) {
+        if (cur.tc < 5) continue; const prev = prevD.get(vendor); if (!prev || prev.tc < 5) continue;
+        const curQ = qsD(cur.tc,cur.bc,cur.rna,cur.fas,cur.pddSum,cur.pddN);
+        const prevQ = qsD(prev.tc,prev.bc,prev.rna,prev.fas,prev.pddSum,prev.pddN);
+        const dQ = curQ - prevQ; if (Math.abs(dQ) < 5 && curQ >= 40) continue;
+        const severity: 'critical'|'warning'|'info' = (curQ < 30 || dQ <= -20) ? 'critical' : (curQ < 50 || dQ <= -10) ? 'warning' : 'info';
+        const sigs: string[] = [];
+        if (dQ <= -10) sigs.push(`Q: ${prevQ} → ${curQ} (${dQ})`);
+        if (curQ < 30) sigs.push(`Q below floor: ${curQ}/100`);
+        const ca = cur.bc/cur.tc*100; const pa = prev.bc/prev.tc*100; if (pa-ca >= 8) sigs.push(`ASR: ${pa.toFixed(0)}% → ${ca.toFixed(0)}%`);
+        const cf = cur.bc>0?cur.fas/cur.bc*100:0; const pf = prev.bc>0?prev.fas/prev.bc*100:0; if (cf-pf >= 5) sigs.push(`FAS: ${pf.toFixed(0)}% → ${cf.toFixed(0)}%`);
+        degAlerts.push({ vendor, severity, deltaQ: dQ, curQ, prevQ, signals: sigs });
+      }
+      degAlerts.sort((a,b)=>({critical:0,warning:1,info:2}[a.severity]-{critical:0,warning:1,info:2}[b.severity])||a.deltaQ-b.deltaQ);
+      const degStatus: 'pass'|'warn'|'fail' = degAlerts.some(a=>a.severity==='critical') ? 'fail' : degAlerts.some(a=>a.severity==='warning') ? 'warn' : 'pass';
+
+      // ── Incidents ─────────────────────────────────────────────────────────
+      const cutoff24h = new Date(now - 24 * 60 * 60_000);
+      const [activeIncidents, recentlyClosed] = await Promise.all([
+        db.select().from(incidentsTable).where(eq(incidentsTable.status, 'active')).orderBy(_desc(incidentsTable.openedAt)).limit(10),
+        db.select().from(incidentsTable).where(and(eq(incidentsTable.status, 'resolved'), _gte(incidentsTable.updatedAt, cutoff24h))).orderBy(_desc(incidentsTable.updatedAt)).limit(5),
+      ]);
+      const incStatus: 'pass'|'warn'|'fail' = activeIncidents.some(i=>i.severity==='critical') ? 'fail' : activeIncidents.length > 0 ? 'warn' : 'pass';
+
+      // ── Cross-engine assertions ───────────────────────────────────────────
+      const vendorSet   = new Set(vAgg.keys());
+      const recVendors  = new Set(recItems.map(r => r.vendor));
+      const degVendors  = new Set(degAlerts.map(a => a.vendor));
+      type Ass = { assertion: string; status: 'pass'|'warn'|'fail'; detail: string };
+      const assertions: Ass[] = [
+        (() => {
+          const inv = recItems.filter(r=>r.type==='INVESTIGATE');
+          if (!inv.length) return { assertion: 'INVESTIGATE recs have degradation corroboration', status: 'pass' as const, detail: 'No INVESTIGATE recommendations active' };
+          const n = inv.filter(r=>degVendors.has(r.vendor)).length;
+          return { assertion: 'INVESTIGATE recs have degradation corroboration', status: (n===inv.length?'pass':n>0?'warn':'fail') as 'pass'|'warn'|'fail', detail: `${n}/${inv.length} corroborated by degradation engine` };
+        })(),
+        (() => {
+          const lowQ = qVendors.filter(v=>v.q<40);
+          if (!lowQ.length) return { assertion: 'Low Q-score vendors (Q<40) have routing recommendation', status: 'pass' as const, detail: 'No vendors with Q<40 in current window' };
+          const n = lowQ.filter(v=>recVendors.has(v.vendor)).length;
+          return { assertion: 'Low Q-score vendors (Q<40) have routing recommendation', status: (n===lowQ.length?'pass':n>0?'warn':'fail') as 'pass'|'warn'|'fail', detail: `${n}/${lowQ.length} vendors with Q<40 have recommendation` };
+        })(),
+        (() => {
+          const fasV = qVendors.filter(v=>v.components.fas.value>15);
+          if (!fasV.length) return { assertion: 'FAS spikes reflected in Q-score penalty', status: 'pass' as const, detail: 'No FAS spikes detected in current window' };
+          const penalised = fasV.filter(v=>v.components.fas.contribution < 15).length;
+          return { assertion: 'FAS spikes reflected in Q-score penalty', status: (penalised===fasV.length?'pass':'warn') as 'pass'|'warn'|'fail', detail: `${fasV.length} vendor(s) with FAS>15% — score penalty applied` };
+        })(),
+        (() => {
+          if (!activeIncidents.length) return { assertion: 'Active incidents have CDR vendor evidence', status: 'pass' as const, detail: 'No active incidents' };
+          const n = activeIncidents.filter(i=>vendorSet.has(i.entityName??i.entityId)).length;
+          return { assertion: 'Active incidents have CDR vendor evidence', status: (n===activeIncidents.length?'pass':n>0?'warn':'fail') as 'pass'|'warn'|'fail', detail: `${n}/${activeIncidents.length} active incidents have CDR vendor match` };
+        })(),
+        (() => {
+          const promotes = recItems.filter(r=>r.type==='PROMOTE');
+          if (!promotes.length) return { assertion: 'PROMOTE recommendations meet Q≥80 threshold', status: 'pass' as const, detail: 'No PROMOTE recommendations active' };
+          const valid = promotes.filter(r=>{ const qv=qVendors.find(v=>v.vendor===r.vendor); return qv&&qv.q>=80; }).length;
+          return { assertion: 'PROMOTE recommendations meet Q≥80 threshold', status: (valid===promotes.length?'pass':'fail') as 'pass'|'warn'|'fail', detail: `${valid}/${promotes.length} promoted vendors meet threshold` };
+        })(),
+        (() => {
+          if (!degAlerts.length) return { assertion: 'Degradation alerts have supporting signal evidence', status: 'pass' as const, detail: 'No degradation alerts in current window' };
+          const n = degAlerts.filter(a=>a.signals.length>0).length;
+          return { assertion: 'Degradation alerts have supporting signal evidence', status: (n===degAlerts.length?'pass':n>0?'warn':'fail') as 'pass'|'warn'|'fail', detail: `${n}/${degAlerts.length} alerts have signal evidence` };
+        })(),
+        (() => {
+          const crit = recItems.filter(r=>r.urgency==='immediate');
+          if (!crit.length) return { assertion: 'Immediate recommendations have confidence ≥70%', status: 'pass' as const, detail: 'No immediate recommendations active' };
+          const n = crit.filter(r=>r.confidence>=70).length;
+          return { assertion: 'Immediate recommendations have confidence ≥70%', status: (n===crit.length?'pass':n>0?'warn':'fail') as 'pass'|'warn'|'fail', detail: `${n}/${crit.length} immediate recs meet confidence threshold` };
+        })(),
+      ];
+      const crossStatus: 'pass'|'warn'|'fail' = assertions.some(a=>a.status==='fail') ? 'fail' : assertions.some(a=>a.status==='warn') ? 'warn' : 'pass';
+      const overallStatus: 'pass'|'warn'|'fail' = [telStatus,qStatus,recStatus,degStatus,incStatus,crossStatus].includes('fail') ? 'fail' : [telStatus,qStatus,recStatus,degStatus,incStatus,crossStatus].includes('warn') ? 'warn' : 'pass';
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        overallStatus,
+        telemetry: { cdrCacheSize, cdrCacheAgeMinutes: cacheAgeMin, lastRefreshAt: lastRefresh?.toISOString()??null, oldestRecord: oldestTs?new Date(oldestTs).toISOString():null, newestRecord: newestTs?new Date(newestTs).toISOString():null, windowCdrCount: windowCdrs.length, checks: telChecks, status: telStatus },
+        qScore: { vendors: qVendors, vendorCount: qVendors.length, status: qStatus },
+        recommendations: { count: recItems.length, breakdown: recBreakdown, items: recItems, status: recStatus },
+        degradation: { alertCount: degAlerts.length, severity: { critical: degAlerts.filter(a=>a.severity==='critical').length, warning: degAlerts.filter(a=>a.severity==='warning').length, info: degAlerts.filter(a=>a.severity==='info').length }, alerts: degAlerts, status: degStatus },
+        incidents: { active: activeIncidents, recentlyClosed, activeCount: activeIncidents.length, status: incStatus },
+        crossValidation: { assertions, passed: assertions.filter(a=>a.status==='pass').length, warned: assertions.filter(a=>a.status==='warn').length, failed: assertions.filter(a=>a.status==='fail').length, status: crossStatus },
+      });
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Rolling CDR Cache (for /api/sippy/cdr/graphs) ───────────────────────────
   // Fetches latest 500 CDRs without date filter (fast, no timeout) every 5 minutes,
   // deduplicates by callId, and keeps a rolling 72-hour window.
