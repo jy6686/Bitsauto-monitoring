@@ -1,0 +1,401 @@
+ENTERPRISE TELECOM NAVIGATION REFACTOR — MASTER IMPLEMENTATION PROMPT
+
+Goal:
+Transform the current telecom platform from a sidebar-first admin dashboard into a workflow-first enterprise telecom operational platform.
+
+Architecture Target:
+Top Bar → Primary enterprise navigation
+Cascade Menus → Workflow discovery
+Workspace Homes → Operational launch surfaces
+Sidebar Rail → Contextual shortcuts only
+Command Palette → Operational search/actions
+Operational Pages → Dense carrier-grade interfaces
+
+Move these items from sidebar into the top header:
+
+Dashboard
+Team Chat
+Notifications
+User Profile
+Search / Command Bar
+Theme Toggle
+Logout
+
+Header layout:
+
+LEFT:
+
+Logo
+Dashboard
+Team Chat
+Live Calls indicator
+
+CENTER:
+
+Workspace/domain tabs
+
+RIGHT:
+
+Search / ⌘K
+Notifications
+Theme
+User avatar
+Logout
+
+Result:
+Sidebar should no longer contain:
+
+Dashboard
+Profile
+Chat
+Theme
+Logout
+
+Sidebar becomes workspace-aware.
+
+The active workspace is inferred from:
+
+current route
+current workspace home
+top navigation domain
+
+Sidebar must auto-filter based on workspace.
+
+Examples:
+
+LIVE OPS:
+
+Live Calls
+Alerts
+BitsEye 2
+NOC Command
+SIP Trace
+
+VENDORS:
+
+Vendor RCA
+Routing Manager
+LCR Analyser
+Stability Timeline
+Prefix Intelligence
+Balances
+
+CLIENTS:
+
+Accounts
+Billing
+DIDs
+Client Portal
+Create Account
+
+INTELLIGENCE:
+
+AI Ops
+Validation Console
+Carrier Intelligence
+Recommendations
+
+SECURITY:
+
+Fraud Engine
+Approvals
+Firewall
+Audit Log
+
+FINANCE:
+
+Billing
+Revenue Heatmap
+Rate Cards
+Cost Optimisation
+
+ANALYTICS:
+
+CDR Viewer
+Traffic Analytics
+ASR/ACD
+Reports
+
+SETTINGS:
+
+Platform Settings
+API Keys
+Team & Roles
+
+Add:
+
+“All Tools” toggle
+Back button
+Workspace banner
+
+Sidebar must become:
+“contextual operational shortcut rail”
+
+NOT:
+“full navigation encyclopedia”
+
+Each domain gets:
+
+dedicated workspace landing page
+operational KPIs
+launch surfaces
+contextual feeds
+
+Routes:
+
+/workspace/live-ops
+/workspace/vendors
+/workspace/clients
+/workspace/intelligence
+/workspace/security
+/workspace/finance
+/workspace/analytics
+/workspace/settings
+
+Workspace home structure:
+
+Workspace Header
+KPI Strip
+Quick Access Grid
+Live Operational Feed
+Context Panels
+
+Implement:
+“Card-Based Operational Launch Surface”
+
+ONLY on workspace homes.
+
+DO NOT use cards:
+
+inside operational pages
+inside NOC/live telemetry
+inside troubleshooting tools
+
+Card structure:
+
+┌────────────────────────────────────┐
+│▌ Vendor RCA CRITICAL │
+│ Root cause analysis for carriers │
+│ │
+│ 3 degraded · updated 2m ago │
+└────────────────────────────────────┘
+
+Card rules:
+
+solid left accent border
+dark operational style
+subtle hover
+live stat footer
+urgency badge
+
+NO:
+
+gradients
+decorative cards
+oversized tiles
+
+Card tiers:
+
+PRIMARY:
+
+RCA
+Recommendations
+AI Ops
+Prefix Intelligence
+
+SECONDARY:
+
+Reports
+Exports
+Utility tools
+
+Implement:
+3-level cascading telecom workflow menus.
+
+L1:
+Business domain
+
+L2:
+Workflow group
+
+L3:
+Operational tool
+
+Example:
+
+Clients >
+Account Management >
+Accounts
+Companies
+Resellers
+Portal
+
+Billing & Finance >
+Billing
+Invoices
+Payments
+Rate Cards
+
+Operations >
+DIDs
+Recordings
+Wizard
+
+Vendors >
+Carrier Ops >
+Vendor List
+SLA Scorecard
+Balances
+
+Routing Core >
+Routing Manager
+LCR
+Translation Rules
+Simulator
+
+Intelligence >
+Vendor RCA
+Prefix Intelligence
+Stability Timeline
+Recommendations
+
+L2 rows must contain:
+
+icon
+title
+small description
+live badge count
+right arrow
+
+L3 submenu header must reinforce context.
+
+A feature may appear in multiple workflows.
+
+ONE route:
+
+many menu references
+
+Example:
+
+/vendor-rca
+
+Appears under:
+
+Vendors
+Intelligence
+
+/prefix-intelligence
+
+Appears under:
+
+Vendors
+Intelligence
+Routing
+
+NO duplicate implementations.
+NO duplicate pages.
+NO duplicate state.
+
+Single source page only.
+
+Upgrade ⌘K into operational search.
+
+Features:
+
+route search
+operational commands
+live incidents
+vendor search
+account search
+recommendation search
+multi-context entries
+
+Scopes:
+@vendors
+@clients
+@security
+@finance
+@analytics
+@live
+@intelligence
+
+Examples:
+
+degraded vendors
+active incidents
+vendor rca
+pakistan routes
+unstable carriers
+
+Palette must become:
+“operational command surface”
+
+NOT:
+“simple route launcher”
+
+Reduce sidebar to:
+5–7 curated shortcuts only.
+
+DO NOT duplicate:
+
+all menus
+all features
+all workflows
+
+Top navigation owns:
+
+discovery
+
+Sidebar owns:
+
+acceleration
+
+Cards + menus + rail items should show:
+
+degraded counts
+incident counts
+approval counts
+active recommendations
+freshness timestamps
+
+NO fake/demo data.
+Use only real operational signals.
+
+Adaptive UX:
+
+reorder cards by urgency
+reorder rail by incidents
+context-aware prioritization
+
+Operator customization:
+
+pin cards
+reorder shortcuts
+favorite tools
+
+AI operational search:
+
+“show unstable pakistan routes”
+“vendors with rising FAS”
+“active degraded carriers”
+Workflow-first navigation
+Operational density preserved
+No decorative enterprise theater
+Contextual discovery
+Multi-context references
+Single source routes
+Live operational awareness
+Enterprise telecom hierarchy
+Dense operational pages remain dense
+Sidebar becomes support rail, not primary navigation
+
+FINAL TARGET:
+
+A carrier-grade telecom operational platform with:
+
+enterprise top navigation
+workflow discovery
+operational launch surfaces
+contextual shortcut rails
+command-driven operations
+telecom-native UX architecture
