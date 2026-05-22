@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useQuery } from "@tanstack/react-query";
+import { inferWorkspace } from "@/lib/workspace";
 
 function openCommandBar() {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
@@ -153,12 +154,14 @@ for (const d of DOMAINS) {
   }
 }
 function inferMeta(path: string): { domain: string; label: string } {
+  const domain = inferWorkspace(path);
   const direct = ROUTE_META[path];
-  if (direct) return direct;
+  if (direct) return { domain, label: direct.label };
+  const clean = path.split('?')[0];
   for (const prefix of Object.keys(ROUTE_META).sort((a, b) => b.length - a.length)) {
-    if (path.startsWith(prefix + '/')) return { ...ROUTE_META[prefix], label: ROUTE_META[prefix].label };
+    if (clean.startsWith(prefix + '/')) return { domain, label: ROUTE_META[prefix].label };
   }
-  return { domain: 'live-ops', label: 'Dashboard' };
+  return { domain, label: 'Dashboard' };
 }
 
 function MegaPanel({ domain, onClose }: { domain: Domain; onClose: () => void }) {

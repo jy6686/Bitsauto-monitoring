@@ -14,6 +14,8 @@ import { FixButton } from "@/components/fix-button";
 import { AppNavShell } from "@/components/app-nav-shell";
 import { SippyHealthBadge } from "@/components/sippy-health-badge";
 import { useOrgScope } from "@/context/org-scope-context";
+import { inferWorkspace, WORKSPACE_SIDEBAR_GROUPS, WORKSPACE_LABELS, WORKSPACE_TEXT_COLOR, WORKSPACE_DOT_BG } from "@/lib/workspace";
+import type { WorkspaceDomain } from "@/lib/workspace";
 
 interface Kam { id: number; name: string; active: boolean; }
 
@@ -635,6 +637,21 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const isOrderCustomized = groupOrder.join(',') !== DEFAULT_GROUP_ORDER.join(',');
   const orderedGroups = groupOrder.map(k => SIDEBAR_GROUPS.find(g => g.key === k)).filter((g): g is NavGroup => !!g);
 
+  // ── Phase 2: contextual workspace filter ──────────────────────────────────────
+  const [showAllGroups, setShowAllGroups] = useState(false);
+  const activeWorkspace = inferWorkspace(location) as WorkspaceDomain;
+  const workspaceGroupKeys = WORKSPACE_SIDEBAR_GROUPS[activeWorkspace] ?? [];
+  const filteredGroups = showAllGroups
+    ? orderedGroups
+    : orderedGroups.filter(g => workspaceGroupKeys.includes(g.key));
+
+  // Auto-reset "show all" when the user navigates to a different workspace
+  const prevWorkspaceRef = useRef<WorkspaceDomain>(activeWorkspace);
+  if (prevWorkspaceRef.current !== activeWorkspace) {
+    prevWorkspaceRef.current = activeWorkspace;
+    if (showAllGroups) setShowAllGroups(false);
+  }
+
   useEffect(() => { try { localStorage.setItem(SIDEBAR_KEY, String(collapsed)); } catch { /* */ } }, [collapsed]);
   useEffect(() => { try { localStorage.setItem(GROUPS_LS_KEY, JSON.stringify(groupsExpanded)); } catch { /* */ } }, [groupsExpanded]);
   useEffect(() => { try { localStorage.setItem(GROUPS_ORDER_KEY, JSON.stringify(groupOrder)); } catch { /* */ } }, [groupOrder]);
@@ -1245,10 +1262,32 @@ export function LayoutShell({ children }: LayoutShellProps) {
     <>
       <KpiStrip />
 
+      {/* Workspace context banner — desktop only */}
+      {!mobile && (
+        <div className="mx-2 mb-1.5 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+          <span className={cn("h-1.5 w-1.5 rounded-full flex-shrink-0", WORKSPACE_DOT_BG[activeWorkspace])} />
+          <span className={cn("flex-1 text-[10px] font-semibold uppercase tracking-[0.07em] truncate", WORKSPACE_TEXT_COLOR[activeWorkspace])}>
+            {WORKSPACE_LABELS[activeWorkspace]}
+          </span>
+          <button
+            onClick={() => setShowAllGroups(v => !v)}
+            title={showAllGroups ? "Filter to workspace" : "Show all groups"}
+            className={cn(
+              "flex-shrink-0 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded transition-all duration-150",
+              showAllGroups
+                ? "bg-white/[0.10] text-foreground/70 hover:bg-white/[0.15]"
+                : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-white/[0.06]"
+            )}
+          >
+            {showAllGroups ? "filter" : "all"}
+          </button>
+        </div>
+      )}
+
       <nav className={cn("flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:transparent")}>
 
         {/* Groups */}
-        {(mobile ? SIDEBAR_GROUPS : orderedGroups).map(group => {
+        {(mobile ? SIDEBAR_GROUPS : filteredGroups).map(group => {
           const visibleItems = group.items.filter(isItemVisible);
           if (visibleItems.length === 0) return null;
           const isOpen = mobile ? true : isGroupOpen(group.key);
