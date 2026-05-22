@@ -1786,3 +1786,23 @@ export const entityPresenceRegistry = pgTable("entity_presence_registry", {
   updatedAt:  timestamp("updated_at").defaultNow(),
 }, (t) => [uniqueIndex("epr_dim_name_uidx").on(t.dim, t.entityName)]);
 export type EntityPresenceRow = typeof entityPresenceRegistry.$inferSelect;
+
+// ── Vendor Stability Snapshots — persists Q-score history per vendor ──────────
+// Written every 30 min by snapshotVendorStability(). Retention: 7 days.
+// Powers the Vendor Stability Timeline page and future risk scoring.
+export const vendorStabilitySnapshots = pgTable("vendor_stability_snapshots", {
+  id:        serial("id").primaryKey(),
+  vendor:    varchar("vendor",    { length: 128 }).notNull(),
+  ts:        timestamp("ts").defaultNow().notNull(),
+  qScore:    integer("q_score").notNull(),
+  asr:       real("asr"),
+  ner:       real("ner"),
+  avgPdd:    real("avg_pdd"),
+  fasRate:   real("fas_rate"),
+  callCount: integer("call_count").notNull().default(0),
+  stability: varchar("stability", { length: 20 }).notNull().default('unknown'),
+  // 'stable' | 'oscillating' | 'degrading' | 'recovering' | 'insufficient' | 'unknown'
+}, (t) => [
+  index("vsn_vendor_ts_idx").on(t.vendor, t.ts),
+]);
+export type VendorStabilitySnapshot = typeof vendorStabilitySnapshots.$inferSelect;

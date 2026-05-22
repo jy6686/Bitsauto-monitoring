@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   FlaskConical, RefreshCw, CheckCircle2, AlertTriangle, XCircle,
   Activity, BarChart2, Zap, TrendingDown, Shield, GitBranch, ChevronDown,
+  Clock, ArrowRight, History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -96,6 +97,54 @@ const typeCfg: Record<string, { label: string; cls: string }> = {
   PROMOTE:         { label: 'Promote',         cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300' },
 };
 
+// ── Lifecycle event types ─────────────────────────────────────────────────────
+interface LifecycleEvent {
+  id: number;
+  incidentId: number;
+  fromState: string | null;
+  toState: string;
+  actor: string | null;
+  note: string | null;
+  createdAt: string | null;
+  incType: string | null;
+  incEntity: string | null;
+  incSeverity: string | null;
+  incTitle: string | null;
+}
+
+interface LifecycleResponse {
+  events: LifecycleEvent[];
+  total: number;
+  generatedAt: string;
+}
+
+const transitionCfg: Record<string, { cls: string; label: string }> = {
+  open:       { cls: 'text-amber-400',   label: 'Opened'    },
+  escalated:  { cls: 'text-rose-400',    label: 'Escalated' },
+  resolved:   { cls: 'text-emerald-400', label: 'Resolved'  },
+  reopened:   { cls: 'text-orange-400',  label: 'Reopened'  },
+  migrated:   { cls: 'text-sky-400',     label: 'Migrated'  },
+};
+
+const severityCls: Record<string, string> = {
+  critical: 'text-rose-400',
+  high:     'text-orange-400',
+  medium:   'text-amber-400',
+  low:      'text-sky-400',
+};
+
+function relativeTime(ts: string | null): string {
+  if (!ts) return '—';
+  const diffMs = Date.now() - new Date(ts).getTime();
+  const m = Math.floor(diffMs / 60_000);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `${d}d ago`;
+  if (h > 0) return `${h}h ago`;
+  if (m > 0) return `${m}m ago`;
+  return 'just now';
+}
+
 // ── Section card wrapper ───────────────────────────────────────────────────────
 function SectionCard({ title, icon, status, children }: {
   title: string; icon: React.ReactNode; status: Status; children: React.ReactNode;
@@ -126,6 +175,17 @@ export default function IntelligenceValidationPage() {
     },
     refetchInterval: 5 * 60_000,
     staleTime: 4 * 60_000,
+  });
+
+  const { data: lifecycleData, isLoading: lifecycleLoading } = useQuery<LifecycleResponse>({
+    queryKey: ['/api/incidents/lifecycle-events'],
+    queryFn: async () => {
+      const r = await fetch('/api/incidents/lifecycle-events?limit=30');
+      if (!r.ok) throw new Error('Failed to fetch lifecycle events');
+      return r.json();
+    },
+    refetchInterval: 2 * 60_000,
+    staleTime: 90_000,
   });
 
   const overall = data?.overallStatus ?? 'pass';
@@ -509,6 +569,114 @@ export default function IntelligenceValidationPage() {
 
           </div>
         )}
+
+        {/* ── Incident Lifecycle Feed — full-width below the grid ── */}
+        <div className="mt-5 rounded-xl border border-border/40 bg-card/50 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40 bg-muted/10">
+            <History className="w-4 h-4 text-violet-400" />
+            <span className="text-sm font-semibold">Incident Lifecycle Feed</span>
+            <span className="ml-1 text-[10px] text-muted-foreground/60">last 30 events</span>
+            {lifecycleLoading && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground ml-1" />}
+            <button
+              onClick={() => qc.invalidateQueries({ queryKey: ['/api/incidents/lifecycle-events'] })}
+              className="ml-auto text-[10px] text-muted-foreground/50 hover:text-muted-foreground flex items-center gap-1"
+              data-testid="btn-refresh-lifecycle"
+            >
+              <RefreshCw className="w-3 h-3" /> Refresh
+            </button>
+          </div>
+
+          {lifecycleLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground px-4 py-6">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Loading lifecycle events…
+            </div>
+          ) : !lifecycleData || lifecycleData.events.length === 0 ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground/60 px-4 py-6">
+              <Clock className="w-3.5 h-3.5" />
+              No lifecycle events yet — events are written each time an incident opens, escalates, or resolves.
+            </div>
+          ) : (
+            <div className="divide-y divide-border/20">
+              {lifecycleData.events.map((ev, i) => {
+                const tcfg = transitionCfg[ev.toState] ?? { cls: 'text-muted-foreground', label: ev.toState };
+                const scls = severityCls[ev.incSeverity ?? ''] ?? 'text-muted-foreground';
+                return (
+                  <div
+                    key={ev.id}
+                    className="flex items-start gap-3 px-4 py-2.5 hover:bg-muted/5 transition-colors"
+                    data-testid={`lifecycle-event-${i}`}
+                  >
+                    {/* Timeline dot */}
+                    <div className="flex flex-col items-center flex-shrink-0 mt-1">
+                      <div className={cn("w-2 h-2 rounded-full ring-2 ring-background", {
+                        'bg-amber-400':   ev.toState === 'open',
+                        'bg-rose-400':    ev.toState === 'escalated',
+                        'bg-emerald-400': ev.toState === 'resolved',
+                        'bg-sky-400':     ev.toState === 'migrated',
+                        'bg-orange-400':  ev.toState === 'reopened',
+                        'bg-muted':       !['open','escalated','resolved','migrated','reopened'].includes(ev.toState),
+                      })} />
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Transition */}
+                        <span className={cn("text-[10px] font-bold uppercase tracking-wider", tcfg.cls)}>
+                          {tcfg.label}
+                        </span>
+                        {ev.fromState && (
+                          <>
+                            <span className="text-[9px] text-muted-foreground/50">from</span>
+                            <span className="text-[9px] font-mono text-muted-foreground/70">{ev.fromState}</span>
+                            <ArrowRight className="w-2.5 h-2.5 text-muted-foreground/40" />
+                            <span className="text-[9px] font-mono text-muted-foreground/70">{ev.toState}</span>
+                          </>
+                        )}
+                        {/* Incident type badge */}
+                        {ev.incType && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted/20 border border-border/30 font-mono text-muted-foreground">
+                            {ev.incType}
+                          </span>
+                        )}
+                        {/* Severity */}
+                        {ev.incSeverity && (
+                          <span className={cn("text-[9px] font-semibold uppercase", scls)}>
+                            {ev.incSeverity}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Entity + title */}
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {ev.incEntity && (
+                          <span className="text-[10px] font-mono font-semibold text-foreground/80">{ev.incEntity}</span>
+                        )}
+                        {ev.incTitle && (
+                          <span className="text-[10px] text-muted-foreground/70 truncate">— {ev.incTitle}</span>
+                        )}
+                      </div>
+
+                      {/* Note */}
+                      {ev.note && (
+                        <p className="text-[9px] text-muted-foreground/55 font-mono mt-0.5 truncate">{ev.note}</p>
+                      )}
+                    </div>
+
+                    {/* Right: time + actor */}
+                    <div className="flex-shrink-0 text-right">
+                      <p className="text-[10px] font-mono text-muted-foreground/60">{relativeTime(ev.createdAt)}</p>
+                      {ev.actor && (
+                        <p className="text-[9px] text-muted-foreground/40 mt-0.5 truncate max-w-[80px]">{ev.actor}</p>
+                      )}
+                      <p className="text-[9px] text-muted-foreground/30 mt-0.5">#{ev.incidentId}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Footer note */}
         <p className="text-[10px] text-muted-foreground/50 text-center mt-6">

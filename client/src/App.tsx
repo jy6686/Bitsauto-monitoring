@@ -101,6 +101,7 @@ import CarrierIntelligencePage from "@/pages/carrier-intelligence";
 import IntelligencePage from "@/pages/intelligence";
 import IntelligenceValidationPage from "@/pages/intelligence-validation";
 import VendorPrefixIntelligencePage from "@/pages/vendor-prefix-intelligence";
+import VendorStabilityTimelinePage from "@/pages/vendor-stability-timeline";
 import RtpAnalyticsPage from "@/pages/rtp-analytics";
 import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
@@ -451,6 +452,9 @@ function Router() {
       </Route>
       <Route path="/vendor-prefix-intelligence">
         {() => <ProtectedRoute component={VendorPrefixIntelligencePage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/vendor-stability-timeline">
+        {() => <ProtectedRoute component={VendorStabilityTimelinePage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/rtp-analytics">
         {() => <ProtectedRoute component={RtpAnalyticsPage} requiredRoles={['admin','management']} mgmtFeature="rtp_analytics" />}

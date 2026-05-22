@@ -35,6 +35,7 @@ import { runIncidentEngine } from "./incident-engine";
 import { runAuthExposureScorer } from "./auth-exposure";
 import { runRecommendationEngine } from "./recommendation-engine";
 import { computeVendorPrefixIntelligence } from "./vendor-prefix-intelligence";
+import { snapshotVendorStability, getVendorTimelines } from "./vendor-stability";
 import { executeAction, buildSippyParams, recommendationToActionType, computeIdempotencyKey } from "./action-executor";
 import { evaluateFirewall } from "./action-firewall";
 import { listActions, createAction, getAction, approveAction, rejectAction, snoozeAction, rollbackAction } from "./action-store";
@@ -4296,6 +4297,64 @@ export async function registerRoutes(
     try {
       const result = await computeVendorPrefixIntelligence(cdrCache);
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/vendor-stability-timeline ───────────────────────────────────────
+  // Returns Q-score history per vendor from vendor_stability_snapshots.
+  // ?hours=48 (default 48). Zero Sippy calls — pure DB read.
+  app.get('/api/vendor-stability-timeline', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const hours = Math.min(168, Math.max(1, parseInt(req.query.hours as string || '48', 10)));
+      const vendors = await getVendorTimelines(hours);
+      res.json({ vendors, windowHours: hours, generatedAt: new Date().toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── POST /api/vendor-stability/snapshot ──────────────────────────────────────
+  // Manually trigger a stability snapshot (admin only). Useful after CDR cache refresh.
+  app.post('/api/vendor-stability/snapshot', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      await snapshotVendorStability(cdrCache);
+      res.json({ success: true, ts: new Date().toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/incidents/lifecycle-events ──────────────────────────────────────
+  // Returns the most recent incident lifecycle events with incident context.
+  // ?limit=30 (default 30). Powers the Validation Console lifecycle feed.
+  app.get('/api/incidents/lifecycle-events', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { desc: _desc } = await import('drizzle-orm');
+      const { incidentLifecycleEvents, incidents } = await import('@shared/schema');
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string || '30', 10)));
+
+      const rows = await db.select({
+        id:          incidentLifecycleEvents.id,
+        incidentId:  incidentLifecycleEvents.incidentId,
+        fromState:   incidentLifecycleEvents.fromState,
+        toState:     incidentLifecycleEvents.toState,
+        actor:       incidentLifecycleEvents.actor,
+        note:        incidentLifecycleEvents.note,
+        createdAt:   incidentLifecycleEvents.createdAt,
+        // incident context
+        incType:     incidents.type,
+        incEntity:   incidents.entityId,
+        incSeverity: incidents.severity,
+        incTitle:    incidents.title,
+      })
+        .from(incidentLifecycleEvents)
+        .leftJoin(incidents, eq(incidentLifecycleEvents.incidentId, incidents.id))
+        .orderBy(_desc(incidentLifecycleEvents.createdAt))
+        .limit(limit);
+
+      res.json({ events: rows, total: rows.length, generatedAt: new Date().toISOString() });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -21219,6 +21278,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // Carrier Quality Scoring Engine — scores every 30 min
   initCarrierScoringEngine();
+
+  // Vendor Stability Timeline — snapshots Q-score per vendor every 30 min
+  // Runs at T+5 min after carrier scoring to ensure scores are fresh.
+  setTimeout(() => {
+    const _runStabilitySnapshot = async () => {
+      try { await snapshotVendorStability(cdrCache); }
+      catch (e: any) { console.warn('[vendor-stability] snapshot error:', e.message); }
+    };
+    _runStabilitySnapshot();
+    setInterval(_runStabilitySnapshot, 30 * 60 * 1000);
+  }, 5 * 60 * 1000); // T+5 min stagger
 
   // Register CDR provider so the engine can persist real-traffic scores to DB
   // even when simulation mode is off (route_decision_traces table stays empty).
