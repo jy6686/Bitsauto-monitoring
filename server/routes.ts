@@ -21252,7 +21252,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { db } = await import('./db');
       const { aiOpsIncidents } = await import('../shared/schema');
       const { desc } = await import('drizzle-orm');
-      const incidents = await db.select().from(aiOpsIncidents).orderBy(desc(aiOpsIncidents.lastSeen));
+      const { resolveEntityLabel } = await import('./aiops/correlation-engine');
+      const rows = await db.select().from(aiOpsIncidents).orderBy(desc(aiOpsIncidents.lastSeen));
+      // Add computed `entityName` so the frontend never shows "unknown entity"
+      const incidents = rows.map(inc => ({
+        ...inc,
+        entityName: resolveEntityLabel(inc.entity),
+      }));
       res.json(incidents);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });

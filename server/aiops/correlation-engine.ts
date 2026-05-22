@@ -26,7 +26,8 @@ import { aiOpsEvents, anomalyEvents, aiOpsIncidents } from "../../shared/schema"
 import { gte, eq, and, lt } from "drizzle-orm";
 
 function groupKey(item: any): string {
-  return item.entity || item.vendor || item.type || "unknown";
+  // anomalyEvents use `metric` (asr|acd|cps) not `type` — include it before the "unknown" fallback
+  return item.entity || item.vendor || item.metric || item.type || "unknown";
 }
 
 export async function runCorrelationEngine(): Promise<{
@@ -81,7 +82,7 @@ export async function runCorrelationEngine(): Promise<{
 
       if (existing) {
         await db.update(aiOpsIncidents)
-          .set({ lastSeen: now, signalsCount: group.signals.length, anomaliesCount: group.anomalies.length, severity })
+          .set({ title, lastSeen: now, signalsCount: group.signals.length, anomaliesCount: group.anomalies.length, severity })
           .where(eq(aiOpsIncidents.id, existing.id));
         updated++;
       } else {
@@ -263,6 +264,24 @@ function _carrierIncidentConfidence(signals: any[]): number {
   return Math.min(0.95, c);
 }
 
+// ── Entity label — converts raw group key to human-readable prefix ─────────
+export function resolveEntityLabel(entity: string | null | undefined): string {
+  if (!entity || entity === "unknown") return "Platform";
+  if (entity.startsWith("carrier:"))  return `Carrier: ${entity.replace("carrier:", "")}`;
+  if (entity.startsWith("ledger:"))   return `Account: ${entity.replace("ledger:", "")}`;
+  // Metric-based anomaly-only incidents (asr / acd / cps from anomalyEvents.metric)
+  if (entity === "asr") return "ASR Monitoring";
+  if (entity === "acd") return "ACD Monitoring";
+  if (entity === "cps") return "CPS Monitoring";
+  if (entity === "mos") return "MOS Monitoring";
+  // Raw signal-type keys that leaked through before the groupKey fix
+  if (entity === "ROUTING_FAILURE" || entity === "EXECUTION_LATENCY_HIGH") return "Platform";
+  if (entity === "VENDOR_DEGRADATION_SIGNAL" || entity === "SYNTHETIC_TEST_ASR_DROP") return "Platform";
+  if (entity === "PLATFORM" || entity === "platform") return "Platform";
+  // Everything else is treated as a vendor / account name
+  return `Vendor: ${entity}`;
+}
+
 // ── Title builder ──────────────────────────────────────────────────────────
 function _buildTitle(entity: string, group: { signals: any[]; anomalies: any[] }): string {
   const parts: string[] = [];
@@ -272,8 +291,10 @@ function _buildTitle(entity: string, group: { signals: any[]; anomalies: any[] }
   if (group.signals.some(s  => s.type === "SYNTHETIC_TEST_ASR_DROP"))   parts.push("ASR drop");
   if (group.signals.some(s  => s.type === "HIGH_PDD"))                  parts.push("high PDD");
   if (group.anomalies.some(a => a.metric === "asr"))                    parts.push("ASR anomaly");
-  if (group.anomalies.some(a => a.metric === "cps"))                    parts.push("CPS anomaly");
+  if (group.anomalies.some(a => a.metric === "cps"))                    parts.push("CPS spike");
   if (group.anomalies.some(a => a.metric === "acd"))                    parts.push("ACD deviation");
-  const detail = parts.length > 0 ? `: ${parts.join(", ")}` : " degradation";
-  return `Incident — ${entity}${detail}`;
+  if (group.anomalies.some(a => a.metric === "mos"))                    parts.push("MOS degradation");
+  const detail       = parts.length > 0 ? parts.join(", ") : "degradation";
+  const entityLabel  = resolveEntityLabel(entity);
+  return `${entityLabel} — ${detail}`;
 }

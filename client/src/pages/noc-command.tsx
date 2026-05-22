@@ -24,7 +24,7 @@ interface CarrierScore {
 
 interface AiOpsIncident {
   id: number; severity: string; title: string;
-  status: string; entityName: string | null;
+  status: string; entity: string | null; entityName: string | null;
   signalCount: number; createdAt: string;
 }
 
@@ -79,7 +79,7 @@ function IncidentTicker({ incidents }: { incidents: AiOpsIncident[] }) {
         >
           {[...active, ...active].map((inc, i) => (
             <span key={`${inc.id}-${i}`} className={cn("text-xs font-mono flex-shrink-0", inc.severity === "critical" ? "text-red-600" : "text-amber-600")}>
-              [{inc.severity.toUpperCase()}] {inc.title} — {inc.entityName ?? "unknown entity"}
+              [{inc.severity.toUpperCase()}] {inc.title}
             </span>
           ))}
         </motion.div>
@@ -521,7 +521,7 @@ export default function NocCommandPage() {
                         inc.severity === "critical" ? "text-red-500" : inc.severity === "high" ? "text-orange-500" : "text-yellow-600")} />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium truncate text-slate-800">{inc.title}</p>
-                        <p className="text-slate-500 text-[10px]">{inc.entityName} · {new Date(inc.createdAt).toLocaleTimeString()}</p>
+                        <p className="text-slate-500 text-[10px]">{inc.entityName ?? inc.entity ?? "Platform"} · {new Date(inc.createdAt).toLocaleTimeString()}</p>
                       </div>
                       <span className={cn("flex-shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full",
                         inc.status === "active" ? "bg-red-100 text-red-600" : "bg-green-100 text-green-600")}>
