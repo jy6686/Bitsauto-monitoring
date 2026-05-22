@@ -4393,7 +4393,7 @@ export async function registerRoutes(
         note:        incidentLifecycleEvents.note,
         createdAt:   incidentLifecycleEvents.createdAt,
         // incident context
-        incType:     incidents.type,
+        incType:     incidents.incidentType,
         incEntity:   incidents.entityId,
         incSeverity: incidents.severity,
         incTitle:    incidents.title,

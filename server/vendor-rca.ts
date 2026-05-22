@@ -305,10 +305,10 @@ export async function buildVendorRca(
   const dayAgo = new Date(now - 7 * 24 * 60 * 60 * 1000); // 7 days
   const incidentRows = await db.select({
     id:       incidents.id,
-    type:     incidents.type,
+    type:     incidents.incidentType,
     severity: incidents.severity,
     title:    incidents.title,
-    state:    incidents.state,
+    state:    incidents.status,
     entityId: incidents.entityId,
   }).from(incidents)
     .where(ilike(incidents.entityId, `%${vendor}%`))
