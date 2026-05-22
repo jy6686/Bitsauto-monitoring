@@ -2760,7 +2760,7 @@ export async function registerRoutes(
     const cacheAge = Date.now() - liveCallsCache.ts;
     if (liveCallsCache.ts > 0 && cacheAge < LIVE_CALLS_CACHE_MAX) {
       const isStale = cacheAge > LIVE_CALLS_STALE_MS;
-      return res.json({ calls: liveCallsCache.calls, connected: true, stale: isStale, fromCache: true, lastUpdated: liveCallsCache.ts });
+      return res.json({ calls: liveCallsCache.calls, totalActiveCalls: liveCallsCache.calls.length, connected: true, stale: isStale, fromCache: true, lastUpdated: liveCallsCache.ts });
     }
 
     try {
@@ -2833,12 +2833,12 @@ export async function registerRoutes(
 
       // connected=true tells the frontend that Sippy is reachable regardless of call count
       const isStale = liveCallsCache.calls.length > 0 && calls.length === 0 && consecutiveZeros < ZERO_CONFIRM_COUNT;
-      res.json({ calls: liveCallsCache.calls, connected: true, stale: isStale, lastUpdated: liveCallsCache.ts });
+      res.json({ calls: liveCallsCache.calls, totalActiveCalls: liveCallsCache.calls.length, connected: true, stale: isStale, lastUpdated: liveCallsCache.ts });
     } catch (err: any) {
       // Return cached data (with stale flag) so the dashboard keeps showing the
       // last real count instead of dropping to 0 on a transient scrape failure.
       const stale = Date.now() - liveCallsCache.ts > LIVE_CALLS_STALE_MS;
-      res.json({ calls: liveCallsCache.calls, connected: liveCallsCache.calls.length > 0, stale, lastUpdated: liveCallsCache.ts, error: err.message });
+      res.json({ calls: liveCallsCache.calls, totalActiveCalls: liveCallsCache.calls.length, connected: liveCallsCache.calls.length > 0, stale, lastUpdated: liveCallsCache.ts, error: err.message });
     }
   });
 
