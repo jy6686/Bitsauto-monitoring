@@ -305,6 +305,75 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
   },
 ];
 
+// ── Role shorthands ───────────────────────────────────────────────────────────
+const ALL_OPS: Role[] = ['super_admin','admin','management','noc_operator','team_lead'];
+const ADM_MGT: Role[] = ['super_admin','admin','management'];
+
+// ── Contextual workspace rail — lean per-workspace shortcuts ──────────────────
+// Desktop sidebar default: ~5-7 curated operational shortcuts per workspace.
+// The full SIDEBAR_GROUPS view remains accessible via the "All Tools" toggle.
+const WORKSPACE_RAIL: Record<string, NavItem[]> = {
+  'live-ops': [
+    { href: '/calls',           label: 'Live Calls',      icon: Phone,         roles: ALL_OPS, status: 'live'  },
+    { href: '/alerts',          label: 'Alerts',          icon: Bell,          roles: ALL_OPS                  },
+    { href: '/bitseye2',        label: 'BitsEye 2',       icon: Eye,           roles: ALL_OPS, isNew: true      },
+    { href: '/noc-command',     label: 'NOC Command',     icon: Monitor,       roles: ALL_OPS, isNew: true      },
+    { href: '/sip-trace',       label: 'SIP Trace',       icon: Mic,           roles: ADM_MGT, isNew: true      },
+    { href: '/console',         label: 'Console',         icon: Database,      roles: ALL_OPS, isNew: true      },
+  ],
+  'clients': [
+    { href: '/clients',         label: 'Accounts',        icon: Users,         roles: ADM_MGT                   },
+    { href: '/billing',         label: 'Billing',         icon: Wallet,        roles: ADM_MGT                   },
+    { href: '/dids',            label: 'DIDs',            icon: PhoneIncoming, roles: ADM_MGT                   },
+    { href: '/client-portal',   label: 'Client Portal',   icon: Globe,         roles: ADM_MGT                   },
+    { href: '/client/wizard',   label: 'Create Account',  icon: UserPlus,      roles: ADM_MGT, isNew: true       },
+  ],
+  'vendors': [
+    { href: '/vendor-rca',                label: 'Vendor RCA',    icon: ScanSearch, roles: ADM_MGT, isNew: true },
+    { href: '/vendors',                   label: 'Vendor List',   icon: Building2,  roles: ALL_OPS              },
+    { href: '/routing-manager',           label: 'Routing Mgr',   icon: Database,   roles: ADM_MGT              },
+    { href: '/lcr-analyser',              label: 'LCR Analyser',  icon: GitBranch,  roles: ADM_MGT              },
+    { href: '/balance',                   label: 'Balances',      icon: Wallet,     roles: ADM_MGT              },
+    { href: '/vendor-stability-timeline', label: 'Stability',     icon: Activity,   roles: ADM_MGT, isNew: true },
+  ],
+  'intelligence': [
+    { href: '/ai-ops',                   label: 'AI Ops Center',      icon: Bot,          roles: ALL_OPS, isNew: true },
+    { href: '/intelligence',             label: 'Intelligence Hub',   icon: Brain,        roles: ADM_MGT, isNew: true },
+    { href: '/intelligence-validation',  label: 'Validation Console', icon: FlaskConical, roles: ADM_MGT, isNew: true },
+    { href: '/vendor-rca',               label: 'Vendor RCA',         icon: ScanSearch,   roles: ADM_MGT, isNew: true },
+    { href: '/carrier-intelligence',     label: 'Carrier Intel',      icon: Activity,     roles: ALL_OPS, isNew: true },
+  ],
+  'analytics': [
+    { href: '/analytics',        label: 'Traffic Analytics', icon: TrendingUp,      roles: ADM_MGT              },
+    { href: '/cdrs',             label: 'CDR Viewer',        icon: FileText,        roles: ADM_MGT              },
+    { href: '/bitseye',          label: 'BitsEye',           icon: Eye,             roles: ADM_MGT              },
+    { href: '/reports',          label: 'Reports',           icon: BarChart2,       roles: ADM_MGT              },
+    { href: '/revenue-heatmap',  label: 'Revenue Heatmap',   icon: Globe,           roles: ADM_MGT, isNew: true  },
+    { href: '/asr-acd',          label: 'ASR / ACD',         icon: FileSpreadsheet, roles: ADM_MGT, isNew: true  },
+  ],
+  'security': [
+    { href: '/fraud',            label: 'Fraud Engine',    icon: ShieldAlert,   roles: ADM_MGT              },
+    { href: '/approvals',        label: 'Approval Queue',  icon: ShieldCheck,   roles: ALL_OPS, status: 'live' },
+    { href: '/audit-log',        label: 'Audit Log',       icon: ClipboardList, roles: ADM_MGT, isNew: true   },
+    { href: '/firewall',         label: 'Firewall',        icon: Shield,        roles: ADM_MGT              },
+    { href: '/compliance',       label: 'Compliance',      icon: FileCheck2,    roles: ADM_MGT              },
+  ],
+  'finance': [
+    { href: '/billing',           label: 'Billing',          icon: Wallet,     roles: ADM_MGT },
+    { href: '/balance',           label: 'Balance Monitor',  icon: Wallet,     roles: ADM_MGT },
+    { href: '/rate-cards',        label: 'Rate Cards',       icon: CreditCard, roles: ADM_MGT },
+    { href: '/cost-optimisation', label: 'Cost Engine',      icon: Lightbulb,  roles: ADM_MGT },
+    { href: '/reports',           label: 'Finance Reports',  icon: BarChart2,  roles: ADM_MGT },
+  ],
+  'settings': [
+    { href: '/settings',         label: 'Platform Settings', icon: Settings,  roles: ['super_admin','admin'] as Role[] },
+    { href: '/team',             label: 'Team & Roles',      icon: Users,     roles: ['super_admin','admin'] as Role[] },
+    { href: '/api-keys',         label: 'API Keys',          icon: Key,       roles: ['super_admin','admin'] as Role[] },
+    { href: '/email-centre',     label: 'Notifications',     icon: Mail,      roles: ['super_admin','admin'] as Role[] },
+    { href: '/company-profile',  label: 'Company Profile',   icon: Building2, roles: ADM_MGT                          },
+  ],
+};
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const ITEM_NAV_MAP: Record<string, string> = {
@@ -792,6 +861,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
     return true;
   };
 
+  // Lean contextual rail items for the current workspace
+  const railItems = (WORKSPACE_RAIL[activeWorkspace] ?? []).filter(isItemVisible);
+
   const visibleCallsSubitems = role === 'viewer'
     ? CALLS_SUBITEMS.filter(sub => assignedItemSet.has(sub.itemId))
     : CALLS_SUBITEMS;
@@ -1273,7 +1345,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
           </span>
           <button
             onClick={() => setShowAllGroups(v => !v)}
-            title={showAllGroups ? "Filter to workspace" : "Show all groups"}
+            title={showAllGroups ? "Back to contextual shortcuts" : "Show all tool groups"}
             className={cn(
               "flex-shrink-0 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded transition-all duration-150",
               showAllGroups
@@ -1281,15 +1353,25 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-white/[0.06]"
             )}
           >
-            {showAllGroups ? "filter" : "all"}
+            {showAllGroups ? "← back" : "all tools"}
           </button>
         </div>
       )}
 
       <nav className={cn("flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:transparent")}>
 
-        {/* Groups */}
-        {(mobile ? SIDEBAR_GROUPS : filteredGroups).map(group => {
+        {/* Desktop default: lean contextual rail — no group headers, flat shortcuts */}
+        {!mobile && !showAllGroups && (
+          <div className="space-y-0.5 pt-1">
+            {railItems.length > 0
+              ? railItems.map(item => renderNavItem(item, activeWorkspace))
+              : <p className="px-3 py-4 text-[11px] text-muted-foreground/40 text-center">No shortcuts for this workspace.</p>
+            }
+          </div>
+        )}
+
+        {/* Full group view — mobile always; desktop only when "all tools" toggled */}
+        {(mobile || showAllGroups) && (mobile ? SIDEBAR_GROUPS : filteredGroups).map(group => {
           const visibleItems = group.items.filter(isItemVisible);
           if (visibleItems.length === 0) return null;
           const isOpen = mobile ? true : isGroupOpen(group.key);
