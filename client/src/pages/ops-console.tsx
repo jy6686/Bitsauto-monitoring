@@ -611,9 +611,18 @@ export default function OpsConsolePage() {
                       {inc.severity}
                     </span>
                   </div>
-                  {inc.signalCount > 0 && (
-                    <p className="text-[10px] text-muted-foreground/60 mt-0.5">{inc.signalCount} signal{inc.signalCount > 1 ? "s" : ""}</p>
-                  )}
+                  <div className="flex items-center justify-between mt-1.5">
+                    {inc.signalCount > 0 && (
+                      <p className="text-[10px] text-muted-foreground/60">{inc.signalCount} signal{inc.signalCount > 1 ? "s" : ""}</p>
+                    )}
+                    <Link
+                      href={`/incidents/${inc.id}`}
+                      data-testid={`btn-investigate-incident-${inc.id}`}
+                      className="flex items-center gap-1 text-[10px] font-semibold text-cyan-400/80 hover:text-cyan-300 transition-colors ml-auto"
+                    >
+                      Investigate <ArrowRight className="w-3 h-3" />
+                    </Link>
+                  </div>
                 </div>
               ))}
               <Link href="/ai-ops">

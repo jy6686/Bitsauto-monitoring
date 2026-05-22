@@ -7,7 +7,7 @@ import {
   LineChart, Eye, Monitor, Database, Network,
   HardDrive, Layers, Calculator, Route, FlaskConical,
   Shield, FileText, Lock, TrendingDown, History,
-  LayoutDashboard, Zap, Map, BarChart3, Brain,
+  LayoutDashboard, Zap, Map as MapIcon, BarChart3, Brain,
   SlidersHorizontal, Key, Mail, Building2, Wallet, Banknote,
   HeartPulse, Mic, Bot, ClipboardList, ArrowRightLeft,
   FileSpreadsheet, Rewind, Upload, Star, Package, Search,
@@ -179,7 +179,7 @@ const DOMAINS: Domain[] = [
         { href: '/rtp-analytics',   label: 'RTP Analytics',     desc: 'Media quality analysis',    icon: Activity },
       ]},
       { label: 'Revenue',           desc: 'Revenue heatmap, reports and demand forecasting', icon: TrendingDown, items: [
-        { href: '/revenue-heatmap',  label: 'Revenue Heatmap',  desc: 'Revenue visualisation map', icon: Map },
+        { href: '/revenue-heatmap',  label: 'Revenue Heatmap',  desc: 'Revenue visualisation map', icon: MapIcon },
         { href: '/reports',          label: 'Reports',          desc: 'Standard report centre',    icon: BarChart2 },
         { href: '/traffic-forecast', label: 'Traffic Forecast', desc: 'Demand forecasting',        icon: TrendingDown },
       ]},
@@ -236,7 +236,7 @@ const DOMAINS: Domain[] = [
       ]},
       { label: 'Cost & Revenue', desc: 'Route cost optimisation, revenue and balances', icon: TrendingDown, items: [
         { href: '/cost-optimisation', label: 'Cost Optimisation', desc: 'Route cost engine',          icon: TrendingDown },
-        { href: '/revenue-heatmap',   label: 'Revenue Heatmap',   desc: 'Revenue visualisation',      icon: Map },
+        { href: '/revenue-heatmap',   label: 'Revenue Heatmap',   desc: 'Revenue visualisation',      icon: MapIcon },
         { href: '/balance',           label: 'Balance Monitor',   desc: 'Vendor account balances',    icon: Wallet },
       ]},
       { label: 'Reports',      desc: 'Finance reports, CDR billing and margin analytics', icon: BarChart2, items: [

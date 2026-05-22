@@ -108,6 +108,7 @@ import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
 import OpsConsolePage from "@/pages/ops-console";
+import IncidentDetailPage from "@/pages/incident-detail";
 import ConsolePage from "@/pages/console";
 import VendorProfilePage from "@/pages/vendor-profile";
 import StirShakenPage from "@/pages/stir-shaken";
@@ -475,6 +476,9 @@ function Router() {
       </Route>
       <Route path="/ops-console">
         {() => <ProtectedRoute component={OpsConsolePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/incidents/:id">
+        {() => <ProtectedRoute component={IncidentDetailPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
       </Route>
       <Route path="/console">
         {() => <ProtectedRoute component={ConsolePage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin']} />}

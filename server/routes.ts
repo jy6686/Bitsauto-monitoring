@@ -24490,6 +24490,95 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   );
 
+  // GET /api/console/incidents/:id/detail — aggregated investigation hub for a single incident
+  app.get("/api/console/incidents/:id/detail",
+    (req: any, res: any, next: any) => requireRole(["admin","management","noc_operator","team_lead","super_admin"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+        const row = await storage.getConsoleIncident(id);
+        if (!row) return res.status(404).json({ error: 'Incident not found' });
+
+        const entityLabel = row.entityLabel ?? '';
+        const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+        const {
+          desc: drizzleDesc, gte: drizzleGte, ilike: drizzleIlike, eq: drizzleEq,
+        } = await import('drizzle-orm');
+        const {
+          fasEvents: fasTable, carrierQualityScores: cqTable,
+          vendorStabilitySnapshots: vssTable, accountState: asTable,
+        } = await import('../shared/schema');
+
+        const [lcEvents, carrierScores, fasEvts, stabilityHistory, allAccState] = await Promise.all([
+          storage.listLifecycleEvents(id),
+
+          db.select().from(cqTable)
+            .where(drizzleIlike(cqTable.carrierName, `%${entityLabel}%`))
+            .orderBy(drizzleDesc(cqTable.stabilityScore))
+            .limit(5)
+            .catch(() => [] as any[]),
+
+          db.select().from(fasTable)
+            .where(drizzleGte(fasTable.detectedAt, since7d))
+            .orderBy(drizzleDesc(fasTable.detectedAt))
+            .limit(50)
+            .catch(() => [] as any[]),
+
+          db.select().from(vssTable)
+            .where(drizzleEq(vssTable.vendor, entityLabel))
+            .orderBy(drizzleDesc(vssTable.ts))
+            .limit(72)
+            .catch(() => [] as any[]),
+
+          db.select({
+            accountId: asTable.accountId,
+            accountName: asTable.accountName,
+            recommendation: asTable.recommendation,
+            updatedAt: asTable.updatedAt,
+          }).from(asTable)
+            .where(drizzleIlike(asTable.accountName, `%${entityLabel}%`))
+            .catch(() => [] as any[]),
+        ]);
+
+        // Filter FAS events to this entity's vendor name
+        const entityFas = fasEvts.filter((e: any) =>
+          (e.vendor ?? '').toLowerCase().includes(entityLabel.toLowerCase())
+        );
+
+        const recommendations = allAccState
+          .filter((r: any) => r.recommendation != null)
+          .map((r: any) => ({
+            accountId: r.accountId, accountName: r.accountName,
+            updatedAt: r.updatedAt, ...(r.recommendation as any),
+          }))
+          .sort((a: any, b: any) => (a.priority ?? 999) - (b.priority ?? 999));
+
+        // Best carrier score for this entity
+        const carrierScore = carrierScores[0] ?? null;
+
+        res.json({
+          incident: {
+            ...row,
+            alerts:            row.alertsJson            ? JSON.parse(row.alertsJson)            : [],
+            actions:           row.actionsJson           ? JSON.parse(row.actionsJson)           : [],
+            rootCause:         row.rootCauseJson         ? JSON.parse(row.rootCauseJson)         : null,
+            timeline:          row.timelineJson          ? JSON.parse(row.timelineJson)          : [],
+            metrics:           row.metricsJson           ? JSON.parse(row.metricsJson)           : null,
+            assignmentHistory: row.assignmentHistoryJson ? JSON.parse(row.assignmentHistoryJson) : [],
+          },
+          lifecycle:        lcEvents,
+          carrierScore,
+          fasEvents:        entityFas,
+          stabilityHistory: stabilityHistory.reverse(), // oldest → newest for charts
+          recommendations,
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    }
+  );
+
   // GET /api/console/replay — re-run grouping engine on stored alerts (no Sippy calls, pure local)
   app.get("/api/console/replay",
     (req: any, res: any, next: any) => requireRole(["admin","management","noc_operator","team_lead","super_admin"], req, res, next),
