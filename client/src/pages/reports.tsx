@@ -87,6 +87,30 @@ type DegradationResponse = {
   alerts: DegradationAlert[];
 };
 
+// ── Route Recommendation Engine types ─────────────────────────────────────────
+type RouteRecommendationType = 'INVESTIGATE' | 'FAS_ALERT' | 'REDUCE_PRIORITY' | 'MONITOR' | 'PROMOTE';
+type RouteRecommendation = {
+  vendor: string;
+  type: RouteRecommendationType;
+  urgency: 'immediate' | 'today' | 'monitor';
+  priority: number;
+  title: string;
+  detail: string[];
+  confidence: number;
+  currentQ: number;
+  deltaQ: number | null;
+  callCount: number;
+  asr: number;
+  fas: number;
+};
+type RouteRecommendationsResponse = {
+  generatedAt: string;
+  windowMinutes: number;
+  totalVendors: number;
+  cdrCount: number;
+  recommendations: RouteRecommendation[];
+};
+
 function countryFlag(countryName?: string): string {
   if (!countryName) return '';
   const iso = COUNTRY_TO_ISO[countryName] ?? Object.entries(COUNTRY_TO_ISO)
@@ -228,6 +252,19 @@ export default function ReportsPage() {
     enabled: activeTab === 'vendor',
     refetchInterval: 2 * 60_000,
     staleTime: 90_000,
+  });
+
+  // ── Route Recommendation Engine ──────────────────────────────────────────────
+  const { data: routeRecData, isLoading: routeRecLoading } = useQuery<RouteRecommendationsResponse>({
+    queryKey: ['/api/reports/route-recommendations'],
+    queryFn: async () => {
+      const res = await fetch('/api/reports/route-recommendations');
+      if (!res.ok) throw new Error('Failed to fetch route recommendations');
+      return res.json();
+    },
+    enabled: activeTab === 'vendor',
+    refetchInterval: 5 * 60_000,
+    staleTime: 3 * 60_000,
   });
 
   // ── Monitor ─────────────────────────────────────────────────────────────────
@@ -768,6 +805,162 @@ export default function ReportsPage() {
                         <p className="text-[10px] text-muted-foreground text-center pt-1">
                           +{degrading.length - 5} more degrading routes
                         </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── Route Recommendation Engine (vendor tab only) ───────────── */}
+          {activeTab === 'vendor' && (() => {
+            const recs       = routeRecData?.recommendations ?? [];
+            const urgent     = recs.filter(r => r.urgency === 'immediate');
+            const todayRecs  = recs.filter(r => r.urgency === 'today');
+            const positive   = recs.filter(r => r.type === 'PROMOTE');
+            const hasUrgent  = urgent.length > 0;
+
+            // Type metadata
+            const typeConfig: Record<RouteRecommendationType, { label: string; color: string; bg: string }> = {
+              INVESTIGATE:     { label: 'Investigate',     color: 'text-rose-300',   bg: 'bg-rose-500/20 border-rose-500/40'   },
+              FAS_ALERT:       { label: 'FAS Alert',       color: 'text-rose-300',   bg: 'bg-rose-500/15 border-rose-500/30'   },
+              REDUCE_PRIORITY: { label: 'Reduce Priority', color: 'text-amber-300',  bg: 'bg-amber-500/15 border-amber-500/30' },
+              MONITOR:         { label: 'Monitor',         color: 'text-sky-300',    bg: 'bg-sky-500/10 border-sky-500/20'     },
+              PROMOTE:         { label: 'Promote',         color: 'text-emerald-300',bg: 'bg-emerald-500/10 border-emerald-500/25' },
+            };
+
+            return (
+              <div className={cn(
+                "rounded-xl border overflow-hidden",
+                hasUrgent ? "border-rose-500/35" : "border-border/50 bg-card/50"
+              )} data-testid="route-recommendations-panel">
+                {/* Header */}
+                <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 bg-muted/10 flex-wrap">
+                  <Zap className={cn("w-4 h-4", hasUrgent ? "text-rose-400 animate-pulse" : "text-sky-400")} />
+                  <span className="text-sm font-semibold">Route Recommendation Engine</span>
+                  {routeRecData && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {routeRecData.totalVendors} vendors · {routeRecData.cdrCount} CDRs · last hour window
+                    </span>
+                  )}
+                  {hasUrgent && (
+                    <span className="ml-1 px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-bold">
+                      {urgent.length} immediate action{urgent.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {routeRecData && (
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      updated {new Date(routeRecData.generatedAt).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="p-4">
+                  {routeRecLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Analysing route quality signals…
+                    </div>
+                  ) : recs.length === 0 ? (
+                    <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                      <Minus className="w-3.5 h-3.5" />
+                      Insufficient CDR data — needs ≥5 calls per vendor in the last hour
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Immediate actions group */}
+                      {urgent.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[10px] uppercase tracking-wider text-rose-400/80 font-semibold flex items-center gap-1.5">
+                            <TriangleAlert className="w-3 h-3" /> Immediate Actions
+                          </p>
+                          {urgent.map((rec) => {
+                            const cfg = typeConfig[rec.type];
+                            return (
+                              <div key={rec.vendor} data-testid={`rec-${rec.type}-${rec.vendor}`}
+                                className="flex items-start gap-3 px-3 py-2.5 rounded-lg border border-rose-500/30 bg-rose-500/5">
+                                <div className="flex-shrink-0 mt-0.5">
+                                  <TriangleAlert className="w-4 h-4 text-rose-400" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                                    <span className="text-xs font-bold text-foreground">{rec.vendor}</span>
+                                    <span className={cn("px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider", cfg.bg, cfg.color)}>
+                                      {cfg.label}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground">Q{rec.currentQ} · {rec.callCount} calls</span>
+                                    <span className="ml-auto text-[10px] text-muted-foreground/60">{rec.confidence}% confidence</span>
+                                  </div>
+                                  <p className="text-xs font-semibold text-rose-200 mb-1">{rec.title}</p>
+                                  <ul className="space-y-0.5">
+                                    {rec.detail.map((d, di) => (
+                                      <li key={di} className="text-[10px] text-muted-foreground font-mono flex items-start gap-1">
+                                        <span className="text-rose-400/50 flex-shrink-0">›</span>{d}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Today / monitor group — non-critical, non-positive */}
+                      {todayRecs.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[10px] uppercase tracking-wider text-amber-400/80 font-semibold flex items-center gap-1.5">
+                            <Activity className="w-3 h-3" /> Review Today
+                          </p>
+                          {todayRecs.slice(0, 3).map((rec) => {
+                            const cfg = typeConfig[rec.type];
+                            return (
+                              <div key={rec.vendor} data-testid={`rec-${rec.type}-${rec.vendor}`}
+                                className="flex items-start gap-3 px-3 py-2 rounded-lg border border-amber-500/20 bg-amber-500/5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                    <span className="text-xs font-bold text-foreground">{rec.vendor}</span>
+                                    <span className={cn("px-1.5 py-0.5 rounded border text-[9px] font-bold uppercase tracking-wider", cfg.bg, cfg.color)}>
+                                      {cfg.label}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground">Q{rec.currentQ}</span>
+                                    <span className="ml-auto text-[10px] text-muted-foreground/60">{rec.confidence}% confidence</span>
+                                  </div>
+                                  <p className="text-[11px] font-medium text-amber-200">{rec.title}</p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">{rec.detail[0]}</p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {todayRecs.length > 3 && (
+                            <p className="text-[10px] text-muted-foreground pl-1">+{todayRecs.length - 3} more to review</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Positive — strong routes */}
+                      {positive.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[10px] uppercase tracking-wider text-emerald-400/80 font-semibold flex items-center gap-1.5">
+                            <BadgeCheck className="w-3 h-3" /> Strong Routes
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {positive.map((rec) => (
+                              <div key={rec.vendor} data-testid={`rec-PROMOTE-${rec.vendor}`}
+                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/5">
+                                <BadgeCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                                <div>
+                                  <span className="text-xs font-bold text-emerald-300">{rec.vendor}</span>
+                                  <span className="text-[10px] text-emerald-400/70 ml-1.5">Q{rec.currentQ}</span>
+                                  {rec.deltaQ !== null && rec.deltaQ > 0 && (
+                                    <span className="text-[9px] text-emerald-400 ml-1">↑{rec.deltaQ}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}

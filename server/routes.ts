@@ -4437,6 +4437,170 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 
+  // ── GET /api/reports/route-recommendations ──────────────────────────────────
+  // Vendor-level routing recommendation engine, complementary to the account-level
+  // recommendation engine. Analyses the CDR cache (zero new Sippy calls) and emits
+  // a ranked, explainable action queue for routing decisions.
+  //
+  // Rule categories (by urgency):
+  //   INVESTIGATE  — Q<25 or FAS>30% with real traffic → immediate
+  //   FAS_ALERT    — FAS spike 15-30% with >5 billable  → immediate
+  //   REDUCE       — Q<40 or deltaQ<-20               → immediate/today
+  //   MONITOR      — Q40-55 or mild degradation         → today
+  //   PROMOTE      — Q≥80 stable/improving              → positive (monitor)
+  app.get('/api/reports/route-recommendations', (req: any, res, next) => requireRole(['admin', 'management', 'noc', 'viewer'], req, res, next), async (req: any, res) => {
+    try {
+      const MIN_CALLS  = 5;
+      const now        = Date.now();
+      const W1         = 60 * 60_000;   // current: last 60 min
+      const W2         = 60 * 60_000;   // prev:    60-120 min ago
+
+      const currentCdrs = (cdrWindowValues(now - W1) as any[]);
+      const allTwoW     = (cdrWindowValues(now - W1 - W2) as any[]);
+      const prevCdrs    = allTwoW.filter((c: any) => new Date(c.startTime || c.connectTime || 0).getTime() < now - W1);
+
+      // Aggregate helper
+      function agg(cdrs: any[]): Map<string, { tc: number; bc: number; rna: number; fas: number; pddSum: number; pddN: number }> {
+        const m = new Map<string, { tc: number; bc: number; rna: number; fas: number; pddSum: number; pddN: number }>();
+        for (const c of cdrs) {
+          const key = (c.vendor || c.callee || c.cld || '').trim();
+          if (!key) continue;
+          const row = m.get(key) ?? { tc: 0, bc: 0, rna: 0, fas: 0, pddSum: 0, pddN: 0 };
+          const d = Number(c.duration) || 0; const p = Number(c.pdd1xx ?? c.pdd) || 0;
+          const ok = String(c.result) === '0';
+          row.tc++;
+          if (ok && d > 0) { row.bc++; if (d <= 5) row.fas++; }
+          if (ok && d === 0) row.rna++;
+          if (p > 0) { row.pddSum += p; row.pddN++; }
+          m.set(key, row);
+        }
+        return m;
+      }
+
+      function qs(tc: number, bc: number, rna: number, fas: number, pddSum: number, pddN: number): number {
+        if (tc === 0) return 0;
+        const asr = (bc / tc) * 100; const ner = ((bc + rna) / tc) * 100;
+        const fr = bc > 0 ? (fas / bc) * 100 : 0; const pdd = pddN > 0 ? pddSum / pddN : 0;
+        return Math.round(Math.min(asr, 100) * 0.40 + Math.min(ner, 100) * 0.30 + Math.max(0, 100 - fr * 4) * 0.20 +
+          (pdd <= 1 ? 100 : pdd <= 3 ? 85 : pdd <= 6 ? 65 : pdd <= 10 ? 40 : 20) * 0.10);
+      }
+
+      const curM  = agg(currentCdrs);
+      const prevM = agg(prevCdrs);
+
+      type Rec = {
+        vendor: string; type: string; urgency: string; priority: number;
+        title: string; detail: string[]; confidence: number;
+        currentQ: number; deltaQ: number | null; callCount: number;
+        asr: number; fas: number;
+      };
+      const recs: Rec[] = [];
+
+      for (const [vendor, cur] of curM.entries()) {
+        if (cur.tc < MIN_CALLS) continue;
+        const prev  = prevM.get(vendor);
+        const curQ  = qs(cur.tc, cur.bc, cur.rna, cur.fas, cur.pddSum, cur.pddN);
+        const prevQ = prev && prev.tc >= MIN_CALLS ? qs(prev.tc, prev.bc, prev.rna, prev.fas, prev.pddSum, prev.pddN) : null;
+        const deltaQ = prevQ !== null ? curQ - prevQ : null;
+        const curAsr = cur.tc > 0 ? parseFloat((cur.bc / cur.tc * 100).toFixed(1)) : 0;
+        const curFas = cur.bc > 0 ? parseFloat((cur.fas / cur.bc * 100).toFixed(1)) : 0;
+        const curPdd = cur.pddN > 0 ? cur.pddSum / cur.pddN : 0;
+
+        // Rule: INVESTIGATE — dangerously low quality or extreme FAS
+        if (curQ < 25 || curFas > 30) {
+          recs.push({
+            vendor, type: 'INVESTIGATE', urgency: 'immediate', priority: 1,
+            title: curFas > 30 ? `Investigate FAS anomaly — ${curFas.toFixed(0)}% short-billed calls` : `Investigate route quality collapse — Q${curQ}`,
+            detail: [
+              `Q-Score: ${curQ}/100 (${curQ < 25 ? 'critically low' : 'passing'})`,
+              curFas > 30 ? `FAS rate: ${curFas.toFixed(0)}% — potential false answer supervision` : '',
+              `ASR: ${curAsr}% over ${cur.tc} calls`,
+              deltaQ !== null ? `Trend: Q${prevQ} → Q${curQ} (${deltaQ > 0 ? '+' : ''}${deltaQ})` : 'No prior window to compare',
+            ].filter(Boolean),
+            confidence: Math.min(95, 60 + Math.round((curFas > 30 ? curFas * 0.5 : (25 - curQ) * 1.5))),
+            currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+          });
+          continue;
+        }
+
+        // Rule: FAS_ALERT — elevated FAS without full quality collapse
+        if (curFas >= 15 && cur.bc >= MIN_CALLS) {
+          recs.push({
+            vendor, type: 'FAS_ALERT', urgency: 'immediate', priority: 2,
+            title: `FAS risk elevated — ${curFas.toFixed(0)}% short-billed calls`,
+            detail: [
+              `${cur.fas} of ${cur.bc} answered calls billed ≤ 5 seconds`,
+              `Possible answer simulation (IRSF/FAS) or network misbilling`,
+              `Q-Score: ${curQ} · ASR: ${curAsr}%`,
+              deltaQ !== null && deltaQ < 0 ? `Quality degrading: Q${prevQ} → Q${curQ}` : '',
+            ].filter(Boolean),
+            confidence: Math.min(90, 50 + Math.round(curFas * 1.5)),
+            currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+          });
+          continue;
+        }
+
+        // Rule: REDUCE — low quality or significant degradation
+        if (curQ < 40 || (deltaQ !== null && deltaQ <= -20)) {
+          const isDegrading = deltaQ !== null && deltaQ <= -20;
+          recs.push({
+            vendor, type: 'REDUCE_PRIORITY', urgency: isDegrading ? 'immediate' : 'today', priority: 3,
+            title: isDegrading
+              ? `Reduce priority — quality fell ${Math.abs(deltaQ!)} pts in last hour`
+              : `Reduce priority — sustained low quality (Q${curQ})`,
+            detail: [
+              `Current Q-Score: ${curQ}/100`,
+              deltaQ !== null ? `Trend: Q${prevQ} → Q${curQ}` : 'No prior comparison window',
+              `ASR: ${curAsr}% · FAS: ${curFas.toFixed(0)}%`,
+              curAsr < 30 ? `Very low answer rate may indicate routing misconfiguration` : '',
+            ].filter(Boolean),
+            confidence: Math.min(85, 50 + Math.round(isDegrading ? Math.abs(deltaQ!) * 1.5 : (40 - curQ) * 1.2)),
+            currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+          });
+          continue;
+        }
+
+        // Rule: MONITOR — soft degradation or borderline quality
+        if (curQ < 55 || (deltaQ !== null && deltaQ <= -10)) {
+          recs.push({
+            vendor, type: 'MONITOR', urgency: 'today', priority: 4,
+            title: (deltaQ !== null && deltaQ <= -10)
+              ? `Monitor closely — quality declining (−${Math.abs(deltaQ!)} pts)`
+              : `Monitor — borderline quality (Q${curQ})`,
+            detail: [
+              `Q-Score: ${curQ}/100`,
+              deltaQ !== null ? `Change this window: ${deltaQ > 0 ? '+' : ''}${deltaQ} pts` : 'First observation window',
+              `ASR: ${curAsr}% · PDD: ${curPdd.toFixed(1)}s`,
+            ].filter(Boolean),
+            confidence: 55 + Math.round(Math.abs(deltaQ ?? 5) * 1.0),
+            currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+          });
+          continue;
+        }
+
+        // Rule: PROMOTE — high quality, stable or improving
+        if (curQ >= 80 && (deltaQ === null || deltaQ >= -3)) {
+          recs.push({
+            vendor, type: 'PROMOTE', urgency: 'monitor', priority: 5,
+            title: `Strong route — consider increasing priority (Q${curQ})`,
+            detail: [
+              `Q-Score: ${curQ}/100 — ${curQ >= 90 ? 'excellent' : 'strong'} quality`,
+              deltaQ !== null && deltaQ > 0 ? `Improving: Q${prevQ} → Q${curQ} (+${deltaQ})` : 'Stable quality',
+              `ASR: ${curAsr}% · FAS: ${curFas.toFixed(0)}% · ${cur.tc} calls`,
+            ].filter(Boolean),
+            confidence: Math.min(90, 60 + Math.round(curQ * 0.3)),
+            currentQ: curQ, deltaQ, callCount: cur.tc, asr: curAsr, fas: curFas,
+          });
+        }
+      }
+
+      // Sort: priority asc, then confidence desc within same priority
+      recs.sort((a, b) => a.priority !== b.priority ? a.priority - b.priority : b.confidence - a.confidence);
+
+      res.json({ generatedAt: new Date().toISOString(), windowMinutes: 60, totalVendors: curM.size, cdrCount: currentCdrs.length, recommendations: recs });
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   // ── Rolling CDR Cache (for /api/sippy/cdr/graphs) ───────────────────────────
   // Fetches latest 500 CDRs without date filter (fast, no timeout) every 5 minutes,
   // deduplicates by callId, and keeps a rolling 72-hour window.
