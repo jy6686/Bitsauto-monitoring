@@ -1,0 +1,152 @@
+Yes — and that is actually the correct enterprise UX pattern.
+
+Dashboard and Team Chat should NOT behave like normal sidebar menu items anymore.
+
+They are:
+
+global platform utilities
+
+not:
+
+workspace tools
+
+That distinction matters a lot.
+
+Correct Placement
+TOP HEADER BAR (Always Visible)
+
+Example:
+
+[Logo]
+
+Dashboard   Team Chat
+
+--------------------------------
+
+NOC | Operations | Routing | Intelligence | Analytics | Finance
+Why This Is Correct
+Dashboard
+
+Dashboard is:
+
+home
+landing area
+global overview
+
+Operators expect:
+
+one-click access from anywhere
+
+NOT hidden inside a workspace sidebar.
+
+Team Chat
+
+Team Chat is:
+
+cross-functional
+always relevant
+operational communication
+
+It should behave like:
+
+Slack
+Discord
+Microsoft Teams
+
+Meaning:
+
+persistent top utility
+
+NOT:
+
+a menu page
+Best Enterprise Layout
+LEFT SIDE OF TOP BAR
+[Logo] Dashboard
+CENTER OF TOP BAR
+
+Workspace navigation:
+
+NOC | Operations | Routing | Intelligence | Analytics
+RIGHT SIDE OF TOP BAR
+
+Global utilities:
+
+Team Chat
+Notifications
+Search
+Profile
+Theme
+
+This is the correct scalable layout.
+
+VERY IMPORTANT UX BENEFIT
+
+This separates:
+
+navigation
+
+from:
+
+platform utilities
+
+Which reduces sidebar clutter dramatically.
+
+Recommended Rules
+Item	Placement
+Dashboard	Top header
+Team Chat	Top header
+Notifications	Top header
+Search	Top header
+Profile	Top header
+Workspace menus	Top navigation
+Context tools	Sidebar
+
+This becomes a clean enterprise hierarchy.
+
+What Sidebar Should Contain ONLY
+
+Sidebar should now contain:
+
+contextual tools for the selected workspace
+
+Example:
+If inside Intelligence:
+
+Validation Console
+Prefix Intelligence
+Vendor RCA
+AI Ops
+
+ONLY.
+
+No:
+
+Dashboard
+Chat
+Profile
+Notifications
+
+Those are global utilities now.
+
+Most Important Design Improvement
+
+This creates:
+
+mental separation between:
+“where I am”
+and
+“global platform tools”
+
+That dramatically improves usability as the platform grows.
+
+My Recommendation
+
+YES:
+
+move Dashboard to top header
+move Team Chat to top header
+keep them visible globally
+remove both from sidebar
+
+This is exactly the correct direction for a mature operational platform.
