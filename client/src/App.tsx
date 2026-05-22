@@ -127,6 +127,7 @@ import AsrAcdReportPage from "@/pages/asr-acd-report";
 import LiveTrafficPage from "@/pages/live-traffic";
 import NotificationCentrePage from "@/pages/notification-centre";
 import BillingPage from "@/pages/billing";
+import WorkspaceHomePage from "@/pages/workspace-home";
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -511,6 +512,10 @@ function Router() {
       </Route>
       <Route path="/client/config">
         {() => <ProtectedRoute component={ClientConfigPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
+      </Route>
+
+      <Route path="/workspace/:domain">
+        {() => <ProtectedRoute component={WorkspaceHomePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
       </Route>
 
       <Route component={NotFound} />

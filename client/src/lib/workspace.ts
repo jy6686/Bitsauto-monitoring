@@ -107,6 +107,11 @@ const ROUTE_DOMAIN_MAP: [string, WorkspaceDomain][] = [
 export function inferWorkspace(path: string): WorkspaceDomain {
   if (path === '/' || path === '') return 'live-ops';
   const clean = path.split('?')[0];
+  // Workspace home pages: /workspace/<domain>
+  if (clean.startsWith('/workspace/')) {
+    const sub = clean.slice('/workspace/'.length).split('/')[0] as WorkspaceDomain;
+    if (sub in WORKSPACE_LABELS_PLACEHOLDER) return sub;
+  }
   for (const [prefix, domain] of ROUTE_DOMAIN_MAP) {
     if (clean === prefix || clean.startsWith(prefix + '/')) {
       return domain;
@@ -114,6 +119,13 @@ export function inferWorkspace(path: string): WorkspaceDomain {
   }
   return 'live-ops';
 }
+
+// Private helper used only above — avoids circular dependency with exported WORKSPACE_LABELS
+const WORKSPACE_LABELS_PLACEHOLDER: Record<string, true> = {
+  'live-ops': true, 'clients': true, 'vendors': true, 'routing': true,
+  'reports': true, 'intelligence': true, 'troubleshooting': true,
+  'fraud': true, 'settings': true,
+};
 
 // ── Workspace → sidebar group keys ────────────────────────────────────────────
 // Maps each domain to the sidebar group keys that should be visible.

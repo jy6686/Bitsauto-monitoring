@@ -354,28 +354,47 @@ export function AppNavShell() {
             const isActive = meta.domain === domain.id;
             const isOpen   = openDomain === domain.id;
             return (
-              <button
+              <div
                 key={domain.id}
                 role="menuitem"
-                data-testid={`nav-domain-${domain.id}`}
                 className={cn(
-                  "relative flex items-center gap-1.5 h-[36px] px-2.5 rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
+                  "relative flex items-center h-[36px] rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
                   isActive || isOpen
                     ? "text-foreground bg-white/[0.08]"
                     : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]"
                 )}
                 onMouseEnter={() => { cancelClose(); setOpen(domain.id); }}
                 onMouseLeave={scheduleClose}
-                onClick={() => setOpen(openDomain === domain.id ? null : domain.id)}
-                aria-haspopup="true"
-                aria-expanded={isOpen}
               >
+                {/* Active underline */}
                 {isActive && (
-                  <span className="absolute bottom-0 left-2.5 right-2.5 h-[2px] rounded-full bg-gradient-to-r from-violet-400 to-indigo-500" />
+                  <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-gradient-to-r from-violet-400 to-indigo-500 pointer-events-none" />
                 )}
-                <domain.icon className={cn("w-3.5 h-3.5 flex-shrink-0", isActive ? domain.color : '')} />
-                <span className="hidden lg:inline">{domain.label}</span>
-              </button>
+                {/* Label → workspace home */}
+                <Link
+                  href={`/workspace/${domain.id}`}
+                  data-testid={`nav-domain-${domain.id}`}
+                  onClick={() => setOpen(null)}
+                  className="flex items-center gap-1.5 pl-2.5 pr-1 h-full"
+                  aria-label={`${domain.label} workspace`}
+                >
+                  <domain.icon className={cn("w-3.5 h-3.5 flex-shrink-0", isActive ? domain.color : '')} />
+                  <span className="hidden lg:inline">{domain.label}</span>
+                </Link>
+                {/* Chevron → toggle mega panel */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setOpen(openDomain === domain.id ? null : domain.id); }}
+                  aria-haspopup="true"
+                  aria-expanded={isOpen}
+                  aria-label={`${domain.label} modules`}
+                  className={cn(
+                    "flex items-center justify-center pr-2 pl-0.5 h-full transition-all duration-150",
+                    isOpen ? "opacity-100" : "opacity-40 hover:opacity-80"
+                  )}
+                >
+                  <ChevronDown className={cn("w-2.5 h-2.5 transition-transform duration-150", isOpen && "rotate-180")} />
+                </button>
+              </div>
             );
           })}
         </nav>
