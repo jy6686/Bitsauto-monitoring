@@ -263,17 +263,27 @@ const FINANCE_CARDS: OpsCard[] = [
   { tier: 'secondary', href: '/billing-disputes', label: 'Invoices',          desc: 'Invoice & dispute log',   icon: FileText,        accentColor: 'border-rose-500',    iconColor: 'text-rose-400'    },
 ];
 
+// ── Urgency scoring ────────────────────────────────────────────────────────────
+type LiveStats = Parameters<typeof resolveStat>[1];
+
+function cardUrgencyScore(card: OpsCard, stats: LiveStats): number {
+  if (!card.statCritical) return 0;
+  return resolveStat(card.statKey, stats);
+}
+
 // ── Primary ops card (full-width, 2-col grid) ─────────────────────────────────
-function PrimaryOpsCard({ card, stat }: { card: OpsCard; stat: number }) {
+function PrimaryOpsCard({ card, stat, elevated = false }: { card: OpsCard; stat: number; elevated?: boolean }) {
   const hasUrgency = card.statCritical && stat > 0;
   return (
     <Link
       href={card.href}
       data-testid={`ops-card-primary-${card.href.replace(/\//g, '-')}`}
       className={cn(
-        "group relative flex flex-col gap-3 rounded-xl border-l-[3px] border border-white/[0.07]",
-        "bg-white/[0.03] hover:bg-white/[0.06] px-5 py-4 transition-all duration-150",
-        "hover:border-white/[0.14] hover:shadow-sm",
+        "group relative flex flex-col gap-3 rounded-xl border-l-[3px] border transition-all duration-150",
+        elevated
+          ? "bg-white/[0.05] border-white/[0.12] shadow-[0_0_0_1px] shadow-rose-500/[0.12]"
+          : "bg-white/[0.03] border-white/[0.07]",
+        "hover:bg-white/[0.07] hover:border-white/[0.16] hover:shadow-sm px-5 py-4",
         card.accentColor,
       )}
     >
@@ -340,13 +350,19 @@ function SecondaryOpsCard({ card, stat }: { card: OpsCard; stat: number }) {
   );
 }
 
-// ── Ops card grid (Vendors / Intelligence) ────────────────────────────────────
-function OpsCardGrid({ cards, stats }: {
-  cards: OpsCard[];
-  stats: { degradedCarriers: number; activeIncidents: number; pendingApprovals: number; lowBalances: number; healthyCarriers: number };
-}) {
-  const primaryCards   = cards.filter(c => c.tier === 'primary');
-  const secondaryCards = cards.filter(c => c.tier === 'secondary');
+// ── Ops card grid — urgency-sorted ────────────────────────────────────────────
+function OpsCardGrid({ cards, stats }: { cards: OpsCard[]; stats: LiveStats }) {
+  // Stable sort within each tier: highest urgency floats to front
+  const sorted = [...cards].sort((a, b) => {
+    if (a.tier !== b.tier) return 0; // keep tier groups intact
+    return cardUrgencyScore(b, stats) - cardUrgencyScore(a, stats);
+  });
+  const primaryCards   = sorted.filter(c => c.tier === 'primary');
+  const secondaryCards = sorted.filter(c => c.tier === 'secondary');
+
+  // First primary card with critical urgency gets elevated styling
+  const topUrgentHref = primaryCards.find(c => cardUrgencyScore(c, stats) > 0)?.href;
+
   return (
     <div className="flex flex-col gap-5">
       {primaryCards.length > 0 && (
@@ -360,6 +376,7 @@ function OpsCardGrid({ cards, stats }: {
                 key={`${card.href}-${card.label}`}
                 card={card}
                 stat={resolveStat(card.statKey, stats)}
+                elevated={card.href === topUrgentHref}
               />
             ))}
           </div>

@@ -835,8 +835,15 @@ export function LayoutShell({ children }: LayoutShellProps) {
     enabled: role !== 'viewer',
   });
 
+  const { data: pendingCountRaw } = useQuery<{ count: number }>({
+    queryKey: ['/api/approvals/pending-count'],
+    staleTime: 15_000, refetchInterval: 30_000,
+    enabled: role !== 'viewer',
+  });
+
   const liveCallCount   = Array.isArray(liveCallsRaw) ? liveCallsRaw.length : (liveCallsRaw?.calls?.length ?? liveCallsRaw?.count ?? 0);
   const activeIncidents = Array.isArray(incidentsRaw) ? incidentsRaw.filter((i: any) => i.status === 'active' || !i.resolvedAt).length : 0;
+  const pendingApprovals = pendingCountRaw?.count ?? 0;
   const avgAsr = Array.isArray(carrierScoresRaw) && carrierScoresRaw.length > 0
     ? carrierScoresRaw.reduce((s: number, c: any) => s + (c.rollingAsr ?? 0), 0) / carrierScoresRaw.length : null;
   const hasDegradedCarrier = Array.isArray(carrierScoresRaw) && carrierScoresRaw.some((c: any) => (c.stabilityScore ?? 100) < 45);
@@ -861,8 +868,29 @@ export function LayoutShell({ children }: LayoutShellProps) {
     return true;
   };
 
+  // ── Rail urgency scoring — items with active signals float to top ─────────────
+  // Weights: incidents × 20, pending approvals × 15, degraded carrier flat 10
+  // Stable JS sort preserves original order for items with equal score.
+  const RAIL_URGENCY_FN: Partial<Record<string, (s: { inc: number; pend: number; deg: boolean }) => number>> = {
+    '/alerts':               s => s.inc  * 20,
+    '/fraud':                s => s.inc  * 20,
+    '/approvals':            s => s.pend * 15,
+    '/noc-command':          s => s.inc  * 12,
+    '/vendor-rca':           s => s.deg  ? 14 : 0,
+    '/ai-ops':               s => s.inc  *  8,
+    '/carrier-intelligence': s => s.deg  ?  8 : 0,
+    '/intelligence':         s => s.inc  *  6,
+    '/bitseye2':             s => s.inc  *  5,
+  };
+  const railSignals = { inc: activeIncidents, pend: pendingApprovals, deg: hasDegradedCarrier };
+
   // Lean contextual rail items for the current workspace
-  const railItems = (WORKSPACE_RAIL[activeWorkspace] ?? []).filter(isItemVisible);
+  const railItems = (WORKSPACE_RAIL[activeWorkspace] ?? [])
+    .filter(isItemVisible)
+    .sort((a, b) =>
+      (RAIL_URGENCY_FN[b.href]?.(railSignals) ?? 0) -
+      (RAIL_URGENCY_FN[a.href]?.(railSignals) ?? 0)
+    );
 
   const visibleCallsSubitems = role === 'viewer'
     ? CALLS_SUBITEMS.filter(sub => assignedItemSet.has(sub.itemId))
