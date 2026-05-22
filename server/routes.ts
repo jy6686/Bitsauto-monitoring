@@ -36,6 +36,7 @@ import { runAuthExposureScorer } from "./auth-exposure";
 import { runRecommendationEngine } from "./recommendation-engine";
 import { computeVendorPrefixIntelligence } from "./vendor-prefix-intelligence";
 import { snapshotVendorStability, getVendorTimelines } from "./vendor-stability";
+import { buildVendorRca } from "./vendor-rca";
 import { executeAction, buildSippyParams, recommendationToActionType, computeIdempotencyKey } from "./action-executor";
 import { evaluateFirewall } from "./action-firewall";
 import { listActions, createAction, getAction, approveAction, rejectAction, snoozeAction, rollbackAction } from "./action-store";
@@ -4321,6 +4322,54 @@ export async function registerRoutes(
     try {
       await snapshotVendorStability(cdrCache);
       res.json({ success: true, ts: new Date().toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/vendor-rca/:vendor ───────────────────────────────────────────────
+  // Root Cause Analysis drilldown for a single vendor.
+  // Aggregates: CDR metrics, prefix breakdown, stability timeline, recommendations,
+  // incident lifecycle, and FAS signals. Zero new Sippy calls — pure in-memory + DB.
+  app.get('/api/vendor-rca/:vendor', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const vendor = decodeURIComponent(req.params.vendor as string);
+      if (!vendor) return res.status(400).json({ error: 'vendor required' });
+      const payload = await buildVendorRca(vendor, cdrCache);
+      res.json(payload);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/vendor-rca ───────────────────────────────────────────────────────
+  // Lists all vendors that have recent CDR activity (last 60 min) for the RCA selector.
+  app.get('/api/vendor-rca', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const now = Date.now();
+      const W1  = 60 * 60_000;
+      const vendors = new Set<string>();
+      for (const c of Array.from(cdrCache.values())) {
+        const ts = (c as any).startTime
+          ? (typeof (c as any).startTime === 'number'
+              ? (c as any).startTime * 1000
+              : new Date((c as any).startTime).getTime())
+          : 0;
+        if (ts >= now - W1) {
+          const v = (c as any).vendor as string | undefined;
+          if (v && v !== 'Unknown') vendors.add(v);
+        }
+      }
+      // Also include vendors from stability snapshots (longer window)
+      const { vendorStabilitySnapshots: vsn } = await import('@shared/schema');
+      const { desc: _d } = await import('drizzle-orm');
+      const recent = await db.selectDistinct({ vendor: vsn.vendor })
+        .from(vsn)
+        .orderBy(_d(vsn.ts))
+        .limit(50)
+        .catch(() => []);
+      for (const r of recent) vendors.add(r.vendor);
+      res.json({ vendors: Array.from(vendors).sort() });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

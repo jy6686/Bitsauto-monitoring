@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { VendorRcaDrawer } from "@/components/vendor-rca-drawer";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface TimelinePoint {
@@ -168,6 +169,7 @@ export default function VendorStabilityTimelinePage() {
   const qc                        = useQueryClient();
   const [activeVendor, setActive] = useState<string | null>(null);
   const [hours, setHours]         = useState(24);
+  const [rcaVendor, setRcaVendor] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<TimelineResponse>({
     queryKey: ['/api/vendor-stability-timeline', hours],
@@ -290,8 +292,16 @@ export default function VendorStabilityTimelinePage() {
                     <p className="text-[9px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Trend ({hours}h)</p>
                     <div className="mt-0.5"><TrendArrow trend={selected.trend} pts={selected.trendPts} /></div>
                   </div>
-                  <div className="ml-auto text-[10px] text-muted-foreground/50">
-                    {selected.snapshotCount} snapshots
+                  <div className="ml-auto flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground/50">{selected.snapshotCount} snapshots</span>
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-7 gap-1.5 text-[10px] border-violet-500/30 text-violet-400 hover:text-violet-300 hover:border-violet-500/50"
+                      onClick={() => setRcaVendor(selected.vendor)}
+                      data-testid={`btn-open-rca-${selected.vendor}`}
+                    >
+                      <BarChart2 className="w-3 h-3" /> RCA
+                    </Button>
                   </div>
                 </div>
 
@@ -392,6 +402,11 @@ export default function VendorStabilityTimelinePage() {
           </div>
         )}
       </div>
+
+      {/* ── RCA Drawer ── */}
+      {rcaVendor && (
+        <VendorRcaDrawer vendor={rcaVendor} onClose={() => setRcaVendor(null)} />
+      )}
     </div>
   );
 }
