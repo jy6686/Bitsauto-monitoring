@@ -2518,6 +2518,9 @@ export interface SippyCDR {
   // ── Vendor / termination info ────────────────────────────────────────────
   iConnection?: string;     // i_connection — termination connection ID (when returned by Sippy)
   vendor?: string;          // vendor name (resolved from connection or returned directly)
+  // ── Disposition enrichment ───────────────────────────────────────────────
+  q850Code?: string;        // Q.931 / Q.850 cause code (from Mera vendor-side CDR)
+  dispositionSource?: string; // ingestion path: 'xmlrpc' | 'portal-customer' | 'portal-admin'
 }
 
 /**
@@ -2977,20 +2980,28 @@ export async function scrapePortalCDRs(
         }
       }
 
+      // Normalize result to Sippy numeric convention so isAnswered() works correctly:
+      //   '0'      = answered (billed seconds > 0 → voice path established)
+      //   'failed' = not answered (ring-no-answer, busy, rejected, network failure)
+      // DO NOT use description as result — it's destination text, not disposition.
+      const resultCode = billedSec > 0 ? '0' : 'failed';
+
       cdrs.push({
-        callId:        `portal-cdr-${rowIndex++}`,
-        caller:        cli,
-        callee:        cld,
-        country:       country || undefined,
+        callId:            `portal-cdr-${rowIndex++}`,
+        caller:            cli,
+        callee:            cld,
+        country:           country || undefined,
         description,
+        areaName:          description || undefined,
         connectTime,
-        startTime:     connectTime || new Date().toISOString(),
-        duration:      billedSec,      // SippyCDR.duration = billed seconds
-        totalDuration: durationSec,    // actual duration
-        billedDuration: billedSec,
+        startTime:         connectTime || new Date().toISOString(),
+        duration:          billedSec,
+        totalDuration:     durationSec,
+        billedDuration:    billedSec,
         cost,
-        result:        description || 'ok',
-        clientName:    callerAcct || undefined,
+        result:            resultCode,
+        clientName:        callerAcct || undefined,
+        dispositionSource: 'portal-customer',
       });
     }
 
@@ -3147,22 +3158,27 @@ export async function scrapeAdminPortalCDRs(
         }
       }
 
-      // Determine result from status icon tooltip
-      const result = statusTip || (billedSec > 0 ? 'OK' : '');
+      // Normalize result to Sippy numeric convention so isAnswered() works correctly:
+      //   '0'      = answered (billed seconds > 0 → call was connected and charged)
+      //   'failed' = not answered; preserve the tooltip text in areaName for diagnostics
+      // The admin portal status-icon tooltip (e.g. "NOANSWER", "BUSY") is informative
+      // but is not a reliable numeric code — normalize for ASR/ACD correctness.
+      const result = billedSec > 0 ? '0' : (statusTip || 'failed');
 
       cdrs.push({
-        callId:        `admin-cdr-${rowIndex++}`,
-        caller:        cli,
-        callee:        cld,
-        country:       country || undefined,
-        areaName:      description || undefined,
+        callId:            `admin-cdr-${rowIndex++}`,
+        caller:            cli,
+        callee:            cld,
+        country:           country || undefined,
+        areaName:          description || statusTip || undefined,
         startTime,
         duration:      billedSec,
         totalDuration: durationSec,
         billedDuration: billedSec,
         cost,
         result,
-        clientName:    callerAcct || undefined,
+        clientName:        callerAcct || undefined,
+        dispositionSource: 'portal-admin',
       });
     }
 
@@ -3408,6 +3424,7 @@ export async function getSippyCDRs(
           result:                   m['result']           || m['disconnect_reason'] || '',
           country:                  ns('country'),
           areaName:                 ns('area_name'),
+          dispositionSource:        'xmlrpc',
           description:              ns('description'),
           remoteIp:                 ns('remote_ip'),
           protocol:                 ns('protocol'),

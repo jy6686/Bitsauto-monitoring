@@ -27,12 +27,29 @@ export interface CdrEntry {
 }
 
 // ── Pure CDR predicates (exported so callers can use for breakout/time series) ─
-export const isAnswered = (c: CdrEntry): boolean =>
-  String(c.result) === '0' && (Number(c.duration) || 0) > 0;
+//
+// Result field encoding by ingestion source:
+//   XML-RPC       → numeric Sippy code as string: '0' = answered, '100'-'105' = net-fail
+//   Portal-customer → normalized at ingestion: '0' = billed (answered), 'failed' = not answered
+//   Portal-admin    → normalized at ingestion: '0' = billed (answered), tooltip/'' otherwise
+//
+// isAnswered: '0' + duration > 0.  Belt-and-suspenders: also accept 'ok'/'answered' for any
+//   pre-normalization records still present in the 72h rolling cache.
+export const isAnswered = (c: CdrEntry): boolean => {
+  const dur = Number(c.duration) || 0;
+  if (dur <= 0) return false;
+  const r = String(c.result ?? '');
+  return r === '0' || /^(ok|answered)$/i.test(r);
+};
 
+// isRna (Ring No Answer): numeric '0' result BUT zero duration — call reached the network
+// but no one answered.  Portal CDRs with 'failed' + duration=0 may also be RNA but are
+// indistinguishable from hard-fail without a cause code, so we keep the strict definition.
 export const isRna = (c: CdrEntry): boolean =>
   String(c.result) === '0' && (Number(c.duration) || 0) === 0;
 
+// isNetFail: Sippy result codes 100–105 (network/routing failures from XML-RPC CDRs only).
+// Portal CDRs use 'failed' which may be any disposition; not counted as net-fail here.
 export const isNetFail = (c: CdrEntry): boolean =>
   ['100', '101', '102', '103', '104', '105'].includes(String(c.result));
 

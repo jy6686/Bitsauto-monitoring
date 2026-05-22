@@ -4438,7 +4438,7 @@ export async function registerRoutes(
               //   2. dstIp   → payload  (secondary — for any remaining unmatched CDRs that share an IP)
               // Vendor name resolution order: dstName → connectionIpCache[cleanIp] → connectionVendorCache
               // cost is the actual per-call vendor charge (cdrs_connections.cost) — used for margin analytics.
-              type MeraPayload = { vendorName: string; dstIp: string; dstIpClean: string; cost?: number };
+              type MeraPayload = { vendorName: string; dstIp: string; dstIpClean: string; cost?: number; q931Code?: string };
               const meraByConfId  = new Map<string, MeraPayload>();
               const meraByIp      = new Map<string, MeraPayload>();
               const meraByCliCld  = new Map<string, MeraPayload>();
@@ -4449,7 +4449,11 @@ export async function registerRoutes(
                   || (cleanIp ? connectionIpCache.get(cleanIp) : undefined)
                   || '';
                 const meraCost = mc.cost !== undefined ? parseFloat(mc.cost) : undefined;
-                const payload: MeraPayload = { vendorName, dstIp: mc.dstIp || '', dstIpClean: cleanIp, cost: (meraCost !== undefined && !isNaN(meraCost)) ? meraCost : undefined };
+                const payload: MeraPayload = {
+                  vendorName, dstIp: mc.dstIp || '', dstIpClean: cleanIp,
+                  cost:     (meraCost !== undefined && !isNaN(meraCost)) ? meraCost : undefined,
+                  q931Code: mc.disconnectCodeQ931 || undefined,
+                };
                 // Log first CDR's vendor resolution once per cycle for monitoring
                 if (!meraDebugPrinted && vendorName) {
                   meraDebugPrinted = true;
@@ -4494,8 +4498,9 @@ export async function registerRoutes(
                          ?? (callerStr && calleeStr ? meraByCliCld.get(`${callerStr}:${calleeStr}`) : undefined);
                 if (!hit) continue;
 
-                // Always write vendorCost regardless of resolution state
-                if (hit.cost !== undefined) (c as any).vendorCost = hit.cost;
+                // Always write vendorCost + Q.931 code regardless of resolution state
+                if (hit.cost     !== undefined) (c as any).vendorCost = hit.cost;
+                if (hit.q931Code !== undefined) (c as any).q850Code   = hit.q931Code;
 
                 if (!alreadyResolved) {
                   if (hit.vendorName) c.vendor = hit.vendorName;
@@ -5450,6 +5455,91 @@ export async function registerRoutes(
       const result = await sippy.debugCdrPortalHtml(portalUsername, portalPassword, base, { startDate, limit });
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, loginMessage: e.message }); }
+  });
+
+  // ── GET /api/debug/cdr-disposition ───────────────────────────────────────────
+  // Live CDR cache disposition fidelity report.
+  // Samples the in-memory cache and returns field population rates, result code
+  // distribution, source breakdown, and answered/failed/netfail counts.
+  // Read-only. Admin only.
+  app.get('/api/debug/cdr-disposition', (req: any, res, next) => requireRole(['admin'], req, res, next), (req: any, res) => {
+    try {
+      const { isAnswered, isRna, isNetFail } = require('./analytics-engine') as typeof import('./analytics-engine');
+      const all = [...cdrCache.values()] as any[];
+      const total = all.length;
+      if (total === 0) return res.json({ ok: false, message: 'CDR cache is empty', total: 0 });
+
+      // ── Source breakdown ────────────────────────────────────────────────────
+      const sources: Record<string, number> = {};
+      for (const c of all) {
+        const src = c.dispositionSource
+          ?? (typeof c.callId === 'string' && c.callId.startsWith('portal-cdr-') ? 'portal-customer-legacy'
+          :  typeof c.callId === 'string' && c.callId.startsWith('admin-cdr-')   ? 'portal-admin-legacy'
+          :  'xmlrpc-legacy');
+        sources[src] = (sources[src] ?? 0) + 1;
+      }
+
+      // ── Field population ────────────────────────────────────────────────────
+      const fields = [
+        'result', 'releaseSource', 'duration', 'totalDuration', 'pdd', 'pdd1xx',
+        'country', 'vendor', 'iConnection', 'remoteIp', 'cost',
+        'q850Code', 'dispositionSource', 'connectTime', 'disconnectTime',
+      ];
+      const fieldPop: Record<string, { populated: number; pct: number }> = {};
+      for (const f of fields) {
+        const n = all.filter(c => c[f] !== undefined && c[f] !== null && c[f] !== '').length;
+        fieldPop[f] = { populated: n, pct: total > 0 ? Math.round(n / total * 100) : 0 };
+      }
+
+      // ── Result value distribution ───────────────────────────────────────────
+      const resultDist: Record<string, number> = {};
+      for (const c of all) {
+        const r = String(c.result ?? '(empty)');
+        resultDist[r] = (resultDist[r] ?? 0) + 1;
+      }
+      const topResults = Object.entries(resultDist)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 20)
+        .map(([value, count]) => ({ value, count, pct: Math.round(count / total * 100) }));
+
+      // ── Disposition stats ───────────────────────────────────────────────────
+      const answeredCount = all.filter(isAnswered).length;
+      const rnaCount      = all.filter(isRna).length;
+      const netFailCount  = all.filter(isNetFail).length;
+      const failedCount   = all.filter(c => String(c.result) === 'failed').length;
+      const otherCount    = total - answeredCount - rnaCount - netFailCount;
+
+      // ── ASR from cache ──────────────────────────────────────────────────────
+      const asr = total > 0 ? parseFloat((answeredCount / total * 100).toFixed(2)) : 0;
+
+      // ── Sample of raw result values (first 20 unique) ──────────────────────
+      const uniqueResults = [...new Set(all.map(c => String(c.result ?? '')))].slice(0, 30);
+
+      return res.json({
+        ok: true,
+        generatedAt:   new Date().toISOString(),
+        updatedAt:     cdrCacheUpdatedAt?.toISOString() ?? null,
+        total,
+        sources,
+        fieldPopulation: fieldPop,
+        disposition: {
+          answered:  { count: answeredCount, pct: Math.round(answeredCount / total * 100) },
+          rna:       { count: rnaCount,      pct: Math.round(rnaCount      / total * 100) },
+          netFail:   { count: netFailCount,  pct: Math.round(netFailCount  / total * 100) },
+          failed:    { count: failedCount,   pct: Math.round(failedCount   / total * 100) },
+          other:     { count: otherCount,    pct: Math.round(otherCount    / total * 100) },
+          asr,
+        },
+        resultDistribution: topResults,
+        uniqueResultValues: uniqueResults,
+        notes: {
+          isAnswered:  "result==='0' || /^(ok|answered)$/i + duration>0",
+          isRna:       "result==='0' && duration===0 (XML-RPC only)",
+          isNetFail:   "result in ['100'..'105'] (XML-RPC Sippy net-fail codes only)",
+          q850Source:  "Mera vendor-side CDR DISCONNECT-CODE-Q931 field (where available)",
+        },
+      });
+    } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
   });
 
   // ── GET /api/billing/connection/:id ──────────────────────────────────────────
