@@ -142,7 +142,7 @@ interface OpsCard {
   icon:       React.ComponentType<{ className?: string }>;
   accentColor: string;   // Tailwind border-color class
   iconColor:   string;   // Tailwind text-color class
-  statKey?:    'degradedCarriers' | 'activeIncidents' | 'pendingApprovals' | 'lowBalances' | 'healthyCarriers';
+  statKey?:    'degradedCarriers' | 'activeIncidents' | 'pendingApprovals' | 'lowBalances' | 'healthyCarriers' | 'activeCalls' | 'activeAlerts';
   statLabel?:  string;   // suffix: "degraded", "active", etc.
   statCritical?: boolean; // if true and stat > 0, badge is amber/rose; else always shown
 }
@@ -182,9 +182,9 @@ const INTELLIGENCE_CARDS: OpsCard[] = [
 // ── Live stat resolver ─────────────────────────────────────────────────────────
 function resolveStat(
   statKey: OpsCard['statKey'] | undefined,
-  { degradedCarriers, activeIncidents, pendingApprovals, lowBalances, healthyCarriers }: {
+  { degradedCarriers, activeIncidents, pendingApprovals, lowBalances, healthyCarriers, activeCalls, activeAlerts }: {
     degradedCarriers: number; activeIncidents: number; pendingApprovals: number;
-    lowBalances: number; healthyCarriers: number;
+    lowBalances: number; healthyCarriers: number; activeCalls: number; activeAlerts: number;
   }
 ): number {
   if (!statKey) return 0;
@@ -193,8 +193,75 @@ function resolveStat(
   if (statKey === 'pendingApprovals')  return pendingApprovals;
   if (statKey === 'lowBalances')       return lowBalances;
   if (statKey === 'healthyCarriers')   return healthyCarriers;
+  if (statKey === 'activeCalls')       return activeCalls;
+  if (statKey === 'activeAlerts')      return activeAlerts;
   return 0;
 }
+
+const LIVE_OPS_CARDS: OpsCard[] = [
+  // Primary tier — highest-density operational surfaces
+  { tier: 'primary', href: '/bitseye2',     label: 'BitsEye 2',    desc: 'Real-time call stream visualisation with per-carrier breakdown and anomaly overlay', icon: Eye,      accentColor: 'border-violet-500', iconColor: 'text-violet-400', statKey: 'activeCalls',    statLabel: 'live',  statCritical: false },
+  { tier: 'primary', href: '/noc-command',  label: 'NOC Command',  desc: 'Operator command centre — incidents, escalations, live telemetry and NOC actions',    icon: Monitor,  accentColor: 'border-cyan-500',   iconColor: 'text-cyan-400',   statKey: 'activeIncidents', statLabel: 'open', statCritical: true  },
+  // Secondary tier — supporting operational tools
+  { tier: 'secondary', href: '/calls',             label: 'Live Calls',    desc: 'Active call stream',         icon: Phone,     accentColor: 'border-violet-500',  iconColor: 'text-violet-400', statKey: 'activeCalls',  statLabel: 'active', statCritical: false },
+  { tier: 'secondary', href: '/alerts',            label: 'Alerts',        desc: 'Platform alert queue',       icon: Bell,      accentColor: 'border-rose-500',    iconColor: 'text-rose-400',   statKey: 'activeAlerts', statLabel: 'active', statCritical: true  },
+  { tier: 'secondary', href: '/sip-trace',         label: 'SIP Trace',     desc: 'SIP message diagnostics',    icon: Mic,       accentColor: 'border-cyan-500',    iconColor: 'text-cyan-400'    },
+  { tier: 'secondary', href: '/cdrs',              label: 'Call Replay',   desc: 'Recent CDR viewer',          icon: Rewind,    accentColor: 'border-indigo-500',  iconColor: 'text-indigo-400'  },
+  { tier: 'secondary', href: '/console',           label: 'Console',       desc: 'Unified platform console',   icon: Database,  accentColor: 'border-emerald-500', iconColor: 'text-emerald-400' },
+  { tier: 'secondary', href: '/server-monitoring', label: 'Diagnostics',   desc: 'Infra & server health',      icon: Activity,  accentColor: 'border-amber-500',   iconColor: 'text-amber-400'   },
+];
+
+const CLIENTS_CARDS: OpsCard[] = [
+  // Primary tier — core client management workflows
+  { tier: 'primary', href: '/clients', label: 'Accounts', desc: 'All client accounts — status, balances, usage and account-level operations',                 icon: Users,  accentColor: 'border-amber-500',   iconColor: 'text-amber-400'   },
+  { tier: 'primary', href: '/billing', label: 'Billing',  desc: 'Payments, invoices, billing disputes and client financial management',                        icon: Wallet, accentColor: 'border-emerald-500', iconColor: 'text-emerald-400', statKey: 'pendingApprovals', statLabel: 'pending', statCritical: true },
+  // Secondary tier — supporting client tools
+  { tier: 'secondary', href: '/dids',            label: 'DIDs',           desc: 'Number inventory',        icon: PhoneIncoming,    accentColor: 'border-violet-500',  iconColor: 'text-violet-400'  },
+  { tier: 'secondary', href: '/client-portal',   label: 'Client Portal',  desc: 'Self-service portal',     icon: Globe,            accentColor: 'border-cyan-500',    iconColor: 'text-cyan-400'    },
+  { tier: 'secondary', href: '/reseller',        label: 'Resellers',      desc: 'Partner management',      icon: Users,            accentColor: 'border-indigo-500',  iconColor: 'text-indigo-400'  },
+  { tier: 'secondary', href: '/call-recordings', label: 'Recordings',     desc: 'Call recording archive',  icon: Mic,              accentColor: 'border-blue-500',    iconColor: 'text-blue-400'    },
+  { tier: 'secondary', href: '/client/wizard',   label: 'Create Account', desc: 'New account wizard',      icon: Users,            accentColor: 'border-amber-400',   iconColor: 'text-amber-300'   },
+  { tier: 'secondary', href: '/team',            label: 'Permissions',    desc: 'Access & role control',   icon: Key,              accentColor: 'border-rose-500',    iconColor: 'text-rose-400'    },
+];
+
+const SECURITY_CARDS: OpsCard[] = [
+  // Primary tier — critical security surfaces
+  { tier: 'primary', href: '/fraud',     label: 'Fraud Engine',   desc: 'FAS and IRSF detection — monitor active fraud events, auto-blacklist and exposure triggers', icon: ShieldAlert,  accentColor: 'border-rose-500',  iconColor: 'text-rose-400',  statKey: 'activeIncidents',  statLabel: 'events',  statCritical: true },
+  { tier: 'primary', href: '/approvals', label: 'Approval Queue', desc: 'Pending platform approvals — Sippy operations awaiting authorisation and sign-off',          icon: CheckCircle2, accentColor: 'border-amber-500', iconColor: 'text-amber-400', statKey: 'pendingApprovals', statLabel: 'pending', statCritical: true },
+  // Secondary tier — supporting security tools
+  { tier: 'secondary', href: '/firewall',          label: 'Firewall',       desc: 'Auto-blacklist rules',    icon: Shield,            accentColor: 'border-orange-500', iconColor: 'text-orange-400'  },
+  { tier: 'secondary', href: '/audit-log',         label: 'Audit Log',      desc: 'Platform activity trail', icon: ClipboardList,     accentColor: 'border-amber-500',  iconColor: 'text-amber-400'   },
+  { tier: 'secondary', href: '/compliance',        label: 'Compliance',     desc: 'Regulatory compliance',   icon: FileText,          accentColor: 'border-violet-500', iconColor: 'text-violet-400'  },
+  { tier: 'secondary', href: '/stir-shaken',       label: 'STIR/SHAKEN',    desc: 'Attestation framework',   icon: Lock,              accentColor: 'border-cyan-500',   iconColor: 'text-cyan-400'    },
+  { tier: 'secondary', href: '/approval-settings', label: 'Auth Rules',     desc: 'Approval configuration',  icon: SlidersHorizontal, accentColor: 'border-indigo-500', iconColor: 'text-indigo-400'  },
+  { tier: 'secondary', href: '/team',              label: 'Access Control', desc: 'Roles & permissions',     icon: Key,               accentColor: 'border-rose-400',   iconColor: 'text-rose-300'    },
+];
+
+const ANALYTICS_CARDS: OpsCard[] = [
+  // Primary tier — primary analysis surfaces
+  { tier: 'primary', href: '/analytics',       label: 'Traffic Analytics', desc: 'Call volume, routing patterns, carrier traffic breakdown and trend analysis',           icon: LineChart, accentColor: 'border-blue-500',   iconColor: 'text-blue-400',   statKey: 'activeCalls',      statLabel: 'live',     statCritical: false },
+  { tier: 'primary', href: '/revenue-heatmap', label: 'Revenue Heatmap',   desc: 'Geographic and destination-level revenue visualisation with margin and cost overlay',    icon: Map,       accentColor: 'border-violet-500', iconColor: 'text-violet-400', statKey: 'degradedCarriers', statLabel: 'degraded', statCritical: true  },
+  // Secondary tier — supporting analytics tools
+  { tier: 'secondary', href: '/cdrs',              label: 'CDR Viewer',    desc: 'Call detail records',    icon: History,     accentColor: 'border-cyan-500',    iconColor: 'text-cyan-400'   },
+  { tier: 'secondary', href: '/asr-acd',           label: 'ASR / ACD',     desc: 'Quality KPI reports',    icon: BarChart3,   accentColor: 'border-emerald-500', iconColor: 'text-emerald-400', statKey: 'degradedCarriers', statLabel: 'degraded', statCritical: true },
+  { tier: 'secondary', href: '/traffic-forecast',  label: 'Forecasting',   desc: 'Demand forecasting',     icon: TrendingDown,accentColor: 'border-blue-400',    iconColor: 'text-blue-300'   },
+  { tier: 'secondary', href: '/reports',           label: 'Reports',       desc: 'Standard report centre', icon: BarChart2,   accentColor: 'border-violet-400',  iconColor: 'text-violet-300' },
+  { tier: 'secondary', href: '/cost-optimisation', label: 'Cost Analysis', desc: 'Route cost engine',      icon: TrendingDown,accentColor: 'border-amber-500',   iconColor: 'text-amber-400'  },
+  { tier: 'secondary', href: '/qos-heatmap',       label: 'QoS Analytics', desc: 'Quality of service map', icon: Activity,    accentColor: 'border-indigo-500',  iconColor: 'text-indigo-400' },
+];
+
+const FINANCE_CARDS: OpsCard[] = [
+  // Primary tier — core financial management
+  { tier: 'primary', href: '/billing',          label: 'Billing',           desc: 'Invoices, payments, billing disputes and account-level financial management',        icon: Wallet,      accentColor: 'border-emerald-500', iconColor: 'text-emerald-400', statKey: 'pendingApprovals', statLabel: 'pending', statCritical: true },
+  { tier: 'primary', href: '/cost-optimisation',label: 'Cost Optimisation', desc: 'Route cost engine — margin analysis, LCR recommendations and cost-reduction signals', icon: TrendingDown,accentColor: 'border-cyan-500',    iconColor: 'text-cyan-400'    },
+  // Secondary tier — supporting finance tools
+  { tier: 'secondary', href: '/rate-cards',       label: 'Rate Cards',        desc: 'Rate decks & pricing',    icon: FileSpreadsheet, accentColor: 'border-blue-500',    iconColor: 'text-blue-400',   },
+  { tier: 'secondary', href: '/balance',          label: 'Balance Monitor',   desc: 'Vendor account balances', icon: Wallet,          accentColor: 'border-amber-500',   iconColor: 'text-amber-400',   statKey: 'lowBalances', statLabel: 'low', statCritical: true },
+  { tier: 'secondary', href: '/revenue-heatmap',  label: 'Revenue Analytics', desc: 'Revenue visualisation',   icon: Map,             accentColor: 'border-violet-500',  iconColor: 'text-violet-400'  },
+  { tier: 'secondary', href: '/reports',          label: 'Margin Analysis',   desc: 'Revenue & cost reports',  icon: BarChart2,       accentColor: 'border-indigo-500',  iconColor: 'text-indigo-400'  },
+  { tier: 'secondary', href: '/billing',          label: 'Payments',          desc: 'Payment processing',      icon: Banknote,        accentColor: 'border-emerald-400', iconColor: 'text-emerald-300' },
+  { tier: 'secondary', href: '/billing-disputes', label: 'Invoices',          desc: 'Invoice & dispute log',   icon: FileText,        accentColor: 'border-rose-500',    iconColor: 'text-rose-400'    },
+];
 
 // ── Primary ops card (full-width, 2-col grid) ─────────────────────────────────
 function PrimaryOpsCard({ card, stat }: { card: OpsCard; stat: number }) {
@@ -440,6 +507,8 @@ export default function WorkspaceHomePage() {
     pendingApprovals: pendingCount,
     lowBalances,
     healthyCarriers:  healthyCarriers.length,
+    activeCalls:      liveCallCount,
+    activeAlerts:     activeIncidents.length,
   };
 
   // ── KPIs per workspace ────────────────────────────────────────────────────
@@ -502,9 +571,18 @@ export default function WorkspaceHomePage() {
   const recentIncidents  = allIncidents.slice(0, 5);
   const sortedCarriers   = [...carrierScores].sort((a: any, b: any) => (a.stabilityScore ?? 100) - (b.stabilityScore ?? 100)).slice(0, 6);
 
-  // ── Workspaces that use OpsCardGrid instead of QuickCard grid ────────────
-  const useOpsGrid = domain === 'vendors' || domain === 'intelligence';
-  const opsCards   = domain === 'vendors' ? VENDORS_CARDS : domain === 'intelligence' ? INTELLIGENCE_CARDS : [];
+  // ── Workspaces that use OpsCardGrid (all except settings) ────────────────
+  const OPS_CARD_MAP: Partial<Record<WorkspaceDomain, OpsCard[]>> = {
+    'live-ops':     LIVE_OPS_CARDS,
+    'clients':      CLIENTS_CARDS,
+    'vendors':      VENDORS_CARDS,
+    'analytics':    ANALYTICS_CARDS,
+    'intelligence': INTELLIGENCE_CARDS,
+    'security':     SECURITY_CARDS,
+    'finance':      FINANCE_CARDS,
+  };
+  const useOpsGrid = domain in OPS_CARD_MAP;
+  const opsCards   = OPS_CARD_MAP[domain] ?? [];
 
   return (
     <div className="flex flex-col min-h-full bg-background p-6 gap-6 max-w-[1400px] mx-auto">
