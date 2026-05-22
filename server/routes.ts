@@ -18765,6 +18765,17 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Operational Urgency Scores ────────────────────────────────────────────
+  app.get('/api/urgency-scores', (req: any, res: any, next: any) => requireRole(['super_admin','admin','management','noc_operator','team_lead'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { getUrgencyScores } = await import('./operational-priority-engine');
+      const snapshot = await getUrgencyScores();
+      res.json(snapshot);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ── External API (Tier 5 — #24) — authenticated via Bearer token ──────────
   async function validateBearerKey(req: any, res: any): Promise<boolean> {
     const authHeader = req.headers['authorization'] ?? '';

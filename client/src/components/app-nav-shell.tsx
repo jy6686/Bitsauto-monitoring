@@ -466,6 +466,21 @@ export function AppNavShell() {
   const degradedCarriers = Array.isArray(carrierScoresRaw) ? carrierScoresRaw.filter((c: any) => (c.stabilityScore ?? 100) < 55).length : 0;
   const liveCallCount    = Array.isArray(liveCallsRaw) ? liveCallsRaw.length : (liveCallsRaw?.calls?.length ?? liveCallsRaw?.count ?? 0);
 
+  // ── Per-domain urgency scores derived from available signals ─────────────
+  function domainUrgencyScore(domainId: string): number {
+    const raw: Record<string, number> = {
+      'live-ops':     activeIncidents * 15,
+      'vendors':      degradedCarriers * 20,
+      'security':     activeIncidents * 20 + pendingApprovals * 10,
+      'intelligence': activeIncidents * 10 + degradedCarriers * 8,
+      'finance':      pendingApprovals * 12,
+      'clients':      pendingApprovals * 7,
+      'analytics':    degradedCarriers * 4,
+      'settings':     0,
+    };
+    return Math.min(100, raw[domainId] ?? 0);
+  }
+
   if (compact || wallboard) return null;
 
   const { isOpen: chatOpen, toggle: toggleChat } = useChatDrawer();
@@ -600,7 +615,23 @@ export function AppNavShell() {
                   className="flex items-center gap-1.5 pl-2.5 pr-1 h-full"
                   aria-label={`${domain.label} workspace`}
                 >
-                  <domain.icon className={cn("w-3.5 h-3.5 flex-shrink-0", isActive ? domain.color : '')} />
+                  {(() => {
+                    const urgency = domainUrgencyScore(domain.id);
+                    return (
+                      <span className="relative flex-shrink-0 inline-flex">
+                        <domain.icon className={cn("w-3.5 h-3.5", isActive ? domain.color : '')} />
+                        {urgency >= 60 && (
+                          <span className="absolute -top-[3px] -right-[3px] flex h-[6px] w-[6px] pointer-events-none" aria-hidden="true">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-70" />
+                            <span className="relative inline-flex rounded-full h-[6px] w-[6px] bg-rose-500" />
+                          </span>
+                        )}
+                        {urgency >= 30 && urgency < 60 && (
+                          <span className="absolute -top-[3px] -right-[3px] h-[5px] w-[5px] rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />
+                        )}
+                      </span>
+                    );
+                  })()}
                   <span className="hidden lg:inline">{domain.label}</span>
                 </Link>
                 {/* Chevron → toggle mega panel */}

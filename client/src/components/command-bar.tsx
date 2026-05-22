@@ -226,6 +226,24 @@ function pushRecent(href: string) {
 // ── Domain display order ───────────────────────────────────────────────────────
 const DOMAIN_ORDER = ['Live Ops', 'Clients', 'Vendors', 'Intelligence', 'Analytics', 'Security', 'Finance', 'Settings'];
 
+// ── Per-href urgency weight (signals: degraded carriers, active incidents, pending approvals)
+// Higher = floats to top of domain group when operational conditions match.
+const HREF_URGENCY: Record<string, (ctx: { inc: number; deg: number }) => number> = {
+  '/vendor-rca':                  c => c.deg * 28,
+  '/fraud':                       c => c.inc * 22,
+  '/alerts':                      c => c.inc * 20,
+  '/noc-command':                 c => c.inc * 20,
+  '/ai-ops':                      c => c.inc * 16 + c.deg * 8,
+  '/intelligence':                c => c.inc * 14 + c.deg * 6,
+  '/vendor-stability-timeline':   c => c.deg * 18,
+  '/carrier-intelligence':        c => c.deg * 14,
+  '/routing-intelligence':        c => c.deg * 12 + c.inc * 6,
+  '/vendor-prefix-intelligence':  c => c.deg * 10,
+  '/approvals':                   c => c.inc * 10,
+  '/carrier-scoring':             c => c.deg * 8,
+  '/firewall':                    c => c.inc * 8,
+};
+
 // ── Semantic aliases ────────────────────────────────────────────────────────────
 const ALIASES: Record<string, string> = {
   // ISO country codes
@@ -446,6 +464,12 @@ export function CommandBar() {
     ? Object.keys(SCOPE_FILTER_MAP).filter(k => k.startsWith(partialScope))
     : [];
 
+  // ── Urgency context for search ranking ─────────────────────────────────────
+  const urgencyCtx = useMemo(() => ({
+    inc: activeIncidents.length,
+    deg: degradedCarriers.length,
+  }), [activeIncidents.length, degradedCarriers.length]);
+
   // ── Filtered routes grouped by domain ────────────────────────────────────
   // Multi-context: same href can appear in multiple domains, deduped by (domain, href) pair.
   const seenDomainHref = new Set<string>();
@@ -467,8 +491,19 @@ export function CommandBar() {
       if (!grouped[r.domain]) grouped[r.domain] = [];
       grouped[r.domain].push(r);
     }
+    // Sort within each domain group by operational urgency (highest first)
+    const hasUrgency = urgencyCtx.inc > 0 || urgencyCtx.deg > 0;
+    if (hasUrgency) {
+      for (const domain of Object.keys(grouped)) {
+        grouped[domain].sort((a, b) => {
+          const aScore = HREF_URGENCY[a.href]?.(urgencyCtx) ?? 0;
+          const bScore = HREF_URGENCY[b.href]?.(urgencyCtx) ?? 0;
+          return bScore - aScore;
+        });
+      }
+    }
     return grouped;
-  }, [q, role]);
+  }, [q, role, urgencyCtx]);
 
   // ── Filtered commands
   const filteredCommands = useMemo(() => {
@@ -517,7 +552,18 @@ export function CommandBar() {
   }, [recent]);
 
   const entityGroups = Object.entries(filteredEntities);
-  const routeGroups  = DOMAIN_ORDER.map(d => [d, filteredRoutes[d]] as [string, RouteEntry[]]).filter(([, v]) => v?.length);
+  // Sort domain groups by their max urgency score when operational conditions are active
+  const routeGroups = useMemo(() => {
+    const groups = DOMAIN_ORDER
+      .map(d => [d, filteredRoutes[d]] as [string, RouteEntry[]])
+      .filter(([, v]) => v?.length);
+    if (urgencyCtx.inc === 0 && urgencyCtx.deg === 0) return groups;
+    return [...groups].sort(([, aRoutes], [, bRoutes]) => {
+      const aMax = Math.max(0, ...(aRoutes ?? []).map(r => HREF_URGENCY[r.href]?.(urgencyCtx) ?? 0));
+      const bMax = Math.max(0, ...(bRoutes ?? []).map(r => HREF_URGENCY[r.href]?.(urgencyCtx) ?? 0));
+      return bMax - aMax;
+    });
+  }, [filteredRoutes, urgencyCtx]);
   const hasResults   = entityGroups.length > 0 || routeGroups.length > 0 || filteredCommands.length > 0 || scopeSuggestions.length > 0 || showLiveIncidents;
 
   return (
