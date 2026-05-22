@@ -134,14 +134,9 @@ interface CustomGroup {
 
 // ── Navigation structure — 6 groups ───────────────────────────────────────────
 
-const NAV_PINNED_TOP: NavItem[] = [
-  { href: "/",     label: "Dashboard", icon: LayoutDashboard, roles: ['admin','management','viewer'] },
-  { href: "/chat", label: "Team Chat", icon: MessageSquare,   roles: ['admin','management','viewer'] },
-];
+const NAV_PINNED_TOP: NavItem[] = [];
 
-const NAV_PINNED_BOTTOM: NavItem[] = [
-  { href: "/account", label: "My Account", icon: UserCog, roles: ['admin','management','viewer'] },
-];
+const NAV_PINNED_BOTTOM: NavItem[] = [];
 
 export const SIDEBAR_GROUPS: NavGroup[] = [
   // ─── 1. Company ──────────────────────────────────────────────────────────────
@@ -759,9 +754,8 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const hasDegradedCarrier = Array.isArray(carrierScoresRaw) && carrierScoresRaw.some((c: any) => (c.stabilityScore ?? 100) < 45);
 
   // ── Visibility gate ───────────────────────────────────────────────────────────
-  const VIEWER_ALWAYS_SHOW   = new Set(['/', '/account', '/chat']);
-  // Items that can never be hidden by the admin config
-  const SIDEBAR_ALWAYS_SHOW  = new Set(['/', '/account', '/chat', '/sidebar-settings']);
+  const VIEWER_ALWAYS_SHOW   = new Set(['/']);
+  const SIDEBAR_ALWAYS_SHOW  = new Set(['/sidebar-settings']);
 
   const isItemVisible = (item: NavItem): boolean => {
     if (role === 'viewer') {
@@ -1251,37 +1245,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
     <>
       <KpiStrip />
 
-      {/* ⌘K search row */}
-      <button
-        onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))}
-        className="mx-3 mb-3 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-[12px] text-muted-foreground/50 hover:text-muted-foreground hover:bg-white/[0.06] transition-colors"
-        data-testid="button-command-palette"
-      >
-        <Search className="h-3 w-3 flex-shrink-0" />
-        <span className="flex-1 text-left">Search anything…</span>
-        <span className="flex items-center gap-0.5 font-mono text-[10px] text-muted-foreground/30">
-          <Command className="h-2.5 w-2.5" />K
-        </span>
-      </button>
-
       <nav className={cn("flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:transparent")}>
-        {/* Pinned top */}
-        {NAV_PINNED_TOP.filter(isItemVisible).map(item => {
-          const active = item.href === '/' ? location === '/' : location.startsWith(item.href);
-          return (
-            <Link key={item.href} href={item.href}
-              onClick={mobile ? () => setMobileOpen(false) : undefined}
-              className={navItemCls(active)}
-            >
-              {active && <ActiveBar />}
-              <item.icon className={navIconCls(active)} />
-              <span className="flex-1">{item.label}</span>
-              {item.href === '/chat' && activeIncidents > 0 && <CountBadge n={activeIncidents} color="red" />}
-            </Link>
-          );
-        })}
-
-        <div className="my-2 border-t border-white/[0.05]" />
 
         {/* Groups */}
         {(mobile ? SIDEBAR_GROUPS : orderedGroups).map(group => {
@@ -1422,21 +1386,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
           </button>
         )}
 
-        {/* Pinned bottom */}
-        <div className="mt-3 pt-2 border-t border-white/[0.05] space-y-0.5">
-          {NAV_PINNED_BOTTOM.filter(isItemVisible).map(item => {
-            const active = location.startsWith(item.href);
-            return (
-              <Link key={item.href} href={item.href}
-                onClick={mobile ? () => setMobileOpen(false) : undefined}
-                className={navItemCls(active)}>
-                {active && <ActiveBar />}
-                <item.icon className={navIconCls(active)} />
-                <span className="flex-1">{item.label}</span>
-              </Link>
-            );
-          })}
-        </div>
       </nav>
     </>
   );
@@ -1510,24 +1459,21 @@ export function LayoutShell({ children }: LayoutShellProps) {
         sidebarCls,
         collapsed ? "w-[64px]" : "w-[240px]"
       )}>
-        {/* Header */}
+        {/* Header — collapse toggle only (Logo is in the top bar) */}
         <div className={cn(
           "border-b border-white/[0.05] flex items-center flex-shrink-0 transition-all duration-300",
-          collapsed ? "p-3 justify-center" : "px-4 py-3"
+          collapsed ? "p-3 justify-center" : "px-3 py-2 justify-end"
         )}>
           {collapsed ? (
             <button onClick={() => setCollapsed(false)} title="Expand sidebar" data-testid="sidebar-expand-btn"
               className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
-              <PanelLeftOpen className="h-5 w-5" />
+              <PanelLeftOpen className="h-4 w-4" />
             </button>
           ) : (
-            <div className="flex items-center w-full">
-              <div className="flex-1"><Logo /></div>
-              <button onClick={() => setCollapsed(true)} title="Collapse sidebar" data-testid="sidebar-collapse-btn"
-                className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06] transition-colors">
-                <PanelLeftClose className="h-4 w-4" />
-              </button>
-            </div>
+            <button onClick={() => setCollapsed(true)} title="Collapse sidebar" data-testid="sidebar-collapse-btn"
+              className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06] transition-colors">
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
           )}
         </div>
 
@@ -1560,11 +1506,6 @@ export function LayoutShell({ children }: LayoutShellProps) {
         {/* Sippy health */}
         <div className={cn("border-t border-white/[0.05] flex-shrink-0", collapsed ? "px-2 py-1.5" : "px-3 py-1.5")}>
           <SippyHealthBadge collapsed={collapsed} />
-        </div>
-
-        {/* User footer */}
-        <div className={cn("border-t border-white/[0.05] flex-shrink-0", collapsed ? "p-2" : "p-3")}>
-          <UserFooter slim={collapsed} />
         </div>
       </aside>
 
