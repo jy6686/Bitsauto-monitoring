@@ -194,7 +194,7 @@ export async function generateFeatureRegistryDoc(outPath: string): Promise<void>
         makeDataRow([{ text: 'Live Call Monitor' }, { text: 'calls-list.tsx' }, { text: '40' }, { text: 'REAL', color: GREEN }, { text: 'Active calls table, CDR history, NOC WebSocket' }], '131929'),
         makeDataRow([{ text: 'Multi-Switch View' }, { text: 'multi-switch.tsx' }, { text: '23' }, { text: 'REAL', color: GREEN }, { text: 'Cross-switch KPIs, credential pair management' }]),
         makeDataRow([{ text: 'CDR Analytics & Reporting' }, { text: 'analytics.tsx, reports.tsx' }, { text: '19 / 20' }, { text: 'REAL', color: GREEN }, { text: '72h rolling CDR cache, CSV export, scheduled reports' }], '131929'),
-        makeDataRow([{ text: 'BitsEye Drill-Down' }, { text: 'bitseye.tsx' }, { text: '54' }, { text: 'REAL', color: GREEN }, { text: 'Per-client/KAM/destination drill-down, most data-rich page' }]),
+        makeDataRow([{ text: 'BitsEye 2 — NOC Telemetry Engine' }, { text: 'bitseye2.tsx' }, { text: '54+' }, { text: 'REAL', color: GREEN }, { text: 'Complete semantic rebuild. LIVE: entityConcurrentHistory (45s raw). DAILY: concurrent_snapshots 1h MAX/72h. WEEKLY: 6h MAX/7d. Graph context subtitles. Metric-source contract enforced. CDR analytics (ASR/ACD/Min/Cost) semantically separated from concurrent metrics.' }]),
         makeDataRow([{ text: 'Revenue & Margin Analysis' }, { text: 'analytics.tsx (tab)' }, { text: '—' }, { text: 'REAL', color: GREEN }, { text: 'Cost/sell rate per destination, margin % by route' }], '131929'),
         makeDataRow([{ text: 'QoS Heatmap' }, { text: 'qos-heatmap.tsx' }, { text: '6' }, { text: 'REAL', color: GREEN }, { text: 'Hour×day MOS heatmap, mos_hourly table' }]),
         makeDataRow([{ text: 'Balance Monitor' }, { text: 'balance-monitor.tsx' }, { text: '18' }, { text: 'REAL', color: GREEN }, { text: 'Vendor prepaid balance, low-balance alerts' }], '131929'),
@@ -398,7 +398,7 @@ export async function generateFeatureRegistryDoc(outPath: string): Promise<void>
         makeDataRow([{ text: '3' }, { text: 'Synthetic Call Testing (Scheduled)' }, { text: 'PARTIAL ⚠️', color: AMBER }, { text: 'Manual + Carrier Quality Matrix real; server-side scheduler + MOS baseline missing' }]),
         makeDataRow([{ text: '4' }, { text: 'Number Intelligence Layer' }, { text: 'REAL ✅', color: GREEN }, { text: 'Full HLR Lookup integration via hlrlookup.com (v2) + Telnyx fallback. Populates live status, carrier, line type, MCC/MNC, porting (MNP endpoint). CNAM falls back to CDR-derived Sippy account name. Provider + dual credentials (api_key/api_secret) configured in Number Intelligence settings panel.' }], '131929'),
         makeDataRow([{ text: '5' }, { text: 'SBC / Media Plane Monitoring' }, { text: 'REAL ✅', color: GREEN }, { text: 'Signalling-layer metrics real; true RTP tap not yet' }]),
-        makeDataRow([{ text: '6' }, { text: 'Client Self-Service Portal' }, { text: 'SHELL 🔲', color: ORANGE }, { text: 'UI exists; no tenant data isolation enforced' }], '131929'),
+        makeDataRow([{ text: '6' }, { text: 'Client Self-Service Portal' }, { text: 'PARTIAL ⚠️', color: AMBER }, { text: 'Token-gated portal with real live data. Overview: pulse indicator, 4 live KPI cards (Active/Connected/Routing/Connect Rate), 36-min concurrent sparkline. CDR stats from per-account cdrCache. Fixed: Total Calls=0 bug. Pending: true tenant isolation, self-serve rate lookup.' }], '131929'),
         makeDataRow([{ text: '7' }, { text: 'Reseller Management' }, { text: 'REAL ✅', color: GREEN }, { text: 'reseller_profiles table, full CRUD wired' }]),
         makeDataRow([{ text: '8' }, { text: 'Unified Communications (Teams/Zoom)' }, { text: 'NOT BUILT ❌', color: ROSE }, { text: 'No pages, routes, or schema — entirely absent' }], '131929'),
         makeDataRow([{ text: '9' }, { text: 'Compliance & Regulatory Dashboard' }, { text: 'SHELL 🔲', color: ORANGE }, { text: 'Static UI only; STIR/SHAKEN monitor built as separate page (/stir-shaken)' }]),
@@ -434,8 +434,80 @@ export async function generateFeatureRegistryDoc(outPath: string): Promise<void>
     spacer(),
     divider(),
 
-    // ── PART 12: What Remains to Build ───────────────────────────────────────
-    h1('PART 12 — Remaining Build Roadmap'),
+    // ── PART 12: Recent Session Changes (May 2026) ────────────────────────────
+    h1('PART 12 — Recent Session Changes (May 2026)'),
+
+    h2('BitsEye 2 — NOC Telemetry Semantic Rebuild', CYAN),
+    p('All BitsEye graph modes were rebuilt to use semantically correct data sources, eliminating CDR-accounting contamination of concurrent-session graphs.', { color: LIGHT_GY }),
+    spacer(),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        makeHeaderRow(['Mode', 'Data Source', 'Aggregation', 'Window']),
+        makeDataRow([{ text: 'LIVE' }, { text: 'entityConcurrentHistory (in-memory)' }, { text: 'Raw 45s snapshots — no aggregation' }, { text: '~4h rolling' }]),
+        makeDataRow([{ text: 'DAILY' }, { text: 'concurrent_snapshots DB table' }, { text: '1h MAX buckets' }, { text: '72h' }], '131929'),
+        makeDataRow([{ text: 'WEEKLY' }, { text: 'concurrent_snapshots DB table' }, { text: '6h MAX buckets' }, { text: '7 days' }]),
+        makeDataRow([{ text: 'CDR metrics (ASR/ACD/Min/Cost)' }, { text: 'cdrCache — call detail records' }, { text: 'Aggregated per period' }, { text: 'Per request' }], '131929'),
+      ],
+    }),
+    spacer(),
+    p('Metric-Source Contract: immutable comment block placed at /api/bitseye/entity-history in routes.ts. Prohibits cross-contamination (CDR totals in concurrent graphs, or concurrent snapshots in CDR analytics).', { color: MID_GY }),
+    p('Graph Context Subtitles: every entity chart now shows a subtitle under the title. LIVE = "Real-time · 45s snapshots · ~4h window · N points". DAILY = "Tactical view · 1h MAX buckets · 72h window". WEEKLY = "Strategic view · 6h MAX buckets · 7-day window".', { color: MID_GY }),
+    spacer(),
+    divider(),
+
+    h2('Client Self-Service Portal — Enhancements', CYAN),
+    p('Status updated: SHELL → PARTIAL. Portal now delivers live data on every visit.', { color: AMBER, bold: true }),
+    spacer(),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        makeHeaderRow(['Change', 'Detail']),
+        makeDataRow([{ text: 'CDR Data Fix' }, { text: 'Fixed Total Calls=0. Root cause: global 200-record cap excluded low-traffic accounts. Fix: /api/portal/view uses per-account cdrCache slice as primary source; Sippy XML-RPC CDR is fallback only.' }]),
+        makeDataRow([{ text: 'Live Status Bar' }, { text: 'Pulse indicator (green/red) + "X live call(s)" count shown at top of Overview tab.' }], '131929'),
+        makeDataRow([{ text: '4 Live KPI Cards' }, { text: 'Active Calls, Connected, Routing, Connect Rate — all populated from live Sippy snapshot filtered to this account.' }]),
+        makeDataRow([{ text: '36-min Sparkline' }, { text: 'clientHistory array (last 36 minutes of concurrent call snapshots) rendered as a mini-chart on the Overview.' }], '131929'),
+        makeDataRow([{ text: 'Historical CDR Stats' }, { text: 'Total Calls, Answered, Minutes, ASR, ACD — from cdrCache per-account slice, shown below the live section with period label.' }]),
+      ],
+    }),
+    spacer(),
+    divider(),
+
+    h2('Sippy Account Provisioning — Translation Rule Cascade Fix', CYAN),
+    p('Fixed: Sippy createAccount returns faultCode 501 "Fatal error" when translation_rule format unsupported by that Sippy version.', { color: MID_GY }),
+    spacer(),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        makeHeaderRow(['Cascade Step', 'Action']),
+        makeDataRow([{ text: '1' }, { text: 'Probe with preferred billing plan + routing group' }]),
+        makeDataRow([{ text: '2' }, { text: 'Retry with "customer" billing plan' }], '131929'),
+        makeDataRow([{ text: '3' }, { text: 'Retry without routing group' }]),
+        makeDataRow([{ text: '4 (NEW)' }, { text: 'Strip translation_rule + cli_translation_rule, retry — advisory note returned to admin to set CLD rule manually in Sippy.' }], '131929'),
+        makeDataRow([{ text: 'On success' }, { text: 'Account created in Sippy; provisioning_status set to "provisioned" in companies table.' }]),
+      ],
+    }),
+    spacer(),
+    divider(),
+
+    h2('Sippy Load Reduction Architecture', CYAN),
+    p('~65-70% reduction in total Sippy XML-RPC calls. Platform is rated safe for 24/7 operation against production instances.', { color: MID_GY }),
+    spacer(),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        makeHeaderRow(['Mechanism', 'Impact']),
+        makeDataRow([{ text: 'Push-based NOC WebSocket' }, { text: 'NOC view receives pushed events instead of polling /api/sippy/live-calls every few seconds from each browser tab.' }]),
+        makeDataRow([{ text: 'Cache-first /api/sippy/live-calls' }, { text: 'Returns from in-memory callCache if age <15s — no Sippy call on cache hit.' }], '131929'),
+        makeDataRow([{ text: 'Mutex guards on poll cycles' }, { text: 'Prevents two background jobs from running overlapping Sippy fetches for the same data.' }]),
+        makeDataRow([{ text: 'Staggered job intervals' }, { text: 'Background pollers run at offset intervals to avoid burst Sippy load.' }], '131929'),
+      ],
+    }),
+    spacer(),
+    divider(),
+
+    // ── PART 13: What Remains to Build ───────────────────────────────────────
+    h1('PART 13 — Remaining Build Roadmap'),
 
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },

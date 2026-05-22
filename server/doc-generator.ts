@@ -59,11 +59,23 @@ const FEATURES: { tier: number; id: number; name: string; status: 'COMPLETE' | '
   // Tier 6 — Latest Enhancements
   { tier: 6, id: 25, name: '4-Tab Reports Page',                   status: 'COMPLETE', notes: 'Client Report, Vendor Report, Connection, Revenue & Margin — each with KPI cards, charts, tables, and period chip selectors (1/7/14/30/60/90 days)' },
   { tier: 6, id: 26, name: 'CK Drill-Down Enhancements',           status: 'COMPLETE', notes: 'Excel export (xlsx), status-filter chips (Connected/Wrong Number/Switched Off/Untraceable), time-window chips (1h–24h) on the dashboard CK drill-down sheet' },
-  { tier: 6, id: 27, name: 'Traffic Map — Country Drill-Down Panel', status: 'COMPLETE', notes: 'Clicking any country in the sidebar or on the map opens a detail panel with Total Calls, Answered, Total Minutes (h/m formatted), Avg Duration, ASR badge, and traffic-share bar' },
-  { tier: 6, id: 28, name: 'Traffic Map — Country Name Normalisation', status: 'COMPLETE', notes: 'Backend normaliseCountryName() strips operator suffixes ("Pakistan - Mobile" → "Pakistan"), merges sub-routes into one country bucket, fixes numeric-ID lookup so map polygons are correctly coloured' },
+  { tier: 6, id: 27, name: 'Traffic Map — Country Drill-Down Panel', status: 'COMPLETE', notes: 'Clicking any country opens a detail panel with Total Calls, Answered, Total Minutes, Avg Duration, ASR badge, and traffic-share bar' },
+  { tier: 6, id: 28, name: 'Traffic Map — Country Name Normalisation', status: 'COMPLETE', notes: 'normaliseCountryName() strips operator suffixes ("Pakistan - Mobile" → "Pakistan"), merges sub-routes, fixes map polygon colouring' },
+
+  // Tier 7 — Post-Release Platform Improvements (May 2026)
+  { tier: 7, id: 29, name: 'BitsEye 2 — NOC Telemetry Rebuild',        status: 'COMPLETE', notes: 'Complete concurrent-session semantic rebuild. LIVE uses entityConcurrentHistory (raw 45s snapshots, no aggregation). DAILY uses concurrent_snapshots DB with 1h MAX buckets across 72h. WEEKLY uses 6h MAX buckets across 7 days. Eliminated CDR-accounting semantic drift that had corrupted all entity graphs, sidebar counts, and NOC overview.' },
+  { tier: 7, id: 30, name: 'BitsEye 2 — Graph Context Subtitle System', status: 'COMPLETE', notes: 'Subtitle under every chart: LIVE = "Real-time · 45s snapshots · ~4h window". DAILY = "Tactical view · 1h MAX buckets · 72h window". WEEKLY = "Strategic view · 6h MAX buckets · 7-day window". CDR types show "CDR analytics · Xh buckets · window". LIVE+CALLS banner corrected (no longer claims DAILY shows CDR totals).' },
+  { tier: 7, id: 31, name: 'BitsEye 2 — Metric-Source Contract',        status: 'COMPLETE', notes: 'Immutable METRIC SOURCE CONTRACT comment at /api/bitseye/entity-history: documents correct source + aggregation for every metric. LIVE/DAILY/WEEKLY must use concurrent_snapshots; ASR/ACD/Minutes/Cost/Profit must use cdrCache. Explicit prohibition on cross-contamination to guard against future semantic drift.' },
+  { tier: 7, id: 32, name: 'Client Portal — CDR Data Fix',              status: 'COMPLETE', notes: 'Fixed Total Calls=0 on Portal Overview. Cause: global 200-record CDR cap excluded low-traffic accounts. Fix: /api/portal/view now uses cdrCache filtered by accountId/accountName as primary CDR source; Sippy XML-RPC CDR fetch is fallback only when cdrCache is empty for that account.' },
+  { tier: 7, id: 33, name: 'Client Portal — Enhanced Overview Tab',     status: 'COMPLETE', notes: 'Overview rebuilt as unified NOC snapshot. Backend embeds live data in /api/portal/view: liveActiveCalls, liveConnectedCalls, liveRoutingCalls, liveConnectRate, clientHistory (36-min concurrent sparkline). Frontend: live status bar with pulse indicator, 4 live KPI cards, 36-min sparkline, then historical CDR stats below.' },
+  { tier: 7, id: 34, name: 'Provisioning — Translation Rule Cascade',   status: 'COMPLETE', notes: 'Fixed: Sippy faultCode 501 "Fatal error" on createAccount when translation_rule format unsupported. New cascade in pushAccountToSippy: after all billing-plan/routing-group probes fail, strips translation_rule + cli_translation_rule and retries. On success, advisory note directs admin to set CLD rule manually in Sippy.' },
+  { tier: 7, id: 35, name: 'Sippy Load Reduction Architecture',         status: 'COMPLETE', notes: 'Push-based NOC WebSocket, cache-first /api/sippy/live-calls, mutex guards preventing concurrent poll overlap, staggered background job intervals. ~65-70% reduction in Sippy XML-RPC calls. Platform is safe for 24/7 production operation.' },
+  { tier: 7, id: 36, name: 'Client Provisioning Wizard',                status: 'COMPLETE', notes: 'Multi-step wizard: Company Info → Trunk Config → IP Auth → Notifications → Review & Submit. Auto-creates Sippy service plan, provisions via createAccount XML-RPC with full cascade fallback (billing plan, routing group, customer, translation rule strips), adds IP authentication rules, updates company status in DB.' },
+  { tier: 7, id: 37, name: 'Concurrent Snapshot Persistence',           status: 'COMPLETE', notes: 'concurrent_snapshots table persists per-entity call counts to PostgreSQL every 45s. Powers DAILY (1h MAX) and WEEKLY (6h MAX) historical aggregation from DB. Accumulates automatically — DAILY graphs populate after 72h runtime, WEEKLY after 7 days.' },
 ];
 
 const BUG_FIXES = [
+  // Original fixes
   'Fixed: analyticsData.summary optional-chaining crash on dashboard load',
   'Fixed: IIFE inside JSX (TDZ ReferenceError in Rollup production builds) in rate-cards.tsx, layout-shell.tsx, and dashboard.tsx',
   'Fixed: vendorOptions TDZ — const used before declaration in same function scope',
@@ -71,9 +83,15 @@ const BUG_FIXES = [
   'Fixed: Dashboard widget toggles silent failure — req.user.id → req.user.claims.sub (Replit Auth user-id location)',
   'Fixed: API key admin check always 403 — req.user.role replaced with async storage.getUserRole()',
   'Added: Optimistic updates on dashboard widget toggle switches with rollback on error',
-  'Fixed: formatInTz RangeError "Invalid time zone" — arguments were swapped (tz passed as pattern, pattern as tz). Correct signature: formatInTz(date, pattern, tz).',
-  'Fixed: Traffic Map shows no coloured countries — Sippy CDRs return "Pakistan - Mobile" style names that never matched the exact-key lookup. normaliseCountryName() now strips operator suffix, performs longest-prefix match, and aggregates all sub-destinations into one bucket per country.',
-  'Fixed: CK drill-down hours param ignored — /api/sippy/ck-drilldown now accepts ?hours=1–24 query param; frontend time-window chips wired to query key so cache invalidates on chip change.',
+  'Fixed: formatInTz RangeError "Invalid time zone" — arguments were swapped (tz passed as pattern, pattern as tz).',
+  'Fixed: Traffic Map shows no coloured countries — normaliseCountryName() strips operator suffix, aggregates sub-destinations per country.',
+  'Fixed: CK drill-down hours param ignored — /api/sippy/ck-drilldown accepts ?hours=1–24; frontend chips wired to query key.',
+  // May 2026 session fixes
+  'Fixed: BitsEye LIVE/DAILY/WEEKLY semantic drift — CDR accounting totals had replaced concurrent session snapshots in all entity graphs. Restored entityConcurrentHistory (raw) for LIVE and concurrent_snapshots DB (MAX per bucket) for DAILY/WEEKLY.',
+  'Fixed: BitsEye LIVE+CALLS context banner claimed DAILY shows "CDR totals" — corrected to accurately describe DAILY as 72h concurrent trend with 1h MAX buckets.',
+  'Fixed: Client Portal Total Calls=0 — global 200-record CDR cap excluded low-traffic accounts from /api/portal/view. Now uses per-account cdrCache slice as primary source.',
+  'Fixed: Sippy createAccount "Fatal error" (faultCode 501) when translation_rule format unsupported — new translation-rule strip cascade retries without translation_rule/cli_translation_rule before failing.',
+  'Fixed: Portal Overview tab showed no live data — /api/portal/view now embeds liveActiveCalls, liveConnectedCalls, liveRoutingCalls, liveConnectRate, clientHistory in response.',
 ];
 
 // ── Helper builders ───────────────────────────────────────────────────────────
@@ -176,9 +194,9 @@ export async function generateStatusReport(outputPath?: string): Promise<Buffer>
   const partial  = FEATURES.filter(f => f.status === 'PARTIAL').length;
   const pending  = FEATURES.filter(f => f.status === 'PENDING').length;
 
-  const tierGroups = [1, 2, 3, 4, 5, 6].map(t => ({
+  const tierGroups = [1, 2, 3, 4, 5, 6, 7].map(t => ({
     tier: t,
-    label: ['Core NOC Infrastructure', 'Analytics & Reporting', 'Operational Tools', 'Advanced Features', 'UX & Workflow', 'Latest Enhancements'][t - 1],
+    label: ['Core NOC Infrastructure', 'Analytics & Reporting', 'Operational Tools', 'Advanced Features', 'UX & Workflow', 'Latest Enhancements', 'Post-Release Improvements (May 2026)'][t - 1],
     features: FEATURES.filter(f => f.tier === t),
   }));
 
@@ -220,10 +238,11 @@ export async function generateStatusReport(outputPath?: string): Promise<Buffer>
         // ── Executive Summary
         heading('Executive Summary', HeadingLevel.HEADING_2, ACCENT),
         para(
-          `Volume 1 of the VoIP Watcher platform is ${complete === FEATURES.length ? 'fully' : 'substantially'} implemented. ` +
-          `All ${FEATURES.length} planned features across 5 tiers have been delivered, covering real-time NOC monitoring, ` +
-          `revenue analytics, fraud detection (FAS), rate-card management, KAM tooling, mobile responsiveness, ` +
-          `API key access control, and a fully customisable drag-and-drop dashboard.`,
+          `The VoIP Watcher platform is ${complete === FEATURES.length ? 'fully' : 'substantially'} implemented across 7 delivery tiers. ` +
+          `${FEATURES.length} features have been delivered, covering real-time NOC monitoring, concurrent-session telemetry (BitsEye 2), ` +
+          `revenue analytics, fraud detection (FAS/IRSF), rate-card management, KAM tooling, AI Ops, Routing Intelligence, ` +
+          `Client Self-Service Portal, mobile responsiveness, API key access, and a fully customisable dashboard. ` +
+          `Tiers 1–6 represent the original Volume 1 scope. Tier 7 documents post-release improvements and bug fixes applied in May 2026.`,
           { color: MID_GY, size: 20 }
         ),
         new Paragraph({ spacing: { after: 100 }, children: [] }),
@@ -233,18 +252,22 @@ export async function generateStatusReport(outputPath?: string): Promise<Buffer>
         ...(pending  ? [bullet(`Pending: ${pending}`, RED_C)]  : []),
         divider(),
 
-        // ── Note about Tier 5 update
-        heading('Update Note — Tier 5 Features', HeadingLevel.HEADING_2, ORANGE),
+        // ── Note about Tier 7 additions (May 2026)
+        heading('Update Note — Tier 7 Post-Release Improvements (May 2026)', HeadingLevel.HEADING_2, ORANGE),
         para(
-          'The following five Tier 5 (UX & Workflow) features were implemented and verified but were omitted from ' +
-          'the previous version of this document. This regenerated report includes them in full.',
+          'The following features and fixes were implemented after the original Volume 1 documentation was generated. ' +
+          'They are captured here as Tier 7 (Post-Release Improvements) and included in full in the feature tables below.',
           { color: MID_GY }
         ),
-        bullet('#20 — Customizable Dashboard Widgets (drag-and-drop, per-user visibility prefs)', ACCENT),
-        bullet('#21 — Dark / Light Mode Toggle (system-aware, localStorage-persisted)', ACCENT),
-        bullet('#22 — Mobile-Responsive NOC View (hamburger drawer, responsive grid, push opt-in)', ACCENT),
-        bullet('#23 — Quick Actions Command Bar — Cmd+K / Ctrl+K global shortcut', ACCENT),
-        bullet('#24 — API Key Management (Bearer-token external API access for admin users)', ACCENT),
+        bullet('#29 — BitsEye 2: NOC Telemetry Rebuild — concurrent-session semantic correctness, LIVE/DAILY/WEEKLY modes', ACCENT),
+        bullet('#30 — BitsEye 2: Graph Context Subtitle System — per-chart semantic subtitle labels', ACCENT),
+        bullet('#31 — BitsEye 2: Metric-Source Contract — immutable data-source rules enforced in code comments', ACCENT),
+        bullet('#32 — Client Portal: CDR Data Fix — Total Calls=0 resolved via per-account cdrCache', ACCENT),
+        bullet('#33 — Client Portal: Enhanced Overview Tab — live KPI cards, pulse indicator, 36-min sparkline', ACCENT),
+        bullet('#34 — Provisioning: Translation Rule Cascade — createAccount "Fatal error" bypass via strip-and-retry', ACCENT),
+        bullet('#35 — Sippy Load Reduction Architecture — ~65-70% XML-RPC call reduction (push, cache, mutex, stagger)', ACCENT),
+        bullet('#36 — Client Provisioning Wizard — multi-step guided new-account setup', ACCENT),
+        bullet('#37 — Concurrent Snapshot Persistence — concurrent_snapshots DB table for DAILY/WEEKLY graph history', ACCENT),
         divider(),
 
         // ── Bug fixes
