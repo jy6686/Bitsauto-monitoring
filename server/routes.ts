@@ -3803,6 +3803,8 @@ export async function registerRoutes(
     const sortTerm       = (req.query.sortTerm as string) || 'calls';
     const hideOrigEmpty  = (req.query.hideOrigEmpty as string) !== 'false';
     const hideTermEmpty  = (req.query.hideTermEmpty as string) !== 'false';
+    // groupBy: used by reports.tsx to select which row-set to expose as 'rows' compat field
+    const groupBy        = ((req.query.groupBy as string) || '').trim(); // 'caller' | 'callee'
 
     const now = Date.now();
     const startMs = req.query.startTime
@@ -3816,6 +3818,7 @@ export async function registerRoutes(
       const totalCalls    = slice.length;
       const completed     = slice.filter((c: any) => String(c.result) === '0');
       const billable      = completed.filter((c: any) => (Number(c.duration) || 0) > 0);
+      const rna           = completed.filter((c: any) => (Number(c.duration) || 0) === 0); // RNA: result='0' but 0 billed duration
       const billableCalls = billable.length;
       const durationSec   = billable.reduce((s: number, c: any) => s + (Number(c.duration) || 0), 0);
       const acdSec        = billableCalls > 0 ? parseFloat((durationSec / billableCalls).toFixed(1)) : 0;
@@ -3823,6 +3826,11 @@ export async function registerRoutes(
       const pddArr        = completed.map((c: any) => Number(c.pdd1xx ?? c.pdd) || 0).filter((v: number) => v > 0);
       const avgPdd        = pddArr.length > 0 ? parseFloat((pddArr.reduce((a: number, b: number) => a + b, 0) / pddArr.length).toFixed(4)) : 0;
       const amount        = parseFloat(billable.reduce((s: number, c: any) => s + (parseFloat(c.cost) || 0), 0).toFixed(7));
+      // NER: (answered + RNA) / total — network reachability excluding subscriber-side faults
+      const nerPct        = totalCalls > 0 ? parseFloat(((billableCalls + rna.length) / totalCalls * 100).toFixed(2)) : 0;
+      // FAS risk: short-billed answered calls (≤5 s) as % of billable — proxy for false answer supervision
+      const fasCount      = billable.filter((c: any) => (Number(c.duration) || 0) <= 5).length;
+      const fasRate       = billableCalls > 0 ? parseFloat((fasCount / billableCalls * 100).toFixed(2)) : 0;
 
       // ── Entity identity — deterministic resolution for navigation links ──────
       // Walk the CDR slice using the same priority chain as termKey():
@@ -3851,7 +3859,7 @@ export async function registerRoutes(
         }
       }
 
-      return { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount, iVendor, iConnection };
+      return { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount, nerPct, fasRate, rnaCount: rna.length, iVendor, iConnection };
     }
 
     function sortRows<T extends { name: string; totalCalls: number; billableCalls: number; asr: number; acdSec: number; durationSec: number; amount: number }>(rows: T[], by: string): T[] {
@@ -3869,11 +3877,13 @@ export async function registerRoutes(
     function calcTotal(rows: ReturnType<typeof buildRow>[]) {
       const totalCalls    = rows.reduce((s, r) => s + r.totalCalls, 0);
       const billableCalls = rows.reduce((s, r) => s + r.billableCalls, 0);
+      const rnaTotal      = rows.reduce((s, r) => s + (r.rnaCount ?? 0), 0);
       const durationSec   = rows.reduce((s, r) => s + r.durationSec, 0);
       const amount        = parseFloat(rows.reduce((s, r) => s + r.amount, 0).toFixed(7));
       const asr           = totalCalls > 0 ? parseFloat((billableCalls / totalCalls * 100).toFixed(4)) : 0;
       const acdSec        = billableCalls > 0 ? parseFloat((durationSec / billableCalls).toFixed(1)) : 0;
-      return { name: 'Total', totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd: 0, amount };
+      const nerPct        = totalCalls > 0 ? parseFloat(((billableCalls + rnaTotal) / totalCalls * 100).toFixed(2)) : 0;
+      return { name: 'Total', totalCalls, billableCalls, rnaCount: rnaTotal, durationSec, acdSec, asr, nerPct, avgPdd: 0, amount };
     }
 
     // Helper: resolve origination key from a CDR based on groupOrig
@@ -3983,9 +3993,30 @@ export async function registerRoutes(
         if (hideTermEmpty) termRows = termRows.filter(r => r.totalCalls > 0);
         termRows = sortRows(termRows as any, sortTerm) as any;
 
+        // Build AsrAcdReportRow compat array for reports.tsx
+        const toReportRow = (r: { name: string; totalCalls: number; billableCalls: number; durationSec: number; acdSec: number; asr: number; avgPdd: number; amount: number }) => ({
+          caller:                r.name,
+          totalCalls:            r.totalCalls,
+          billableCalls:         r.billableCalls,
+          billedDurationSeconds: r.durationSec,
+          acdSeconds:            r.acdSec,
+          asr:                   r.asr,
+          avgPdd:                r.avgPdd,
+          revenueUsd:            r.amount,
+          nerPct:                r.asr,   // portal has no RNA data; NER ≈ ASR (conservative)
+          fasRate:               0,        // portal has no per-call duration distribution
+          rnaCount:              0,
+        });
+        const portalReportRows = groupBy === 'callee'
+          ? termRows.map(toReportRow)
+          : origRows.map(toReportRow);
+
         return res.json({
           ok:                true,
           source:            'portal',
+          _source:           'sippy-portal',
+          _cdrCount:         portalResult.origTotal.totalCalls,
+          rows:              portalReportRows,
           vendorDataLimited: portalResult.vendorDataLimited ?? false,
           highlightBelow,
           generatedAt:       new Date().toISOString(),
@@ -4042,9 +4073,30 @@ export async function registerRoutes(
       sortTerm,
     );
 
+    // Build AsrAcdReportRow compat array for reports.tsx — NER/FAS are available from buildRow
+    const toReportRowFb = (r: ReturnType<typeof buildRow>) => ({
+      caller:                r.name,
+      totalCalls:            r.totalCalls,
+      billableCalls:         r.billableCalls,
+      billedDurationSeconds: r.durationSec,
+      acdSeconds:            r.acdSec,
+      asr:                   r.asr,
+      avgPdd:                r.avgPdd,
+      revenueUsd:            r.amount,
+      nerPct:                r.nerPct,
+      fasRate:               r.fasRate,
+      rnaCount:              r.rnaCount,
+    });
+    const cdrReportRows = groupBy === 'callee'
+      ? termRowsFb.map(toReportRowFb)
+      : origRowsFb.map(toReportRowFb);
+
     res.json({
       ok:          true,
       source:      'cdr-cache',
+      _source:     'cdr-cache',
+      _cdrCount:   allCdrs.length,
+      rows:        cdrReportRows,
       highlightBelow,
       generatedAt: new Date().toISOString(),
       cdrCount:    allCdrs.length,

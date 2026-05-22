@@ -24,7 +24,11 @@ import type { AsrAcdReportRow, ClientProfile } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 
-type ReportRow = AsrAcdReportRow & { clientName?: string; country?: string };
+type ReportRow = AsrAcdReportRow & {
+  clientName?: string;
+  country?: string;
+  // nerPct, fasRate, rnaCount inherited from AsrAcdReportRow
+};
 
 type ActiveTab = 'client' | 'vendor' | 'connection' | 'revenue';
 
@@ -243,15 +247,25 @@ export default function ReportsPage() {
 
 
   // ── Totals ──────────────────────────────────────────────────────────────────
-  const totals = useMemo(() => ({
-    totalCalls: displayRows.reduce((s, r) => s + r.totalCalls, 0),
-    billableCalls: displayRows.reduce((s, r) => s + r.billableCalls, 0),
-    billedDurationSeconds: displayRows.reduce((s, r) => s + r.billedDurationSeconds, 0),
-    revenueUsd: displayRows.reduce((s, r) => s + r.revenueUsd, 0),
-    asr: displayRows.length > 0 ? displayRows.reduce((s, r) => s + r.asr, 0) / displayRows.length : 0,
-    acdSeconds: displayRows.length > 0 ? displayRows.reduce((s, r) => s + r.acdSeconds, 0) / displayRows.length : 0,
-    avgPdd: displayRows.length > 0 ? displayRows.reduce((s, r) => s + r.avgPdd, 0) / displayRows.length : 0,
-  }), [displayRows]);
+  const totals = useMemo(() => {
+    const totalCalls          = displayRows.reduce((s, r) => s + r.totalCalls, 0);
+    const billableCalls       = displayRows.reduce((s, r) => s + r.billableCalls, 0);
+    const billedDurationSeconds = displayRows.reduce((s, r) => s + r.billedDurationSeconds, 0);
+    const revenueUsd          = displayRows.reduce((s, r) => s + r.revenueUsd, 0);
+    const asr                 = displayRows.length > 0 ? displayRows.reduce((s, r) => s + r.asr, 0) / displayRows.length : 0;
+    const acdSeconds          = billableCalls > 0 ? billedDurationSeconds / billableCalls : 0;
+    const avgPdd              = displayRows.length > 0 ? displayRows.reduce((s, r) => s + r.avgPdd, 0) / displayRows.length : 0;
+    // NER: use rnaCount when available (CDR-cache path); fall back to ASR average (portal path)
+    const hasRnaData          = displayRows.some(r => r.rnaCount != null);
+    const rnaTotal            = displayRows.reduce((s, r) => s + (r.rnaCount ?? 0), 0);
+    const nerPct              = hasRnaData
+      ? (totalCalls > 0 ? (billableCalls + rnaTotal) / totalCalls * 100 : 0)
+      : (displayRows.length > 0 ? displayRows.reduce((s, r) => s + (r.nerPct ?? r.asr), 0) / displayRows.length : 0);
+    // FAS rate: weighted by billable calls
+    const fasWeighted         = displayRows.reduce((s, r) => s + (r.fasRate ?? 0) * r.billableCalls, 0);
+    const fasRate             = billableCalls > 0 ? fasWeighted / billableCalls : 0;
+    return { totalCalls, billableCalls, billedDurationSeconds, revenueUsd, asr, acdSeconds, avgPdd, nerPct, fasRate };
+  }, [displayRows]);
 
   function applyFilters() { setApplied({ cliFilter, cldFilter, startTime, endTime, sortBy, hideEmpty, tz }); }
   function applyPreset(label: string, fn: () => [Date, Date]) {
@@ -469,14 +483,17 @@ export default function ReportsPage() {
 
           {/* KPI Summary */}
           {displayRows.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {[
-                { label: "Total Calls",    value: totals.totalCalls.toLocaleString(), color: "text-blue-400",   icon: PhoneCall },
+                { label: "Total Calls",    value: totals.totalCalls.toLocaleString(),    color: "text-blue-400",    icon: PhoneCall },
                 { label: "Billable Calls", value: totals.billableCalls.toLocaleString(), color: "text-emerald-400", icon: CheckCircle2 },
-                { label: "Avg ASR",        value: `${totals.asr.toFixed(2)}%`, color: totals.asr >= 50 ? "text-emerald-400" : "text-rose-400", icon: TrendingUp },
-                { label: "Revenue (USD)",  value: `$${totals.revenueUsd.toFixed(2)}`, color: "text-amber-400", icon: DollarSign },
+                { label: "Avg ASR",        value: `${totals.asr.toFixed(2)}%`,           color: totals.asr >= 50 ? "text-emerald-400" : "text-rose-400", icon: TrendingUp },
+                { label: "NER",            value: `${totals.nerPct.toFixed(2)}%`,         color: totals.nerPct >= 60 ? "text-cyan-400" : totals.nerPct >= 40 ? "text-amber-400" : "text-rose-400", icon: Wifi,
+                  tooltip: "Network Effectiveness Ratio — includes ring-no-answer in numerator" },
+                { label: "Avg ACD",        value: fmtDuration(totals.acdSeconds),         color: "text-violet-400",  icon: Clock },
+                { label: "Revenue (USD)",  value: `$${totals.revenueUsd.toFixed(2)}`,     color: "text-amber-400",   icon: DollarSign },
               ].map(stat => (
-                <div key={stat.label} className="bg-card rounded-xl border border-border p-4" data-testid={`stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}>
+                <div key={stat.label} className="bg-card rounded-xl border border-border p-4" data-testid={`stat-${stat.label.toLowerCase().replace(/[\s()]+/g, '-')}`} title={(stat as any).tooltip}>
                   <div className="flex items-center gap-2 mb-1">
                     <stat.icon className={`h-4 w-4 ${stat.color}`} />
                     <span className="text-xs text-muted-foreground">{stat.label}</span>
@@ -602,6 +619,10 @@ export default function ReportsPage() {
                       <th className="px-4 py-3 text-right font-semibold">Billed Duration</th>
                       <th className="px-4 py-3 text-right font-semibold">ACD</th>
                       <th className="px-4 py-3 text-right font-semibold">ASR %</th>
+                      <th className="px-4 py-3 text-right font-semibold" title="Network Effectiveness Ratio — incl. ring-no-answer">NER %</th>
+                      {activeTab === 'vendor' && (
+                        <th className="px-4 py-3 text-right font-semibold" title="FAS risk — short-billed answered calls ≤ 5 s">FAS Risk</th>
+                      )}
                       <th className="px-4 py-3 text-right font-semibold">Avg PDD</th>
                       <th className="px-4 py-3 text-right font-semibold">Revenue USD</th>
                     </tr>
@@ -612,6 +633,9 @@ export default function ReportsPage() {
                       const matched = matchProfile(row.caller, profiles, groupBy === 'caller' ? 'client' : 'vendor', row.caller);
                       const displayName = row.clientName || matched?.name;
                       const flag = countryFlag(row.country);
+                      const ner = row.nerPct ?? row.asr;
+                      const fas = row.fasRate ?? 0;
+                      const fasLevel = fas >= 15 ? 'high' : fas >= 5 ? 'med' : 'low';
                       return (
                         <tr key={row.caller} data-testid={`row-report-${i}`}
                           className={cn("border-b border-border/30 transition-colors hover:bg-muted/20", isLowAsr ? "bg-rose-500/5" : "")}>
@@ -641,6 +665,30 @@ export default function ReportsPage() {
                               {row.asr.toFixed(2)}
                             </span>
                           </td>
+                          <td className={cn("px-4 py-2.5 text-right tabular-nums font-medium",
+                            ner >= 70 ? "text-cyan-400" : ner >= 50 ? "text-sky-400" : ner >= 30 ? "text-amber-400" : "text-rose-400")}>
+                            <span className="flex items-center justify-end gap-1" title={row.rnaCount != null ? `RNA: ${row.rnaCount}` : 'NER estimated from ASR'}>
+                              <Wifi className="w-3 h-3 opacity-60" />
+                              {ner.toFixed(2)}
+                            </span>
+                          </td>
+                          {activeTab === 'vendor' && (
+                            <td className="px-4 py-2.5 text-right tabular-nums">
+                              {row.billableCalls > 0 ? (
+                                <span className={cn(
+                                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold",
+                                  fasLevel === 'high' ? "bg-rose-500/20 text-rose-400" :
+                                  fasLevel === 'med'  ? "bg-amber-500/20 text-amber-400" :
+                                                        "bg-emerald-500/10 text-emerald-400/70"
+                                )} title={`${fas.toFixed(1)}% of answered calls billed ≤ 5 s`}>
+                                  {fasLevel === 'high' && <AlertTriangle className="w-2.5 h-2.5" />}
+                                  {fas.toFixed(1)}%
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground/40">—</span>
+                              )}
+                            </td>
+                          )}
                           <td className="px-4 py-2.5 text-right tabular-nums">{row.avgPdd.toFixed(2)}s</td>
                           <td className="px-4 py-2.5 text-right tabular-nums text-emerald-400 font-medium">${row.revenueUsd.toFixed(4)}</td>
                         </tr>
@@ -655,6 +703,16 @@ export default function ReportsPage() {
                       <td className="px-4 py-3 text-right tabular-nums font-mono">{fmtDuration(totals.billedDurationSeconds)}</td>
                       <td className="px-4 py-3 text-right tabular-nums font-mono">{fmtDuration(totals.acdSeconds)}</td>
                       <td className={cn("px-4 py-3 text-right tabular-nums", totals.asr < highlightBelow ? "text-rose-400" : "text-emerald-400")}>{totals.asr.toFixed(2)}</td>
+                      <td className={cn("px-4 py-3 text-right tabular-nums",
+                        totals.nerPct >= 70 ? "text-cyan-400" : totals.nerPct >= 50 ? "text-sky-400" : "text-amber-400")}>
+                        {totals.nerPct.toFixed(2)}
+                      </td>
+                      {activeTab === 'vendor' && (
+                        <td className={cn("px-4 py-3 text-right tabular-nums text-xs",
+                          totals.fasRate >= 15 ? "text-rose-400" : totals.fasRate >= 5 ? "text-amber-400" : "text-emerald-400/70")}>
+                          {totals.fasRate.toFixed(1)}%
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right tabular-nums">{totals.avgPdd.toFixed(2)}s</td>
                       <td className="px-4 py-3 text-right tabular-nums text-emerald-400">${totals.revenueUsd.toFixed(4)}</td>
                     </tr>

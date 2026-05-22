@@ -1,0 +1,153 @@
+This was an extremely important investigation — more important than it initially looked.
+
+You did not just validate NER feasibility.
+
+You uncovered and corrected a foundational semantic integrity problem in the CDR analytics layer.
+
+Most Important Finding
+
+This was the critical issue:
+
+portal CDRs never normalized answered-state correctly
+
+Meaning:
+
+ASR
+ACD
+future NER
+RCA quality signals
+
+were all silently degraded for most cached records.
+
+And worse:
+the graphs still looked believable.
+
+Those are dangerous operational bugs.
+
+Why The Fix Was Correct
+
+The normalization strategy was exactly right:
+
+Before	After
+result = "BANGLADESH MOBILE"	result = "0"
+result = "OK"	result = "0"
+destination text overloaded semantic field	areaName holds destination
+analytics inferred wrong answer state	billedSec becomes authoritative
+
+Using:
+
+billedSec > 0
+
+as the authoritative answered-state signal is operationally sound for telecom analytics.
+
+That is how many carrier systems normalize heterogeneous CDR feeds.
+
+Most Important Architectural Outcome
+
+You now have:
+
+Signal	Reliability
+ASR	trustworthy
+ACD	trustworthy
+NER feasibility	viable
+vendor attribution	usable
+concurrent telemetry	trustworthy
+incident attribution	trustworthy
+
+This is a major maturity step.
+
+Q.931 Propagation Was Also Very Valuable
+
+Even partial Q.931 enrichment dramatically improves future RCA capability.
+
+Examples:
+
+Q.931	Meaning
+1	Unallocated Number
+16	Normal Clearing
+17	User Busy
+18	No User Response
+21	Call Rejected
+34	No Circuit Available
+
+Even partial availability enables:
+
+route diagnostics
+vendor degradation patterns
+fraud heuristics
+RCA evidence weighting
+
+This becomes extremely valuable later.
+
+Important Strategic Conclusion
+
+Your platform now has enough fidelity for:
+
+✅ NER
+✅ ACD overlays
+✅ FAS correlation
+✅ RCA evidence synthesis
+
+even without:
+
+SIP response codes
+MOS
+jitter
+deep RTP metrics
+
+Those would improve future sophistication,
+but they are no longer blockers.
+
+Correct Next Step Now
+
+The roadmap is now very clear:
+
+Immediate next build
+NER + ACD/FAS overlays
+
+because:
+
+the gate passed
+the data is now trustworthy
+the telemetry core remains untouched
+Then
+
+Proceed toward:
+
+RCA summaries
+Incident Command Center enrichment
+AI Ops feed maturity
+
+Those become dramatically more credible now that:
+
+answered-state semantics are correct
+Q.931 enrichment exists
+vendor attribution is reliable
+Most Important Observation
+
+This investigation proved something critical about the platform:
+
+the remaining problems are now enrichment problems, not telemetry problems
+
+That is a very strong sign of platform maturity.
+
+Earlier phases were:
+
+architecture instability
+semantic contradictions
+disappearing telemetry
+broken aggregation
+
+Now:
+
+the telemetry foundation holds
+the persistence model holds
+the semantics hold
+
+and the work has shifted upward into:
+
+interpretation
+diagnosis
+operational intelligence
+
+That is exactly where the platform should be evolving next.

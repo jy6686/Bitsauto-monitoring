@@ -996,6 +996,10 @@ export type AsrAcdReportRow = {
   asr: number;                   // answer-seizure ratio %
   avgPdd: number;                // average post-dial delay seconds
   revenueUsd: number;            // estimated revenue
+  // ── NER + FAS overlay fields (populated by CDR-cache path; portal path approximates) ──
+  nerPct?: number;    // Network Effectiveness Ratio % = (answered + RNA) / total × 100
+  fasRate?: number;   // FAS risk rate % = short-billed answered calls (≤5 s) / billable × 100
+  rnaCount?: number;  // Ring No Answer count (XML-RPC CDRs only; 0 for portal CDRs)
 };
 
 export type AsrAcdReportFilters = {
