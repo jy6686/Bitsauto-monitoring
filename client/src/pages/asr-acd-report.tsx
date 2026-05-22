@@ -6,14 +6,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Download, BarChart3, TrendingUp, TrendingDown, ChevronDown, Check } from "lucide-react";
+import { RefreshCw, Download, BarChart3, TrendingUp, TrendingDown, ChevronDown, Check, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Returns YYYY-MM-DDTHH:MM always in UTC — so datetime-local inputs display UTC.
-function toDatetimeLocal(d: Date): string {
-  return d.toISOString().slice(0, 16);
+// Format a Date to "YYYY-MM-DD HH:MM" always in UTC.
+// Using plain text (not datetime-local) avoids browser-timezone display bugs.
+function toUtcText(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
+// Parse a UTC text string ("YYYY-MM-DD HH:MM") to a JS Date (UTC).
+// Returns null if the string is unparseable.
+function parseUtcText(s: string): Date | null {
+  if (!s) return null;
+  // Accept both "YYYY-MM-DD HH:MM" and "YYYY-MM-DDTHH:MM" forms.
+  const normalised = s.trim().replace("T", " ");
+  const m = normalised.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const [, yyyy, mm, dd, hh, min] = m.map(Number);
+  const d = new Date(Date.UTC(yyyy, mm - 1, dd, hh, min, 0));
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function fmtDuration(sec: number): string {
@@ -49,20 +64,20 @@ interface ReportData {
 }
 
 interface FilterState {
-  startTime: string;
-  endTime: string;
-  cli: string;
-  cld: string;
-  groupOrig: string;
-  groupTerm: string;
-  accountFilter: string;
-  vendorFilter: string;
-  sortOrig: string;
-  sortTerm: string;
-  hideOrigEmpty: boolean;
-  hideTermEmpty: boolean;
+  startTime: string;   // "YYYY-MM-DD HH:MM" UTC plain text
+  endTime:   string;   // "YYYY-MM-DD HH:MM" UTC plain text
+  cli:            string;
+  cld:            string;
+  groupOrig:      string;
+  groupTerm:      string;
+  accountFilter:  string;
+  vendorFilter:   string;
+  sortOrig:       string;
+  sortTerm:       string;
+  hideOrigEmpty:  boolean;
+  hideTermEmpty:  boolean;
   highlightBelow: string;
-  currency: string;
+  currency:       string;
 }
 
 // ── Searchable combobox component ─────────────────────────────────────────────
@@ -85,6 +100,16 @@ function Combobox({ value, onChange, options, placeholder, emptyLabel, "data-tes
     o.label.toLowerCase().includes(search.toLowerCase())
   );
   const selected = options.find(o => o.value === value);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
 
   return (
     <div className="relative" ref={ref}>
@@ -142,32 +167,104 @@ function Combobox({ value, onChange, options, placeholder, emptyLabel, "data-tes
   );
 }
 
+// ── UTC text input component ───────────────────────────────────────────────────
+// A plain <input type="text"> that accepts "YYYY-MM-DD HH:MM" in UTC.
+// Shows a red outline if the entered value cannot be parsed.
+
+interface UtcTextInputProps {
+  value: string;
+  onChange: (v: string) => void;
+  label: string;
+  "data-testid"?: string;
+}
+
+function UtcTextInput({ value, onChange, label, "data-testid": tid }: UtcTextInputProps) {
+  const [local, setLocal] = useState(value);
+  const [touched, setTouched] = useState(false);
+
+  // Keep local in sync when parent resets value (e.g. preset buttons)
+  useEffect(() => { setLocal(value); }, [value]);
+
+  const isInvalid = touched && !parseUtcText(local);
+
+  function handleBlur() {
+    setTouched(true);
+    const parsed = parseUtcText(local);
+    if (parsed) {
+      const canonical = toUtcText(parsed);
+      setLocal(canonical);
+      onChange(canonical);
+    }
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
+    setLocal(v);
+    // Live-update parent only when parseable, so presets react immediately
+    const parsed = parseUtcText(v);
+    if (parsed) onChange(toUtcText(parsed));
+  }
+
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="relative">
+        <Input
+          type="text"
+          className={cn(
+            "h-8 text-sm font-mono pr-7",
+            isInvalid && "border-red-500 focus-visible:ring-red-400"
+          )}
+          placeholder="YYYY-MM-DD HH:MM"
+          value={local}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          data-testid={tid}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {isInvalid && (
+          <AlertCircle className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-red-500 pointer-events-none" />
+        )}
+      </div>
+      {isInvalid && (
+        <p className="text-[10px] text-red-500">Use format: YYYY-MM-DD HH:MM</p>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AsrAcdReportPage() {
   const now = new Date();
-  // Use UTC midnight so the default window always reflects GMT+00, not local time.
-  const midnightToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-  const [filters, setFilters] = useState<FilterState>({
-    startTime:     toDatetimeLocal(midnightToday),
-    endTime:       toDatetimeLocal(now),
-    cli:           "",
-    cld:           "",
-    groupOrig:     "caller",
-    groupTerm:     "connection",
-    accountFilter: "",
-    vendorFilter:  "",
-    sortOrig:      "calls",
-    sortTerm:      "calls",
-    hideOrigEmpty: true,
-    hideTermEmpty: true,
-    highlightBelow: "10",
-    currency:      "usd",
-  });
+  function defaultFilters(): FilterState {
+    // Default window: last 1 hour in UTC
+    const end   = new Date();
+    const start = new Date(end.getTime() - 60 * 60_000);
+    return {
+      startTime:     toUtcText(start),
+      endTime:       toUtcText(end),
+      cli:           "",
+      cld:           "",
+      groupOrig:     "caller",
+      groupTerm:     "connection",
+      accountFilter: "",
+      vendorFilter:  "",
+      sortOrig:      "calls",
+      sortTerm:      "calls",
+      hideOrigEmpty: true,
+      hideTermEmpty: true,
+      highlightBelow: "10",
+      currency:      "usd",
+    };
+  }
 
+  const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [submitted, setSubmitted] = useState<FilterState | null>(null);
   const [enabled, setEnabled]     = useState(false);
+  const [activePreset, setActivePreset] = useState<string | null>("1h");
 
   // Pre-fill from deep-link query params (?vendor=X&from=90&to=0)
   useEffect(() => {
@@ -180,8 +277,8 @@ export default function AsrAcdReportPage() {
       const nowMs = Date.now();
       setFilters(prev => ({
         ...prev,
-        startTime: new Date(nowMs - from * 60_000).toISOString().slice(0, 16),
-        endTime:   new Date(nowMs - to   * 60_000).toISOString().slice(0, 16),
+        startTime: toUtcText(new Date(nowMs - from * 60_000)),
+        endTime:   toUtcText(new Date(nowMs - to   * 60_000)),
       }));
       setActivePreset(`${from}→${to}`);
     }
@@ -189,16 +286,15 @@ export default function AsrAcdReportPage() {
   }, []);
 
   // ── Quick window helpers ───────────────────────────────────────────────────
-  const [relFrom, setRelFrom]       = useState("90");
-  const [relTo, setRelTo]           = useState("0");
-  const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [relFrom, setRelFrom] = useState("90");
+  const [relTo,   setRelTo]   = useState("0");
 
   function setQuickWindow(fromMinAgo: number, toMinAgo: number, preset?: string) {
     const nowMs = Date.now();
     setFilters(prev => ({
       ...prev,
-      startTime: toDatetimeLocal(new Date(nowMs - fromMinAgo * 60_000)),
-      endTime:   toDatetimeLocal(new Date(nowMs - toMinAgo   * 60_000)),
+      startTime: toUtcText(new Date(nowMs - fromMinAgo * 60_000)),
+      endTime:   toUtcText(new Date(nowMs - toMinAgo   * 60_000)),
     }));
     setActivePreset(preset ?? null);
   }
@@ -206,12 +302,15 @@ export default function AsrAcdReportPage() {
   function applyRelative() {
     const from = Math.max(0, parseInt(relFrom) || 0);
     const to   = Math.max(0, parseInt(relTo)   || 0);
-    if (from <= to) return; // start must be before end
+    if (from <= to) return;
     setQuickWindow(from, to, `${from}→${to}`);
   }
 
-  const setF = (key: keyof FilterState) => (value: string | boolean) =>
+  const setF = (key: keyof FilterState) => (value: string | boolean) => {
     setFilters(prev => ({ ...prev, [key]: value }));
+    // Any manual filter change clears preset highlight
+    if (key === "startTime" || key === "endTime") setActivePreset(null);
+  };
 
   // Fetch accounts list for selector
   const { data: accountsData } = useQuery<{ accounts: any[] }>({
@@ -240,21 +339,23 @@ export default function AsrAcdReportPage() {
     queryKey: ["/api/reports/asr-acd", submitted],
     queryFn: () => {
       if (!submitted) return Promise.resolve(null as any);
-      // datetime-local values are now displayed as UTC (YYYY-MM-DDTHH:MM).
-      // Append 'Z' so JS parses them as UTC, not the browser's local timezone.
+      // Parse UTC text strings to ISO UTC timestamps for the API
+      const startDate = parseUtcText(submitted.startTime);
+      const endDate   = parseUtcText(submitted.endTime);
+      if (!startDate || !endDate) return Promise.resolve(null as any);
       const p = new URLSearchParams({
-        startTime:     new Date(submitted.startTime + ':00Z').toISOString(),
-        endTime:       new Date(submitted.endTime   + ':00Z').toISOString(),
-        cli:           submitted.cli,
-        cld:           submitted.cld,
-        groupOrig:     submitted.groupOrig,
-        groupTerm:     submitted.groupTerm,
-        accountFilter: submitted.accountFilter,
-        vendorFilter:  submitted.vendorFilter,
-        sortOrig:      submitted.sortOrig,
-        sortTerm:      submitted.sortTerm,
-        hideOrigEmpty: String(submitted.hideOrigEmpty),
-        hideTermEmpty: String(submitted.hideTermEmpty),
+        startTime:      startDate.toISOString(),
+        endTime:        endDate.toISOString(),
+        cli:            submitted.cli,
+        cld:            submitted.cld,
+        groupOrig:      submitted.groupOrig,
+        groupTerm:      submitted.groupTerm,
+        accountFilter:  submitted.accountFilter,
+        vendorFilter:   submitted.vendorFilter,
+        sortOrig:       submitted.sortOrig,
+        sortTerm:       submitted.sortTerm,
+        hideOrigEmpty:  String(submitted.hideOrigEmpty),
+        hideTermEmpty:  String(submitted.hideTermEmpty),
         highlightBelow: submitted.highlightBelow,
       });
       return fetch(`/api/reports/asr-acd?${p}`).then(r => r.json());
@@ -264,6 +365,8 @@ export default function AsrAcdReportPage() {
   });
 
   const handleUpdate = useCallback(() => {
+    // Validate both times before submitting
+    if (!parseUtcText(filters.startTime) || !parseUtcText(filters.endTime)) return;
     const snap = { ...filters };
     setSubmitted(snap);
     if (!enabled) setEnabled(true);
@@ -272,6 +375,13 @@ export default function AsrAcdReportPage() {
 
   const threshold = parseFloat((submitted ?? filters).highlightBelow) || 10;
   const loading   = isLoading || isFetching;
+
+  // Compute window summary from parsed UTC values
+  const parsedStart = parseUtcText(filters.startTime);
+  const parsedEnd   = parseUtcText(filters.endTime);
+  const windowMinutes = (parsedStart && parsedEnd)
+    ? Math.round((parsedEnd.getTime() - parsedStart.getTime()) / 60_000)
+    : null;
 
   // CSV export
   function downloadCsv() {
@@ -315,436 +425,434 @@ export default function AsrAcdReportPage() {
   return (
     <div className="p-6 space-y-5 max-w-full">
 
-        {/* Page header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground" data-testid="text-page-title">
-              ASR / ACD Report
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Origination &amp; termination quality metrics — CDR ground truth layer
-            </p>
-          </div>
-          {data && (
-            <Badge variant="outline" className="text-xs text-muted-foreground mt-1 shrink-0">
-              {data.cdrCount.toLocaleString()} CDRs · {new Date(data.generatedAt).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit' })} UTC
-            </Badge>
-          )}
+      {/* Page header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground" data-testid="text-page-title">
+            ASR / ACD Report
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Origination &amp; termination quality metrics — CDR ground truth layer
+          </p>
         </div>
+        {data && (
+          <Badge variant="outline" className="text-xs text-muted-foreground mt-1 shrink-0">
+            {data.cdrCount.toLocaleString()} CDRs · {new Date(data.generatedAt).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit' })} UTC
+          </Badge>
+        )}
+      </div>
 
-        {/* ── Time Window bar ── */}
-        <div className="rounded-lg border border-border bg-card px-4 py-3 flex flex-wrap items-center gap-3">
-          {/* Label */}
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Time window</span>
-          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded px-1.5 py-0.5 tracking-wide">UTC</span>
+      {/* ── Time Window bar ── */}
+      <div className="rounded-lg border border-border bg-card px-4 py-3 flex flex-wrap items-center gap-3">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Time window</span>
+        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded px-1.5 py-0.5 tracking-wide">UTC</span>
 
-          {/* Quick preset chips */}
-          <div className="flex flex-wrap gap-1.5">
-            {([
-              { label: 'Last 30 m',  from: 30,   to: 0,   key: '30m'   },
-              { label: 'Last 1 h',   from: 60,   to: 0,   key: '1h'    },
-              { label: 'Last 90 m',  from: 90,   to: 0,   key: '90m'   },
-              { label: 'Last 4 h',   from: 240,  to: 0,   key: '4h'    },
-              { label: 'Last 24 h',  from: 1440, to: 0,   key: '24h'   },
-            ] as const).map(p => (
-              <button
-                key={p.key}
-                data-testid={`button-preset-${p.key}`}
-                onClick={() => setQuickWindow(p.from, p.to, p.key)}
-                className={cn(
-                  "px-2.5 py-1 rounded-md text-xs font-medium border transition-colors",
-                  activePreset === p.key
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {p.label}
-              </button>
-            ))}
-            {/* Today */}
+        {/* Quick preset chips */}
+        <div className="flex flex-wrap gap-1.5">
+          {([
+            { label: 'Last 15 m', from: 15,   to: 0, key: '15m'  },
+            { label: 'Last 30 m', from: 30,   to: 0, key: '30m'  },
+            { label: 'Last 1 h',  from: 60,   to: 0, key: '1h'   },
+            { label: 'Last 90 m', from: 90,   to: 0, key: '90m'  },
+            { label: 'Last 4 h',  from: 240,  to: 0, key: '4h'   },
+            { label: 'Last 24 h', from: 1440, to: 0, key: '24h'  },
+          ] as const).map(p => (
             <button
-              data-testid="button-preset-today"
-              onClick={() => {
-                const n = new Date();
-                // UTC midnight — not local midnight — so "Today" = 00:00 UTC onwards.
-                const midnight = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
-                const fromMin = Math.round((n.getTime() - midnight.getTime()) / 60_000);
-                setQuickWindow(fromMin, 0, 'today');
-              }}
+              key={p.key}
+              data-testid={`button-preset-${p.key}`}
+              onClick={() => setQuickWindow(p.from, p.to, p.key)}
               className={cn(
                 "px-2.5 py-1 rounded-md text-xs font-medium border transition-colors",
-                activePreset === 'today'
+                activePreset === p.key
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
               )}
             >
-              Today
+              {p.label}
             </button>
-            {/* Yesterday */}
-            <button
-              data-testid="button-preset-yesterday"
-              onClick={() => {
-                const n = new Date();
-                // UTC day boundaries — Yesterday = 00:00 UTC yesterday → 00:00 UTC today.
-                const yStart = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - 1));
-                const yEnd   = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
-                setFilters(prev => ({ ...prev, startTime: toDatetimeLocal(yStart), endTime: toDatetimeLocal(yEnd) }));
-                setActivePreset('yesterday');
-              }}
-              className={cn(
-                "px-2.5 py-1 rounded-md text-xs font-medium border transition-colors",
-                activePreset === 'yesterday'
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
-              )}
-            >
-              Yesterday
-            </button>
-          </div>
-
-          {/* Divider */}
-          <div className="hidden sm:block h-5 w-px bg-border" />
-
-          {/* Relative offset input: "X min ago → Y min ago" */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs text-muted-foreground whitespace-nowrap">From</span>
-            <input
-              type="number"
-              min="1"
-              value={relFrom}
-              onChange={e => { setRelFrom(e.target.value); setActivePreset(null); }}
-              data-testid="input-rel-from"
-              className="w-16 h-7 rounded-md border border-input bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <span className="text-xs text-muted-foreground whitespace-nowrap">min ago →</span>
-            <input
-              type="number"
-              min="0"
-              value={relTo}
-              onChange={e => { setRelTo(e.target.value); setActivePreset(null); }}
-              data-testid="input-rel-to"
-              className="w-16 h-7 rounded-md border border-input bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <span className="text-xs text-muted-foreground whitespace-nowrap">min ago</span>
-            <button
-              onClick={applyRelative}
-              data-testid="button-apply-relative"
-              disabled={parseInt(relFrom) <= parseInt(relTo)}
-              className="px-2.5 py-1 rounded-md text-xs font-medium bg-primary text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
-            >
-              Set
-            </button>
-          </div>
-
-          {/* Active window summary — always display in UTC */}
-          {filters.startTime && filters.endTime && (
-            <span className="ml-auto text-xs text-muted-foreground hidden lg:block">
-              {new Date(filters.startTime + ':00Z').toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' })}
-              {' → '}
-              {new Date(filters.endTime + ':00Z').toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' })}
-              {' · '}
-              {Math.round((new Date(filters.endTime + ':00Z').getTime() - new Date(filters.startTime + ':00Z').getTime()) / 60_000)} min
-            </span>
-          )}
+          ))}
+          {/* Today */}
+          <button
+            data-testid="button-preset-today"
+            onClick={() => {
+              const n = new Date();
+              const midnight = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+              setFilters(prev => ({
+                ...prev,
+                startTime: toUtcText(midnight),
+                endTime:   toUtcText(n),
+              }));
+              setActivePreset('today');
+            }}
+            className={cn(
+              "px-2.5 py-1 rounded-md text-xs font-medium border transition-colors",
+              activePreset === 'today'
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+            )}
+          >
+            Today
+          </button>
+          {/* Yesterday */}
+          <button
+            data-testid="button-preset-yesterday"
+            onClick={() => {
+              const n = new Date();
+              const yStart = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - 1));
+              const yEnd   = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+              setFilters(prev => ({ ...prev, startTime: toUtcText(yStart), endTime: toUtcText(yEnd) }));
+              setActivePreset('yesterday');
+            }}
+            className={cn(
+              "px-2.5 py-1 rounded-md text-xs font-medium border transition-colors",
+              activePreset === 'yesterday'
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+            )}
+          >
+            Yesterday
+          </button>
         </div>
 
-        {/* ── Filter panel ── */}
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
+        {/* Divider */}
+        <div className="hidden sm:block h-5 w-px bg-border" />
 
-            {/* ─ CLI / Origination column ─ */}
-            <div className="p-4 space-y-3">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">CLI / Origination</span>
-              </div>
+        {/* Relative offset input: "X min ago → Y min ago" */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">From</span>
+          <input
+            type="number"
+            min="1"
+            value={relFrom}
+            onChange={e => { setRelFrom(e.target.value); setActivePreset(null); }}
+            data-testid="input-rel-from"
+            className="w-16 h-7 rounded-md border border-input bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <span className="text-xs text-muted-foreground whitespace-nowrap">min ago →</span>
+          <input
+            type="number"
+            min="0"
+            value={relTo}
+            onChange={e => { setRelTo(e.target.value); setActivePreset(null); }}
+            data-testid="input-rel-to"
+            className="w-16 h-7 rounded-md border border-input bg-background px-2 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <span className="text-xs text-muted-foreground whitespace-nowrap">min ago</span>
+          <button
+            onClick={applyRelative}
+            data-testid="button-apply-relative"
+            disabled={parseInt(relFrom) <= parseInt(relTo)}
+            className="px-2.5 py-1 rounded-md text-xs font-medium bg-primary text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+          >
+            Set
+          </button>
+        </div>
 
-              {/* Start date/time */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Start Date / Time</Label>
-                  <Input
-                    type="datetime-local"
-                    className="h-8 text-sm"
-                    value={filters.startTime}
-                    onChange={e => setF("startTime")(e.target.value)}
-                    data-testid="input-start-time"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">CLI contains</Label>
-                  <Input
-                    className="h-8 text-sm"
-                    placeholder="e.g. +44"
-                    value={filters.cli}
-                    onChange={e => setF("cli")(e.target.value)}
-                    data-testid="input-cli"
-                  />
-                </div>
-              </div>
+        {/* Active window summary */}
+        {parsedStart && parsedEnd && windowMinutes !== null && windowMinutes > 0 && (
+          <span className="ml-auto text-xs text-muted-foreground hidden lg:block">
+            {toUtcText(parsedStart).slice(11)} → {toUtcText(parsedEnd).slice(11)} · {windowMinutes} min (UTC)
+          </span>
+        )}
+      </div>
 
-              {/* Origination Group By */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Origination Group By</Label>
-                <Select value={filters.groupOrig} onValueChange={setF("groupOrig")}>
-                  <SelectTrigger className="h-8 text-sm" data-testid="select-group-orig">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    <SelectItem value="caller">Caller</SelectItem>
-                    <SelectItem value="ip">IP</SelectItem>
-                    <SelectItem value="ip_caller">IP / Caller</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+      {/* ── Filter panel ── */}
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
 
-              {/* Caller / Account selector */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Caller / Account</Label>
-                <Combobox
-                  value={filters.accountFilter}
-                  onChange={v => setF("accountFilter")(v)}
-                  options={accountOptions}
-                  placeholder="All accounts"
-                  emptyLabel="All accounts"
-                  data-testid="select-account"
-                />
-              </div>
-
-              {/* Origination Sort By */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Sort By</Label>
-                <Select value={filters.sortOrig} onValueChange={setF("sortOrig")}>
-                  <SelectTrigger className="h-8 text-sm" data-testid="select-sort-orig">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="caller_number">Caller Number</SelectItem>
-                    <SelectItem value="ip">IP</SelectItem>
-                    <SelectItem value="calls">Number of Calls</SelectItem>
-                    <SelectItem value="billable">Billable Calls</SelectItem>
-                    <SelectItem value="duration">Billed Duration</SelectItem>
-                    <SelectItem value="asr">ASR %</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Origination hide empty */}
-              <label className="flex items-center gap-2 cursor-pointer select-none pt-0.5">
-                <input
-                  type="checkbox"
-                  checked={filters.hideOrigEmpty}
-                  onChange={e => setF("hideOrigEmpty")(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded"
-                  data-testid="checkbox-hide-orig-empty"
-                />
-                <span className="text-xs text-muted-foreground">Hide entries without calls</span>
-              </label>
+          {/* ─ CLI / Origination column ─ */}
+          <div className="p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">CLI / Origination</span>
             </div>
 
-            {/* ─ CLD / Termination column ─ */}
-            <div className="p-4 space-y-3">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingDown className="h-3.5 w-3.5 text-rose-400" />
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">CLD / Termination</span>
-              </div>
-
-              {/* End date/time + CLD filter */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">End Date / Time</Label>
-                  <Input
-                    type="datetime-local"
-                    className="h-8 text-sm"
-                    value={filters.endTime}
-                    onChange={e => setF("endTime")(e.target.value)}
-                    data-testid="input-end-time"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">CLD contains</Label>
-                  <Input
-                    className="h-8 text-sm"
-                    placeholder="e.g. +92"
-                    value={filters.cld}
-                    onChange={e => setF("cld")(e.target.value)}
-                    data-testid="input-cld"
-                  />
-                </div>
-              </div>
-
-              {/* Currency */}
+            {/* Start date/time + CLI filter */}
+            <div className="grid grid-cols-2 gap-3">
+              <UtcTextInput
+                label="Start Date / Time (UTC)"
+                value={filters.startTime}
+                onChange={v => setFilters(prev => ({ ...prev, startTime: v }))}
+                data-testid="input-start-time"
+              />
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Currency</Label>
-                <Select value={filters.currency} onValueChange={setF("currency")}>
-                  <SelectTrigger className="h-8 text-sm" data-testid="select-currency">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="usd">US Dollar (USD)</SelectItem>
-                    <SelectItem value="eur">Euro (EUR)</SelectItem>
-                    <SelectItem value="gbp">British Pound (GBP)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Termination Group By */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Termination Group By</Label>
-                <Select value={filters.groupTerm} onValueChange={setF("groupTerm")}>
-                  <SelectTrigger className="h-8 text-sm" data-testid="select-group-term">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    <SelectItem value="vendor">Vendor</SelectItem>
-                    <SelectItem value="connection">Connection</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Vendor selector */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Vendor</Label>
-                <Combobox
-                  value={filters.vendorFilter}
-                  onChange={v => setF("vendorFilter")(v)}
-                  options={vendorOptions}
-                  placeholder="All vendors"
-                  emptyLabel="All vendors"
-                  data-testid="select-vendor"
+                <Label className="text-xs text-muted-foreground">CLI contains</Label>
+                <Input
+                  className="h-8 text-sm"
+                  placeholder="e.g. +44"
+                  value={filters.cli}
+                  onChange={e => setF("cli")(e.target.value)}
+                  data-testid="input-cli"
                 />
               </div>
-
-              {/* Termination Sort By */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Sort By</Label>
-                <Select value={filters.sortTerm} onValueChange={setF("sortTerm")}>
-                  <SelectTrigger className="h-8 text-sm" data-testid="select-sort-term">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="vendor_connection">Vendor / Connection</SelectItem>
-                    <SelectItem value="calls">Number of Calls</SelectItem>
-                    <SelectItem value="billable">Billable Calls</SelectItem>
-                    <SelectItem value="duration">Billed Duration</SelectItem>
-                    <SelectItem value="asr">ASR %</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Termination hide empty */}
-              <label className="flex items-center gap-2 cursor-pointer select-none pt-0.5">
-                <input
-                  type="checkbox"
-                  checked={filters.hideTermEmpty}
-                  onChange={e => setF("hideTermEmpty")(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded"
-                  data-testid="checkbox-hide-term-empty"
-                />
-                <span className="text-xs text-muted-foreground">Hide entries without calls</span>
-              </label>
             </div>
-          </div>
 
-          {/* ─ Common action bar ─ */}
-          <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-t border-border bg-muted/20">
-            <div className="flex items-center gap-2">
-              <Label className="text-xs text-muted-foreground whitespace-nowrap">Highlight ASR below %</Label>
-              <Input
-                type="number"
-                min="0"
-                max="100"
-                step="0.5"
-                className="h-7 w-20 text-sm"
-                value={filters.highlightBelow}
-                onChange={e => setF("highlightBelow")(e.target.value)}
-                data-testid="input-highlight-below"
+            {/* Origination Group By */}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Origination Group By</Label>
+              <Select value={filters.groupOrig} onValueChange={setF("groupOrig")}>
+                <SelectTrigger className="h-8 text-sm" data-testid="select-group-orig">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="caller">Caller</SelectItem>
+                  <SelectItem value="ip">IP</SelectItem>
+                  <SelectItem value="ip_caller">IP / Caller</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Caller / Account selector */}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Caller / Account</Label>
+              <Combobox
+                value={filters.accountFilter}
+                onChange={v => setF("accountFilter")(v)}
+                options={accountOptions}
+                placeholder="All accounts"
+                emptyLabel="All accounts"
+                data-testid="select-account"
               />
             </div>
 
-            <div className="ml-auto flex items-center gap-2">
-              <Button
-                onClick={handleUpdate}
-                disabled={loading}
-                data-testid="button-update-report"
-                className="gap-2 h-8"
-              >
-                {loading
-                  ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  : <BarChart3 className="h-3.5 w-3.5" />}
-                Update Report
-              </Button>
-              <Button
-                variant="outline"
-                onClick={downloadCsv}
-                disabled={!data || loading}
-                data-testid="button-download-csv"
-                className="gap-2 h-8"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Download CSV / Excel
-              </Button>
+            {/* Origination Sort By */}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Sort By</Label>
+              <Select value={filters.sortOrig} onValueChange={setF("sortOrig")}>
+                <SelectTrigger className="h-8 text-sm" data-testid="select-sort-orig">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="caller_number">Caller Number</SelectItem>
+                  <SelectItem value="ip">IP</SelectItem>
+                  <SelectItem value="calls">Number of Calls</SelectItem>
+                  <SelectItem value="billable">Billable Calls</SelectItem>
+                  <SelectItem value="duration">Billed Duration</SelectItem>
+                  <SelectItem value="asr">ASR %</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
+            {/* Origination hide empty */}
+            <label className="flex items-center gap-2 cursor-pointer select-none pt-0.5">
+              <input
+                type="checkbox"
+                checked={filters.hideOrigEmpty}
+                onChange={e => setF("hideOrigEmpty")(e.target.checked)}
+                className="h-3.5 w-3.5 rounded"
+                data-testid="checkbox-hide-orig-empty"
+              />
+              <span className="text-xs text-muted-foreground">Hide entries without calls</span>
+            </label>
+          </div>
+
+          {/* ─ CLD / Termination column ─ */}
+          <div className="p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingDown className="h-3.5 w-3.5 text-rose-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">CLD / Termination</span>
+            </div>
+
+            {/* End date/time + CLD filter */}
+            <div className="grid grid-cols-2 gap-3">
+              <UtcTextInput
+                label="End Date / Time (UTC)"
+                value={filters.endTime}
+                onChange={v => setFilters(prev => ({ ...prev, endTime: v }))}
+                data-testid="input-end-time"
+              />
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">CLD contains</Label>
+                <Input
+                  className="h-8 text-sm"
+                  placeholder="e.g. +92"
+                  value={filters.cld}
+                  onChange={e => setF("cld")(e.target.value)}
+                  data-testid="input-cld"
+                />
+              </div>
+            </div>
+
+            {/* Currency */}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Currency</Label>
+              <Select value={filters.currency} onValueChange={setF("currency")}>
+                <SelectTrigger className="h-8 text-sm" data-testid="select-currency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="usd">US Dollar (USD)</SelectItem>
+                  <SelectItem value="eur">Euro (EUR)</SelectItem>
+                  <SelectItem value="gbp">British Pound (GBP)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Termination Group By */}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Termination Group By</Label>
+              <Select value={filters.groupTerm} onValueChange={setF("groupTerm")}>
+                <SelectTrigger className="h-8 text-sm" data-testid="select-group-term">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="vendor">Vendor</SelectItem>
+                  <SelectItem value="connection">Connection</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Vendor selector */}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Vendor</Label>
+              <Combobox
+                value={filters.vendorFilter}
+                onChange={v => setF("vendorFilter")(v)}
+                options={vendorOptions}
+                placeholder="All vendors"
+                emptyLabel="All vendors"
+                data-testid="select-vendor"
+              />
+            </div>
+
+            {/* Termination Sort By */}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Sort By</Label>
+              <Select value={filters.sortTerm} onValueChange={setF("sortTerm")}>
+                <SelectTrigger className="h-8 text-sm" data-testid="select-sort-term">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vendor_connection">Vendor / Connection</SelectItem>
+                  <SelectItem value="calls">Number of Calls</SelectItem>
+                  <SelectItem value="billable">Billable Calls</SelectItem>
+                  <SelectItem value="duration">Billed Duration</SelectItem>
+                  <SelectItem value="asr">ASR %</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Termination hide empty */}
+            <label className="flex items-center gap-2 cursor-pointer select-none pt-0.5">
+              <input
+                type="checkbox"
+                checked={filters.hideTermEmpty}
+                onChange={e => setF("hideTermEmpty")(e.target.checked)}
+                className="h-3.5 w-3.5 rounded"
+                data-testid="checkbox-hide-term-empty"
+              />
+              <span className="text-xs text-muted-foreground">Hide entries without calls</span>
+            </label>
           </div>
         </div>
 
-        {/* Empty state */}
-        {!enabled && !data && (
-          <div className="rounded-lg border border-dashed border-border p-14 text-center">
-            <BarChart3 className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">
-              Set your filters and click{" "}
-              <strong className="text-foreground">Update Report</strong> to generate the ASR/ACD report.
-            </p>
-          </div>
-        )}
-
-        {/* Loading state */}
-        {loading && (
-          <div className="rounded-lg border border-border p-10 text-center">
-            <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">Aggregating CDR data…</p>
-          </div>
-        )}
-
-        {/* Report tables */}
-        {data && !loading && (
-          <div className="space-y-5">
-            <ReportTable
-              title="Origination"
-              subtitle={`Grouped by ${origGroupLabel[submitted?.groupOrig ?? "caller"] ?? submitted?.groupOrig}`}
-              rows={data.origination}
-              total={data.origTotal}
-              amountLabel={`Revenue, ${(submitted?.currency ?? "usd").toUpperCase()}`}
-              nameLabel={submitted?.groupOrig === "ip" ? "IP" : submitted?.groupOrig === "ip_caller" ? "IP / Caller" : submitted?.groupOrig === "none" ? "Group" : "Caller"}
-              threshold={threshold}
-              icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}
-            />
-            <ReportTable
-              title="Termination"
-              subtitle={`Grouped by ${termGroupLabel[submitted?.groupTerm ?? "connection"] ?? submitted?.groupTerm}`}
-              rows={data.termination}
-              total={data.termTotal}
-              amountLabel={`Cost, ${(submitted?.currency ?? "usd").toUpperCase()}`}
-              nameLabel={submitted?.groupTerm === "vendor" ? "Vendor" : submitted?.groupTerm === "none" ? "Group" : "Vendor / Connection"}
-              threshold={threshold}
-              icon={<TrendingDown className="h-4 w-4 text-rose-400" />}
+        {/* ─ Common action bar ─ */}
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-t border-border bg-muted/20">
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-muted-foreground whitespace-nowrap">Highlight ASR below %</Label>
+            <Input
+              type="number"
+              min="0"
+              max="100"
+              step="0.5"
+              className="h-7 w-20 text-sm"
+              value={filters.highlightBelow}
+              onChange={e => setF("highlightBelow")(e.target.value)}
+              data-testid="input-highlight-below"
             />
           </div>
-        )}
+
+          {/* Submitted window summary */}
+          {submitted && parseUtcText(submitted.startTime) && parseUtcText(submitted.endTime) && (
+            <span className="text-xs text-muted-foreground hidden sm:block">
+              Queried:{" "}
+              <span className="font-mono text-foreground">
+                {submitted.startTime} → {submitted.endTime}
+              </span>{" "}
+              UTC
+            </span>
+          )}
+
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              onClick={handleUpdate}
+              disabled={loading || !parseUtcText(filters.startTime) || !parseUtcText(filters.endTime)}
+              data-testid="button-update-report"
+              className="gap-2 h-8"
+            >
+              {loading
+                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                : <BarChart3 className="h-3.5 w-3.5" />}
+              Update Report
+            </Button>
+            <Button
+              variant="outline"
+              onClick={downloadCsv}
+              disabled={!data || loading}
+              data-testid="button-download-csv"
+              className="gap-2 h-8"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download CSV / Excel
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {!enabled && !data && (
+        <div className="rounded-lg border border-dashed border-border p-14 text-center">
+          <BarChart3 className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">
+            Set your filters and click{" "}
+            <strong className="text-foreground">Update Report</strong> to generate the ASR/ACD report.
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            All times are UTC. Enter dates as <span className="font-mono">YYYY-MM-DD HH:MM</span> or use the quick-preset buttons above.
+          </p>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {loading && (
+        <div className="rounded-lg border border-border p-10 text-center">
+          <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">Aggregating CDR data…</p>
+        </div>
+      )}
+
+      {/* Report tables */}
+      {data && !loading && (
+        <div className="space-y-5">
+          <ReportTable
+            title="Origination"
+            subtitle={`Grouped by ${origGroupLabel[submitted?.groupOrig ?? "caller"] ?? submitted?.groupOrig}`}
+            rows={data.origination}
+            total={data.origTotal}
+            amountLabel={`Revenue, ${(submitted?.currency ?? "usd").toUpperCase()}`}
+            nameLabel={submitted?.groupOrig === "ip" ? "IP" : submitted?.groupOrig === "ip_caller" ? "IP / Caller" : submitted?.groupOrig === "none" ? "Group" : "Caller"}
+            threshold={threshold}
+            icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}
+          />
+          <ReportTable
+            title="Termination"
+            subtitle={`Grouped by ${termGroupLabel[submitted?.groupTerm ?? "connection"] ?? submitted?.groupTerm}`}
+            rows={data.termination}
+            total={data.termTotal}
+            amountLabel={`Cost, ${(submitted?.currency ?? "usd").toUpperCase()}`}
+            nameLabel={submitted?.groupTerm === "vendor" ? "Vendor" : submitted?.groupTerm === "none" ? "Group" : "Vendor / Connection"}
+            threshold={threshold}
+            icon={<TrendingDown className="h-4 w-4 text-rose-400" />}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Entity name cell — renders vendor/connection parts as navigation links ────
-//
-// Name format from server:  "VendorName / ConnectionName"  |  "VendorName"  |  plain string
-// Vendor part  → /vendors?id={iVendor}          (existing VendorIdLoader handles direct URL)
-// Connection part → /routing-manager?tab=connections  (Phase 2 will add ?iConnection=)
-//
-// Falls back to plain text when entity IDs are absent (origination rows, unresolved rows).
+// ── Entity name cell ───────────────────────────────────────────────────────────
 
 function EntityNameCell({ name, iVendor, iConnection }: { name: string; iVendor?: number; iConnection?: number }) {
   const slashIdx = name.indexOf(' / ');
