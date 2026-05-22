@@ -1629,10 +1629,14 @@ export function LayoutShell({ children }: LayoutShellProps) {
           )}
         </div>
 
-        {/* Collapsed icon strip */}
+        {/* Collapsed icon strip — workspace-contextual shortcuts only */}
         {collapsed && (
-          <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-            {allFlatItems.filter(isItemVisible).map(item => {
+          <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5 [&::-webkit-scrollbar]:hidden">
+            {/* Workspace dot indicator */}
+            <div className="flex justify-center mb-2">
+              <span className={cn("h-1.5 w-1.5 rounded-full", WORKSPACE_DOT_BG[activeWorkspace] ?? 'bg-slate-400')} />
+            </div>
+            {railItems.map(item => {
               const active = item.href === '/' ? location === '/' : location.startsWith(item.href.split('?')[0]);
               return (
                 <Link key={item.href} href={item.href} title={item.label}
@@ -1645,6 +1649,16 @@ export function LayoutShell({ children }: LayoutShellProps) {
                 </Link>
               );
             })}
+            {/* Divider + expand hint */}
+            <div className="pt-2 flex justify-center">
+              <button
+                onClick={() => setCollapsed(false)}
+                title="Expand for all tools"
+                className="p-2 rounded-lg text-muted-foreground/30 hover:text-muted-foreground/70 hover:bg-white/[0.05] transition-colors"
+              >
+                <PanelLeftOpen className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </nav>
         )}
 
