@@ -13,7 +13,7 @@ import {
   Key, Mail, Building2, SlidersHorizontal,
   Bot, FileSpreadsheet, LineChart, TrendingUp,
   ChevronRight, AlertTriangle, CheckCircle2,
-  HardDrive, Database, Star,
+  HardDrive, Database, Star, Banknote, Map, Package, History,
 } from "lucide-react";
 import type { WorkspaceDomain } from "@/lib/workspace";
 import { WORKSPACE_LABELS, WORKSPACE_TEXT_COLOR, WORKSPACE_DOT_BG } from "@/lib/workspace";
@@ -77,32 +77,18 @@ const WS_CONFIG: Record<WorkspaceDomain, WorkspaceConfig> = {
       { href: '/balance',                    label: 'Balances',       desc: 'Vendor balance monitor',    icon: Wallet,      color: 'text-orange-400' },
     ],
   },
-  'routing': {
-    description: 'Route groups, LCR optimisation, call flow simulation, and self-healing',
-    headerIcon: GitBranch,
-    quickLinks: [
-      { href: '/routing-manager',      label: 'Routing Manager',   desc: 'Groups & connections',  icon: GitBranch,    color: 'text-emerald-400'},
-      { href: '/lcr-analyser',         label: 'LCR Analyser',      desc: 'Least-cost routing',    icon: Calculator,   color: 'text-amber-400'  },
-      { href: '/self-heal',            label: 'Self-Heal',         desc: 'Auto-healing routes',   icon: HeartPulse,   color: 'text-rose-400'   },
-      { href: '/call-flow-simulator',  label: 'Call Flow Sim',     desc: 'Route simulation',      icon: ArrowRightLeft,color:'text-cyan-400'   },
-      { href: '/cost-optimisation',    label: 'Cost Optimisation', desc: 'Route cost engine',     icon: TrendingDown, color: 'text-violet-400' },
-      { href: '/routing-manager?tab=connections',    label: 'Connections',     desc: 'Trunk connections',     icon: Network,      color: 'text-blue-400'   },
-      { href: '/routing-manager?tab=destination-sets',label:'Destination Sets',desc: 'Destination rules',     icon: Layers,       color: 'text-indigo-400' },
-      { href: '/routing-manager?tab=policy-sim',     label: 'Policy Sim',      desc: 'Policy simulation',     icon: Zap,          color: 'text-orange-400' },
-    ],
-  },
-  'reports': {
-    description: 'Traffic analytics, revenue reporting, CDR viewer, and performance heatmaps',
+  'analytics': {
+    description: 'Traffic analytics, revenue reporting, CDR viewer, quality heatmaps, and forecasting',
     headerIcon: BarChart2,
     quickLinks: [
-      { href: '/cdrs',             label: 'CDR Viewer',       desc: 'Call detail records',     icon: FileSpreadsheet,color:'text-blue-400'   },
-      { href: '/reports',          label: 'Reports',          desc: 'Standard report centre',  icon: BarChart2,    color: 'text-violet-400' },
-      { href: '/asr-acd',          label: 'ASR / ACD',        desc: 'Quality KPI reports',     icon: BarChart3,    color: 'text-emerald-400'},
-      { href: '/analytics',        label: 'Analytics',        desc: 'Revenue analytics',       icon: LineChart,    color: 'text-amber-400'  },
-      { href: '/bitseye',          label: 'BitsEye',          desc: 'Drill-down analytics',    icon: Eye,          color: 'text-cyan-400'   },
-      { href: '/revenue-heatmap',  label: 'Revenue Heatmap',  desc: 'Revenue analysis map',    icon: TrendingUp,   color: 'text-rose-400'   },
-      { href: '/traffic-forecast', label: 'Forecast',         desc: 'Demand forecasting',      icon: TrendingDown, color: 'text-blue-400'   },
-      { href: '/qos-heatmap',      label: 'QoS Heatmap',      desc: 'Quality of service map',  icon: Activity,     color: 'text-indigo-400' },
+      { href: '/analytics',        label: 'Traffic Analytics', desc: 'Call traffic analytics',   icon: LineChart,      color: 'text-blue-400'   },
+      { href: '/asr-acd',          label: 'ASR / ACD',         desc: 'Quality KPI reports',      icon: BarChart3,      color: 'text-emerald-400'},
+      { href: '/revenue-heatmap',  label: 'Revenue Heatmap',   desc: 'Revenue analysis map',     icon: Map,            color: 'text-rose-400'   },
+      { href: '/reports',          label: 'Reports',           desc: 'Standard report centre',   icon: BarChart2,      color: 'text-violet-400' },
+      { href: '/cdrs',             label: 'CDR Viewer',        desc: 'Call detail records',      icon: History,        color: 'text-cyan-400'   },
+      { href: '/bitseye',          label: 'BitsEye',           desc: 'Drill-down analytics',     icon: Eye,            color: 'text-amber-400'  },
+      { href: '/traffic-forecast', label: 'Forecast',          desc: 'Demand forecasting',       icon: TrendingDown,   color: 'text-blue-400'   },
+      { href: '/qos-heatmap',      label: 'QoS Heatmap',       desc: 'Quality of service map',   icon: Activity,       color: 'text-indigo-400' },
     ],
   },
   'intelligence': {
@@ -119,32 +105,32 @@ const WS_CONFIG: Record<WorkspaceDomain, WorkspaceConfig> = {
       { href: '/vendor-stability-timeline',label: 'Stability Timeline', desc: 'Vendor health history',  icon: HeartPulse,  color: 'text-indigo-400' },
     ],
   },
-  'troubleshooting': {
-    description: 'SIP tracing, RTP analysis, test calls, call replay, and engineering tools',
-    headerIcon: Wrench,
-    quickLinks: [
-      { href: '/sip-trace',         label: 'SIP Trace',        desc: 'Packet-level tracing',    icon: Mic,          color: 'text-orange-400' },
-      { href: '/rtp-analytics',     label: 'RTP Analytics',    desc: 'Media quality analysis',  icon: Activity,     color: 'text-cyan-400'   },
-      { href: '/test-call',         label: 'Test Suite',       desc: 'On-demand test calls',    icon: PhoneCall,    color: 'text-emerald-400'},
-      { href: '/replay',            label: 'Replay Engine',    desc: 'Call session replay',     icon: Rewind,       color: 'text-violet-400' },
-      { href: '/network-topology',  label: 'Network Topology', desc: 'Topology viewer',         icon: Network,      color: 'text-blue-400'   },
-      { href: '/test-campaigns',    label: 'Test Campaigns',   desc: 'Automated test suites',   icon: FlaskConical, color: 'text-amber-400'  },
-      { href: '/tools',             label: 'Tools',            desc: 'Engineering utilities',   icon: Wrench,       color: 'text-rose-400'   },
-      { href: '/number-intelligence',label:'Number Intel',     desc: 'Number analysis',         icon: ScanSearch,   color: 'text-indigo-400' },
-    ],
-  },
-  'fraud': {
+  'security': {
     description: 'FAS/IRSF detection, firewall, compliance, approvals, and audit trail',
     headerIcon: ShieldAlert,
     quickLinks: [
-      { href: '/fraud',             label: 'Fraud Engine',    desc: 'FAS/IRSF detection',       icon: ShieldAlert,  color: 'text-rose-400'   },
-      { href: '/firewall',          label: 'Firewall',        desc: 'Auto-blacklist rules',      icon: Shield,       color: 'text-orange-400' },
-      { href: '/approvals',         label: 'Approvals',       desc: 'Pending approval queue',    icon: CheckCircle2, color: 'text-emerald-400'},
-      { href: '/audit-log',         label: 'Audit Log',       desc: 'Platform activity trail',   icon: ClipboardList,color: 'text-amber-400'  },
-      { href: '/compliance',        label: 'Compliance',      desc: 'Regulatory compliance',     icon: FileText,     color: 'text-violet-400' },
-      { href: '/stir-shaken',       label: 'STIR/SHAKEN',     desc: 'Attestation framework',     icon: Lock,         color: 'text-cyan-400'   },
-      { href: '/call-recordings',   label: 'Recordings',      desc: 'Call recording archive',    icon: Mic,          color: 'text-blue-400'   },
-      { href: '/vendor-sla-scorecard',label:'SLA Management', desc: 'SLA breach tracking',       icon: HeartPulse,   color: 'text-indigo-400' },
+      { href: '/fraud',               label: 'Fraud Engine',   desc: 'FAS/IRSF detection',       icon: ShieldAlert,  color: 'text-rose-400'   },
+      { href: '/firewall',            label: 'Firewall',       desc: 'Auto-blacklist rules',      icon: Shield,       color: 'text-orange-400' },
+      { href: '/approvals',           label: 'Approvals',      desc: 'Pending approval queue',    icon: CheckCircle2, color: 'text-emerald-400'},
+      { href: '/audit-log',           label: 'Audit Log',      desc: 'Platform activity trail',   icon: ClipboardList,color: 'text-amber-400'  },
+      { href: '/compliance',          label: 'Compliance',     desc: 'Regulatory compliance',     icon: FileText,     color: 'text-violet-400' },
+      { href: '/stir-shaken',         label: 'STIR/SHAKEN',    desc: 'Attestation framework',     icon: Lock,         color: 'text-cyan-400'   },
+      { href: '/call-recordings',     label: 'Recordings',     desc: 'Call recording archive',    icon: Mic,          color: 'text-blue-400'   },
+      { href: '/vendor-sla-scorecard',label:'SLA Management',  desc: 'SLA breach tracking',       icon: HeartPulse,   color: 'text-indigo-400' },
+    ],
+  },
+  'finance': {
+    description: 'Billing, invoices, rate decks, cost optimisation, and revenue analytics',
+    headerIcon: Banknote,
+    quickLinks: [
+      { href: '/billing',          label: 'Billing',           desc: 'Payments & invoices',      icon: Wallet,         color: 'text-emerald-400'},
+      { href: '/billing-disputes', label: 'Disputes',          desc: 'Dispute resolution',        icon: FileText,       color: 'text-rose-400'   },
+      { href: '/rate-cards',       label: 'Rate Cards',        desc: 'Rate decks & pricing',      icon: FileSpreadsheet,color: 'text-blue-400'   },
+      { href: '/products',         label: 'Products',          desc: 'Product catalogue',         icon: Package,        color: 'text-violet-400' },
+      { href: '/cost-optimisation',label: 'Cost Optimisation', desc: 'Route cost engine',         icon: TrendingDown,   color: 'text-cyan-400'   },
+      { href: '/revenue-heatmap',  label: 'Revenue Heatmap',   desc: 'Revenue visualisation',     icon: Map,            color: 'text-amber-400'  },
+      { href: '/balance',          label: 'Balance Monitor',   desc: 'Vendor account balances',   icon: Wallet,         color: 'text-orange-400' },
+      { href: '/reports',          label: 'Finance Reports',   desc: 'Revenue & cost reports',    icon: BarChart2,      color: 'text-indigo-400' },
     ],
   },
   'settings': {
@@ -299,17 +285,11 @@ export default function WorkspaceHomePage() {
       { label: 'Avg ASR',        value: avgAsr != null ? `${avgAsr.toFixed(1)}%` : '—', color: avgAsr == null ? 'text-muted-foreground' : avgAsr >= 90 ? 'text-emerald-400' : avgAsr >= 75 ? 'text-amber-400' : 'text-rose-400', icon: BarChart3 },
       { label: 'Balance Alerts', value: vendorBalances.filter((v: any) => (v.balance ?? Infinity) < 100).length, sub: `${vendorBalances.length} vendors`, color: 'text-amber-400', icon: Wallet },
     ],
-    'routing': [
-      { label: 'Live Calls',     value: liveCallCount,              color: 'text-emerald-400', icon: Phone },
-      { label: 'Active Incidents',value: activeIncidents.length,    color: activeIncidents.length > 0 ? 'text-rose-400' : 'text-emerald-400', icon: AlertTriangle },
-      { label: 'Avg ASR',        value: avgAsr != null ? `${avgAsr.toFixed(1)}%` : '—', color: avgAsr == null ? 'text-muted-foreground' : avgAsr >= 90 ? 'text-emerald-400' : 'text-amber-400', icon: BarChart3 },
-      { label: 'Pending Approvals', value: pendingCount,            color: pendingCount > 0 ? 'text-amber-400' : 'text-emerald-400', icon: CheckCircle2 },
-    ],
-    'reports': [
-      { label: 'Live Calls',     value: liveCallCount,              color: 'text-blue-400',   icon: Phone },
-      { label: 'Active Incidents',value: activeIncidents.length,    color: activeIncidents.length > 0 ? 'text-rose-400' : 'text-emerald-400', icon: Bell },
-      { label: 'Avg ASR',        value: avgAsr != null ? `${avgAsr.toFixed(1)}%` : '—', color: avgAsr == null ? 'text-muted-foreground' : avgAsr >= 90 ? 'text-emerald-400' : 'text-amber-400', icon: BarChart3 },
-      { label: 'Carriers Monitored', value: carrierScores.length,   color: 'text-blue-400',   icon: Activity },
+    'analytics': [
+      { label: 'Live Calls',        value: liveCallCount,              color: 'text-blue-400',   icon: Phone },
+      { label: 'Active Incidents',  value: activeIncidents.length,     color: activeIncidents.length > 0 ? 'text-rose-400' : 'text-emerald-400', icon: Bell },
+      { label: 'Avg ASR',           value: avgAsr != null ? `${avgAsr.toFixed(1)}%` : '—', color: avgAsr == null ? 'text-muted-foreground' : avgAsr >= 90 ? 'text-emerald-400' : 'text-amber-400', icon: BarChart3 },
+      { label: 'Carriers Monitored',value: carrierScores.length,       color: 'text-blue-400',   icon: Activity },
     ],
     'intelligence': [
       { label: 'Active Anomalies', value: activeIncidents.length,   color: activeIncidents.length > 0 ? 'text-rose-400' : 'text-emerald-400', icon: AlertTriangle },
@@ -317,17 +297,17 @@ export default function WorkspaceHomePage() {
       { label: 'Degraded',        value: degradedCarriers.length,   sub: `stability < 55`, color: degradedCarriers.length > 0 ? 'text-rose-400' : 'text-emerald-400', icon: ShieldAlert },
       { label: 'Avg ASR',         value: avgAsr != null ? `${avgAsr.toFixed(1)}%` : '—', color: avgAsr == null ? 'text-muted-foreground' : avgAsr >= 90 ? 'text-emerald-400' : avgAsr >= 75 ? 'text-amber-400' : 'text-rose-400', icon: BarChart3 },
     ],
-    'troubleshooting': [
-      { label: 'Active Incidents', value: activeIncidents.length,   color: activeIncidents.length > 0 ? 'text-rose-400' : 'text-emerald-400', icon: AlertTriangle },
-      { label: 'Live Calls',       value: liveCallCount,            color: 'text-orange-400', icon: Phone },
-      { label: 'Degraded Carriers',value: degradedCarriers.length,  color: degradedCarriers.length > 0 ? 'text-amber-400' : 'text-emerald-400', icon: Wifi },
-      { label: 'Pending Approvals',value: pendingCount,             color: pendingCount > 0 ? 'text-amber-400' : 'text-emerald-400', icon: CheckCircle2 },
+    'security': [
+      { label: 'Active Incidents',  value: activeIncidents.length,   color: activeIncidents.length > 0 ? 'text-rose-400' : 'text-emerald-400', icon: ShieldAlert },
+      { label: 'Pending Approvals', value: pendingCount,             color: pendingCount > 0 ? 'text-amber-400' : 'text-emerald-400', icon: CheckCircle2 },
+      { label: 'Avg ASR',           value: avgAsr != null ? `${avgAsr.toFixed(1)}%` : '—', color: avgAsr == null ? 'text-muted-foreground' : avgAsr >= 90 ? 'text-emerald-400' : 'text-amber-400', icon: BarChart3 },
+      { label: 'Carriers Monitored',value: carrierScores.length,     color: 'text-rose-400',   icon: Wifi },
     ],
-    'fraud': [
-      { label: 'Active Incidents', value: activeIncidents.length,   color: activeIncidents.length > 0 ? 'text-rose-400' : 'text-emerald-400', icon: ShieldAlert },
-      { label: 'Pending Approvals',value: pendingCount,             color: pendingCount > 0 ? 'text-amber-400' : 'text-emerald-400', icon: CheckCircle2 },
-      { label: 'Avg ASR',          value: avgAsr != null ? `${avgAsr.toFixed(1)}%` : '—', color: avgAsr == null ? 'text-muted-foreground' : avgAsr >= 90 ? 'text-emerald-400' : 'text-amber-400', icon: BarChart3 },
-      { label: 'Carriers Monitored',value: carrierScores.length,    color: 'text-rose-400',   icon: Wifi },
+    'finance': [
+      { label: 'Live Calls',        value: liveCallCount,            color: 'text-emerald-400', icon: Phone },
+      { label: 'Pending Approvals', value: pendingCount,             color: pendingCount > 0 ? 'text-amber-400' : 'text-emerald-400', icon: CheckCircle2 },
+      { label: 'Avg ASR',           value: avgAsr != null ? `${avgAsr.toFixed(1)}%` : '—', color: avgAsr == null ? 'text-muted-foreground' : avgAsr >= 90 ? 'text-emerald-400' : 'text-amber-400', icon: BarChart3 },
+      { label: 'Balance Alerts',    value: vendorBalances.filter((v: any) => (v.balance ?? Infinity) < 100).length, sub: `${vendorBalances.length} vendors`, color: 'text-amber-400', icon: Wallet },
     ],
     'settings': [
       { label: 'Active Incidents', value: activeIncidents.length,   color: activeIncidents.length > 0 ? 'text-rose-400' : 'text-emerald-400', icon: AlertTriangle },
@@ -340,8 +320,8 @@ export default function WorkspaceHomePage() {
   const kpis = kpisByDomain[domain] ?? kpisByDomain['live-ops'];
 
   // ── Contextual live feed (depends on workspace) ──────────────────────────
-  const showIncidentFeed   = ['live-ops','intelligence','troubleshooting','fraud'].includes(domain);
-  const showCarrierFeed    = ['vendors','intelligence','routing'].includes(domain);
+  const showIncidentFeed   = ['live-ops','intelligence','security'].includes(domain);
+  const showCarrierFeed    = ['vendors','intelligence','analytics'].includes(domain);
   const recentIncidents    = allIncidents.slice(0, 5);
   const sortedCarriers     = [...carrierScores].sort((a: any, b: any) => (a.stabilityScore ?? 100) - (b.stabilityScore ?? 100)).slice(0, 6);
 

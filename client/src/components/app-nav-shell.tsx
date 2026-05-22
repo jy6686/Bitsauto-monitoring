@@ -8,7 +8,7 @@ import {
   HardDrive, Layers, Calculator, Route, FlaskConical,
   Shield, FileText, Lock, TrendingDown, History,
   LayoutDashboard, Zap, Map, BarChart3, Brain,
-  SlidersHorizontal, Key, Mail, Building2, Wallet,
+  SlidersHorizontal, Key, Mail, Building2, Wallet, Banknote,
   HeartPulse, Mic, Bot, ClipboardList, ArrowRightLeft,
   FileSpreadsheet, Rewind, Upload, Star, Package, Search,
   MessageSquare, Bell, Sun, Moon, LogOut,
@@ -29,177 +29,203 @@ interface Group  { label: string; icon: React.ComponentType<{ className?: string
 interface Domain { id: string; label: string; icon: React.ComponentType<{ className?: string }>; color: string; groups: Group[] }
 
 const DOMAINS: Domain[] = [
+  // ── 1. LIVE OPS ── NOC + infrastructure monitoring ──────────────────────────
   {
     id: 'live-ops', label: 'Live Ops', icon: Radio, color: 'text-violet-400',
     groups: [
-      { label: 'Monitor', icon: Eye, items: [
-        { href: '/bitseye2',     label: 'BitsEye 2',    desc: 'Live topology observatory', icon: Eye },
-        { href: '/live-traffic', label: 'Live Traffic', desc: 'Active call stream',        icon: Activity },
-        { href: '/traffic-map',  label: 'Traffic Map',  desc: 'Geographic call view',      icon: Globe },
-        { href: '/graphs',       label: 'Graphs',       desc: 'Performance charts',        icon: LineChart },
+      { label: 'Monitoring', icon: Eye, items: [
+        { href: '/bitseye2',     label: 'BitsEye 2',    desc: 'Live topology observatory',  icon: Eye },
+        { href: '/live-traffic', label: 'Live Traffic', desc: 'Active call stream',          icon: Activity },
+        { href: '/traffic-map',  label: 'Traffic Map',  desc: 'Geographic call view',        icon: Globe },
+        { href: '/graphs',       label: 'Graphs',       desc: 'Real-time performance charts', icon: LineChart },
+        { href: '/multi-switch', label: 'Multi-Switch', desc: 'Consolidated switch view',    icon: Layers },
       ]},
       { label: 'Infrastructure', icon: Server, items: [
-        { href: '/multi-switch',      label: 'Multi-Switch',   desc: 'Consolidated switch view',  icon: Layers },
         { href: '/server-monitoring', label: 'Server Monitor', desc: 'Infrastructure health',     icon: Server },
         { href: '/sbc-monitor',       label: 'SBC Monitor',    desc: 'Session border controller', icon: HardDrive },
+        { href: '/network-topology',  label: 'Network Topology', desc: 'Topology viewer',         icon: Network },
       ]},
       { label: 'Operations', icon: Monitor, items: [
-        { href: '/noc-command', label: 'NOC Command', desc: 'Command center',         icon: Monitor },
-        { href: '/ops-console', label: 'Ops Console', desc: 'Unified operations',     icon: SlidersHorizontal },
-        { href: '/console',     label: 'Console',     desc: 'Logs & debug shell',     icon: Database },
-        { href: '/alerts',      label: 'Alerts',      desc: 'Platform alerts',        icon: Zap },
+        { href: '/noc-command', label: 'NOC Command', desc: 'Command center',     icon: Monitor },
+        { href: '/ops-console', label: 'Ops Console', desc: 'Unified operations', icon: SlidersHorizontal },
+        { href: '/console',     label: 'Console',     desc: 'Logs & debug shell', icon: Database },
+        { href: '/alerts',      label: 'Alerts',      desc: 'Platform alerts',   icon: Zap },
+      ]},
+      { label: 'Diagnostics', icon: Mic, items: [
+        { href: '/sip-trace',      label: 'SIP Trace',      desc: 'Packet-level tracing',   icon: Mic },
+        { href: '/replay',         label: 'Replay Engine',  desc: 'Call session replay',    icon: Rewind },
+        { href: '/test-campaigns', label: 'Test Campaigns', desc: 'Automated test suites',  icon: FlaskConical },
+        { href: '/tools',          label: 'Tools',          desc: 'Engineering utilities',  icon: Wrench },
       ]},
     ],
   },
+
+  // ── 2. CLIENTS ── customer lifecycle + KAM workflows ────────────────────────
   {
     id: 'clients', label: 'Clients', icon: Users, color: 'text-amber-400',
     groups: [
-      { label: 'Accounts', icon: Users, items: [
-        { href: '/clients',       label: 'Accounts',      desc: 'Client management',   icon: Users },
-        { href: '/client-portal', label: 'Client Portal', desc: 'Self-service access', icon: Building2 },
-        { href: '/reseller',      label: 'Reseller',      desc: 'Partner accounts',    icon: Star },
+      { label: 'Company Management', icon: Building2, items: [
+        { href: '/clients',        label: 'Accounts',      desc: 'Client account management', icon: Users },
+        { href: '/company-profile',label: 'Company Profile', desc: 'Organisation details',    icon: Building2 },
+        { href: '/account-names',  label: 'Account Names', desc: 'Account naming & aliases',  icon: FileText },
+        { href: '/reseller',       label: 'Reseller',      desc: 'Partner & reseller accounts', icon: Star },
       ]},
-      { label: 'Billing', icon: Wallet, items: [
-        { href: '/billing',          label: 'Billing',  desc: 'Payments & invoices', icon: Wallet },
-        { href: '/billing-disputes', label: 'Disputes', desc: 'Dispute resolution',  icon: ClipboardList },
+      { label: 'Financial', icon: Wallet, items: [
+        { href: '/billing',          label: 'Billing',       desc: 'Payments & invoices',    icon: Wallet },
+        { href: '/billing-disputes', label: 'Disputes',      desc: 'Dispute resolution',     icon: ClipboardList },
+        { href: '/products',         label: 'Products',      desc: 'Product catalogue',      icon: Package },
+        { href: '/rate-cards',       label: 'Rate Cards',    desc: 'Pricing & rate decks',   icon: FileSpreadsheet },
       ]},
-      { label: 'Numbers & Config', icon: Phone, items: [
-        { href: '/dids',          label: 'DIDs',          desc: 'Number inventory', icon: Phone },
-        { href: '/account-names', label: 'Account Names', desc: 'Account naming',   icon: FileText },
+      { label: 'Client Operations', icon: Phone, items: [
+        { href: '/client-portal',    label: 'Client Portal', desc: 'Self-service access',    icon: Building2 },
+        { href: '/dids',             label: 'DIDs',          desc: 'Number inventory',       icon: Phone },
+        { href: '/call-recordings',  label: 'Recordings',    desc: 'Call recordings archive', icon: Mic },
       ]},
     ],
   },
+
+  // ── 3. VENDORS ── carrier ops + routing (deeply connected) ──────────────────
   {
     id: 'vendors', label: 'Vendors', icon: Wifi, color: 'text-cyan-400',
     groups: [
-      { label: 'Health & Quality', icon: HeartPulse, items: [
-        { href: '/vendors',              label: 'Vendor List',     desc: 'Carrier management',  icon: Wifi },
-        { href: '/vendor-sla-scorecard', label: 'SLA Scorecard',   desc: 'Carrier performance', icon: HeartPulse },
-        { href: '/carrier-scoring',      label: 'Carrier Scoring', desc: 'Quality benchmarks',  icon: Star },
+      { label: 'Vendor Operations', icon: Wifi, items: [
+        { href: '/vendors',                   label: 'Vendor List',      desc: 'Carrier management',       icon: Wifi },
+        { href: '/vendor-sla-scorecard',      label: 'SLA Scorecard',    desc: 'Carrier SLA performance',  icon: HeartPulse },
+        { href: '/carrier-scoring',           label: 'Carrier Scoring',  desc: 'Quality benchmarks',       icon: Star },
+        { href: '/vendor-stability-timeline', label: 'Stability',        desc: 'Vendor stability timeline', icon: Activity },
+        { href: '/balance',                   label: 'Balance Monitor',  desc: 'Vendor account balances',  icon: Wallet },
       ]},
-      { label: 'Intelligence', icon: Brain, items: [
-        { href: '/carrier-intelligence',       label: 'Carrier Intel', desc: 'Market intelligence',   icon: Brain },
-        { href: '/vendor-prefix-intelligence', label: 'Prefix Intel',  desc: 'Prefix-level analysis', icon: Globe },
-        { href: '/vendor-stability-timeline',  label: 'Stability',     desc: 'Vendor timeline',       icon: Activity },
-        { href: '/vendor-rca',                 label: 'RCA Drilldown', desc: 'Root cause analysis',   icon: Search },
+      { label: 'Routing Core', icon: GitBranch, items: [
+        { href: '/routing-manager',    label: 'Routing Manager',  desc: 'Groups, connections & sets', icon: GitBranch },
+        { href: '/lcr-analyser',       label: 'LCR Analyser',     desc: 'Least-cost routing',         icon: Calculator },
+        { href: '/call-flow-simulator',label: 'Route Simulator',  desc: 'Simulate routing decisions', icon: ArrowRightLeft },
+        { href: '/self-heal',          label: 'Traffic Steering', desc: 'Auto-healing & steering',    icon: HeartPulse },
       ]},
-      { label: 'Finance', icon: Wallet, items: [
-        { href: '/balance',     label: 'Balance Monitor', desc: 'Vendor balances',    icon: Wallet },
-        { href: '/products',    label: 'Products',        desc: 'Product catalogue',  icon: Package },
-        { href: '/rate-cards',  label: 'Rate Cards',      desc: 'Pricing management', icon: FileSpreadsheet },
+      { label: 'Routing Intelligence', icon: Brain, items: [
+        { href: '/routing-intelligence',       label: 'Routing Intel',     desc: 'Intelligent route analysis', icon: Brain },
+        { href: '/number-intelligence',        label: 'Number Intel',      desc: 'Number-level analysis',      icon: Phone },
+        { href: '/vendor-prefix-intelligence', label: 'Prefix Intel',      desc: 'Prefix-level analytics',     icon: Globe },
+        { href: '/cost-optimisation',          label: 'Cost Optimisation', desc: 'Route cost engine',          icon: TrendingDown },
+        { href: '/test-call',                  label: 'Route Tester',      desc: 'On-demand route test calls', icon: PhoneCall },
       ]},
-    ],
-  },
-  {
-    id: 'routing', label: 'Routing', icon: GitBranch, color: 'text-emerald-400',
-    groups: [
-      { label: 'Manager', icon: GitBranch, items: [
-        { href: '/routing-manager', label: 'Routing Manager', desc: 'Groups & connections', icon: GitBranch },
-        { href: '/lcr-analyser',    label: 'LCR Analyser',    desc: 'Least-cost routing',   icon: Calculator },
-      ]},
-      { label: 'Analysis', icon: Brain, items: [
-        { href: '/routing-intelligence', label: 'Routing Intel', desc: 'Intelligent routing', icon: Brain },
-        { href: '/number-intelligence',  label: 'Number Intel',  desc: 'Number analysis',     icon: Phone },
-      ]},
-      { label: 'Simulation', icon: ArrowRightLeft, items: [
-        { href: '/call-flow-simulator', label: 'Call Flow Sim', desc: 'Route simulation',    icon: ArrowRightLeft },
-        { href: '/self-heal',           label: 'Self-Heal',     desc: 'Auto-heal routes',    icon: HeartPulse },
-      ]},
-      { label: 'Cost', icon: TrendingDown, items: [
-        { href: '/cost-optimisation', label: 'Cost Optimisation', desc: 'Route cost engine', icon: TrendingDown },
+      { label: 'Quality & RCA', icon: Search, items: [
+        { href: '/vendor-rca',          label: 'Vendor RCA',      desc: 'Root cause analysis',         icon: Search },
+        { href: '/carrier-intelligence',label: 'Carrier Intel',   desc: 'Market intelligence signals', icon: Brain },
+        { href: '/asr-acd',             label: 'ASR / NER',       desc: 'ASR/NER quality analytics',   icon: BarChart3 },
+        { href: '/rtp-analytics',       label: 'RTP Analytics',   desc: 'Media quality analysis',      icon: Activity },
       ]},
     ],
   },
-  {
-    id: 'reports', label: 'Analytics', icon: BarChart2, color: 'text-blue-400',
-    groups: [
-      { label: 'Reports', icon: BarChart2, items: [
-        { href: '/reports', label: 'Reports',   desc: 'Report centre',        icon: BarChart2 },
-        { href: '/asr-acd', label: 'ASR / ACD', desc: 'Call quality reports', icon: BarChart3 },
-        { href: '/cdrs',    label: 'CDRs',       desc: 'Call detail records',  icon: History },
-      ]},
-      { label: 'Visual Analytics', icon: LineChart, items: [
-        { href: '/analytics',       label: 'Analytics',       desc: 'Traffic analytics', icon: LineChart },
-        { href: '/bitseye',         label: 'BitsEye',         desc: 'Drill-down analytics', icon: Eye },
-        { href: '/revenue-heatmap', label: 'Revenue Heatmap', desc: 'Revenue analysis',  icon: Map },
-      ]},
-      { label: 'Forecasting', icon: TrendingDown, items: [
-        { href: '/traffic-forecast', label: 'Traffic Forecast', desc: 'Demand forecasting',  icon: TrendingDown },
-        { href: '/qos-heatmap',      label: 'QoS Heatmap',      desc: 'Quality of service',  icon: HeartPulse },
-        { href: '/codec-analytics',  label: 'Codec Analytics',  desc: 'Codec breakdown',     icon: Radio },
-      ]},
-    ],
-  },
+
+  // ── 4. INTELLIGENCE ── AI Ops + decision support layer ───────────────────────
   {
     id: 'intelligence', label: 'Intelligence', icon: Brain, color: 'text-fuchsia-400',
     groups: [
-      { label: 'Core', icon: Brain, items: [
-        { href: '/intelligence', label: 'Intelligence Hub', desc: 'Correlated insights',  icon: Brain },
-        { href: '/ai-ops',       label: 'AI Ops Center',    desc: 'Anomaly detection',    icon: Bot },
-        { href: '/carrier-intelligence', label: 'Carrier Intel', desc: 'Route health signals', icon: Activity },
+      { label: 'AI Operations', icon: Bot, items: [
+        { href: '/intelligence',           label: 'Intelligence Hub', desc: 'Correlated insights hub',  icon: Brain },
+        { href: '/ai-ops',                 label: 'AI Ops Center',    desc: 'Anomaly detection & ops',  icon: Bot },
+        { href: '/intelligence-validation',label: 'Validation',       desc: 'Data quality validation',  icon: Shield },
       ]},
-      { label: 'Validation', icon: Shield, items: [
-        { href: '/intelligence-validation', label: 'Validation', desc: 'Data quality checks', icon: Shield },
-      ]},
-    ],
-  },
-  {
-    id: 'troubleshooting', label: 'Troubleshoot', icon: Wrench, color: 'text-orange-400',
-    groups: [
-      { label: 'Diagnostics', icon: Mic, items: [
-        { href: '/sip-trace',     label: 'SIP Trace',      desc: 'Packet-level tracing',   icon: Mic },
-        { href: '/rtp-analytics', label: 'RTP Analytics',  desc: 'Media quality analysis', icon: Activity },
-        { href: '/replay',        label: 'Replay Engine',  desc: 'Call session replay',    icon: Rewind },
-      ]},
-      { label: 'Testing', icon: FlaskConical, items: [
-        { href: '/test-call',      label: 'Test Call',      desc: 'On-demand test calls',  icon: PhoneCall },
-        { href: '/test-campaigns', label: 'Test Campaigns', desc: 'Automated test suites', icon: FlaskConical },
-      ]},
-      { label: 'Tools', icon: Wrench, items: [
-        { href: '/tools',            label: 'Tools',            desc: 'Engineering utilities', icon: Wrench },
-        { href: '/network-topology', label: 'Network Topology', desc: 'Topology viewer',       icon: Network },
+      { label: 'Analysis Tools', icon: Search, items: [
+        { href: '/vendor-rca',                 label: 'Vendor RCA',        desc: 'Root cause analysis',       icon: Search },
+        { href: '/vendor-prefix-intelligence', label: 'Prefix Intel',      desc: 'Prefix-level intelligence', icon: Globe },
+        { href: '/vendor-stability-timeline',  label: 'Stability Engine',  desc: 'Vendor stability analysis', icon: Activity },
+        { href: '/routing-intelligence',       label: 'Routing Intel',     desc: 'Route intelligence engine', icon: GitBranch },
+        { href: '/carrier-intelligence',       label: 'Carrier Intel',     desc: 'Route health signals',      icon: Brain },
       ]},
     ],
   },
+
+  // ── 5. ANALYTICS ── historical analytics + reporting ────────────────────────
   {
-    id: 'fraud', label: 'Security', icon: ShieldAlert, color: 'text-rose-400',
+    id: 'analytics', label: 'Analytics', icon: BarChart2, color: 'text-blue-400',
     groups: [
-      { label: 'Fraud', icon: ShieldAlert, items: [
-        { href: '/fraud',    label: 'Fraud Engine', desc: 'FAS/IRSF detection', icon: ShieldAlert },
-        { href: '/firewall', label: 'Firewall',     desc: 'Auto-blacklist',     icon: Shield },
+      { label: 'Traffic & Quality', icon: Activity, items: [
+        { href: '/analytics',       label: 'Traffic Analytics', desc: 'Call traffic analytics',   icon: Activity },
+        { href: '/asr-acd',         label: 'ASR / ACD',         desc: 'ASR/ACD call quality',     icon: BarChart3 },
+        { href: '/qos-heatmap',     label: 'QoS Heatmap',       desc: 'Quality of service map',   icon: HeartPulse },
+        { href: '/codec-analytics', label: 'Codec Analytics',   desc: 'Codec breakdown analysis', icon: Radio },
+        { href: '/rtp-analytics',   label: 'RTP Analytics',     desc: 'Media quality analysis',   icon: Activity },
+      ]},
+      { label: 'Revenue & Finance', icon: TrendingDown, items: [
+        { href: '/revenue-heatmap',  label: 'Revenue Heatmap',  desc: 'Revenue visualisation',    icon: Map },
+        { href: '/reports',          label: 'Reports',          desc: 'Report centre',            icon: BarChart2 },
+        { href: '/traffic-forecast', label: 'Traffic Forecast', desc: 'Demand forecasting',       icon: TrendingDown },
+      ]},
+      { label: 'Records', icon: History, items: [
+        { href: '/cdrs',    label: 'CDRs',         desc: 'Call detail records',  icon: History },
+        { href: '/bitseye', label: 'BitsEye',      desc: 'Drill-down analytics', icon: Eye },
+        { href: '/bitseye2',label: 'BitsEye 2',    desc: 'Live topology view',   icon: Eye },
+      ]},
+    ],
+  },
+
+  // ── 6. SECURITY ── fraud + compliance + governance ───────────────────────────
+  {
+    id: 'security', label: 'Security', icon: ShieldAlert, color: 'text-rose-400',
+    groups: [
+      { label: 'Fraud & Detection', icon: ShieldAlert, items: [
+        { href: '/fraud',    label: 'Fraud Engine',  desc: 'FAS/IRSF detection engine', icon: ShieldAlert },
+        { href: '/firewall', label: 'Firewall',      desc: 'Auto-blacklist management', icon: Shield },
+        { href: '/sla-breaches', label: 'SLA Breaches', desc: 'SLA breach tracking',   icon: Zap },
       ]},
       { label: 'Compliance', icon: Lock, items: [
-        { href: '/stir-shaken',  label: 'STIR/SHAKEN',  desc: 'Attestation framework',  icon: Lock },
-        { href: '/sla-breaches', label: 'SLA Breaches',  desc: 'Breach tracking',        icon: Zap },
-        { href: '/compliance',   label: 'Compliance',    desc: 'Regulatory compliance',  icon: ClipboardList },
-        { href: '/audit-log',    label: 'Audit Log',     desc: 'Platform activity log',  icon: FileText },
+        { href: '/stir-shaken', label: 'STIR/SHAKEN', desc: 'Attestation framework', icon: Lock },
+        { href: '/compliance',  label: 'Compliance',  desc: 'Regulatory compliance', icon: ClipboardList },
+        { href: '/audit-log',   label: 'Audit Log',   desc: 'Platform activity log', icon: FileText },
       ]},
       { label: 'Governance', icon: FileText, items: [
-        { href: '/approvals',       label: 'Approvals',  desc: 'Approval queue',   icon: FileText },
-        { href: '/call-recordings', label: 'Recordings', desc: 'Call recordings',  icon: Mic },
+        { href: '/approvals',      label: 'Approvals',       desc: 'Approval queue',          icon: FileText },
+        { href: '/call-recordings',label: 'Recordings',      desc: 'Call recordings archive', icon: Mic },
+        { href: '/approval-settings', label: 'Approval Rules', desc: 'Approval configuration', icon: SlidersHorizontal },
       ]},
     ],
   },
+
+  // ── 7. FINANCE ── commercial operations + cost centre ───────────────────────
+  {
+    id: 'finance', label: 'Finance', icon: Banknote, color: 'text-emerald-400',
+    groups: [
+      { label: 'Billing', icon: Wallet, items: [
+        { href: '/billing',          label: 'Billing',       desc: 'Payments & invoices',      icon: Wallet },
+        { href: '/billing-disputes', label: 'Disputes',      desc: 'Billing dispute resolution', icon: ClipboardList },
+        { href: '/products',         label: 'Products',      desc: 'Product catalogue',          icon: Package },
+        { href: '/rate-cards',       label: 'Rate Cards',    desc: 'Rate decks & pricing',       icon: FileSpreadsheet },
+      ]},
+      { label: 'Cost & Revenue', icon: TrendingDown, items: [
+        { href: '/cost-optimisation', label: 'Cost Optimisation', desc: 'Route cost engine',      icon: TrendingDown },
+        { href: '/revenue-heatmap',   label: 'Revenue Heatmap',   desc: 'Revenue visualisation',  icon: Map },
+        { href: '/balance',           label: 'Balance Monitor',   desc: 'Vendor account balances', icon: Wallet },
+      ]},
+      { label: 'Reports', icon: BarChart2, items: [
+        { href: '/reports',  label: 'Finance Reports', desc: 'Revenue & cost reports',  icon: BarChart2 },
+        { href: '/cdrs',     label: 'CDR Billing',     desc: 'CDR billing export',      icon: History },
+        { href: '/asr-acd',  label: 'Margin Analytics', desc: 'Cost vs revenue margins', icon: BarChart3 },
+      ]},
+    ],
+  },
+
+  // ── 8. SETTINGS ── platform admin + team + preferences ──────────────────────
   {
     id: 'settings', label: 'Settings', icon: Settings, color: 'text-slate-400',
     groups: [
       { label: 'Platform', icon: Settings, items: [
-        { href: '/settings',       label: 'Platform Settings', desc: 'System configuration', icon: Settings },
-        { href: '/company-profile',label: 'Company Profile',   desc: 'Org details',          icon: Building2 },
-        { href: '/vpn-config',     label: 'VPN Config',        desc: 'VPN configuration',    icon: Lock },
+        { href: '/settings',       label: 'Platform Settings', desc: 'System configuration',    icon: Settings },
+        { href: '/vpn-config',     label: 'VPN Config',        desc: 'VPN configuration',       icon: Lock },
+        { href: '/sidebar-settings', label: 'Sidebar Settings', desc: 'Navigation preferences', icon: Layers },
+        { href: '/company-profile',  label: 'Company Profile',  desc: 'Organisation details',   icon: Building2 },
       ]},
       { label: 'Team & Access', icon: Users, items: [
-        { href: '/team',              label: 'Team',           desc: 'Role & access control',  icon: Users },
-        { href: '/api-keys',          label: 'API Keys',       desc: 'API key management',     icon: Key },
-        { href: '/approval-settings', label: 'Approval Rules', desc: 'Approval configuration', icon: SlidersHorizontal },
+        { href: '/team',              label: 'Team',           desc: 'Roles & access control',  icon: Users },
+        { href: '/api-keys',          label: 'API Keys',       desc: 'API key management',      icon: Key },
+        { href: '/approval-settings', label: 'Approval Rules', desc: 'Approval configuration',  icon: SlidersHorizontal },
       ]},
       { label: 'Notifications', icon: Mail, items: [
-        { href: '/whatsapp-alerts', label: 'WhatsApp Alerts', desc: 'Alert delivery config',   icon: Mail },
-        { href: '/email-centre',    label: 'Email Centre',    desc: 'Email notifications',     icon: Mail },
+        { href: '/whatsapp-alerts', label: 'WhatsApp Alerts', desc: 'Alert delivery config',  icon: Mail },
+        { href: '/email-centre',    label: 'Email Centre',    desc: 'Email notification rules', icon: Mail },
       ]},
-      { label: 'Preferences', icon: Layers, items: [
-        { href: '/sidebar-settings', label: 'Sidebar Settings', desc: 'Navigation preferences', icon: Layers },
-        { href: '/account',          label: 'My Account',        desc: 'Profile & preferences',  icon: Users },
+      { label: 'Account', icon: Users, items: [
+        { href: '/account', label: 'My Account', desc: 'Profile & personal preferences', icon: Users },
       ]},
     ],
   },
