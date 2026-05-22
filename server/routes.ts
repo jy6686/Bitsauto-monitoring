@@ -34,6 +34,7 @@ import { updateAccountState } from "./account-state";
 import { runIncidentEngine } from "./incident-engine";
 import { runAuthExposureScorer } from "./auth-exposure";
 import { runRecommendationEngine } from "./recommendation-engine";
+import { computeVendorPrefixIntelligence } from "./vendor-prefix-intelligence";
 import { executeAction, buildSippyParams, recommendationToActionType, computeIdempotencyKey } from "./action-executor";
 import { evaluateFirewall } from "./action-firewall";
 import { listActions, createAction, getAction, approveAction, rejectAction, snoozeAction, rollbackAction } from "./action-store";
@@ -4285,6 +4286,18 @@ export async function registerRoutes(
       res.json({ ok: true, period: `${period} min`, fetchedAt: new Date().toISOString(), summary, connections });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message, connections: [], summary: {} });
+    }
+  });
+
+  // ── GET /api/vendor-prefix-intelligence ──────────────────────────────────────
+  // Computes Q-scores per vendor × destination prefix bucket from the CDR cache.
+  // Zero additional Sippy calls — read-only against in-memory cache + DB.
+  app.get('/api/vendor-prefix-intelligence', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const result = await computeVendorPrefixIntelligence(cdrCache);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

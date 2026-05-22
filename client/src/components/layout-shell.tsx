@@ -166,6 +166,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     items: [
       { href: "/routing-manager",                      label: "Routing Manager",   icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr'                              },
       { href: "/vendors",                              label: "Vendors",            icon: Building2,   roles: ['admin','management','super_admin','noc_operator','team_lead']                },
+      { href: "/vendor-prefix-intelligence",           label: "Prefix Intelligence", icon: Globe,        roles: ['admin','management'], isNew: true                                            },
       { href: "/routing-manager?tab=connections",      label: "Connections",        icon: Network,     roles: ['admin','management']                                                         },
       { href: "/routing-manager?tab=destination-sets", label: "Destination Sets",   icon: Layers,      roles: ['admin','management']                                                         },
       { href: "/lcr-analyser",                         label: "LCR Analyser",       icon: GitBranch,   roles: ['admin','management']                                                         },
