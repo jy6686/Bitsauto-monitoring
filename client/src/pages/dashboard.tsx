@@ -67,6 +67,9 @@ import {
   Info,
   ExternalLink,
   LayoutDashboard,
+  Monitor,
+  ScanSearch,
+  ChevronRight,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useToast } from "@/hooks/use-toast";
@@ -618,6 +621,27 @@ export default function DashboardPage() {
     refetchInterval: 30_000,
     staleTime: 25_000,
   });
+
+  // Active alerts count — for KPI card
+  const { data: alertsListData } = useQuery<{ alerts: any[] } | any[]>({
+    queryKey: ['/api/alerts'],
+    refetchInterval: 30_000,
+    staleTime: 25_000,
+  });
+  const alertsCount = (() => {
+    if (!alertsListData) return 0;
+    if (Array.isArray(alertsListData)) return alertsListData.filter((a: any) => a.status !== 'resolved').length;
+    const arr = (alertsListData as any).alerts ?? [];
+    return arr.filter((a: any) => a.status !== 'resolved').length;
+  })();
+
+  // Pending approvals count — for KPI card
+  const { data: pendingApprovalsCountData } = useQuery<{ count: number }>({
+    queryKey: ['/api/approvals/pending-count'],
+    refetchInterval: 60_000,
+    staleTime: 55_000,
+  });
+  const pendingCount = pendingApprovalsCountData?.count ?? 0;
 
   // Downsample monitoring points to ~30 for clean chart display
   const chartData = (() => {
@@ -1248,14 +1272,163 @@ export default function DashboardPage() {
     : systemState === 'DEGRADED' ? 'text-amber-400'
     : 'text-emerald-400';
 
+  // ── Derived counts for portal KPI cards ─────────────────────────────────
+  const degradedCarrierCount = (carrierScoresRaw ?? []).filter((c: any) => (c.score ?? c.overallScore ?? 100) < 60).length;
+  const carrierCriticalCount = (carrierScoresRaw ?? []).filter((c: any) => (c.score ?? c.overallScore ?? 100) < 40).length;
+
+  // ── Live operational feed — incidents + FAS events merged ─────────────────
+  type FeedItem = { id: string; ts: number; severity: string; label: string; detail: string; module: string; href: string };
+  const feedItems: FeedItem[] = [
+    ...(openIncidents).map((inc: any) => ({
+      id: `inc-${inc.id}`,
+      ts: new Date(inc.createdAt || inc.detectedAt || Date.now()).getTime(),
+      severity: inc.severity ?? 'info',
+      label: inc.title || inc.entityName || 'Incident',
+      detail: inc.description || '',
+      module: 'Operations',
+      href: `/incidents/${inc.id}`,
+    })),
+    ...(recentFasEvents).map((ev: any) => ({
+      id: `fas-${ev.id}`,
+      ts: new Date(ev.detectedAt).getTime(),
+      severity: 'high',
+      label: `FAS alert: ${ev.clientName || 'Unknown'} — suspicious traffic`,
+      detail: `CLI: ${ev.caller || '—'} · Duration: ${ev.duration || '—'}s`,
+      module: 'Fraud Engine',
+      href: '/fraud-engine',
+    })),
+  ].sort((a, b) => b.ts - a.ts).slice(0, 6);
+
+  const SEVE_CLS: Record<string, string> = {
+    critical: 'bg-red-500/15 text-red-500 border-red-500/30',
+    high:     'bg-amber-500/15 text-amber-500 border-amber-500/30',
+    medium:   'bg-blue-500/15 text-blue-400 border-blue-500/30',
+    low:      'bg-muted/40 text-muted-foreground border-border',
+    info:     'bg-muted/40 text-muted-foreground border-border',
+  };
+
+  // ── Workflow card definitions ──────────────────────────────────────────────
+  const PRIMARY_WORKFLOWS = [
+    {
+      id: 'vendor-rca',
+      href: '/carrier-scoring',
+      label: 'Vendor RCA',
+      desc: 'Real-time vendor performance & RCA',
+      icon: TrendingDown,
+      severity: degradedCarrierCount > 0 ? (carrierCriticalCount > 0 ? 'critical' : 'high') : 'good',
+      stat1: { value: String(degradedCarrierCount), label: 'Degraded' },
+      stat2: { value: String(carrierCriticalCount), label: 'Critical' },
+    },
+    {
+      id: 'routing-manager',
+      href: '/routing-manager',
+      label: 'Routing Manager',
+      desc: 'Routing configuration & management',
+      icon: Radio,
+      severity: openIncidents.some((i: any) => (i.entityType === 'route' || i.entityType === 'routing') && i.severity === 'high') ? 'high' : 'good',
+      stat1: { value: '—', label: 'Routes' },
+      stat2: { value: openIncidents.filter((i: any) => i.entityType === 'route').length > 0 ? String(openIncidents.filter((i: any) => i.entityType === 'route').length) : '—', label: 'Updates' },
+    },
+    {
+      id: 'noc-command',
+      href: '/noc-command',
+      label: 'NOC Command',
+      desc: 'Live incidents & command center',
+      icon: Monitor,
+      severity: criticalCount > 0 ? 'critical' : highCount > 0 ? 'high' : 'good',
+      stat1: { value: String(displayActiveCalls), label: 'Active Calls' },
+      stat2: { value: String(openIncidents.length), label: 'Incidents' },
+    },
+    {
+      id: 'prefix-intel',
+      href: '/prefix-intelligence',
+      label: 'Prefix Intelligence',
+      desc: 'Prefix analysis & optimization',
+      icon: ScanSearch,
+      severity: 'good',
+      stat1: { value: '—', label: 'Monitored' },
+      stat2: { value: anyPortalActive ? '✓' : '—', label: 'Healthy' },
+    },
+    {
+      id: 'stability',
+      href: '/stability-timeline',
+      label: 'Stability Timeline',
+      desc: 'Vendor stability & quality trends',
+      icon: Activity,
+      severity: degradedCarrierCount > 2 ? 'high' : 'good',
+      stat1: { value: String(degradedCarrierCount), label: 'Unstable' },
+      stat2: { value: String((carrierScoresRaw ?? []).length), label: 'Tracked' },
+    },
+    {
+      id: 'recommendations',
+      href: '/ai-ops',
+      label: 'Recommendations',
+      desc: 'AI-powered routing recommendations',
+      icon: Zap,
+      severity: criticalCount > 0 ? 'critical' : 'good',
+      stat1: { value: String(openIncidents.length > 0 ? openIncidents.length : '—'), label: 'Open' },
+      stat2: { value: String(criticalCount > 0 ? criticalCount : '—'), label: 'Critical' },
+    },
+  ] as const;
+
+  const SECONDARY_WORKFLOWS = [
+    {
+      id: 'carrier-intel',
+      href: '/carrier-intelligence',
+      label: 'Carrier Intel',
+      desc: 'Carrier performance intelligence',
+      icon: BarChart2,
+      stat: { value: String((carrierScoresRaw ?? []).length) + '+', label: 'Carriers' },
+    },
+    {
+      id: 'ai-ops',
+      href: '/ai-ops',
+      label: 'AI Operations',
+      desc: 'AI-powered operations intelligence',
+      icon: Zap,
+      stat: { value: '—', label: 'Active Models' },
+    },
+    {
+      id: 'fraud-engine',
+      href: '/fraud-engine',
+      label: 'Fraud Engine',
+      desc: 'Fraud detection & prevention',
+      icon: ShieldAlert,
+      stat: { value: String(recentFasEvents.length > 0 ? recentFasEvents.length : '—'), label: 'FAS Events' },
+    },
+    {
+      id: 'approvals',
+      href: '/approval-queue',
+      label: 'Approvals',
+      desc: 'Pending approvals management',
+      icon: CheckCircle2,
+      stat: { value: String(pendingCount > 0 ? pendingCount : '—'), label: 'Pending' },
+    },
+  ] as const;
+
+  const QUICK_ACTIONS = [
+    { href: '/alerts',            icon: AlertTriangle,  label: 'Create Alert'    },
+    { href: '/balance',           icon: DollarSign,     label: 'Check Balance'   },
+    { href: '/routing-manager',   icon: Radio,          label: 'Add Route'       },
+    { href: '/reports',           icon: FileSpreadsheet,label: 'Generate Report' },
+    { href: '/server-monitoring', icon: Server,         label: 'System Health'   },
+  ] as const;
+
+  const sevLabel = (s: string) => s === 'critical' ? 'Critical' : s === 'high' ? 'High' : s === 'good' ? 'Healthy' : 'Info';
+  const sevBadge = (s: string) =>
+    s === 'critical' ? 'bg-red-500/15 text-red-500 border-red-500/30'
+    : s === 'high'   ? 'bg-amber-500/15 text-amber-500 border-amber-500/30'
+    : s === 'good'   ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+    :                  'bg-muted/40 text-muted-foreground border-border';
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
 
       {/* ── Page Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-2xl font-bold tracking-tight">Network Operations Center</h2>
+            <h2 className="text-2xl font-bold tracking-tight">Live Operations</h2>
             {anyPortalActive ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -1344,7 +1517,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Banners ─────────────────────────────────────────────────────────── */}
+      {/* ── Connection Banner ───────────────────────────────────────────────── */}
       {notConnected && (
         <div className="rounded-xl border-2 border-dashed border-violet-500/40 bg-violet-500/5 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-start gap-4">
@@ -1387,591 +1560,281 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Hero Row: Active Calls | Network Health | System State ────────── */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/* ── 4 KPI Cards ─────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
-        {/* Active Calls — blue pulse when live, animated counter */}
-        <div className={cn(
-            "bg-card border border-blue-500/20 rounded-xl p-6 shadow-lg relative overflow-hidden group",
-            "transition-all duration-300 hover:border-blue-500/40 hover:-translate-y-1 hover:shadow-xl",
-            "noc-float-in",
-            anyPortalActive && liveCallsFreshness === 'fresh' ? "noc-glow-green" : ""
-          )}
-          style={{ animationDelay: '0ms' }}
-          data-testid="card-active-calls">
-          {/* Breathing background glow — blue when live */}
-          {anyPortalActive && (
-            <div className="noc-breathe absolute inset-0 rounded-xl pointer-events-none"
-              style={{ background: 'radial-gradient(ellipse at 80% 20%, rgba(59,130,246,0.18) 0%, transparent 70%)' }} />
-          )}
-          <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity duration-500">
-            <PhoneCall className="w-28 h-28" />
-          </div>
-          <div className="flex items-center justify-between mb-4 relative z-10">
+        {/* Active Calls */}
+        <div className="bg-card border border-blue-500/20 rounded-xl p-5 hover:border-blue-500/40 transition-all duration-200 group relative overflow-hidden" data-testid="card-kpi-active-calls">
+          <div className="absolute top-0 right-0 p-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity"><PhoneCall className="w-20 h-20" /></div>
+          <div className="flex items-center justify-between mb-3 relative z-10">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Calls</span>
-            <div className="flex items-center gap-2">
-              {anyPortalActive && liveCallsFreshness === 'fresh' && (
-                <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400" title="Data is fresh (< 45s old)">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  LIVE
-                </span>
-              )}
-              {anyPortalActive && liveCallsFreshness === 'delay' && (
-                <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-400" title="Slight delay (45–90s old)">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  DELAYED
-                </span>
-              )}
-              {anyPortalActive && (liveCallsFreshness === 'stale' || (liveCallsFreshness == null && liveCallsStale)) && (
-                <span className="flex items-center gap-1 text-[10px] font-semibold text-rose-400" title="Data may be stale (> 90s old)">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                  STALE
-                </span>
-              )}
-              <div className="p-2 bg-secondary/50 rounded-lg group-hover:bg-blue-500/10 transition-colors">
-                <PhoneCall className="w-4 h-4 text-blue-400" />
-              </div>
+            <div className="p-1.5 rounded-lg bg-blue-500/10"><PhoneCall className="w-3.5 h-3.5 text-blue-400" /></div>
+          </div>
+          <div className="relative z-10">
+            <div className="text-3xl font-bold tabular-nums tracking-tight" data-testid="kpi-active-calls-value">
+              {notConnected ? '—' : <AnimatedCount value={displayActiveCalls} />}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {anyPortalActive ? (callRatePerMin > 0 ? `${callRatePerMin}/min · live` : 'live · connected') : 'not connected'}
+            </p>
+          </div>
+        </div>
+
+        {/* Active Alerts */}
+        <div className={`bg-card border rounded-xl p-5 transition-all duration-200 group relative overflow-hidden ${(alertsCount + openIncidents.length) > 0 ? 'border-amber-500/30 hover:border-amber-500/50' : 'border-border/50 hover:border-border'}`} data-testid="card-kpi-active-alerts">
+          <div className="absolute top-0 right-0 p-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity"><AlertTriangle className="w-20 h-20" /></div>
+          <div className="flex items-center justify-between mb-3 relative z-10">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Alerts</span>
+            <div className={`p-1.5 rounded-lg ${(alertsCount + openIncidents.length) > 0 ? 'bg-amber-500/10' : 'bg-muted/40'}`}>
+              <AlertTriangle className={`w-3.5 h-3.5 ${(alertsCount + openIncidents.length) > 0 ? 'text-amber-400' : 'text-muted-foreground'}`} />
             </div>
           </div>
           <div className="relative z-10">
-            <div className="flex items-baseline gap-3">
-              <span className="text-5xl font-bold tracking-tight tabular-nums" data-testid="text-active-calls-count">
-                {notConnected ? '—' : <AnimatedCount value={displayActiveCalls} />}
-              </span>
-              {anyPortalActive && callRatePerMin > 0 && !liveCallsStale && (
-                <span className="text-sm font-medium px-2 py-0.5 rounded-full bg-violet-400/10 text-violet-400">
-                  {callRatePerMin}/min
-                </span>
-              )}
+            <div className={`text-3xl font-bold tabular-nums tracking-tight ${(alertsCount + openIncidents.length) > 0 ? 'text-amber-400' : ''}`} data-testid="kpi-alerts-value">
+              {alertsCount + openIncidents.length}
             </div>
-            <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-              <span><span className="text-emerald-400 font-semibold" data-testid="text-connected-count">{liveConnected}</span> connected</span>
-              <span><span className="text-amber-400 font-semibold" data-testid="text-routing-count">{liveTotal - liveConnected}</span> routing</span>
-            </div>
-            {anyPortalActive && liveCalls.length > 0 && (
-              <button
-                onClick={() => {
-                  const next = !callsPanelOpen;
-                  setCallsPanelOpen(next);
-                  try { localStorage.setItem('dash:callsPanel', String(next)); } catch {}
-                }}
-                data-testid="button-toggle-calls-panel"
-                className="mt-3 flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                {callsPanelOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                {callsPanelOpen ? 'Hide detail' : 'Show detail'}
-              </button>
-            )}
+            <p className="text-xs text-muted-foreground mt-1">
+              {openIncidents.length > 0 ? `${criticalCount > 0 ? `${criticalCount} critical · ` : ''}${openIncidents.length} open` : 'all clear'}
+            </p>
           </div>
         </div>
 
-        {/* Network Health Score — score-aware glow pulse */}
-        <div className={cn(
-            "bg-card border border-border/50 rounded-xl p-5 shadow-lg relative overflow-hidden group",
-            "transition-all duration-300 hover:border-border hover:-translate-y-1 hover:shadow-xl flex flex-col items-center",
-            "noc-float-in",
-            anyPortalActive
-              ? trafficScore >= 80 ? "noc-glow-green"
-              : trafficScore >= 50 ? "noc-glow-amber"
-              : "noc-glow-red"
-              : ""
-          )}
-          style={{ animationDelay: '70ms' }}
-          data-testid="card-health-score">
-          {/* Background radial glow */}
-          {anyPortalActive && (
-            <div className="noc-breathe absolute inset-0 rounded-xl pointer-events-none"
-              style={{ background: `radial-gradient(ellipse at 50% 30%, ${trafficScore >= 80 ? 'rgba(34,197,94,0.14)' : trafficScore >= 50 ? 'rgba(245,158,11,0.12)' : 'rgba(239,68,68,0.13)'} 0%, transparent 65%)` }} />
-          )}
-          <div className="flex items-center justify-between w-full mb-1 relative z-10">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Network Health</span>
-            <div className="p-2 bg-secondary/50 rounded-lg">
-              <Activity className="w-4 h-4 text-emerald-400" />
+        {/* Degraded Carriers */}
+        <div className={`bg-card border rounded-xl p-5 transition-all duration-200 group relative overflow-hidden ${degradedCarrierCount > 0 ? 'border-rose-500/25 hover:border-rose-500/40' : 'border-border/50 hover:border-border'}`} data-testid="card-kpi-degraded-carriers">
+          <div className="absolute top-0 right-0 p-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity"><TrendingDown className="w-20 h-20" /></div>
+          <div className="flex items-center justify-between mb-3 relative z-10">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Degraded Carriers</span>
+            <div className={`p-1.5 rounded-lg ${degradedCarrierCount > 0 ? 'bg-rose-500/10' : 'bg-muted/40'}`}>
+              <TrendingDown className={`w-3.5 h-3.5 ${degradedCarrierCount > 0 ? 'text-rose-400' : 'text-muted-foreground'}`} />
             </div>
           </div>
-          <NetworkHealthGauge score={anyPortalActive ? trafficScore : 0} />
-          <div className={`text-sm font-semibold mt-0.5 ${anyPortalActive ? scoreTextCls : 'text-muted-foreground/30'}`}>
-            {anyPortalActive ? scoreLabel : '—'}
+          <div className="relative z-10">
+            <div className={`text-3xl font-bold tabular-nums tracking-tight ${degradedCarrierCount > 0 ? 'text-rose-400' : ''}`} data-testid="kpi-degraded-value">
+              {anyPortalActive ? degradedCarrierCount : '—'}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {anyPortalActive ? (carrierCriticalCount > 0 ? `${carrierCriticalCount} critical · score < 40` : degradedCarrierCount > 0 ? 'score below 60' : 'all carriers healthy') : 'not connected'}
+            </p>
           </div>
-          <div className="text-[10px] text-muted-foreground/50 mt-1 text-center">ASR 45% · MOS 30% · CK 15% · PDD 10%</div>
         </div>
 
-        {/* System State — state-aware critical/degraded/operational pulse */}
-        <div className={cn(
-            `bg-card border rounded-xl p-6 shadow-lg relative overflow-hidden group transition-all duration-300 ${stateCardBorderCls}`,
-            "hover:-translate-y-1 hover:shadow-xl noc-float-in",
-            anyPortalActive
-              ? systemState === 'CRITICAL'  ? "noc-glow-red"
-              : systemState === 'DEGRADED'  ? "noc-glow-amber"
-              : "noc-glow-green"
-              : ""
-          )}
-          style={{ animationDelay: '140ms' }}
-          data-testid="card-system-state">
-          {/* Background radial glow — state color */}
-          {anyPortalActive && (
-            <div className="noc-breathe absolute inset-0 rounded-xl pointer-events-none"
-              style={{ background: `radial-gradient(ellipse at 20% 80%, ${systemState === 'CRITICAL' ? 'rgba(239,68,68,0.14)' : systemState === 'DEGRADED' ? 'rgba(245,158,11,0.12)' : 'rgba(34,197,94,0.10)'} 0%, transparent 65%)` }} />
-          )}
-          <div className="flex items-center justify-between mb-4 relative z-10">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">System State</span>
-            <div className="p-2 bg-secondary/50 rounded-lg">
-              <ShieldAlert className="w-4 h-4 text-muted-foreground" />
+        {/* Pending Approvals */}
+        <div className={`bg-card border rounded-xl p-5 transition-all duration-200 group relative overflow-hidden ${pendingCount > 0 ? 'border-violet-500/25 hover:border-violet-500/40' : 'border-border/50 hover:border-border'}`} data-testid="card-kpi-pending-approvals">
+          <div className="absolute top-0 right-0 p-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity"><CheckCircle2 className="w-20 h-20" /></div>
+          <div className="flex items-center justify-between mb-3 relative z-10">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pending Approvals</span>
+            <div className={`p-1.5 rounded-lg ${pendingCount > 0 ? 'bg-violet-500/10' : 'bg-muted/40'}`}>
+              <CheckCircle2 className={`w-3.5 h-3.5 ${pendingCount > 0 ? 'text-violet-400' : 'text-muted-foreground'}`} />
             </div>
           </div>
-          <div className={`text-3xl font-bold tracking-tight relative z-10 ${stateValueCls}`} data-testid="text-system-state-label">
-            {anyPortalActive ? systemState : '—'}
-          </div>
-          <div className="mt-4 space-y-2 relative z-10">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Open incidents</span>
-              <span className={`font-bold tabular-nums ${openIncidents.length > 0 ? 'text-amber-400' : 'text-emerald-400'}`}
-                data-testid="text-open-incident-count">
-                {openIncidents.length}
-              </span>
+          <div className="relative z-10">
+            <div className={`text-3xl font-bold tabular-nums tracking-tight ${pendingCount > 0 ? 'text-violet-400' : ''}`} data-testid="kpi-approvals-value">
+              {pendingCount}
             </div>
-            {criticalCount > 0 && (
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Critical</span>
-                <span className="font-bold text-rose-400" data-testid="text-critical-count">{criticalCount}</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Traffic score</span>
-              <span className={`font-bold tabular-nums ${anyPortalActive ? scoreTextCls : 'text-muted-foreground/30'}`}>
-                {anyPortalActive ? `${trafficScore} / 100` : '—'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Call rate</span>
-              <span className="font-bold text-violet-400 tabular-nums">
-                {anyPortalActive && callRatePerMin > 0 ? `${callRatePerMin}/min` : '—'}
-              </span>
-            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {pendingCount > 0 ? 'require review' : 'queue empty'}
+            </p>
           </div>
         </div>
+
       </div>
 
-      {/* ── Traffic Intelligence ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,65fr)_minmax(0,35fr)] gap-4" data-testid="section-traffic-intelligence">
-
-        {/* LEFT — Total Traffic chart */}
-        <div className="bg-card border border-border/50 rounded-xl shadow-lg overflow-hidden flex flex-col">
-          {/* Header with toggles */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 flex-shrink-0">
-            <div className="flex items-center gap-2.5">
-              <TrendingUp className="w-4 h-4 text-blue-400" />
-              <span className="text-sm font-semibold">Total Traffic</span>
-              {trafficHistLoading && <RefreshCw className="w-3 h-3 animate-spin text-muted-foreground/60" />}
+      {/* ── Smart Priorities ─────────────────────────────────────────────────── */}
+      {openIncidents.length > 0 && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.03] overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-amber-500/15 bg-amber-500/[0.03]">
+            <div>
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
+                Smart Priorities
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {criticalCount + highCount > 0
+                  ? `${criticalCount + highCount} item${criticalCount + highCount !== 1 ? 's' : ''} require${criticalCount + highCount === 1 ? 's' : ''} immediate attention`
+                  : `${openIncidents.length} open incident${openIncidents.length !== 1 ? 's' : ''}`}
+              </p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center bg-secondary/50 rounded-lg p-0.5 gap-0.5">
-                {(['calls', 'asr', 'minutes'] as const).map(m => (
-                  <button key={m} onClick={() => setTrafficMetric(m)}
-                    data-testid={`button-traffic-metric-${m}`}
-                    className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${
-                      trafficMetric === m ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                    }`}>
-                    {m === 'asr' ? 'ASR' : m === 'calls' ? 'Calls' : 'Minutes'}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center bg-secondary/50 rounded-lg p-0.5 gap-0.5">
-                {(['live', 'daily', 'weekly'] as const).map(s => (
-                  <button key={s} onClick={() => setTrafficSpan(s)}
-                    data-testid={`button-traffic-span-${s}`}
-                    className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all ${
-                      trafficSpan === s ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                    }`}>
-                    {s === 'live' ? 'LIVE' : s === 'daily' ? '24H' : '72H'}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <Link
+              href="/console"
+              className="flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors"
+              data-testid="link-smart-priorities-view-all"
+            >
+              View All ({openIncidents.length})
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
-
-          {/* Chart area — flex-grow fills remaining height */}
-          <div className="px-4 pt-3 pb-1 flex-1 relative">
-            {trafficHistLoading && !trafficHist && (
-              <div className="absolute inset-0 flex items-end gap-[3px] px-4 pb-2 pt-4 pointer-events-none z-10">
-                {Array.from({ length: 28 }, (_, i) => {
-                  const h = [40,55,35,65,50,70,45,60,38,72,55,48,62,35,58,44,67,52,40,75,48,56,42,63,37,69,50,44][i] ?? 50;
-                  return <div key={i} className="flex-1 rounded-sm bg-muted/30 animate-pulse" style={{ height: `${h}%`, animationDelay: `${i * 30}ms` }} />;
-                })}
-              </div>
-            )}
-            <ResponsiveContainer width="100%" height={170}>
-              <AreaChart data={trafficHist?.points ?? []} margin={{ top: 2, right: 2, bottom: 0, left: -22 }}>
-                <defs>
-                  <linearGradient id="dash-traffic-grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'} stopOpacity={0.25} />
-                    <stop offset="95%" stopColor={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'} stopOpacity={0}    />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid {...BSE_GRID_PROPS} />
-                <XAxis dataKey="label" {...BSE_AXIS_PROPS} />
-                <YAxis {...BSE_AXIS_PROPS} domain={trafficMetric === 'asr' ? [0, 100] : ['auto', 'auto']} />
-                <Tooltip content={<BseTooltip />} cursor={BSE_CURSOR} />
-                <Area
-                  type="monotone"
-                  dataKey={trafficMetric === 'calls' ? 'total' : trafficMetric === 'asr' ? 'asr' : 'minutes'}
-                  stroke={trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6'}
-                  strokeWidth={2}
-                  fill="url(#dash-traffic-grad)"
-                  isAnimationActive={false}
-                  dot={false}
-                  activeDot={bseActiveDot(trafficMetric === 'asr' ? '#F59E0B' : '#3B82F6')}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Stats footer — Current | Min | Max | Average */}
-          <div className="grid grid-cols-4 border-t border-border/40 divide-x divide-border/30 flex-shrink-0">
-            {[
-              { label: trafficSpan === 'live' ? 'Current' : 'Latest', value: trafficHist?.stats?.cur, accent: true },
-              { label: 'Min',     value: trafficHist?.stats?.min, accent: false },
-              { label: 'Max',     value: trafficHist?.stats?.max, accent: false },
-              { label: 'Average', value: trafficHist?.stats?.avg, accent: false },
-            ].map(({ label, value, accent }) => (
-              <div key={label} className="px-4 py-3 text-center">
-                <div className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{label}</div>
-                {trafficHistLoading ? (
-                  <div className="h-5 w-10 mx-auto rounded bg-muted/30 animate-pulse" />
-                ) : (
-                  <div className={`text-base font-bold tabular-nums ${accent ? (trafficMetric === 'asr' ? 'text-amber-400' : 'text-blue-400') : ''}`}>
-                    {value != null ? (trafficMetric === 'asr' ? `${value}%` : value) : '—'}
+          <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+            {openIncidents.slice(0, 3).map((inc: any) => (
+              <Link
+                key={inc.id}
+                href={`/console`}
+                data-testid={`card-priority-${inc.id}`}
+              >
+                <div className="group bg-card/60 border border-border/50 hover:border-amber-500/30 rounded-lg p-3.5 transition-all duration-200 cursor-pointer h-full">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase tracking-wide ${SEVE_CLS[inc.severity] ?? SEVE_CLS.info}`}>
+                      {inc.severity ?? 'info'}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
                   </div>
-                )}
-              </div>
+                  <p className="text-sm font-medium leading-snug line-clamp-1">{inc.title || inc.entityName || 'Incident'}</p>
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{inc.description || `${inc.entityType || 'system'} · ${inc.entityName || '—'}`}</p>
+                </div>
+              </Link>
             ))}
           </div>
         </div>
-
-        {/* RIGHT — Top 3 entity cards stacked */}
-        <div className="flex flex-col gap-3">
-          <DashTopEntityCard
-            title="Top Clients" icon="users" dim="client" color="violet"
-            entities={(topClients?.entities ?? []).filter(e => !e.idle)}
-            loading={!topClients}
-          />
-          <DashTopEntityCard
-            title="Top Vendors" icon="radio" dim="vendor" color="blue"
-            entities={(topVendors?.entities ?? []).filter(e => !e.idle)}
-            loading={!topVendors}
-          />
-          <DashTopEntityCard
-            title="Top Routes" icon="globe" dim="destination" color="emerald"
-            entities={(topDests?.entities ?? []).filter(e => !e.idle)}
-            loading={!topDests}
-          />
-        </div>
-      </div>
-
-      {/* ── Live Calls Detail Panel ────────────────────────────────────────── */}
-      {anyPortalActive && callsPanelOpen && liveCalls.length > 0 && (
-        <div className="rounded-xl border border-blue-500/20 bg-card overflow-hidden" data-testid="panel-live-calls">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-blue-500/10 bg-blue-500/5">
-            <div className="flex items-center gap-3">
-              <PhoneCall className="w-4 h-4 text-blue-400" />
-              <h3 className="font-semibold text-sm">Live Calls</h3>
-              <span className="flex items-center gap-1 text-[10px] font-semibold text-blue-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                {liveCalls.length} active
-              </span>
-              {/* Status filters */}
-              <div className="flex items-center gap-1 ml-2">
-                {(['all', 'connected', 'routing'] as const).map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setCallsFilter(f)}
-                    data-testid={`filter-calls-${f}`}
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors capitalize ${
-                      callsFilter === f
-                        ? 'bg-blue-600 text-white'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <Link href="/calls" className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-              data-testid="link-live-calls-full">
-              Full view <ExternalLink className="w-3 h-3" />
-            </Link>
-          </div>
-          <div className="overflow-x-auto max-h-72 overflow-y-auto">
-            <table className="w-full text-left">
-              <thead className="sticky top-0 bg-card/95 backdrop-blur-sm">
-                <tr className="border-b border-border/40">
-                  {['Caller','Callee','Account','State','Duration','Type','Started'].map(h => (
-                    <th key={h} className="px-6 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/30">
-                {liveCalls
-                  .filter((c: any) => {
-                    if (callsFilter === 'connected') return c.callStatus === 'connected';
-                    if (callsFilter === 'routing')   return c.callStatus !== 'connected';
-                    return true;
-                  })
-                  .map((call: any, i: number) => (
-                    <LiveCallRow key={call.id ?? i} call={call} index={i} />
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
       )}
 
-      {/* ── KPI Strip: ASR / MOS / PDD / ACD / NER / CPS ─────────────────── */}
-      <div className="grid gap-2 grid-cols-3 sm:grid-cols-6">
-        {[
-          {
-            label: 'ASR',
-            value: notConnected ? '—' : `${displayAsr.toFixed(1)}%`,
-            note: asrIsLiveEstimate ? 'live est.' : '',
-            good: displayAsr >= 50, warn: displayAsr >= 25,
-            testid: 'kpi-asr',
-            href: '/carrier-scoring',
-          },
-          {
-            label: 'MOS',
-            value: notConnected || displayMos == null ? '—' : displayMos.toFixed(2),
-            note: mosLabel,
-            good: (displayMos ?? 0) >= 3.5, warn: (displayMos ?? 0) >= 2.5,
-            testid: 'kpi-mos',
-            href: '/rtp-analytics',
-          },
-          {
-            label: 'PDD',
-            value: notConnected ? '—' : displayPdd > 0 ? `${displayPdd.toFixed(2)}s` : '—',
-            note: '',
-            good: displayPdd > 0 && displayPdd <= 2, warn: displayPdd > 0 && displayPdd <= 4,
-            testid: 'kpi-pdd',
-            href: '/analytics',
-          },
-          {
-            label: 'ACD',
-            value: notConnected ? '—' : displayAcd > 0 ? `${displayAcd.toFixed(0)}s` : '—',
-            note: '',
-            good: displayAcd >= 60, warn: displayAcd >= 20,
-            testid: 'kpi-acd',
-            href: '/analytics',
-          },
-          {
-            label: 'NER',
-            value: notConnected || displayNer == null ? '—' : `${displayNer.toFixed(1)}%`,
-            note: '',
-            good: (displayNer ?? 0) >= 90, warn: (displayNer ?? 0) >= 75,
-            testid: 'kpi-ner',
-            href: '/carrier-scoring',
-          },
-          {
-            label: 'CPS',
-            value: notConnected ? '—' : displayCps > 0 ? displayCps.toFixed(2) : '—',
-            note: sippyStats?.cpsSource === 'cdr' ? 'est.' : '',
-            good: true, warn: true,
-            testid: 'kpi-cps',
-            href: '/alerts',
-          },
-        ].map(kpi => (
-          <Link key={kpi.label} href={kpi.href}
-            className="bg-card border border-border/40 rounded-xl px-4 py-3 flex flex-col gap-1 hover:border-border/70 hover:bg-muted/20 transition-colors cursor-pointer group"
-            data-testid={kpi.testid}>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{kpi.label}</span>
-              <div className="flex items-center gap-1">
-                {kpi.note && <span className="text-[9px] text-muted-foreground/50">{kpi.note}</span>}
-                <ExternalLink className="w-2.5 h-2.5 text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-            </div>
-            <span className={`text-xl font-bold tabular-nums ${
-              kpi.value === '—' ? 'text-muted-foreground/30'
-              : kpi.good ? 'text-emerald-400'
-              : kpi.warn ? 'text-amber-400'
-              : 'text-rose-400'
-            }`}>
-              {kpi.value}
-            </span>
-          </Link>
-        ))}
-      </div>
-
-      {/* ── Active Incidents Strip ─────────────────────────────────────────── */}
-      {openIncidents.length > 0 ? (
-        <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 overflow-hidden" data-testid="panel-incidents">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-rose-500/15">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-rose-400" />
-              <h3 className="font-semibold text-sm text-rose-300">Active Incidents</h3>
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 text-[10px] font-bold">
-                {openIncidents.length}
-              </span>
-            </div>
-            <Link href="/ai-ops" className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-              data-testid="link-ai-ops-view-all">
-              View all <ArrowRight className="w-3 h-3" />
-            </Link>
-          </div>
-          <div className="divide-y divide-rose-500/10 max-h-64 overflow-y-auto">
-            {openIncidents.slice(0, 8).map((inc: any, i: number) => {
-              const sev = inc.severity ?? 'medium';
-              const sevCls = sev === 'critical'
-                ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
-                : sev === 'high'
-                ? 'bg-orange-500/15 text-orange-400 border-orange-500/30'
-                : sev === 'medium'
-                ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                : 'bg-blue-500/15 text-blue-400 border-blue-500/30';
-              const ageMs = inc.createdAt ? Date.now() - new Date(inc.createdAt).getTime() : 0;
-              const ageMin = Math.floor(ageMs / 60000);
-              const age = ageMin < 60 ? `${ageMin}m ago` : `${Math.floor(ageMin / 60)}h ago`;
-              return (
-                <div key={inc.id ?? i}
-                  className="flex items-center gap-3 px-5 py-2.5 hover:bg-rose-500/5 transition-colors"
-                  data-testid={`row-incident-${i}`}>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border uppercase tracking-wide flex-shrink-0 ${sevCls}`}>
-                    {sev}
-                  </span>
-                  <span className="text-sm text-foreground/90 flex-1 truncate">{inc.title ?? inc.type ?? 'Unnamed incident'}</span>
-                  <span className="text-xs text-muted-foreground/60 flex-shrink-0 tabular-nums">{age}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : anyPortalActive ? (
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 flex items-center gap-3"
-          data-testid="panel-no-incidents">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+      {/* ── Primary Workflows ────────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <p className="text-sm font-semibold text-emerald-300">All systems operational</p>
-            <p className="text-xs text-muted-foreground mt-0.5">No open incidents detected</p>
+            <h3 className="font-semibold">Primary Workflows</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Most important operational workflows</p>
           </div>
-          <Link href="/ai-ops"
-            className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 whitespace-nowrap"
-            data-testid="link-ai-ops">
-            AI Ops <ArrowRight className="w-3 h-3" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {PRIMARY_WORKFLOWS.map(wf => {
+            const Icon = wf.icon;
+            const isUrgent = wf.severity === 'critical' || wf.severity === 'high';
+            return (
+              <Link key={wf.id} href={wf.href} data-testid={`card-workflow-${wf.id}`}>
+                <div className={`group bg-card border rounded-xl p-5 hover:shadow-md transition-all duration-200 cursor-pointer h-full flex flex-col ${isUrgent ? 'border-amber-500/20 hover:border-amber-500/40' : 'border-border/50 hover:border-border'}`}>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className={`p-2 rounded-lg transition-colors ${isUrgent ? 'bg-amber-500/10 group-hover:bg-amber-500/15' : 'bg-muted/50 group-hover:bg-muted'}`}>
+                      <Icon className={`w-4 h-4 ${isUrgent ? 'text-amber-400' : 'text-muted-foreground'}`} />
+                    </div>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${sevBadge(wf.severity)}`}>
+                      {sevLabel(wf.severity)}
+                    </span>
+                  </div>
+                  <h4 className="font-semibold text-sm mb-1">{wf.label}</h4>
+                  <p className="text-xs text-muted-foreground mb-4 leading-relaxed flex-1">{wf.desc}</p>
+                  <div className="flex items-center gap-4 text-xs border-t border-border/40 pt-3">
+                    <div>
+                      <span className="font-bold text-foreground tabular-nums">{wf.stat1.value}</span>
+                      <span className="text-muted-foreground ml-1">{wf.stat1.label}</span>
+                    </div>
+                    <div className="w-px h-3 bg-border/60" />
+                    <div>
+                      <span className="font-bold text-foreground tabular-nums">{wf.stat2.value}</span>
+                      <span className="text-muted-foreground ml-1">{wf.stat2.label}</span>
+                    </div>
+                    <div className="ml-auto">
+                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Secondary Workflows ──────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold">Secondary Workflows</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Supporting operational tools</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {SECONDARY_WORKFLOWS.map(wf => {
+            const Icon = wf.icon;
+            return (
+              <Link key={wf.id} href={wf.href} data-testid={`card-secondary-${wf.id}`}>
+                <div className="group bg-card border border-border/50 rounded-xl p-4 hover:border-border hover:shadow-md transition-all duration-200 cursor-pointer h-full flex flex-col">
+                  <div className="p-2 rounded-lg bg-muted/50 group-hover:bg-muted transition-colors w-fit mb-3">
+                    <Icon className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <h4 className="font-semibold text-sm mb-1">{wf.label}</h4>
+                  <p className="text-xs text-muted-foreground mb-3 leading-relaxed flex-1">{wf.desc}</p>
+                  <div className="flex items-center justify-between text-xs border-t border-border/40 pt-3">
+                    <div>
+                      <span className="font-bold text-foreground tabular-nums">{wf.stat.value}</span>
+                      <span className="text-muted-foreground ml-1">{wf.stat.label}</span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Live Operational Feed ────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+          <div>
+            <h3 className="font-semibold text-sm flex items-center gap-2">
+              <Activity className="w-4 h-4 text-primary" />
+              Live Operational Feed
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Real-time system events and alerts</p>
+          </div>
+          <Link
+            href="/console"
+            className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/80 transition-colors"
+            data-testid="link-live-feed-view-all"
+          >
+            View All <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
-      ) : null}
-
-      {/* ── What changed · last 15 min ───────────────────────────────────── */}
-      {anyPortalActive && (
-        <div className="rounded-xl border border-border/50 bg-card overflow-hidden" data-testid="panel-delta">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/40 bg-muted/10">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-indigo-400" />
-              <h3 className="font-semibold text-sm">What changed · last 15 min</h3>
-              {deltaSnap && (
-                <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-                  vs {Math.max(0, Math.round((Date.now() - deltaSnap.ts) / 60000))}m ago
-                </span>
-              )}
-            </div>
-            {!deltaSnap && (
-              <span className="text-[11px] text-muted-foreground/40 italic">Gathering baseline…</span>
-            )}
+        {feedItems.length === 0 ? (
+          <div className="px-5 py-12 text-center">
+            <Activity className="w-7 h-7 text-muted-foreground/30 mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">No active events — system is operational</p>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-            {([
-              {
-                label: 'Active Calls',
-                now: displayActiveCalls as number | null,
-                prev: deltaSnap?.activeCalls ?? null,
-                fmt: (v: number) => String(v),
-                higherBetter: true,
-                testid: 'delta-calls',
-              },
-              {
-                label: 'ASR',
-                now: displayAsr,
-                prev: deltaSnap?.asr ?? null,
-                fmt: (v: number) => `${v.toFixed(1)}%`,
-                higherBetter: true,
-                testid: 'delta-asr',
-              },
-              {
-                label: 'MOS',
-                now: displayMos,
-                prev: deltaSnap?.mos ?? null,
-                fmt: (v: number) => v.toFixed(2),
-                higherBetter: true,
-                testid: 'delta-mos',
-              },
-              {
-                label: 'PDD',
-                now: displayPdd > 0 ? displayPdd : null,
-                prev: (deltaSnap?.pdd ?? 0) > 0 ? (deltaSnap?.pdd ?? null) : null,
-                fmt: (v: number) => `${v.toFixed(2)}s`,
-                higherBetter: false,
-                testid: 'delta-pdd',
-              },
-              {
-                label: 'ACD',
-                now: displayAcd > 0 ? displayAcd : null,
-                prev: (deltaSnap?.acd ?? 0) > 0 ? (deltaSnap?.acd ?? null) : null,
-                fmt: (v: number) => `${v.toFixed(0)}s`,
-                higherBetter: true,
-                testid: 'delta-acd',
-              },
-              {
-                label: 'NER',
-                now: displayNer,
-                prev: deltaSnap?.ner ?? null,
-                fmt: (v: number) => `${v.toFixed(1)}%`,
-                higherBetter: true,
-                testid: 'delta-ner',
-              },
-            ] as const).map((item, idx) => {
-              const hasData = item.now != null && item.prev != null;
-              const diff = hasData ? (item.now as number) - (item.prev as number) : 0;
-              const significant = Math.abs(diff) > 0.05;
-              const improved = (item.higherBetter ? diff > 0 : diff < 0) && significant;
-              const worsened = (item.higherBetter ? diff < 0 : diff > 0) && significant;
-              const borderCls = idx < 5 ? 'border-r border-border/30' : '';
+        ) : (
+          <div className="divide-y divide-border/50">
+            {feedItems.map(item => {
+              const minsAgo = Math.floor((Date.now() - item.ts) / 60000);
+              const timeLabel = minsAgo < 1 ? '<1m ago' : minsAgo < 60 ? `${minsAgo}m ago` : `${Math.floor(minsAgo / 60)}h ago`;
               return (
-                <div key={item.label}
-                  className={`px-4 py-4 flex flex-col gap-1.5 ${borderCls} ${idx >= 3 ? 'border-t border-border/30 lg:border-t-0' : ''} ${idx >= 2 && idx < 4 ? 'sm:border-t sm:border-border/30 lg:border-t-0' : ''}`}
-                  data-testid={item.testid}>
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</span>
-                  <span className="text-xl font-bold tabular-nums">
-                    {item.now != null ? item.fmt(item.now as number) : '—'}
-                  </span>
-                  {hasData && significant ? (
-                    <div className={`flex items-center gap-1 text-xs font-semibold ${
-                      improved ? 'text-emerald-400' : worsened ? 'text-rose-400' : 'text-muted-foreground/50'
-                    }`}>
-                      {improved
-                        ? <TrendingUp className="w-3 h-3" />
-                        : worsened
-                        ? <TrendingDown className="w-3 h-3" />
-                        : <Minus className="w-3 h-3" />}
-                      {diff > 0 ? '+' : ''}{item.fmt(Math.abs(diff))}
+                <Link key={item.id} href={item.href} data-testid={`row-feed-${item.id}`}>
+                  <div className="flex items-center gap-4 px-5 py-3.5 hover:bg-muted/30 transition-colors group">
+                    <div className="text-xs text-muted-foreground/60 w-16 shrink-0 tabular-nums">{timeLabel}</div>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border capitalize shrink-0 ${SEVE_CLS[item.severity] ?? SEVE_CLS.info}`}>
+                      {item.severity}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{item.label}</p>
+                      {item.detail && <p className="text-xs text-muted-foreground truncate mt-0.5">{item.detail}</p>}
                     </div>
-                  ) : hasData ? (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground/40">
-                      <Minus className="w-3 h-3" />
-                      No change
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted-foreground/30 italic">Waiting…</div>
-                  )}
-                  {item.prev != null && (
-                    <div className="text-[10px] text-muted-foreground/35">
-                      was {item.fmt(item.prev as number)}
-                    </div>
-                  )}
-                </div>
+                    <span className="text-[10px] text-muted-foreground/50 shrink-0 hidden sm:block">{item.module}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0 group-hover:text-muted-foreground transition-colors" />
+                  </div>
+                </Link>
               );
             })}
           </div>
+        )}
+      </div>
+
+      {/* ── Quick Actions ─────────────────────────────────────────────────────── */}
+      <div>
+        <h3 className="font-semibold text-sm mb-3">Quick Actions</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {QUICK_ACTIONS.map(qa => {
+            const Icon = qa.icon;
+            return (
+              <Link key={qa.href} href={qa.href} data-testid={`btn-quick-${qa.label.toLowerCase().replace(/\s+/g, '-')}`}>
+                <div className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-border/50 bg-card hover:border-border hover:bg-muted/20 transition-all duration-200 cursor-pointer text-center">
+                  <div className="p-2 rounded-lg bg-muted/50 group-hover:bg-primary/10 transition-colors">
+                    <Icon className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors leading-tight">{qa.label}</span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
-      )}
+      </div>
+
+
 
       {/* ── Dashboard Customize Sheet ──────────────────────────────────────── */}
       <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
