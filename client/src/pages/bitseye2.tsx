@@ -83,6 +83,16 @@ interface AlertRule {
   id: number; metric: string; label: string | null; threshold: number;
   comparison: string; carrier: string | null; enabled: boolean; emailEnabled: boolean;
 }
+interface LiveCall {
+  caller?: string; callee?: string; duration?: number;
+  callStatus: 'connected' | 'routing';
+  clientName?: string; vendor?: string; connection?: string;
+  destCountry?: string; destBreakout?: string; destFull?: string;
+  ccState?: string; accountId?: string;
+}
+interface LiveCallsResponse {
+  calls: LiveCall[]; totalActiveCalls: number; connected: boolean; stale: boolean; lastUpdated: number;
+}
 
 // ── World Map constants ───────────────────────────────────────────────────────
 const GEO_URL = "/maps/world-110m.json";
@@ -1236,6 +1246,352 @@ function CpsChart({ points, height = 100 }: { points: ConcurrentPoint[]; height?
   );
 }
 
+// ── NOC Telemetry Chart (full-width with metric tabs) ─────────────────────────
+const NOC_TEL_TABS = [
+  { id: 'calls', label: 'CALLS' },
+  { id: 'cps',   label: 'CPS'   },
+  { id: 'asr',   label: 'ASR'   },
+  { id: 'acd',   label: 'ACD'   },
+] as const;
+type NocTelTab = typeof NOC_TEL_TABS[number]['id'];
+
+function NocTelemetryChart({ points, liveSummary, height = 310 }: {
+  points: ConcurrentPoint[]; liveSummary?: LiveSummary; height?: number;
+}) {
+  const [tab, setTab] = useState<NocTelTab>('calls');
+
+  const asrPoints = useMemo(() =>
+    points.map(p => ({
+      ...p,
+      asr: p.active > 0 ? parseFloat(((p.connected / p.active) * 100).toFixed(1)) : 0,
+    })), [points]);
+
+  const cpsData = useMemo(() =>
+    points.slice(-20).map((p, i, arr) => {
+      if (i === 0) return { label: p.label, cps: 0 };
+      const prev = arr[i - 1];
+      const deltaMs = p.ts - prev.ts;
+      const cps = deltaMs > 0 ? parseFloat((Math.max(0, p.active - prev.active) / (deltaMs / 1000)).toFixed(2)) : 0;
+      return { label: p.label, cps };
+    }), [points]);
+
+  const acdSecs = liveSummary?.avgCallAgeSecs ?? 0;
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 16, padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>Live Telemetry</div>
+          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>Real-time NOC metrics · 5-min buckets · 4h window</div>
+        </div>
+        <div style={{ display: 'flex', gap: 1, background: '#F3F4F6', borderRadius: 8, padding: 2 }}>
+          {NOC_TEL_TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              data-testid={`btn-noc-tel-${t.id}`}
+              style={{
+                fontSize: 10, fontWeight: 700, padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                background: tab === t.id ? '#fff' : 'transparent',
+                color: tab === t.id ? '#2563EB' : '#9CA3AF',
+                boxShadow: tab === t.id ? '0 1px 3px rgba(0,0,0,0.10)' : 'none',
+                transition: 'all 0.15s',
+              }}
+            >{t.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {tab === 'calls' && (
+        points.length === 0
+          ? <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 13 }}>Building live history…</div>
+          : <ResponsiveContainer width="100%" height={height}>
+              <AreaChart data={points} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="noc-tel-calls-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#2563EB" stopOpacity={0.20} />
+                    <stop offset="95%" stopColor="#2563EB" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10, fontSize: 12 }}
+                  formatter={(val: any, name: string) => [val, name === 'active' ? 'Active' : 'Connected']} />
+                <Area type="monotone" dataKey="active"    stroke="#2563EB" strokeWidth={2}   fill="url(#noc-tel-calls-grad)" dot={false} isAnimationActive animationDuration={800} animationEasing="ease-out" />
+                <Area type="monotone" dataKey="connected" stroke="#16A34A" strokeWidth={1.5} fill="transparent"               dot={false} strokeDasharray="4 2" isAnimationActive animationDuration={800} animationEasing="ease-out" />
+              </AreaChart>
+            </ResponsiveContainer>
+      )}
+
+      {tab === 'cps' && (
+        cpsData.length < 2
+          ? <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 12 }}>Building CPS history…</div>
+          : <ResponsiveContainer width="100%" height={height}>
+              <BarChart data={cpsData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10, fontSize: 12 }} formatter={(v: any) => [`${v} /s`, 'CPS']} />
+                <Bar dataKey="cps" fill="#F59E0B" radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive animationDuration={600} />
+              </BarChart>
+            </ResponsiveContainer>
+      )}
+
+      {tab === 'asr' && (
+        asrPoints.length === 0
+          ? <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D1D5DB', fontSize: 13 }}>Building ASR history…</div>
+          : <ResponsiveContainer width="100%" height={height}>
+              <AreaChart data={asrPoints} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="noc-tel-asr-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#10B981" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#10B981" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} />
+                <Tooltip contentStyle={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10, fontSize: 12 }} formatter={(v: any) => [`${Number(v).toFixed(1)}%`, 'ASR']} />
+                <Area type="monotone" dataKey="asr" stroke="#10B981" strokeWidth={2} fill="url(#noc-tel-asr-grad)" dot={false} isAnimationActive={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+      )}
+
+      {tab === 'acd' && (
+        <div style={{ height, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+          <div style={{ fontSize: 56, fontWeight: 900, color: '#7C3AED', letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+            {acdSecs > 0 ? fmtDuration(Math.round(acdSecs)) : '—'}
+          </div>
+          <div style={{ fontSize: 13, color: '#9CA3AF', fontWeight: 500 }}>Average Call Duration · live proxy</div>
+          {acdSecs > 0 && (
+            <div style={{ fontSize: 11, color: '#6B7280', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, padding: '5px 14px' }}>
+              Computed from {liveSummary?.total ?? 0} active call age(s)
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Live Calls Table ──────────────────────────────────────────────────────────
+function fmtCallDur(secs: number): string {
+  if (!secs || secs < 0) return '0:00';
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function LiveCallsTable({ calls, loading }: { calls: LiveCall[]; loading: boolean }) {
+  const [selected, setSelected] = useState<LiveCall | null>(null);
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 18px', borderBottom: '1px solid #F3F4F6' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: calls.length > 0 ? '#16A34A' : '#9CA3AF', display: 'inline-block', animation: calls.length > 0 ? 'be2-pulse 2.2s ease-in-out infinite' : 'none' }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#1F2937' }}>Live Calls</span>
+          <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+            {loading ? 'refreshing…' : `${calls.length} active`}
+          </span>
+        </div>
+      </div>
+
+      {calls.length === 0 ? (
+        <div style={{ padding: '28px 0', textAlign: 'center' as const, color: '#D1D5DB', fontSize: 13 }}>
+          {loading ? 'Loading active calls…' : 'No active calls at this moment'}
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto', maxHeight: 300 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ position: 'sticky', top: 0, background: '#F9FAFB', zIndex: 2 } as React.CSSProperties}>
+                {['Status', 'CLI', 'CLD', 'Client', 'Vendor', 'Country', 'Duration'].map(h => (
+                  <th key={h} style={{ padding: '8px 14px', textAlign: 'left' as const, fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' as const, letterSpacing: '0.06em', borderBottom: '1px solid #F3F4F6', whiteSpace: 'nowrap' as const }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {calls.map((call, i) => {
+                const isConn = call.callStatus === 'connected';
+                const isSelected = selected === call;
+                return (
+                  <tr
+                    key={i}
+                    onClick={() => setSelected(selected === call ? null : call)}
+                    data-testid={`row-livecall-${i}`}
+                    style={{
+                      cursor: 'pointer',
+                      background: isSelected ? '#EFF6FF' : i % 2 === 0 ? '#fff' : '#FAFBFC',
+                      borderLeft: isSelected ? '3px solid #2563EB' : '3px solid transparent',
+                      transition: 'background 0.1s',
+                    }}
+                  >
+                    <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' as const }}>
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.05em',
+                        padding: '2px 7px', borderRadius: 4,
+                        color:      isConn ? '#065F46' : '#92400E',
+                        background: isConn ? '#D1FAE5' : '#FEF3C7',
+                        border: `1px solid ${isConn ? '#A7F3D0' : '#FDE68A'}`,
+                      }}>
+                        {isConn ? 'Connected' : 'Routing'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#374151', fontFamily: 'monospace', fontSize: 11, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                      {call.caller ?? '—'}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#374151', fontFamily: 'monospace', fontSize: 11, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                      {call.callee ?? '—'}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#4B5563', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                      {call.clientName ?? '—'}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#4B5563', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                      {call.vendor ?? '—'}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#374151', whiteSpace: 'nowrap' as const }}>
+                      {call.destCountry ?? '—'}
+                    </td>
+                    <td style={{ padding: '10px 14px', color: '#6B7280', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' as const }}>
+                      {fmtCallDur(call.duration ?? 0)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Call drilldown drawer */}
+      <AnimatePresence>
+        {selected && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.15 }}
+            style={{
+              margin: '0 16px 16px',
+              background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: 12, padding: '14px 18px', color: '#fff',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: '#F1F5F9' }}>Call Detail</span>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.07em',
+                  padding: '2px 7px', borderRadius: 4,
+                  color: selected.callStatus === 'connected' ? '#34D399' : '#FCD34D',
+                  background: selected.callStatus === 'connected' ? 'rgba(52,211,153,0.15)' : 'rgba(252,211,77,0.15)',
+                }}>
+                  {selected.callStatus}
+                </span>
+              </div>
+              <button onClick={() => setSelected(null)} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#9CA3AF', borderRadius: 6, width: 22, height: 22, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>✕</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px 16px' }}>
+              {[
+                { label: 'CLI',         value: selected.caller      },
+                { label: 'CLD',         value: selected.callee      },
+                { label: 'Duration',    value: fmtCallDur(selected.duration ?? 0) },
+                { label: 'Client',      value: selected.clientName  },
+                { label: 'Vendor',      value: selected.vendor      },
+                { label: 'Connection',  value: selected.connection  },
+                { label: 'Country',     value: selected.destCountry },
+                { label: 'Breakout',    value: selected.destBreakout},
+                { label: 'CC State',    value: selected.ccState     },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase' as const, letterSpacing: '0.07em', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#E2E8F0', fontFamily: label === 'CLI' || label === 'CLD' ? 'monospace' : 'inherit', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                    {value ?? '—'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Smart Priorities Panel ────────────────────────────────────────────────────
+function SmartPrioritiesPanel({ incidents, anomalies, onOpenAlerts }: {
+  incidents: IncidentAlert[]; anomalies: AnomalyAlert[]; onOpenAlerts: () => void;
+}) {
+  const critical = incidents.filter(i => i.status === 'active' && (i.severity === 'critical' || i.severity === 'high'));
+  const recent   = anomalies.filter(a => Date.now() - new Date(a.detectedAt).getTime() < 4 * 3600_000).slice(0, 4);
+
+  if (critical.length === 0 && recent.length === 0) {
+    return (
+      <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 14, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 16 }}>✓</span>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#065F46' }}>All clear</div>
+          <div style={{ fontSize: 11, color: '#059669', marginTop: 1 }}>No active incidents or anomalies</div>
+        </div>
+      </div>
+    );
+  }
+
+  const SEV_COLOR: Record<string, string> = { critical: '#EF4444', high: '#F59E0B', medium: '#3B82F6', low: '#6B7280' };
+  const SEV_BG:    Record<string, string> = { critical: '#FEF2F2', high: '#FFFBEB', medium: '#EFF6FF', low: '#F9FAFB' };
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 18px', borderBottom: '1px solid #F3F4F6' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#1F2937' }}>Smart Priorities</span>
+          {critical.length > 0 && (
+            <span style={{ fontSize: 9, fontWeight: 800, color: '#EF4444', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 4, padding: '1px 6px', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
+              {critical.length} active
+            </span>
+          )}
+        </div>
+        <button onClick={onOpenAlerts} style={{ fontSize: 10, color: '#6366F1', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
+          View all →
+        </button>
+      </div>
+      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+        {critical.map(inc => (
+          <div key={inc.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 12px', background: SEV_BG[inc.severity] ?? '#F9FAFB', border: `1px solid ${(SEV_COLOR[inc.severity] ?? '#9CA3AF') + '33'}`, borderRadius: 10 }}>
+            <span style={{
+              fontSize: 9, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.06em', flexShrink: 0, marginTop: 1,
+              color: SEV_COLOR[inc.severity] ?? '#9CA3AF', padding: '2px 6px', borderRadius: 4,
+              background: (SEV_COLOR[inc.severity] ?? '#9CA3AF') + '1A',
+            }}>{inc.severity}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{inc.title}</div>
+              {inc.entityName && <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>{inc.entityType} · {inc.entityName}</div>}
+            </div>
+          </div>
+        ))}
+        {recent.map((a, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 12px', background: '#FFFBEB', border: '1px solid #FDE68A33', borderRadius: 10 }}>
+            <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.06em', flexShrink: 0, marginTop: 1, color: '#D97706', padding: '2px 6px', borderRadius: 4, background: 'rgba(217,119,6,0.12)' }}>
+              ANOMALY
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                {a.metric?.toUpperCase()} anomaly{a.vendor ? ` — ${a.vendor}` : ''}
+              </div>
+              <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }}>
+                vendor · severity {a.severity} · σ {a.deviationSigma?.toFixed(1)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Top-N mini table ──────────────────────────────────────────────────────────
 function TopTable({ title, rows, color, onSeeAll }: {
   title: string; rows: { name: string; active: number }[]; color: string; onSeeAll: () => void;
@@ -1827,6 +2183,11 @@ export default function BitsEye2Page() {
     queryFn: () => fetch('/api/monitoring/alert-rules').then(r => r.json()),
     staleTime: 60_000, refetchInterval: 120_000,
   });
+  const { data: liveCallsData, isFetching: fetchCalls } = useQuery<LiveCallsResponse>({
+    queryKey: ['/api/sippy/live-calls'],
+    queryFn: () => fetch('/api/sippy/live-calls').then(r => r.json()),
+    staleTime: 20_000, refetchInterval: 30_000,
+  });
 
   const incidentStatusMut = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) =>
@@ -2345,7 +2706,9 @@ export default function BitsEye2Page() {
 
   // ── NOC Overview panel ────────────────────────────────────────────────────
   const nocPanel = (
-    <div style={{ flex: 1, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ flex: 1, overflow: 'auto', padding: '20px 20px 32px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* ── 1. KPI Strip ── */}
       <div style={{ display: 'flex', gap: 10 }}>
         <KpiCard label="Active Channels" value={String(cs?.currentActive ?? liveSummary?.total ?? 0)}           numericValue={cs?.currentActive ?? liveSummary?.total ?? 0}          color="#2563EB" icon={Activity}   delay={0.00} />
         <KpiCard label="Connected"        value={String(liveSummary?.connected ?? cs?.currentConnected ?? 0)}   numericValue={liveSummary?.connected ?? cs?.currentConnected ?? 0}    color="#16A34A" icon={TrendingUp} delay={0.05} />
@@ -2360,26 +2723,36 @@ export default function BitsEye2Page() {
         <KpiCard label="Peak (4h)"    value={String(cs?.peakActive ?? 0)} numericValue={cs?.peakActive ?? 0}    color="#6B7280" icon={TrendingUp} delay={0.25} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
-        <ConcurrentChart points={concPoints} title="Concurrent Call Stream" sub="5-min buckets · 4h window" height={isFullscreen ? 180 : 140} />
-        <CpsChart points={concPoints} height={isFullscreen ? 180 : 100} />
-      </div>
-
+      {/* ── 2. World Map ─ full width ── */}
       <WorldMap
         entities={countrySlice?.entities ?? []}
-        height={isFullscreen ? 360 : 280}
+        height={320}
         onCountryClick={name => { setActiveSection('countries'); setSelectedEntity(name); }}
       />
 
+      {/* ── 3. Live Telemetry Graph ─ full width, tabbed ── */}
+      <NocTelemetryChart points={concPoints} liveSummary={liveSummary ?? undefined} height={310} />
+
+      {/* ── 4. Top Clients / Vendors / Destinations ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
         <TopTable title="Top Clients"      rows={clientSlice?.entities?.slice(0, 5).map(e => ({ name: e.name, active: e.active })) ?? []} color="#7C3AED" onSeeAll={() => { setActiveSection('clients');      setSelectedEntity(null); }} />
         <TopTable title="Top Vendors"      rows={vendorSlice?.entities?.slice(0, 5).map(e => ({ name: e.name, active: e.active })) ?? []} color="#0891B2" onSeeAll={() => { setActiveSection('vendors');      setSelectedEntity(null); }} />
         <TopTable title="Top Destinations" rows={destSlice?.entities?.slice(0, 5).map(e => ({ name: e.name, active: e.active })) ?? []}   color="#D97706" onSeeAll={() => { setActiveSection('destinations'); setSelectedEntity(null); }} />
       </div>
 
-      {/* ── Live Traffic Stream ticker ── */}
+      {/* ── 5. Live Calls Table ── */}
+      <LiveCallsTable calls={liveCallsData?.calls ?? []} loading={fetchCalls} />
+
+      {/* ── 6. Smart Priorities ─ incidents + anomalies ── */}
+      <SmartPrioritiesPanel
+        incidents={incidentRows ?? []}
+        anomalies={anomalyRows ?? []}
+        onOpenAlerts={() => setAlertsOpen(true)}
+      />
+
+      {/* ── 7. Live Traffic Stream ticker ── */}
       {(trafficEvents?.events ?? []).length > 0 && (
-        <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 10, padding: '10px 14px' }}>
+        <div style={{ background: '#fff', border: '1px solid #E6EAF0', borderRadius: 12, padding: '12px 16px' }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' as const, letterSpacing: '0.08em', marginBottom: 8 }}>Live Traffic Stream</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             {(trafficEvents?.events ?? []).slice(0, 6).map((ev, i) => (
