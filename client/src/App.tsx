@@ -101,6 +101,7 @@ import CarrierIntelligencePage from "@/pages/carrier-intelligence";
 import IntelligencePage from "@/pages/intelligence";
 import IntelligenceValidationPage from "@/pages/intelligence-validation";
 import VendorPrefixIntelligencePage from "@/pages/vendor-prefix-intelligence";
+import LiveTrafficMapPage from "@/pages/live-traffic-map";
 import VendorStabilityTimelinePage from "@/pages/vendor-stability-timeline";
 import VendorRcaPage from "@/pages/vendor-rca";
 import RtpAnalyticsPage from "@/pages/rtp-analytics";
@@ -452,6 +453,9 @@ function Router() {
       </Route>
       <Route path="/intelligence-validation">
         {() => <ProtectedRoute component={IntelligenceValidationPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/live-traffic-map">
+        {() => <ProtectedRoute component={LiveTrafficMapPage} requiredRoles={['admin','noc','management']} />}
       </Route>
       <Route path="/vendor-prefix-intelligence">
         {() => <ProtectedRoute component={VendorPrefixIntelligencePage} requiredRoles={['admin','management']} />}

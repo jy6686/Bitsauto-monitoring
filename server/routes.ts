@@ -37,6 +37,7 @@ import { runRecommendationEngine } from "./recommendation-engine";
 import { computeVendorPrefixIntelligence } from "./vendor-prefix-intelligence";
 import { snapshotVendorStability, getVendorTimelines } from "./vendor-stability";
 import { buildVendorRca } from "./vendor-rca";
+import { aggregateTrafficFlows } from "./live-traffic-map";
 import { executeAction, buildSippyParams, recommendationToActionType, computeIdempotencyKey } from "./action-executor";
 import { evaluateFirewall } from "./action-firewall";
 import { listActions, createAction, getAction, approveAction, rejectAction, snoozeAction, rollbackAction } from "./action-store";
@@ -4288,6 +4289,25 @@ export async function registerRoutes(
       res.json({ ok: true, period: `${period} min`, fetchedAt: new Date().toISOString(), summary, connections });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message, connections: [], summary: {} });
+    }
+  });
+
+  // ── GET /api/live-traffic-map ─────────────────────────────────────────────────
+  // Aggregates CDR cache → country-pair operational flows with Q-score + fraud correlation.
+  // 30-second server-side cache. Zero new Sippy calls.
+  app.get('/api/live-traffic-map', (req: any, res: any, next: any) => requireRole(['admin', 'noc', 'management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const fasEvts = await storage.getFasEvents(2000);
+      const vendorLookup = (iConn: string | undefined): string => {
+        if (!iConn) return 'Unknown';
+        return connectionVendorCache.get(iConn)
+          ?? connectionNameCache.get(iConn)
+          ?? 'Unknown';
+      };
+      const result = await aggregateTrafficFlows(cdrCache, vendorLookup, fasEvts);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
