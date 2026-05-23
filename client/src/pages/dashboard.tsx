@@ -784,6 +784,7 @@ export default function DashboardPage() {
     try { return localStorage.getItem('dash:callsPanel') !== 'false'; } catch { return true; }
   });
   const [callsFilter, setCallsFilter] = useState<'all' | 'connected' | 'routing'>('all');
+  const [callDrawer, setCallDrawer] = useState<{ open: boolean; call: any | null }>({ open: false, call: null });
 
   // ── Traffic Intelligence section state ────────────────────────────────────
   const [trafficSpan,   setTrafficSpan]   = useState<'live' | 'daily' | 'weekly'>('live');
@@ -1276,6 +1277,64 @@ export default function DashboardPage() {
   const degradedCarrierCount = (carrierScoresRaw ?? []).filter((c: any) => (c.score ?? c.overallScore ?? 100) < 60).length;
   const carrierCriticalCount = (carrierScoresRaw ?? []).filter((c: any) => (c.score ?? c.overallScore ?? 100) < 40).length;
 
+  // ── System health items — derived from live query states ─────────────────
+  const systemHealthItems = [
+    {
+      label: 'Database',
+      ok: !!stats,
+      value: stats ? 'OK' : '—',
+      detail: stats ? 'Connected' : 'Checking...',
+      icon: Server,
+      href: '/server-monitoring',
+    },
+    {
+      label: 'Sippy',
+      ok: anyPortalActive,
+      value: anyPortalActive ? 'Live' : 'Off',
+      detail: anyPortalActive ? (sippySession?.username ?? 'Connected') : 'Disconnected',
+      icon: Globe,
+      href: '/settings',
+    },
+    {
+      label: 'Live Calls',
+      ok: sippyLiveCalls?.connected !== false,
+      value: liveCallsFreshness === 'fresh' ? 'Fresh' : liveCallsFreshness === 'delay' ? 'Delay' : liveCallsFreshness === 'stale' ? 'Stale' : '—',
+      detail: `${liveCalls.length} active`,
+      icon: PhoneCall,
+      href: '/calls',
+    },
+    {
+      label: 'WebSocket',
+      ok: true,
+      value: 'Live',
+      detail: lastTick ? `tick ${new Date(lastTick).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Listening',
+      icon: Activity,
+      href: '/noc-command',
+    },
+    {
+      label: 'Poll Engine',
+      ok: secsAgo < 180,
+      value: secsAgo < 60 ? `${secsAgo}s` : `${Math.floor(secsAgo / 60)}m`,
+      detail: secsAgo < 60 ? 'Fresh' : secsAgo < 180 ? 'Active' : 'Check needed',
+      icon: RefreshCw,
+      href: '/server-monitoring',
+    },
+    {
+      label: 'Fraud Engine',
+      ok: true,
+      value: fasAll.length > 0 ? String(fasAll.length) : 'Clean',
+      detail: fasAll.length > 0 ? `${fasAll.length} FAS events` : 'No events',
+      icon: ShieldAlert,
+      href: '/fraud-engine',
+    },
+  ] as const;
+
+  // ── Risk destinations — low connect-rate active destinations ─────────────
+  const riskDests = (topDests?.entities ?? [])
+    .filter(e => e.active > 0 && e.connectRate < 80)
+    .sort((a, b) => a.connectRate - b.connectRate)
+    .slice(0, 6);
+
   // ── Live operational feed — incidents + FAS events merged ─────────────────
   type FeedItem = { id: string; ts: number; severity: string; label: string; detail: string; module: string; href: string };
   const feedItems: FeedItem[] = [
@@ -1564,7 +1623,8 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
         {/* Active Calls */}
-        <div className="bg-card border border-blue-500/20 rounded-xl p-5 hover:border-blue-500/40 transition-all duration-200 group relative overflow-hidden" data-testid="card-kpi-active-calls">
+        <Link href="/calls" data-testid="card-kpi-active-calls">
+        <div className="bg-card border border-blue-500/20 rounded-xl p-5 hover:border-blue-500/40 hover:shadow-md transition-all duration-200 group relative overflow-hidden cursor-pointer">
           <div className="absolute top-0 right-0 p-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity"><PhoneCall className="w-20 h-20" /></div>
           <div className="flex items-center justify-between mb-3 relative z-10">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Calls</span>
@@ -1579,9 +1639,11 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
+        </Link>
 
         {/* Active Alerts */}
-        <div className={`bg-card border rounded-xl p-5 transition-all duration-200 group relative overflow-hidden ${(alertsCount + openIncidents.length) > 0 ? 'border-amber-500/30 hover:border-amber-500/50' : 'border-border/50 hover:border-border'}`} data-testid="card-kpi-active-alerts">
+        <Link href="/alerts" data-testid="card-kpi-active-alerts">
+        <div className={`bg-card border rounded-xl p-5 transition-all duration-200 group relative overflow-hidden cursor-pointer hover:shadow-md ${(alertsCount + openIncidents.length) > 0 ? 'border-amber-500/30 hover:border-amber-500/50' : 'border-border/50 hover:border-border'}`}>
           <div className="absolute top-0 right-0 p-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity"><AlertTriangle className="w-20 h-20" /></div>
           <div className="flex items-center justify-between mb-3 relative z-10">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Alerts</span>
@@ -1598,9 +1660,11 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
+        </Link>
 
         {/* Degraded Carriers */}
-        <div className={`bg-card border rounded-xl p-5 transition-all duration-200 group relative overflow-hidden ${degradedCarrierCount > 0 ? 'border-rose-500/25 hover:border-rose-500/40' : 'border-border/50 hover:border-border'}`} data-testid="card-kpi-degraded-carriers">
+        <Link href="/carrier-intelligence" data-testid="card-kpi-degraded-carriers">
+        <div className={`bg-card border rounded-xl p-5 transition-all duration-200 group relative overflow-hidden cursor-pointer hover:shadow-md ${degradedCarrierCount > 0 ? 'border-rose-500/25 hover:border-rose-500/40' : 'border-border/50 hover:border-border'}`}>
           <div className="absolute top-0 right-0 p-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity"><TrendingDown className="w-20 h-20" /></div>
           <div className="flex items-center justify-between mb-3 relative z-10">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Degraded Carriers</span>
@@ -1617,9 +1681,11 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
+        </Link>
 
         {/* Pending Approvals */}
-        <div className={`bg-card border rounded-xl p-5 transition-all duration-200 group relative overflow-hidden ${pendingCount > 0 ? 'border-violet-500/25 hover:border-violet-500/40' : 'border-border/50 hover:border-border'}`} data-testid="card-kpi-pending-approvals">
+        <Link href="/approval-queue" data-testid="card-kpi-pending-approvals">
+        <div className={`bg-card border rounded-xl p-5 transition-all duration-200 group relative overflow-hidden cursor-pointer hover:shadow-md ${pendingCount > 0 ? 'border-violet-500/25 hover:border-violet-500/40' : 'border-border/50 hover:border-border'}`}>
           <div className="absolute top-0 right-0 p-4 opacity-[0.04] group-hover:opacity-[0.08] transition-opacity"><CheckCircle2 className="w-20 h-20" /></div>
           <div className="flex items-center justify-between mb-3 relative z-10">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pending Approvals</span>
@@ -1636,6 +1702,7 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
+        </Link>
 
       </div>
 
@@ -1765,6 +1832,251 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* ── Live Telemetry Grid ──────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">Live Telemetry</span>
+          <div className="flex-1 h-px bg-blue-500/15" />
+        </div>
+        <div className="flex gap-4 items-start">
+
+          {/* LEFT — Traffic Graph + Live Calls Table */}
+          <div className="flex-1 min-w-0 space-y-4">
+
+            {/* Traffic Graph */}
+            <div className="rounded-xl border border-blue-500/20 bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-2 h-2 rounded-full ${anyPortalActive ? 'bg-blue-400 animate-pulse' : 'bg-muted-foreground/30'}`} />
+                  <h3 className="font-semibold text-sm">Total Traffic</h3>
+                  <span className="text-[11px] text-muted-foreground">
+                    {displayActiveCalls > 0 ? `${displayActiveCalls} calls · ` : ''}
+                    {sippyStats?.cps ? `${sippyStats.cps.toFixed(1)} CPS · ` : ''}
+                    ASR {displayAsr.toFixed(1)}%
+                    {displayAcd > 0 ? ` · ACD ${Math.floor(displayAcd / 60)}m ${displayAcd % 60}s` : ''}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-0.5 bg-muted/30 rounded-lg p-0.5">
+                    {([['live', 'LIVE'], ['daily', '24H'], ['weekly', '7D']] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => setTrafficSpan(val)}
+                        className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-colors ${trafficSpan === val ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-muted-foreground hover:text-foreground'}`}
+                        data-testid={`btn-traffic-span-${val}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-0.5 bg-muted/30 rounded-lg p-0.5">
+                    {([['calls', 'Calls'], ['asr', 'ASR'], ['minutes', 'Min']] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => setTrafficMetric(val)}
+                        className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${trafficMetric === val ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                        data-testid={`btn-traffic-metric-${val}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <Link href="/bitseye2" className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5 ml-1 whitespace-nowrap">
+                    Explore <ExternalLink className="w-2.5 h-2.5" />
+                  </Link>
+                </div>
+              </div>
+              <div className="px-5 py-4">
+                {trafficHistLoading ? (
+                  <div className="h-24 rounded bg-muted/20 animate-pulse" />
+                ) : (trafficHist?.points ?? []).length === 0 ? (
+                  <div className="h-24 flex items-center justify-center text-sm text-muted-foreground/40">
+                    {anyPortalActive ? 'Collecting data…' : 'Connect a softswitch to see traffic'}
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={96}>
+                    <AreaChart data={(trafficHist.points).map(p => ({
+                      label: p.label,
+                      value: trafficMetric === 'asr' ? p.asr : trafficMetric === 'minutes' ? p.minutes : p.total,
+                      connected: p.connected,
+                    }))}>
+                      <defs>
+                        <linearGradient id="dashTrafficGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="label" tick={{ fontSize: 9, fill: 'rgba(148,163,184,0.5)' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                      <YAxis hide />
+                      <Tooltip
+                        content={({ active, payload }) => active && payload?.[0] ? (
+                          <div className="bg-card border border-border/60 rounded-lg px-3 py-2 text-xs shadow-lg">
+                            <p className="text-muted-foreground">{payload[0].payload.label}</p>
+                            <p className="font-semibold text-blue-400 mt-0.5">
+                              {payload[0].value as number}{trafficMetric === 'asr' ? '%' : trafficMetric === 'minutes' ? ' min' : ' calls'}
+                            </p>
+                          </div>
+                        ) : null}
+                      />
+                      <Area type="monotone" dataKey="value" stroke="#3B82F6" strokeWidth={2} fill="url(#dashTrafficGrad)" dot={false} activeDot={{ r: 3, fill: '#3B82F6' }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* Live Calls Table */}
+            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-2 h-2 rounded-full ${liveCalls.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/30'}`} />
+                  <h3 className="font-semibold text-sm">Live Calls</h3>
+                  {liveCalls.length > 0 && (
+                    <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 font-semibold">{liveCalls.length} active</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-0.5 bg-muted/30 rounded-lg p-0.5">
+                    {([['all', 'All'], ['connected', 'Connected'], ['routing', 'Routing']] as const).map(([val, label]) => (
+                      <button
+                        key={val}
+                        onClick={() => setCallsFilter(val)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${callsFilter === val ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                        data-testid={`btn-calls-filter-${val}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <Link href="/calls" className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5 whitespace-nowrap">
+                    View all <ChevronRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              </div>
+              {liveCalls.length === 0 ? (
+                <div className="px-5 py-10 text-center">
+                  <PhoneCall className="w-6 h-6 text-muted-foreground/20 mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground/50">{anyPortalActive ? 'No active calls right now' : 'Connect a softswitch to see live calls'}</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border/40 bg-muted/20">
+                        {['Caller', 'Callee', 'Client', 'State', 'Duration', 'Answer', 'Time'].map(h => (
+                          <th key={h} className="px-4 py-2.5 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {liveCalls
+                        .filter((c: any) => callsFilter === 'all' || (callsFilter === 'connected' ? c.callStatus === 'connected' : c.callStatus !== 'connected'))
+                        .slice(0, 8)
+                        .map((call: any, i: number) => {
+                          const isConnected = call.callStatus === 'connected';
+                          const setupMs = call.setupTime ? (() => { let s = call.setupTime.trim().replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T').replace(/T(\d{2})(\d{2})(\d{2})/, 'T$1:$2:$3'); return new Date(s).getTime(); })() : null;
+                          const elapsedSec = setupMs ? Math.max(0, Math.floor((Date.now() - setupMs) / 1000)) : parseFloat(call.duration ?? 0);
+                          const durLabel = elapsedSec > 0 ? (Math.floor(elapsedSec / 60) > 0 ? `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s` : `${elapsedSec}s`) : '0s';
+                          const answerCls = !isConnected ? 'bg-amber-500/15 text-amber-400' : elapsedSec < 3 ? 'bg-red-500/15 text-red-400' : 'bg-emerald-500/15 text-emerald-400';
+                          const answerLabel = !isConnected ? 'Routing' : elapsedSec < 3 ? 'FAS Risk' : 'Real Answer';
+                          const timeStr = call.setupTime ? call.setupTime.replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3 ').replace(/\.\d+$/, '').slice(-8) : '—';
+                          return (
+                            <tr
+                              key={i}
+                              className="border-b border-border/30 hover:bg-muted/30 transition-colors cursor-pointer group"
+                              onClick={() => setCallDrawer({ open: true, call })}
+                              data-testid={`row-dash-call-${i}`}
+                            >
+                              <td className="px-4 py-2.5 font-mono text-xs text-foreground/80 group-hover:text-foreground transition-colors">{call.caller || '—'}</td>
+                              <td className="px-4 py-2.5 font-mono text-xs text-foreground/80 group-hover:text-foreground transition-colors">{call.callee || '—'}</td>
+                              <td className="px-4 py-2.5 text-xs text-violet-400">{call.clientName || call.accountId || '—'}</td>
+                              <td className="px-4 py-2.5 text-xs">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${isConnected ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                                  {call.ccState || call.callStatus || '—'}
+                                </span>
+                              </td>
+                              <td className={`px-4 py-2.5 text-xs font-mono ${isConnected && elapsedSec < 3 ? 'text-red-400 font-semibold' : 'text-muted-foreground'}`}>{durLabel}</td>
+                              <td className="px-4 py-2.5 text-xs">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${answerCls}`}>{answerLabel}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-xs text-muted-foreground/60 font-mono">{timeStr}</td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT — Top Clients / Vendors / Routes */}
+          <div className="w-[272px] shrink-0 space-y-3">
+            <DashTopEntityCard
+              title="Top Clients"
+              icon="users"
+              entities={(topClients?.entities ?? []).filter(e => !e.idle)}
+              dim="client"
+              color="violet"
+              loading={!topClients}
+            />
+            <DashTopEntityCard
+              title="Top Vendors"
+              icon="radio"
+              entities={(topVendors?.entities ?? []).filter(e => !e.idle)}
+              dim="vendor"
+              color="blue"
+              loading={!topVendors}
+            />
+            <DashTopEntityCard
+              title="Top Routes"
+              icon="globe"
+              entities={(topDests?.entities ?? []).filter(e => !e.idle)}
+              dim="destination"
+              color="emerald"
+              loading={!topDests}
+            />
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── System Health ─────────────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
+          <div className="flex items-center gap-2.5">
+            <div className={`w-2 h-2 rounded-full ${systemHealthItems.every(i => i.ok) ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+            <h3 className="font-semibold text-sm">System Health</h3>
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${systemHealthItems.every(i => i.ok) ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+              {systemHealthItems.every(i => i.ok) ? 'All Systems Operational' : 'Degraded'}
+            </span>
+          </div>
+          <Link href="/server-monitoring" className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
+            Details <ChevronRight className="w-3 h-3" />
+          </Link>
+        </div>
+        <div className="grid grid-cols-3 md:grid-cols-6 divide-x divide-border/40">
+          {systemHealthItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link key={item.label} href={item.href} data-testid={`health-${item.label.toLowerCase().replace(/\s/g,'-')}`}>
+                <div className="px-4 py-4 flex flex-col gap-1.5 hover:bg-muted/20 transition-colors cursor-pointer group">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{item.label}</span>
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${item.ok ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${item.ok ? 'text-emerald-400' : 'text-rose-400'}`} />
+                    <span className={`text-base font-bold tabular-nums ${item.ok ? 'text-emerald-400' : 'text-rose-400'}`}>{item.value}</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground/70 truncate">{item.detail}</span>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
       {/* ── Live Operational Feed ────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
@@ -1835,6 +2147,125 @@ export default function DashboardPage() {
       </div>
 
 
+
+      {/* ── Risk Destinations ────────────────────────────────────────────────── */}
+      {riskDests.length > 0 && (
+        <div className="rounded-xl border border-rose-500/20 bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-rose-400" />
+              <h3 className="font-semibold text-sm">Risk Destinations</h3>
+              <span className="text-[10px] text-muted-foreground">degradation · FAS risk · routing awareness</span>
+            </div>
+            <Link href="/bitseye2?dim=destination" className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5">
+              View all <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+          <div className="divide-y divide-border/40">
+            {riskDests.map((dest, i) => {
+              const asr = dest.connectRate;
+              const asrColor = asr < 40 ? 'text-rose-400' : asr < 70 ? 'text-amber-400' : 'text-emerald-400';
+              const barColor = asr < 40 ? '#F43F5E' : asr < 70 ? '#F59E0B' : '#10B981';
+              const fasRisk = asr < 40 ? { label: 'Critical', cls: 'border-red-500/40 text-red-400 bg-red-500/10' } : asr < 60 ? { label: 'High', cls: 'border-amber-500/40 text-amber-400 bg-amber-500/10' } : { label: 'Medium', cls: 'border-yellow-500/30 text-yellow-400 bg-yellow-500/10' };
+              const instability = asr < 40 ? 'Degrading' : asr < 60 ? 'Unstable' : 'Fluctuating';
+              return (
+                <Link key={i} href={`/prefix-intelligence?prefix=${encodeURIComponent(dest.name)}`} data-testid={`row-risk-dest-${i}`}>
+                  <div className="flex items-center gap-5 px-5 py-3.5 hover:bg-muted/25 transition-colors group cursor-pointer">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold group-hover:text-foreground transition-colors truncate">{dest.name}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{dest.active} active · {dest.connected} connected</p>
+                    </div>
+                    <div className="text-center w-32 hidden sm:block">
+                      <p className="text-[10px] text-muted-foreground mb-1.5">Connect Rate</p>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-muted/40 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${asr}%`, background: barColor }} />
+                        </div>
+                        <span className={`text-xs font-bold tabular-nums w-8 text-right ${asrColor}`}>{asr}%</span>
+                      </div>
+                    </div>
+                    <div className="text-center w-20 hidden md:block">
+                      <p className="text-[10px] text-muted-foreground mb-1">FAS Risk</p>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${fasRisk.cls}`}>{fasRisk.label}</span>
+                    </div>
+                    <div className="text-center w-24 hidden lg:block">
+                      <p className="text-[10px] text-muted-foreground mb-1">Instability</p>
+                      <span className={`text-xs font-semibold ${asr < 50 ? 'text-rose-400' : 'text-amber-400'}`}>{instability}</span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors flex-shrink-0" />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Call Detail Drawer ────────────────────────────────────────────────── */}
+      <Sheet open={callDrawer.open} onOpenChange={(open) => setCallDrawer(d => ({ ...d, open }))}>
+        <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader className="pb-4 border-b border-border/40">
+            <div className="flex items-center gap-2">
+              <PhoneCall className="w-4 h-4 text-blue-400" />
+              <SheetTitle>Call Drilldown</SheetTitle>
+            </div>
+            <SheetDescription>Live call diagnostics and routing context</SheetDescription>
+          </SheetHeader>
+          {callDrawer.call && (
+            <div className="py-5 space-y-5">
+              {/* Caller / Callee */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-muted/30 border border-border/40 p-4">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Caller</p>
+                  <p className="font-mono text-sm font-bold break-all">{callDrawer.call.caller || '—'}</p>
+                </div>
+                <div className="rounded-lg bg-muted/30 border border-border/40 p-4">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Callee</p>
+                  <p className="font-mono text-sm font-bold break-all">{callDrawer.call.callee || '—'}</p>
+                </div>
+              </div>
+              {/* Core fields */}
+              <div className="rounded-xl border border-border/50 overflow-hidden">
+                {[
+                  { label: 'Client / Account', value: callDrawer.call.clientName || callDrawer.call.accountId || '—' },
+                  { label: 'State', value: callDrawer.call.ccState || callDrawer.call.callStatus || '—' },
+                  { label: 'Vendor', value: callDrawer.call.vendor || callDrawer.call.connectionName || '—' },
+                  { label: 'Codec', value: callDrawer.call.codec || callDrawer.call.cld_codec || '—' },
+                  { label: 'Setup Time', value: callDrawer.call.setupTime ? callDrawer.call.setupTime.replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3 ').replace(/\.\d+$/, '') : '—' },
+                  { label: 'Call ID', value: callDrawer.call.callId || callDrawer.call.call_id || '—' },
+                  { label: 'Source IP', value: callDrawer.call.srcIp || callDrawer.call.source_ip || '—' },
+                  { label: 'Destination IP', value: callDrawer.call.dstIp || callDrawer.call.destination_ip || '—' },
+                ].map(row => (
+                  <div key={row.label} className="flex items-start gap-3 px-4 py-2.5 border-b border-border/40 last:border-0">
+                    <span className="text-xs text-muted-foreground w-36 flex-shrink-0 pt-0.5">{row.label}</span>
+                    <span className="text-xs font-medium break-all">{String(row.value)}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Actions */}
+              <div className="flex flex-wrap gap-2">
+                <Link href="/calls" onClick={() => setCallDrawer({ open: false, call: null })}>
+                  <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/25 text-xs font-medium hover:bg-blue-500/20 transition-colors">
+                    <PhoneCall className="w-3 h-3" /> Full Call Monitor
+                  </button>
+                </Link>
+                <Link href="/fraud-engine" onClick={() => setCallDrawer({ open: false, call: null })}>
+                  <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/25 text-xs font-medium hover:bg-rose-500/20 transition-colors">
+                    <ShieldAlert className="w-3 h-3" /> FAS Analysis
+                  </button>
+                </Link>
+                {callDrawer.call.clientName && (
+                  <Link href={`/bitseye2?dim=client&entity=${encodeURIComponent(callDrawer.call.clientName)}`} onClick={() => setCallDrawer({ open: false, call: null })}>
+                    <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/25 text-xs font-medium hover:bg-violet-500/20 transition-colors">
+                      <BarChart2 className="w-3 h-3" /> Client Analytics
+                    </button>
+                  </Link>
+                )}
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {/* ── Dashboard Customize Sheet ──────────────────────────────────────── */}
       <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
