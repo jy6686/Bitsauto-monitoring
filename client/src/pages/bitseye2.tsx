@@ -390,6 +390,8 @@ function WorldMap({
         <ComposableMap
           projection="geoMercator"
           projectionConfig={{ scale: 120, center: [20, 12] }}
+          width={mapWidth}
+          height={height}
           style={{ width: '100%', height }}
         >
           <Geographies geography={GEO_URL}>
