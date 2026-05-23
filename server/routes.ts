@@ -24703,5 +24703,209 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Pre-Provision Duplicate Check ─────────────────────────────────────────────
+  // GET /api/sippy/pre-provision-check?companyId=N
+  // Checks for duplicate account usernames, IPs, and CLD prefixes before provisioning.
+  app.get('/api/sippy/pre-provision-check',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const companyId = parseInt(req.query.companyId as string, 10);
+        if (isNaN(companyId)) return res.status(400).json({ message: 'companyId required' });
+        const company = await storage.getCompany(companyId);
+        if (!company) return res.status(404).json({ message: 'Company not found' });
+        if (!(company as any).wizardDraft) return res.json({
+          checks: [{ type: 'draft', status: 'error', message: 'No wizard draft — complete the Client Wizard first.', field: 'draft' }],
+          summary: { errors: 1, warnings: 0, total: 1 },
+        });
+
+        const draft = JSON.parse((company as any).wizardDraft as string);
+        const username: string = draft?.step1?.userId || '';
+        const trunks: any[] = draft?.trunks ?? [];
+        const cldPrefixes: string[] = trunks
+          .map((t: any) => t.prefix || (t.cldTranslation?.match(/\^(\d{3,8})/)?.[1] ?? ''))
+          .filter((p: string) => p.length >= 3);
+
+        const thisIpRows = await storage.getClientIpRequests(companyId);
+        const approvedIps = thisIpRows.filter((r: any) => r.status === 'approved').map((r: any) => r.ipAddress);
+        const allCompanies: any[] = await storage.getCompanies();
+        const others = allCompanies.filter((c: any) => c.id !== companyId);
+
+        const checks: { type: string; status: 'ok' | 'warning' | 'error'; message: string; conflictWith?: string; field?: string }[] = [];
+
+        // ── 1. Account username ───────────────────────────────────────────────────
+        if (!username) {
+          checks.push({ type: 'username', status: 'error', message: 'Sippy username not set — complete Client Wizard step 1.', field: 'username' });
+        } else {
+          const dbHit = others.find((c: any) => {
+            try { return JSON.parse(c.wizardDraft || '{}')?.step1?.userId === username; } catch { return false; }
+          });
+          if (dbHit) {
+            checks.push({ type: 'username', status: 'error', message: `Account name "${username}" already used by "${dbHit.name}".`, conflictWith: dbHit.name, field: 'username' });
+          } else {
+            try {
+              const settings = await storage.getSettings();
+              const { username: su, password: sp } = sippyXmlCreds(settings as any);
+              const pUrl = sippyPortalUrl(settings as any);
+              const { accounts } = await sippy.listSippyAccounts(su, sp, { iCustomer: 1, limit: 500 }, pUrl);
+              const sippyHit = accounts.find((a: any) => a.username === username);
+              if (sippyHit) {
+                checks.push({ type: 'username', status: 'error', message: `"${username}" already exists in Sippy (i_account: ${sippyHit.iAccount}).`, field: 'username' });
+              } else {
+                checks.push({ type: 'username', status: 'ok', message: `Account name "${username}" is available in Sippy.`, field: 'username' });
+              }
+            } catch {
+              checks.push({ type: 'username', status: 'warning', message: `Sippy unreachable — could not live-verify "${username}".`, field: 'username' });
+            }
+          }
+        }
+
+        // ── 2. Duplicate IPs ──────────────────────────────────────────────────────
+        if (approvedIps.length === 0) {
+          checks.push({ type: 'ips', status: 'error', message: 'No approved IPs — approve at least one IP before provisioning.', field: 'ips' });
+        } else {
+          const conflicts: string[] = [];
+          for (const ip of approvedIps) {
+            for (const other of others.filter((c: any) => c.provisioningStatus === 'provisioned')) {
+              const otherIps = await storage.getClientIpRequests(other.id);
+              if (otherIps.filter((r: any) => r.status === 'approved').some((r: any) => r.ipAddress === ip)) {
+                conflicts.push(`${ip} → "${other.name}"`);
+              }
+            }
+          }
+          if (conflicts.length > 0) {
+            checks.push({ type: 'ips', status: 'error', message: `Duplicate IP conflict(s): ${conflicts.join(' | ')}`, field: 'ips' });
+          } else {
+            checks.push({ type: 'ips', status: 'ok', message: `${approvedIps.length} approved IP(s) — no conflicts detected.`, field: 'ips' });
+          }
+        }
+
+        // ── 3. Duplicate CLD prefix ───────────────────────────────────────────────
+        if (cldPrefixes.length === 0) {
+          checks.push({ type: 'cld', status: 'warning', message: 'No 4-digit CLD prefix found in trunk configuration.', field: 'cld' });
+        } else {
+          const cldConflicts: string[] = [];
+          for (const prefix of cldPrefixes) {
+            const conflicting = others.filter((c: any) => {
+              try {
+                return (JSON.parse(c.wizardDraft || '{}')?.trunks ?? []).some((t: any) => {
+                  const p = t.prefix || (t.cldTranslation?.match(/\^(\d{3,8})/)?.[1] ?? '');
+                  return p === prefix;
+                });
+              } catch { return false; }
+            });
+            if (conflicting.length > 0) cldConflicts.push(`${prefix} → ${conflicting.map((c: any) => c.name).join(', ')}`);
+          }
+          if (cldConflicts.length > 0) {
+            checks.push({ type: 'cld', status: 'error', message: `Duplicate CLD prefix(es): ${cldConflicts.join(' | ')}`, field: 'cld' });
+          } else {
+            checks.push({ type: 'cld', status: 'ok', message: `CLD prefix(es) [${cldPrefixes.join(', ')}] — no conflicts found.`, field: 'cld' });
+          }
+        }
+
+        // ── 4. Routing groups ─────────────────────────────────────────────────────
+        const missingRG = trunks.filter((t: any) => !t.routingGroupId);
+        if (missingRG.length > 0) {
+          checks.push({ type: 'routing', status: 'error', message: `${missingRG.length} trunk(s) missing routing group assignment.`, field: 'routing' });
+        } else if (trunks.length > 0) {
+          checks.push({ type: 'routing', status: 'ok', message: `All ${trunks.length} trunk(s) have routing groups assigned.`, field: 'routing' });
+        }
+
+        const errors   = checks.filter(c => c.status === 'error').length;
+        const warnings = checks.filter(c => c.status === 'warning').length;
+        res.json({ checks, summary: { errors, warnings, total: checks.length } });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // ── Sync Preview ──────────────────────────────────────────────────────────────
+  // GET /api/sippy/sync/preview
+  // Compares Sippy live accounts vs platform DB to find orphaned accounts and auth rules.
+  app.get('/api/sippy/sync/preview',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const settings = await storage.getSettings();
+        const { username, password } = sippyXmlCreds(settings as any);
+        const portalUrl = sippyPortalUrl(settings as any);
+
+        const { accounts: sippyAccounts, error: listErr } = await sippy.listSippyAccounts(username, password, { iCustomer: 1, limit: 500 }, portalUrl);
+        if (listErr && sippyAccounts.length === 0) return res.status(502).json({ message: `Sippy unreachable: ${listErr}` });
+
+        const allCompanies: any[] = await storage.getCompanies();
+        const provisioned = allCompanies.filter((c: any) => c.provisioningStatus === 'provisioned' && c.sippyIAccount);
+        const platformSet = new Set(provisioned.map((c: any) => Number(c.sippyIAccount)));
+
+        // Sippy accounts NOT tracked by platform = orphaned (manually created in Sippy)
+        const orphanedAccounts = sippyAccounts
+          .filter((a: any) => !platformSet.has(Number(a.iAccount)))
+          .map((a: any) => ({
+            iAccount: a.iAccount,
+            username: (a as any).username || `i_account:${a.iAccount}`,
+            balance: (a as any).balance ?? 0,
+            maxSessions: a.maxSessions ?? null,
+          }));
+
+        // For each provisioned company, find auth rules not in approved IP list = orphaned IPs
+        const orphanedAuthRules: { iAccount: number; iAuthentication: number; remoteIp: string; companyName: string; companyId: number }[] = [];
+        for (const co of provisioned.slice(0, 30)) {
+          try {
+            const { authRules } = await sippy.listSippyAuthRules(username, password, { iAccount: co.sippyIAccount, iCustomer: 1 }, portalUrl);
+            const approved = (await storage.getClientIpRequests(co.id))
+              .filter((r: any) => r.status === 'approved')
+              .map((r: any) => r.ipAddress);
+            for (const rule of authRules) {
+              if (rule.remoteIp && !approved.includes(rule.remoteIp)) {
+                orphanedAuthRules.push({ iAccount: co.sippyIAccount, iAuthentication: rule.iAuthentication, remoteIp: rule.remoteIp, companyName: co.name, companyId: co.id });
+              }
+            }
+          } catch { /* skip on Sippy error */ }
+        }
+
+        res.json({
+          orphanedAccounts,
+          orphanedAuthRules,
+          summary: {
+            sippyAccountCount:     sippyAccounts.length,
+            platformAccountCount:  provisioned.length,
+            orphanedAccountCount:  orphanedAccounts.length,
+            orphanedAuthRuleCount: orphanedAuthRules.length,
+          },
+        });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // ── Sync Execute ──────────────────────────────────────────────────────────────
+  // POST /api/sippy/sync/execute
+  // Body: { deleteAccountIds: number[], deleteAuthRuleIds: number[] }
+  // Deletes orphaned accounts/auth rules from Sippy to restore platform integrity.
+  app.post('/api/sippy/sync/execute',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { deleteAccountIds = [], deleteAuthRuleIds = [] } = req.body as { deleteAccountIds: number[]; deleteAuthRuleIds: number[] };
+        const settings = await storage.getSettings();
+        const { username, password } = sippyXmlCreds(settings as any);
+        const portalUrl = sippyPortalUrl(settings as any);
+
+        const accountResults: { iAccount: number; success: boolean; message: string }[] = [];
+        const authRuleResults: { iAuthentication: number; success: boolean; message: string }[] = [];
+
+        for (const iAccount of deleteAccountIds) {
+          const r = await sippy.deleteSippyAccount(username, password, iAccount, portalUrl, 1);
+          accountResults.push({ iAccount, success: r.success, message: r.message });
+        }
+        for (const iAuthentication of deleteAuthRuleIds) {
+          const r = await sippy.delSippyAuthRule(username, password, iAuthentication, { portalUrl });
+          authRuleResults.push({ iAuthentication, success: r.success, message: r.message });
+        }
+
+        const allOk = [...accountResults, ...authRuleResults].every(r => r.success);
+        res.json({ success: allOk, accountResults, authRuleResults });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
   return httpServer;
 }

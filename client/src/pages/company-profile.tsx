@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -54,12 +54,17 @@ export default function CompanyProfilePage() {
 
   const [creating, setCreating] = useState(false);
   const [result, setResult]     = useState<CreationResult | null>(null);
+  const [nameCheck, setNameCheck] = useState<{ loading: boolean; conflict?: string; message?: string } | null>(null);
 
   const { data: sippySession } = useQuery<{ active: boolean; username?: string }>({
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30_000,
   });
   const hasSession = sippySession?.active === true;
+
+  const { data: allCompaniesData } = useQuery<{ companies: { name: string; shortCode: string; provisioningStatus?: string }[] }>({
+    queryKey: ['/api/companies'],
+  });
 
   const billingLabel = BILLING_CYCLES.find(c => c.value === billingCycle)?.label ?? 'Monthly';
 
@@ -73,13 +78,34 @@ export default function CompanyProfilePage() {
     return Object.keys(errs).length === 0;
   }
 
+  useEffect(() => {
+    if (wizardStep !== 2 || !companyName.trim()) return;
+    const name = companyName.trim().toLowerCase();
+    const companies = allCompaniesData?.companies ?? [];
+    const hit = companies.find(c =>
+      c.name.toLowerCase() === name ||
+      c.shortCode?.toLowerCase() === name
+    );
+    if (hit) {
+      setNameCheck({
+        loading: false,
+        conflict: hit.name,
+        message: `A company named "${hit.name}" already exists — the tariff/service plan will be reused if it's already in Sippy.`,
+      });
+    } else {
+      setNameCheck({ loading: false, message: undefined });
+    }
+  }, [wizardStep, companyName, allCompaniesData]);
+
   function goNext() {
     if (wizardStep === 1 && !validateStep1()) return;
+    setNameCheck({ loading: true });
     setWizardStep(s => s + 1);
   }
   function goBack() {
     setWizardStep(s => s - 1);
     setResult(null);
+    setNameCheck(null);
   }
 
   async function handleCreate() {
@@ -322,6 +348,24 @@ export default function CompanyProfilePage() {
               </div>
             </div>
 
+            {/* Name availability check */}
+            {nameCheck && (
+              <div className={`flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm ${
+                nameCheck.loading
+                  ? 'border-border/40 bg-muted/20 text-muted-foreground'
+                  : nameCheck.conflict
+                  ? 'border-amber-500/30 bg-amber-500/[0.07] text-amber-300'
+                  : 'border-emerald-500/30 bg-emerald-500/[0.07] text-emerald-300'
+              }`}>
+                {nameCheck.loading
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin mt-0.5 shrink-0" /><span>Checking name availability…</span></>
+                  : nameCheck.conflict
+                  ? <><AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" /><span className="text-xs">{nameCheck.message}</span></>
+                  : <><CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-400" /><span className="text-xs">Name <strong>"{companyName.trim()}"</strong> is available — a new tariff and service plan will be created.</span></>
+                }
+              </div>
+            )}
+
             {/* Creation progress / error while submitting */}
             {creating && (
               <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 flex items-center gap-2 text-sm text-primary">
@@ -404,7 +448,7 @@ export default function CompanyProfilePage() {
                   <p className="text-xs text-muted-foreground">
                     The tariff and service plan are ready. You can now open the New Sippy Account wizard to create a customer account that uses this service plan.
                   </p>
-                  <Link href="/clients?openWizard=1">
+                  <Link href="/client-wizard">
                     <a
                       data-testid="link-open-wizard"
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"

@@ -13,6 +13,7 @@ import {
   Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard,
   Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle,
   PlusCircle, ShieldPlus, Tag, Package, MapPin, DollarSign, Cpu, ExternalLink,
+  RefreshCw, Play, AlertCircle, Server,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
@@ -471,6 +472,8 @@ function ProvisioningPanel({ company }: { company: Company }) {
         </p>
       )}
 
+      {hasWizardDraft && <PreProvisionChecks company={company} />}
+
       {canProvision ? (
         <Button
           data-testid={`btn-provision-company-${company.id}`}
@@ -502,6 +505,320 @@ function ProvisioningPanel({ company }: { company: Company }) {
         </Button>
       )}
     </div>
+  );
+}
+
+// ── Pre-Provision Checks ──────────────────────────────────────────────────────
+type CheckStatus = 'ok' | 'warning' | 'error';
+type ProvCheck = { type: string; status: CheckStatus; message: string; conflictWith?: string; field?: string };
+
+function CheckStatusIcon({ status }: { status: CheckStatus }) {
+  if (status === 'ok')      return <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" />;
+  if (status === 'warning') return <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />;
+  return <XCircle className="h-3 w-3 text-rose-400 shrink-0" />;
+}
+
+function PreProvisionChecks({ company }: { company: Company }) {
+  const { data, isFetching, error, refetch } = useQuery<{
+    checks: ProvCheck[];
+    summary: { errors: number; warnings: number; total: number };
+  }>({
+    queryKey: ['/api/sippy/pre-provision-check', company.id],
+    queryFn: () =>
+      fetch(`/api/sippy/pre-provision-check?companyId=${company.id}`, { credentials: 'include' })
+        .then(r => r.json()),
+    enabled: false,
+    staleTime: 0,
+    retry: false,
+  });
+
+  const checks  = data?.checks ?? [];
+  const summary = data?.summary;
+
+  return (
+    <div className="border-t border-border/40 pt-2 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+          <AlertCircle className="h-2.5 w-2.5" /> Pre-Provision Checks
+        </p>
+        <button
+          data-testid={`btn-run-checks-${company.id}`}
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:bg-blue-500/10 rounded px-1.5 py-0.5 transition-colors disabled:opacity-50"
+        >
+          {isFetching
+            ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Running…</>
+            : <><Play className="h-2.5 w-2.5" /> Run Checks</>
+          }
+        </button>
+      </div>
+
+      {error && (
+        <p className="text-[10px] text-rose-400 flex items-center gap-1">
+          <XCircle className="h-2.5 w-2.5 shrink-0" /> Check failed — {(error as any).message}
+        </p>
+      )}
+
+      {checks.length > 0 && (
+        <>
+          <div className="space-y-1">
+            {checks.map((c, i) => (
+              <button
+                key={i}
+                data-testid={`check-item-${company.id}-${c.field}`}
+                onClick={() => refetch()}
+                title="Click to re-run checks"
+                className={`w-full text-left flex items-start gap-1.5 px-2 py-1.5 rounded text-[10px] border cursor-pointer hover:opacity-80 transition-opacity ${
+                  c.status === 'ok'
+                    ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300'
+                    : c.status === 'warning'
+                    ? 'bg-amber-500/5 border-amber-500/20 text-amber-300'
+                    : 'bg-rose-500/5 border-rose-500/20 text-rose-300'
+                }`}
+              >
+                <CheckStatusIcon status={c.status} />
+                <span className="leading-relaxed">{c.message}</span>
+              </button>
+            ))}
+          </div>
+          {summary && (
+            <div className="flex items-center gap-2 text-[10px]">
+              {summary.errors > 0   && <span className="text-rose-400">{summary.errors} error{summary.errors !== 1 ? 's' : ''}</span>}
+              {summary.warnings > 0 && <span className="text-amber-400">{summary.warnings} warning{summary.warnings !== 1 ? 's' : ''}</span>}
+              {summary.errors === 0 && summary.warnings === 0 && (
+                <span className="text-emerald-400 flex items-center gap-1">
+                  <CheckCircle2 className="h-2.5 w-2.5" /> All checks passed
+                </span>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {checks.length === 0 && !isFetching && (
+        <p className="text-[10px] text-muted-foreground/50">
+          Click "Run Checks" to validate for duplicates before provisioning.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Sync Dialog ───────────────────────────────────────────────────────────────
+type OrphanedAccount  = { iAccount: number; username: string; balance: number; maxSessions: number | null };
+type OrphanedAuthRule = { iAccount: number; iAuthentication: number; remoteIp: string; companyName: string; companyId: number };
+type SyncPreview = {
+  orphanedAccounts: OrphanedAccount[];
+  orphanedAuthRules: OrphanedAuthRule[];
+  summary: { sippyAccountCount: number; platformAccountCount: number; orphanedAccountCount: number; orphanedAuthRuleCount: number };
+};
+
+function SyncDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [selectedAccounts,  setSelectedAccounts]  = useState<Set<number>>(new Set());
+  const [selectedAuthRules, setSelectedAuthRules] = useState<Set<number>>(new Set());
+
+  const { data, isFetching, error, refetch } = useQuery<SyncPreview>({
+    queryKey: ['/api/sippy/sync/preview'],
+    queryFn: () =>
+      fetch('/api/sippy/sync/preview', { credentials: 'include' })
+        .then(r => { if (!r.ok) throw new Error(r.status.toString()); return r.json(); }),
+    enabled: open,
+    staleTime: 0,
+    retry: false,
+  });
+
+  const executeMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/sippy/sync/execute', {
+      deleteAccountIds:  Array.from(selectedAccounts),
+      deleteAuthRuleIds: Array.from(selectedAuthRules),
+    }),
+    onSuccess: async (res: any) => {
+      let d: any = {};
+      try { d = typeof res?.json === 'function' ? await res.json() : res; } catch {}
+      const failA = (d?.accountResults  ?? []).filter((r: any) => !r.success);
+      const failR = (d?.authRuleResults ?? []).filter((r: any) => !r.success);
+      if (failA.length > 0 || failR.length > 0) {
+        toast({
+          title: 'Sync completed with errors',
+          description: [...failA.map((r: any) => `Account ${r.iAccount}: ${r.message}`), ...failR.map((r: any) => `Rule #${r.iAuthentication}: ${r.message}`)].join('; '),
+          variant: 'destructive',
+        });
+      } else {
+        toast({ title: 'Sync executed', description: `${selectedAccounts.size + selectedAuthRules.size} item(s) removed from Sippy.` });
+      }
+      setSelectedAccounts(new Set());
+      setSelectedAuthRules(new Set());
+      refetch();
+    },
+    onError: (e: any) => toast({ title: 'Sync failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const toggleAccount  = (id: number) => setSelectedAccounts(s  => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAuthRule = (id: number) => setSelectedAuthRules(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const totalSelected     = selectedAccounts.size + selectedAuthRules.size;
+  const orphanedAccounts  = data?.orphanedAccounts  ?? [];
+  const orphanedAuthRules = data?.orphanedAuthRules ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-blue-400" />
+            Sippy Sync
+            <Badge variant="outline" className="text-[10px] font-normal ml-1">Admin</Badge>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-1">
+          {/* Summary cards */}
+          {data?.summary && (
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { label: 'Sippy Accounts',    value: data.summary.sippyAccountCount,    color: 'text-blue-400'    },
+                { label: 'Platform Tracked',  value: data.summary.platformAccountCount, color: 'text-emerald-400' },
+                { label: 'Orphaned Accounts', value: data.summary.orphanedAccountCount,  color: data.summary.orphanedAccountCount  > 0 ? 'text-rose-400'  : 'text-muted-foreground' },
+                { label: 'Orphaned IPs',      value: data.summary.orphanedAuthRuleCount, color: data.summary.orphanedAuthRuleCount > 0 ? 'text-amber-400' : 'text-muted-foreground' },
+              ].map(s => (
+                <div key={s.label} className="text-center border border-border/40 rounded-lg p-2">
+                  <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
+                  <p className="text-[10px] text-muted-foreground leading-tight">{s.label}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isFetching && (
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Fetching Sippy accounts…
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+              <XCircle className="h-4 w-4 shrink-0" /> {(error as any).message ?? 'Failed to load sync data'}
+            </div>
+          )}
+
+          {!isFetching && !error && orphanedAccounts.length === 0 && orphanedAuthRules.length === 0 && data && (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-3 text-sm text-emerald-300">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              Sippy and platform are fully in sync — no orphaned items found.
+            </div>
+          )}
+
+          {/* Orphaned Accounts */}
+          {orphanedAccounts.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Server className="h-3 w-3 text-rose-400" />
+                Orphaned Accounts ({orphanedAccounts.length})
+                <span className="text-[10px] font-normal normal-case text-muted-foreground/60">exist in Sippy, not tracked in platform</span>
+              </p>
+              <div className="space-y-1">
+                {orphanedAccounts.map(a => (
+                  <button
+                    key={a.iAccount}
+                    data-testid={`sync-account-${a.iAccount}`}
+                    onClick={() => toggleAccount(a.iAccount)}
+                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded border transition-colors ${
+                      selectedAccounts.has(a.iAccount)
+                        ? 'bg-rose-500/15 border-rose-500/50 text-rose-200'
+                        : 'bg-rose-500/5 border-rose-500/20 text-rose-300 hover:bg-rose-500/10'
+                    }`}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                      selectedAccounts.has(a.iAccount) ? 'bg-rose-500 border-rose-500' : 'border-rose-500/40'
+                    }`}>
+                      {selectedAccounts.has(a.iAccount) && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
+                    </div>
+                    <span className="text-xs font-mono font-medium flex-1">{a.username}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">i_account: {a.iAccount}</span>
+                    {a.balance !== 0 && (
+                      <span className="text-[10px] text-amber-400 shrink-0">bal: {a.balance}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Orphaned Auth Rules */}
+          {orphanedAuthRules.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <AlertCircle className="h-3 w-3 text-amber-400" />
+                Orphaned Auth Rules ({orphanedAuthRules.length})
+                <span className="text-[10px] font-normal normal-case text-muted-foreground/60">IPs in Sippy not in platform's approved list</span>
+              </p>
+              <div className="space-y-1">
+                {orphanedAuthRules.map(r => (
+                  <button
+                    key={r.iAuthentication}
+                    data-testid={`sync-authrule-${r.iAuthentication}`}
+                    onClick={() => toggleAuthRule(r.iAuthentication)}
+                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded border transition-colors ${
+                      selectedAuthRules.has(r.iAuthentication)
+                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-200'
+                        : 'bg-amber-500/5 border-amber-500/20 text-amber-300 hover:bg-amber-500/10'
+                    }`}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                      selectedAuthRules.has(r.iAuthentication) ? 'bg-amber-500 border-amber-500' : 'border-amber-500/40'
+                    }`}>
+                      {selectedAuthRules.has(r.iAuthentication) && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
+                    </div>
+                    <span className="text-xs font-mono flex-1">{r.remoteIp}</span>
+                    <span className="text-[10px] text-muted-foreground">→ {r.companyName}</span>
+                    <span className="text-[10px] text-muted-foreground ml-auto shrink-0">auth #{r.iAuthentication}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 pt-2 border-t border-border/40">
+            <Button
+              data-testid="btn-refresh-sync"
+              size="sm"
+              variant="outline"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="gap-1.5"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            {totalSelected > 0 && (
+              <Button
+                data-testid="btn-execute-sync"
+                size="sm"
+                variant="destructive"
+                disabled={executeMutation.isPending}
+                onClick={() => {
+                  const parts = [];
+                  if (selectedAccounts.size  > 0) parts.push(`${selectedAccounts.size} Sippy account(s)`);
+                  if (selectedAuthRules.size > 0) parts.push(`${selectedAuthRules.size} auth rule(s)`);
+                  if (confirm(`Permanently delete ${parts.join(' and ')} from Sippy?\n\nThis cannot be undone.`))
+                    executeMutation.mutate();
+                }}
+                className="gap-1.5"
+              >
+                {executeMutation.isPending
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Executing…</>
+                  : <><Trash2 className="h-3.5 w-3.5" /> Delete {totalSelected} Selected</>
+                }
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={onClose} className="ml-auto">Close</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -550,6 +867,7 @@ export default function CompanyListPage() {
   const [search, setSearch] = useState("");
   const [kamFilter, setKamFilter] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
+  const [syncOpen, setSyncOpen] = useState(false);
 
   const { data, isLoading } = useQuery<{ companies: Company[] }>({
     queryKey: ["/api/companies"],
@@ -595,6 +913,15 @@ export default function CompanyListPage() {
           <Badge variant="outline" className="text-xs">{companies.length}</Badge>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            data-testid="btn-sync-sippy"
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+            onClick={() => setSyncOpen(true)}
+          >
+            <RefreshCw className="h-4 w-4" /> Sync
+          </Button>
           <Link href="/client-wizard">
             <Button data-testid="btn-client-wizard" size="sm" variant="outline" className="gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
               <Zap className="h-4 w-4" /> Client Wizard
@@ -815,6 +1142,9 @@ export default function CompanyListPage() {
         open={selectedCompanyId !== null}
         onClose={() => setSelectedCompanyId(null)}
       />
+
+      {/* Sync Dialog */}
+      <SyncDialog open={syncOpen} onClose={() => setSyncOpen(false)} />
     </div>
   );
 }
