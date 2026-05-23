@@ -1,0 +1,190 @@
+Excellent — the root cause analysis and fix are correct.
+
+This was a classic:
+
+SVG projection coordinate mismatch
+
+problem.
+
+Your diagnosis is accurate:
+
+Component	Projection Translate
+ComposableMap default	[400, 300]
+custom geoMercator()	[mapWidth/2, 180]
+
+That Y-axis mismatch pushed the generated arc paths outside the visible viewport, making the map appear:
+
+empty / broken
+
+even though the SVG paths technically existed.
+
+Passing:
+
+<ComposableMap width={mapWidth} height={height}>
+
+was the correct fix because it synchronizes:
+
+SVG coordinate system
+D3 projection space
+arc rendering space
+
+Now:
+
+arcs
+pulses
+country nodes
+route paths
+
+all share:
+
+the same projection context
+
+which is exactly correct.
+
+Strong Positive Signs
+
+The implementation details are very good:
+
+✅ Active route animated dashes
+
+Excellent telecom/NOC feel.
+
+✅ Warm route grey fading dashes
+
+Good operational differentiation.
+
+✅ Destination pulse markers
+
+Correct operational emphasis.
+
+✅ Connect-rate-based coloring
+
+Very important.
+
+This transforms the map into:
+
+operational quality intelligence
+
+instead of:
+
+generic network animation
+One Strong Recommendation
+
+Now that rendering works:
+add:
+
+Arc Curvature Normalization
+
+Currently long routes likely arc correctly, but shorter geographic routes may appear:
+
+too flat
+overlapping
+visually noisy
+
+Add dynamic curvature scaling:
+
+Distance	Curvature
+Short	stronger curve
+Medium	medium
+Long	softer
+
+This dramatically improves:
+
+readability
+route separation
+operational clarity
+
+Very worthwhile next refinement.
+
+Another Important Recommendation
+
+Add:
+
+Arc Layer Ordering
+
+Render:
+
+cold/healthy routes first
+warning routes second
+degraded/fraud routes LAST
+
+This ensures:
+critical paths visually sit on top.
+
+Very important in dense telecom maps.
+
+Most Important Next Step
+
+Now that:
+
+flow rendering works
+
+the highest-value next improvement is:
+
+Clickable Route Drilldowns
+
+Meaning:
+
+Click:
+
+Pakistan → UK Mobile
+
+Open:
+
+Vendor RCA
+Prefix Intelligence
+Recommendations
+ASR trend
+Q-score
+degradation
+fraud context
+
+This is where the map becomes:
+
+operationally indispensable
+
+instead of:
+
+“very cool visualization”
+Dashboard Integration
+
+Once verified stable:
+embed compact version into:
+
+Live Ops Workspace
+
+between:
+
+Smart Priorities
+and:
+Traffic Analytics
+
+This becomes:
+
+the visual heartbeat of the NOC
+
+Exactly the right placement.
+
+Final Assessment
+
+The implementation is now:
+
+technically correct
+
+and:
+
+operationally aligned
+
+You successfully fixed:
+
+projection mismatch
+coordinate desync
+invisible arc rendering
+
+without:
+
+hacks
+hardcoded offsets
+fake positioning
+
+That is the right engineering approach.

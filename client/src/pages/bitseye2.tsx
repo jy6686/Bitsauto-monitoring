@@ -230,6 +230,44 @@ function MiniSparkline({ data, color, idle = false }: { data: number[]; color: s
 // Hub coordinate: Gulf/UAE — common carrier hub for South Asia VoIP traffic
 const MAP_HUB: [number, number] = [55, 25];
 
+// ── Arc drilldown helpers ──────────────────────────────────────────────────────
+type ArcDrillData = {
+  name: string; active: number; peak: number; cr: number; state: 'active' | 'warm' | 'cooling' | 'historical';
+  lastSeen?: number; topVendor?: string; topVendorShare?: number; topVendorCount?: number;
+};
+
+function computeQScore(cr: number, active: number, peak: number, state: ArcDrillData['state']): number {
+  let score = cr;
+  if (peak > 0 && active < peak && active >= 0) score -= (1 - active / peak) * 15;
+  if (state === 'warm')       score *= 0.90;
+  if (state === 'cooling')    score *= 0.75;
+  if (state === 'historical') score *= 0.60;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function getArcRecommendations(arc: ArcDrillData): string[] {
+  const recs: string[] = [];
+  if (arc.cr < 40)  recs.push('Route quality critical — ASR well below threshold');
+  else if (arc.cr < 70) recs.push('Monitor connect rate — marginal performance');
+  if (arc.topVendorShare !== undefined && arc.topVendorCount !== undefined) {
+    if (arc.topVendorCount === 1 || arc.topVendorShare >= 88) recs.push('Single-route risk — add backup vendor for resilience');
+    else if (arc.topVendorShare >= 65) recs.push('High route concentration — consider diversification');
+  }
+  if (arc.state === 'warm')    recs.push('Route went idle recently — monitor for recovery');
+  if (arc.state === 'cooling') recs.push('Route idle 30 min+ — verify trunk status with carrier');
+  if (arc.active > 0 && arc.peak > 0 && arc.active < arc.peak * 0.4) recs.push('Traffic below 40% of daily peak — check for routing changes');
+  if (recs.length === 0) recs.push('Route operating within normal parameters');
+  return recs;
+}
+
+// Layer-order priority: critical routes render last = visually on top
+const ARC_Z: Record<ArcDrillData['state'], number> = { historical: 0, cooling: 1, warm: 2, active: 3 };
+function arcZOrder(a: { state: ArcDrillData['state']; cr: number }): number {
+  if (a.state !== 'active') return ARC_Z[a.state];
+  // Within active: green(healthy) below amber(warn) below red(degraded)
+  return a.cr >= 70 ? 3 : a.cr >= 40 ? 4 : 5;
+}
+
 function formatArcAge(lastSeen: number): string {
   const secs = Math.floor((Date.now() - lastSeen) / 1000);
   if (secs < 60)    return `${secs}s ago`;
@@ -254,10 +292,8 @@ function WorldMap({
 }) {
   const [tooltip, setTooltip]       = useState<{ name: string; data?: EntityRow } | null>(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-  const [arcTooltip, setArcTooltip] = useState<{
-    name: string; active: number; peak: number; cr: number; lastSeen?: number;
-    topVendor?: string; topVendorShare?: number; topVendorCount?: number; state: 'active' | 'warm' | 'cooling' | 'historical';
-  } | null>(null);
+  const [arcTooltip, setArcTooltip] = useState<ArcDrillData | null>(null);
+  const [arcDrilldown, setArcDrilldown] = useState<ArcDrillData | null>(null);
   const [mapError, setMapError]     = useState(false);
   const [mapWidth, setMapWidth]     = useState(800);
   const mapContainerRef             = useRef<HTMLDivElement>(null);
@@ -307,7 +343,10 @@ function WorldMap({
       const [dx, dy] = dest;
       const mx   = (sx + dx) / 2;
       const dist = Math.sqrt((dx - sx) ** 2 + (dy - sy) ** 2);
-      const my   = (sy + dy) / 2 - dist * 0.28;
+      // Dynamic curvature: short routes curve strongly to separate from neighbours;
+      // long trans-continental routes use a softer arc for readability
+      const curveFactor = dist < 80 ? 0.48 : dist < 160 ? 0.34 : dist < 260 ? 0.22 : 0.15;
+      const my   = (sy + dy) / 2 - dist * curveFactor;
       const d    = `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${dx.toFixed(1)} ${dy.toFixed(1)}`;
       const arcLen = Math.round(dist * 1.3 + 40);
       // Thickness memory: blend current concurrency with historical peak
@@ -423,19 +462,25 @@ function WorldMap({
             }
           </Geographies>
 
-          {/* ── Traffic flow arcs: hub → destination countries (full lifecycle) ── */}
+          {/* ── Traffic flow arcs: sorted by criticality so degraded routes render on top ── */}
           <g>
-            {arcData.map((arc, i) => {
+            {[...arcData]
+              .sort((a, b) => arcZOrder(a) - arcZOrder(b))
+              .map((arc, i) => {
               const { state, d, strokeColor, strokeWidth, arcLen } = arc;
-
-              // Shared hover handlers — fired on the invisible hit-area path
+              const drillPayload: ArcDrillData = {
+                name: arc.name, active: arc.count, peak: arc.peak, cr: arc.cr,
+                state, lastSeen: arc.lastSeen, topVendor: arc.topVendor,
+                topVendorShare: arc.topVendorShare, topVendorCount: arc.topVendorCount,
+              };
+              // Shared interaction handlers
               const hoverProps = {
-                onMouseEnter: () => setArcTooltip({ name: arc.name, active: arc.count, peak: arc.peak, cr: arc.cr, lastSeen: arc.lastSeen, topVendor: arc.topVendor, topVendorShare: arc.topVendorShare, topVendorCount: arc.topVendorCount, state }),
+                onMouseEnter: () => setArcTooltip(drillPayload),
                 onMouseLeave: () => setArcTooltip(null),
+                onClick: (ev: React.MouseEvent) => { ev.stopPropagation(); setArcDrilldown(drillPayload); },
               };
 
               if (state === 'historical') {
-                // Very faint residual trace — non-interactive
                 return (
                   <g key={arc.name} style={{ pointerEvents: 'none' }}>
                     <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={0.6}
@@ -446,10 +491,9 @@ function WorldMap({
 
               if (state === 'cooling') {
                 return (
-                  <g key={arc.name} style={{ cursor: 'crosshair' }} {...hoverProps}>
+                  <g key={arc.name} style={{ cursor: 'pointer' }} {...hoverProps}>
                     <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 0.55}
                       opacity={0.22} strokeLinecap="round" strokeDasharray="4 6" />
-                    {/* Transparent wide hit-area for easy hover */}
                     <path d={d} fill="none" stroke="transparent" strokeWidth={12} />
                   </g>
                 );
@@ -457,7 +501,7 @@ function WorldMap({
 
               if (state === 'warm') {
                 return (
-                  <g key={arc.name} style={{ cursor: 'crosshair' }} {...hoverProps}>
+                  <g key={arc.name} style={{ cursor: 'pointer' }} {...hoverProps}>
                     <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 0.75}
                       opacity={0.35} strokeLinecap="round" strokeDasharray="6 5" />
                     <path d={d} fill="none" stroke="#9CA3AF"
@@ -470,9 +514,9 @@ function WorldMap({
                 );
               }
 
-              // Active — full 3-layer: glow halo + base line + animated particle
+              // Active — 3-layer: glow halo + base line + animated particle
               return (
-                <g key={arc.name} style={{ cursor: 'crosshair' }} {...hoverProps}>
+                <g key={arc.name} style={{ cursor: 'pointer' }} {...hoverProps}>
                   <path d={d} fill="none" stroke={strokeColor}
                     strokeWidth={strokeWidth + 1.5} opacity={0.08} strokeLinecap="round" />
                   <path d={d} fill="none" stroke={strokeColor}
@@ -530,9 +574,153 @@ function WorldMap({
         )}
       </AnimatePresence>
 
+      {/* ── Arc Route Drilldown — slide-up panel on arc click ── */}
+      <AnimatePresence>
+        {arcDrilldown && (
+          <motion.div
+            key={arcDrilldown.name + '-drill'}
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', stiffness: 420, damping: 36 }}
+            style={{
+              position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 40,
+              background: 'linear-gradient(180deg, #0F1623 0%, #111827 100%)',
+              borderTop: '1px solid rgba(255,255,255,0.10)',
+              padding: '14px 18px 16px',
+              boxShadow: '0 -8px 32px rgba(0,0,0,0.55)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header row */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <span style={{ fontSize: 14, fontWeight: 800, color: '#F9FAFB' }}>{arcDrilldown.name}</span>
+                <span style={{
+                  fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.07em',
+                  padding: '2px 8px', borderRadius: 5,
+                  color:      arcDrilldown.state === 'active'  ? '#10B981' : arcDrilldown.state === 'warm' ? '#F59E0B' : '#9CA3AF',
+                  background: arcDrilldown.state === 'active'  ? 'rgba(16,185,129,0.15)' : arcDrilldown.state === 'warm' ? 'rgba(245,158,11,0.15)' : 'rgba(156,163,175,0.12)',
+                  border: `1px solid ${arcDrilldown.state === 'active' ? 'rgba(16,185,129,0.35)' : arcDrilldown.state === 'warm' ? 'rgba(245,158,11,0.35)' : 'rgba(156,163,175,0.25)'}`,
+                }}>{arcDrilldown.state}</span>
+                {/* Q-score badge */}
+                {(() => {
+                  const q = computeQScore(arcDrilldown.cr, arcDrilldown.active, arcDrilldown.peak, arcDrilldown.state);
+                  const qColor = q >= 70 ? '#34D399' : q >= 45 ? '#FBBF24' : '#F87171';
+                  return (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: qColor }}>
+                      <span style={{ fontSize: 8, fontWeight: 700, color: '#6B7280', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Q</span>
+                      {q}
+                    </span>
+                  );
+                })()}
+              </div>
+              <button
+                onClick={() => setArcDrilldown(null)}
+                style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#9CA3AF', borderRadius: 6, width: 24, height: 24, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}
+              >✕</button>
+            </div>
+
+            {/* Metrics + vendor two-column grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px', marginBottom: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 11, color: '#6B7280' }}>Concurrent</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: arcDrilldown.active > 0 ? '#60A5FA' : '#4B5563', fontVariantNumeric: 'tabular-nums' }}>
+                    {arcDrilldown.active > 0 ? arcDrilldown.active : '—'}
+                  </span>
+                </div>
+                {arcDrilldown.peak > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 11, color: '#6B7280' }}>Peak today</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#A78BFA', fontVariantNumeric: 'tabular-nums' }}>{arcDrilldown.peak}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 11, color: '#6B7280' }}>Last active</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: arcDrilldown.active > 0 ? '#10B981' : '#E5E7EB' }}>
+                    {arcDrilldown.active > 0 ? 'now' : arcDrilldown.lastSeen ? formatArcAge(arcDrilldown.lastSeen) : '—'}
+                  </span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 11, color: '#6B7280' }}>Connect rate</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+                    color: arcDrilldown.cr >= 70 ? '#10B981' : arcDrilldown.cr >= 40 ? '#F59E0B' : '#EF4444' }}>
+                    {arcDrilldown.cr}%
+                  </span>
+                </div>
+                {arcDrilldown.topVendor && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#6B7280' }}>Top vendor</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#93C5FD', maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {arcDrilldown.topVendor}
+                      </span>
+                      {arcDrilldown.topVendorShare !== undefined && (
+                        <span style={{ fontSize: 9, fontWeight: 700, color: '#818CF8', background: 'rgba(99,102,241,0.15)', padding: '1px 5px', borderRadius: 4 }}>
+                          {arcDrilldown.topVendorShare}%
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
+                {arcDrilldown.topVendorShare !== undefined && arcDrilldown.topVendorCount !== undefined && (() => {
+                  const badge = diversityBadge(arcDrilldown.topVendorShare, arcDrilldown.topVendorCount);
+                  return badge ? (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: '#6B7280' }}>Concentration</span>
+                      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: badge.color, background: badge.bg, padding: '1px 6px', borderRadius: 4 }}>{badge.label}</span>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+            </div>
+
+            {/* Recommendations */}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 10, marginBottom: 12 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', color: '#4B5563', textTransform: 'uppercase', marginBottom: 7 }}>Recommendations</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {getArcRecommendations(arcDrilldown).map((rec, ri) => (
+                  <div key={ri} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 11, color: '#D1D5DB' }}>
+                    <span style={{ color: '#6366F1', flexShrink: 0, marginTop: 1 }}>›</span>
+                    {rec}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              {onCountryClick && (
+                <button
+                  onClick={() => { onCountryClick(arcDrilldown.name); setArcDrilldown(null); }}
+                  style={{
+                    flex: 1, background: 'rgba(99,102,241,0.18)', border: '1px solid rgba(99,102,241,0.4)',
+                    color: '#A5B4FC', borderRadius: 8, padding: '7px 0', fontSize: 11, fontWeight: 700,
+                    cursor: 'pointer', letterSpacing: '0.03em',
+                  }}
+                >
+                  Drill into entity →
+                </button>
+              )}
+              <button
+                onClick={() => setArcDrilldown(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#6B7280', borderRadius: 8, padding: '7px 14px', fontSize: 11,
+                  cursor: 'pointer', fontWeight: 600,
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Arc hover card — route detail for active / warm / cooling arcs */}
       <AnimatePresence>
-        {arcTooltip && !tooltip && (
+        {arcTooltip && !tooltip && !arcDrilldown && (
           <motion.div
             key={arcTooltip.name}
             initial={{ opacity: 0, scale: 0.92, y: -4 }}
