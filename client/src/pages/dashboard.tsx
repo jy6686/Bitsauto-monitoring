@@ -1706,132 +1706,6 @@ export default function DashboardPage() {
 
       </div>
 
-      {/* ── Smart Priorities ─────────────────────────────────────────────────── */}
-      {openIncidents.length > 0 && (
-        <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.03] overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-amber-500/15 bg-amber-500/[0.03]">
-            <div>
-              <h3 className="font-semibold text-sm flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400" />
-                Smart Priorities
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {criticalCount + highCount > 0
-                  ? `${criticalCount + highCount} item${criticalCount + highCount !== 1 ? 's' : ''} require${criticalCount + highCount === 1 ? 's' : ''} immediate attention`
-                  : `${openIncidents.length} open incident${openIncidents.length !== 1 ? 's' : ''}`}
-              </p>
-            </div>
-            <Link
-              href="/console"
-              className="flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors"
-              data-testid="link-smart-priorities-view-all"
-            >
-              View All ({openIncidents.length})
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-          <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-            {openIncidents.slice(0, 3).map((inc: any) => (
-              <Link
-                key={inc.id}
-                href={`/console`}
-                data-testid={`card-priority-${inc.id}`}
-              >
-                <div className="group bg-card/60 border border-border/50 hover:border-amber-500/30 rounded-lg p-3.5 transition-all duration-200 cursor-pointer h-full">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase tracking-wide ${SEVE_CLS[inc.severity] ?? SEVE_CLS.info}`}>
-                      {inc.severity ?? 'info'}
-                    </span>
-                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
-                  </div>
-                  <p className="text-sm font-medium leading-snug line-clamp-1">{inc.title || inc.entityName || 'Incident'}</p>
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{inc.description || `${inc.entityType || 'system'} · ${inc.entityName || '—'}`}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Primary Workflows ────────────────────────────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-semibold">Primary Workflows</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Most important operational workflows</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {PRIMARY_WORKFLOWS.map(wf => {
-            const Icon = wf.icon;
-            const isUrgent = wf.severity === 'critical' || wf.severity === 'high';
-            return (
-              <Link key={wf.id} href={wf.href} data-testid={`card-workflow-${wf.id}`}>
-                <div className={`group bg-card border rounded-xl p-5 hover:shadow-md transition-all duration-200 cursor-pointer h-full flex flex-col ${isUrgent ? 'border-amber-500/20 hover:border-amber-500/40' : 'border-border/50 hover:border-border'}`}>
-                  <div className="flex items-start justify-between mb-3">
-                    <div className={`p-2 rounded-lg transition-colors ${isUrgent ? 'bg-amber-500/10 group-hover:bg-amber-500/15' : 'bg-muted/50 group-hover:bg-muted'}`}>
-                      <Icon className={`w-4 h-4 ${isUrgent ? 'text-amber-400' : 'text-muted-foreground'}`} />
-                    </div>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${sevBadge(wf.severity)}`}>
-                      {sevLabel(wf.severity)}
-                    </span>
-                  </div>
-                  <h4 className="font-semibold text-sm mb-1">{wf.label}</h4>
-                  <p className="text-xs text-muted-foreground mb-4 leading-relaxed flex-1">{wf.desc}</p>
-                  <div className="flex items-center gap-4 text-xs border-t border-border/40 pt-3">
-                    <div>
-                      <span className="font-bold text-foreground tabular-nums">{wf.stat1.value}</span>
-                      <span className="text-muted-foreground ml-1">{wf.stat1.label}</span>
-                    </div>
-                    <div className="w-px h-3 bg-border/60" />
-                    <div>
-                      <span className="font-bold text-foreground tabular-nums">{wf.stat2.value}</span>
-                      <span className="text-muted-foreground ml-1">{wf.stat2.label}</span>
-                    </div>
-                    <div className="ml-auto">
-                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── Secondary Workflows ──────────────────────────────────────────────── */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-semibold">Secondary Workflows</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Supporting operational tools</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {SECONDARY_WORKFLOWS.map(wf => {
-            const Icon = wf.icon;
-            return (
-              <Link key={wf.id} href={wf.href} data-testid={`card-secondary-${wf.id}`}>
-                <div className="group bg-card border border-border/50 rounded-xl p-4 hover:border-border hover:shadow-md transition-all duration-200 cursor-pointer h-full flex flex-col">
-                  <div className="p-2 rounded-lg bg-muted/50 group-hover:bg-muted transition-colors w-fit mb-3">
-                    <Icon className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                  <h4 className="font-semibold text-sm mb-1">{wf.label}</h4>
-                  <p className="text-xs text-muted-foreground mb-3 leading-relaxed flex-1">{wf.desc}</p>
-                  <div className="flex items-center justify-between text-xs border-t border-border/40 pt-3">
-                    <div>
-                      <span className="font-bold text-foreground tabular-nums">{wf.stat.value}</span>
-                      <span className="text-muted-foreground ml-1">{wf.stat.label}</span>
-                    </div>
-                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-
       {/* ── Live Telemetry Grid ──────────────────────────────────────────────── */}
       <div>
         <div className="flex items-center gap-2 mb-3">
@@ -2038,6 +1912,132 @@ export default function DashboardPage() {
             />
           </div>
 
+        </div>
+      </div>
+
+      {/* ── Smart Priorities ─────────────────────────────────────────────────── */}
+      {openIncidents.length > 0 && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.03] overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-amber-500/15 bg-amber-500/[0.03]">
+            <div>
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
+                Smart Priorities
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {criticalCount + highCount > 0
+                  ? `${criticalCount + highCount} item${criticalCount + highCount !== 1 ? 's' : ''} require${criticalCount + highCount === 1 ? 's' : ''} immediate attention`
+                  : `${openIncidents.length} open incident${openIncidents.length !== 1 ? 's' : ''}`}
+              </p>
+            </div>
+            <Link
+              href="/console"
+              className="flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors"
+              data-testid="link-smart-priorities-view-all"
+            >
+              View All ({openIncidents.length})
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+            {openIncidents.slice(0, 3).map((inc: any) => (
+              <Link
+                key={inc.id}
+                href={`/console`}
+                data-testid={`card-priority-${inc.id}`}
+              >
+                <div className="group bg-card/60 border border-border/50 hover:border-amber-500/30 rounded-lg p-3.5 transition-all duration-200 cursor-pointer h-full">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase tracking-wide ${SEVE_CLS[inc.severity] ?? SEVE_CLS.info}`}>
+                      {inc.severity ?? 'info'}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                  </div>
+                  <p className="text-sm font-medium leading-snug line-clamp-1">{inc.title || inc.entityName || 'Incident'}</p>
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{inc.description || `${inc.entityType || 'system'} · ${inc.entityName || '—'}`}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Primary Workflows ────────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold">Primary Workflows</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Most important operational workflows</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {PRIMARY_WORKFLOWS.map(wf => {
+            const Icon = wf.icon;
+            const isUrgent = wf.severity === 'critical' || wf.severity === 'high';
+            return (
+              <Link key={wf.id} href={wf.href} data-testid={`card-workflow-${wf.id}`}>
+                <div className={`group bg-card border rounded-xl p-5 hover:shadow-md transition-all duration-200 cursor-pointer h-full flex flex-col ${isUrgent ? 'border-amber-500/20 hover:border-amber-500/40' : 'border-border/50 hover:border-border'}`}>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className={`p-2 rounded-lg transition-colors ${isUrgent ? 'bg-amber-500/10 group-hover:bg-amber-500/15' : 'bg-muted/50 group-hover:bg-muted'}`}>
+                      <Icon className={`w-4 h-4 ${isUrgent ? 'text-amber-400' : 'text-muted-foreground'}`} />
+                    </div>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${sevBadge(wf.severity)}`}>
+                      {sevLabel(wf.severity)}
+                    </span>
+                  </div>
+                  <h4 className="font-semibold text-sm mb-1">{wf.label}</h4>
+                  <p className="text-xs text-muted-foreground mb-4 leading-relaxed flex-1">{wf.desc}</p>
+                  <div className="flex items-center gap-4 text-xs border-t border-border/40 pt-3">
+                    <div>
+                      <span className="font-bold text-foreground tabular-nums">{wf.stat1.value}</span>
+                      <span className="text-muted-foreground ml-1">{wf.stat1.label}</span>
+                    </div>
+                    <div className="w-px h-3 bg-border/60" />
+                    <div>
+                      <span className="font-bold text-foreground tabular-nums">{wf.stat2.value}</span>
+                      <span className="text-muted-foreground ml-1">{wf.stat2.label}</span>
+                    </div>
+                    <div className="ml-auto">
+                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Secondary Workflows ──────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold">Secondary Workflows</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Supporting operational tools</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {SECONDARY_WORKFLOWS.map(wf => {
+            const Icon = wf.icon;
+            return (
+              <Link key={wf.id} href={wf.href} data-testid={`card-secondary-${wf.id}`}>
+                <div className="group bg-card border border-border/50 rounded-xl p-4 hover:border-border hover:shadow-md transition-all duration-200 cursor-pointer h-full flex flex-col">
+                  <div className="p-2 rounded-lg bg-muted/50 group-hover:bg-muted transition-colors w-fit mb-3">
+                    <Icon className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <h4 className="font-semibold text-sm mb-1">{wf.label}</h4>
+                  <p className="text-xs text-muted-foreground mb-3 leading-relaxed flex-1">{wf.desc}</p>
+                  <div className="flex items-center justify-between text-xs border-t border-border/40 pt-3">
+                    <div>
+                      <span className="font-bold text-foreground tabular-nums">{wf.stat.value}</span>
+                      <span className="text-muted-foreground ml-1">{wf.stat.label}</span>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </div>
 
