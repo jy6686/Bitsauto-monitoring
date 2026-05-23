@@ -478,12 +478,12 @@ function WorldMap({
               .sort((a, b) => arcZOrder(a) - arcZOrder(b))
               .map((arc, i) => {
               const { state, d, strokeColor, strokeWidth, arcLen } = arc;
+              const isHov = arcTooltip?.name === arc.name;
               const drillPayload: ArcDrillData = {
                 name: arc.name, active: arc.count, peak: arc.peak, cr: arc.cr,
                 state, lastSeen: arc.lastSeen, topVendor: arc.topVendor,
                 topVendorShare: arc.topVendorShare, topVendorCount: arc.topVendorCount,
               };
-              // Shared interaction handlers
               const hoverProps = {
                 onMouseEnter: () => setArcTooltip(drillPayload),
                 onMouseLeave: () => setArcTooltip(null),
@@ -494,7 +494,7 @@ function WorldMap({
                 return (
                   <g key={arc.name} style={{ pointerEvents: 'none' }}>
                     <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={0.6}
-                      opacity={0.1} strokeLinecap="round" strokeDasharray="2 9" />
+                      opacity={0.10} strokeLinecap="round" strokeDasharray="2 9" />
                   </g>
                 );
               }
@@ -502,8 +502,12 @@ function WorldMap({
               if (state === 'cooling') {
                 return (
                   <g key={arc.name} style={{ cursor: 'pointer' }} {...hoverProps}>
+                    {/* Playback trail — route memory */}
+                    <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 9} opacity={0.018} strokeLinecap="round" />
+                    {/* Hover glow amplifier */}
+                    {isHov && <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 3} opacity={0.38} strokeLinecap="round" />}
                     <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 0.55}
-                      opacity={0.22} strokeLinecap="round" strokeDasharray="4 6" />
+                      opacity={isHov ? 0.55 : 0.22} strokeLinecap="round" strokeDasharray="4 6" />
                     <path d={d} fill="none" stroke="transparent" strokeWidth={12} />
                   </g>
                 );
@@ -512,10 +516,14 @@ function WorldMap({
               if (state === 'warm') {
                 return (
                   <g key={arc.name} style={{ cursor: 'pointer' }} {...hoverProps}>
+                    {/* Playback trail — route memory */}
+                    <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 9} opacity={0.022} strokeLinecap="round" />
+                    {/* Hover glow amplifier */}
+                    {isHov && <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 3.5} opacity={0.40} strokeLinecap="round" />}
                     <path d={d} fill="none" stroke="#9CA3AF" strokeWidth={strokeWidth * 0.75}
-                      opacity={0.35} strokeLinecap="round" strokeDasharray="6 5" />
+                      opacity={isHov ? 0.60 : 0.35} strokeLinecap="round" strokeDasharray="6 5" />
                     <path d={d} fill="none" stroke="#9CA3AF"
-                      strokeWidth={strokeWidth * 0.85} opacity={0.6} strokeLinecap="round"
+                      strokeWidth={strokeWidth * 0.85} opacity={isHov ? 0.90 : 0.60} strokeLinecap="round"
                       strokeDasharray={`${Math.max(8, Math.round(arcLen * 0.08))} ${arcLen}`}
                       style={{ animation: `be2-arc-flow ${4.8 + (i % 5) * 0.5}s linear infinite` }}
                     />
@@ -524,15 +532,23 @@ function WorldMap({
                 );
               }
 
-              // Active — 3-layer: glow halo + base line + animated particle
+              // Active — playback trail + hover glow + base line + animated particle
               return (
                 <g key={arc.name} style={{ cursor: 'pointer' }} {...hoverProps}>
+                  {/* Playback trail — shows route historical volume / memory */}
                   <path d={d} fill="none" stroke={strokeColor}
-                    strokeWidth={strokeWidth + 1.5} opacity={0.08} strokeLinecap="round" />
+                    strokeWidth={strokeWidth * 10} opacity={0.030} strokeLinecap="round" />
+                  {/* Hover glow amplifier */}
+                  {isHov && (
+                    <path d={d} fill="none" stroke={strokeColor}
+                      strokeWidth={strokeWidth + 7} opacity={0.30} strokeLinecap="round" />
+                  )}
                   <path d={d} fill="none" stroke={strokeColor}
-                    strokeWidth={strokeWidth} opacity={0.38} strokeLinecap="round" />
+                    strokeWidth={strokeWidth + 1.5} opacity={isHov ? 0.24 : 0.08} strokeLinecap="round" />
                   <path d={d} fill="none" stroke={strokeColor}
-                    strokeWidth={strokeWidth + 0.6} opacity={0.9} strokeLinecap="round"
+                    strokeWidth={strokeWidth} opacity={isHov ? 0.72 : 0.38} strokeLinecap="round" />
+                  <path d={d} fill="none" stroke={strokeColor}
+                    strokeWidth={strokeWidth + 0.6} opacity={isHov ? 1.0 : 0.9} strokeLinecap="round"
                     strokeDasharray={`${Math.max(10, Math.round(arcLen * 0.12))} ${arcLen}`}
                     style={{ animation: `be2-arc-flow ${2.8 + (i % 5) * 0.35}s linear infinite` }}
                   />
@@ -686,6 +702,64 @@ function WorldMap({
               </div>
             </div>
 
+            {/* ── Route Intelligence: quality bar + vendor risk ── */}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 10, marginBottom: 10 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', color: '#4B5563', textTransform: 'uppercase', marginBottom: 8 }}>Route Intelligence</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {/* Connect Rate visual bar */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <span style={{ fontSize: 10, color: '#6B7280' }}>Connect rate</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: arcDrilldown.cr >= 70 ? '#10B981' : arcDrilldown.cr >= 40 ? '#F59E0B' : '#EF4444' }}>{arcDrilldown.cr}%</span>
+                  </div>
+                  <div style={{ height: 4, borderRadius: 3, background: 'rgba(255,255,255,0.06)' }}>
+                    <div style={{
+                      height: '100%', borderRadius: 3,
+                      width: `${Math.min(100, arcDrilldown.cr)}%`,
+                      background: arcDrilldown.cr >= 70 ? 'linear-gradient(90deg,#059669,#10B981)' : arcDrilldown.cr >= 40 ? 'linear-gradient(90deg,#D97706,#F59E0B)' : 'linear-gradient(90deg,#DC2626,#EF4444)',
+                      transition: 'width 0.4s',
+                    }} />
+                  </div>
+                </div>
+                {/* Vendor concentration bar */}
+                {arcDrilldown.topVendorShare !== undefined && arcDrilldown.topVendor && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                      <span style={{ fontSize: 10, color: '#6B7280' }}>Vendor dependency — {arcDrilldown.topVendor}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: arcDrilldown.topVendorShare >= 80 ? '#EF4444' : arcDrilldown.topVendorShare >= 60 ? '#F59E0B' : '#10B981' }}>{arcDrilldown.topVendorShare}%</span>
+                    </div>
+                    <div style={{ height: 4, borderRadius: 3, background: 'rgba(255,255,255,0.06)' }}>
+                      <div style={{
+                        height: '100%', borderRadius: 3,
+                        width: `${Math.min(100, arcDrilldown.topVendorShare)}%`,
+                        background: arcDrilldown.topVendorShare >= 80 ? 'linear-gradient(90deg,#991B1B,#EF4444)' : arcDrilldown.topVendorShare >= 60 ? 'linear-gradient(90deg,#B45309,#F59E0B)' : 'linear-gradient(90deg,#047857,#10B981)',
+                        transition: 'width 0.4s',
+                      }} />
+                    </div>
+                  </div>
+                )}
+                {/* RCA assessment row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,0.04)', borderRadius: 7, padding: '6px 10px' }}>
+                  {(() => {
+                    const q = computeQScore(arcDrilldown.cr, arcDrilldown.active, arcDrilldown.peak, arcDrilldown.state);
+                    const isAtRisk = arcDrilldown.cr < 40 || (arcDrilldown.topVendorShare !== undefined && arcDrilldown.topVendorShare >= 80);
+                    const isWarning = !isAtRisk && (arcDrilldown.cr < 70 || (arcDrilldown.topVendorShare !== undefined && arcDrilldown.topVendorShare >= 60));
+                    const icon = isAtRisk ? '⚠' : isWarning ? '◐' : '✓';
+                    const color = isAtRisk ? '#F87171' : isWarning ? '#FCD34D' : '#34D399';
+                    const msg = isAtRisk
+                      ? arcDrilldown.cr < 40 ? 'High failure rate — vendor or prefix issue likely' : 'Single-vendor concentration risk detected'
+                      : isWarning
+                        ? arcDrilldown.cr < 70 ? 'Marginal ASR — monitor for further degradation' : 'Moderate vendor concentration — consider diversifying'
+                        : q >= 70 ? 'Route healthy — no action required' : 'Route recovering';
+                    return <>
+                      <span style={{ fontSize: 13, color }}>{icon}</span>
+                      <span style={{ fontSize: 10, color: '#D1D5DB', flex: 1 }}>{msg}</span>
+                    </>;
+                  })()}
+                </div>
+              </div>
+            </div>
+
             {/* Recommendations */}
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 10, marginBottom: 12 }}>
               <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', color: '#4B5563', textTransform: 'uppercase', marginBottom: 7 }}>Recommendations</div>
@@ -816,6 +890,11 @@ function WorldMap({
                   </>
                 );
               })()}
+            </div>
+            {/* Click affordance hint */}
+            <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 9, color: '#6366F1', fontWeight: 700 }}>›</span>
+              <span style={{ fontSize: 10, color: '#6B7280' }}>Click to investigate route</span>
             </div>
           </motion.div>
         )}
@@ -1494,7 +1573,32 @@ function LiveCallsTable({ calls, loading }: { calls: LiveCall[]; loading: boolea
               </div>
               <button onClick={() => setSelected(null)} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: '#9CA3AF', borderRadius: 6, width: 22, height: 22, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>✕</button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px 16px' }}>
+            {/* Call health assessment bar */}
+            {(() => {
+              const dur = selected.duration ?? 0;
+              const isConn = selected.callStatus === 'connected';
+              const isFasRisk = isConn && dur < 3;
+              const isShort = isConn && dur >= 3 && dur < 10;
+              const isHealthy = isConn && dur >= 10;
+              const healthColor = isFasRisk ? '#EF4444' : isShort ? '#F59E0B' : isHealthy ? '#10B981' : '#6B7280';
+              const healthLabel = isFasRisk ? 'FAS Risk — very short answer' : isShort ? 'Short call — monitor' : isHealthy ? 'Healthy call' : 'Routing / connecting';
+              const healthIcon = isFasRisk ? '⚠' : isShort ? '◐' : isHealthy ? '✓' : '↻';
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: isFasRisk ? 'rgba(239,68,68,0.10)' : isHealthy ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.04)', border: `1px solid ${isFasRisk ? 'rgba(239,68,68,0.25)' : isHealthy ? 'rgba(16,185,129,0.20)' : 'rgba(255,255,255,0.06)'}`, borderRadius: 8, padding: '7px 12px', marginBottom: 12 }}>
+                  <span style={{ fontSize: 14, color: healthColor }}>{healthIcon}</span>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: healthColor }}>{healthLabel}</span>
+                  </div>
+                  {isFasRisk && (
+                    <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.07em', color: '#EF4444', background: 'rgba(239,68,68,0.18)', padding: '2px 7px', borderRadius: 5, border: '1px solid rgba(239,68,68,0.35)' }}>
+                      Flag for review
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px 16px', marginBottom: 12 }}>
               {[
                 { label: 'CLI',         value: selected.caller      },
                 { label: 'CLD',         value: selected.callee      },
@@ -1513,6 +1617,31 @@ function LiveCallsTable({ calls, loading }: { calls: LiveCall[]; loading: boolea
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Operational actions */}
+            <div style={{ display: 'flex', gap: 7, borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 10 }}>
+              <button
+                onClick={() => setSelected(null)}
+                style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: '#9CA3AF', borderRadius: 8, padding: '7px 0', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Dismiss
+              </button>
+              {selected.vendor && (
+                <button
+                  onClick={() => { setSelected(null); }}
+                  style={{ flex: 1, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.30)', color: '#A5B4FC', borderRadius: 8, padding: '7px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Vendor view →
+                </button>
+              )}
+              {(selected.duration ?? 0) < 3 && selected.callStatus === 'connected' && (
+                <button
+                  style={{ flex: 1, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.30)', color: '#FCA5A5', borderRadius: 8, padding: '7px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Flag FAS ⚠
+                </button>
+              )}
             </div>
           </motion.div>
         )}

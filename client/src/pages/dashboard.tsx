@@ -829,6 +829,11 @@ export default function DashboardPage() {
     queryFn: () => fetch('/api/bitseye/live-slice?groupBy=destination').then(r => r.json()),
     refetchInterval: 45_000, staleTime: 30_000,
   });
+  const { data: topCountries } = useQuery<{ entities: Array<{ name: string; active: number; connected: number; connectRate: number; idle?: boolean }> }>({
+    queryKey: ['/api/bitseye/live-slice', 'country'],
+    queryFn: () => fetch('/api/bitseye/live-slice?groupBy=country').then(r => r.json()),
+    refetchInterval: 45_000, staleTime: 30_000,
+  });
 
   // ── Last refreshed countdown ──────────────────────────────────────────────
   // statsUpdatedAt changes on every successful fetch (even if data is identical),
@@ -1881,6 +1886,72 @@ export default function DashboardPage() {
                   </table>
                 </div>
               )}
+            </div>
+
+            {/* ── Traffic Geography ─────────────────────────────────────────── */}
+            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-border/50">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-3.5 h-3.5 text-blue-400/70" />
+                  <h3 className="font-semibold text-sm">Traffic Geography</h3>
+                  {(() => {
+                    const active = (topCountries?.entities ?? []).filter(c => c.active > 0);
+                    return active.length > 0 ? (
+                      <span className="text-[10px] bg-blue-500/12 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20 font-semibold">{active.length} active</span>
+                    ) : null;
+                  })()}
+                </div>
+                <Link href="/bitseye2" className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5 whitespace-nowrap" data-testid="link-geography-explore">
+                  Live Map <ExternalLink className="w-2.5 h-2.5" />
+                </Link>
+              </div>
+              <div className="px-5 py-4">
+                {(() => {
+                  const active = (topCountries?.entities ?? []).filter(c => c.active > 0).sort((a, b) => b.active - a.active);
+                  if (!topCountries) {
+                    return (
+                      <div className="flex flex-wrap gap-1.5">
+                        {[100,80,120,90,70].map(w => (
+                          <div key={w} className="h-6 rounded-lg bg-muted/30 animate-pulse" style={{ width: w }} />
+                        ))}
+                      </div>
+                    );
+                  }
+                  if (active.length === 0) {
+                    return (
+                      <div className="py-4 text-center text-sm text-muted-foreground/40 flex items-center justify-center gap-2">
+                        <Globe className="w-4 h-4" />
+                        No active traffic routes
+                      </div>
+                    );
+                  }
+                  const max = active[0]?.active ?? 1;
+                  return (
+                    <div className="space-y-2">
+                      {active.slice(0, 8).map(c => {
+                        const pct = Math.round((c.active / max) * 100);
+                        const crColor = c.connectRate >= 70 ? 'bg-emerald-500' : c.connectRate >= 40 ? 'bg-amber-500' : 'bg-red-500';
+                        const crText = c.connectRate >= 70 ? 'text-emerald-400' : c.connectRate >= 40 ? 'text-amber-400' : 'text-red-400';
+                        return (
+                          <Link key={c.name} href="/bitseye2" className="flex items-center gap-3 group cursor-pointer" data-testid={`row-geo-country-${c.name}`}>
+                            <span className="text-xs font-medium text-foreground/80 group-hover:text-foreground transition-colors w-24 shrink-0 truncate">{c.name}</span>
+                            <div className="flex-1 h-1.5 rounded-full bg-muted/30 overflow-hidden">
+                              <div className={`h-full rounded-full ${crColor} opacity-70 transition-all duration-500`} style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className={`text-[10px] font-semibold tabular-nums shrink-0 ${crText}`}>{c.active}</span>
+                            <span className="text-[9px] text-muted-foreground/50 shrink-0 w-8 text-right">{c.connectRate}%</span>
+                          </Link>
+                        );
+                      })}
+                      {active.length > 8 && (
+                        <Link href="/bitseye2" className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors mt-1 block text-center">
+                          +{active.length - 8} more countries →
+                        </Link>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           </div>
 
