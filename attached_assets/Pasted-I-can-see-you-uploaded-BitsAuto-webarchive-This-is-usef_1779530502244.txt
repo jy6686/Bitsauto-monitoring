@@ -1,0 +1,153 @@
+I can see you uploaded:
+
+BitsAuto ®.webarchive
+
+This is useful because now we can align:
+
+Company Profile
+Client List
+Create Account Wizard
+overall Clients workspace UX
+
+with your actual existing branding/layout direction instead of theoretical structure.
+
+However, some earlier uploaded files referenced in the previous discussions have expired from the session cache. If you want me to cross-reference older roadmap/spec files again, please re-upload them.
+
+Right now, the strongest next move is:
+
+Implement Clients Workspace Maturity
+
+in this order:
+
+Priority	Feature
+1	Client List
+2	Company Profile
+3	Create Account Wizard
+4	Client Portal
+5	Reseller White Label
+
+Because:
+
+Client onboarding + operational management
+
+is now the biggest missing enterprise workflow.
+
+Recommended Immediate Build Order
+Phase 1 — Client List
+
+Build first because:
+
+becomes entry point
+required before profile drilldowns
+required before onboarding workflows mature
+
+Key features:
+
+operational customer table
+low balance indicators
+ASR/quality
+incidents
+KAM assignment
+quick actions
+smart filters
+
+Think:
+
+telecom customer operations directory
+
+—not CRM table.
+
+Phase 2 — Company Profile
+
+Then build:
+
+/company-profile/:id
+
+This becomes:
+
+Customer Command Center
+
+with:
+
+overview
+billing
+routing
+quality
+security
+portal users
+live operational sidebar
+
+This page becomes extremely important later for:
+
+KAM
+support
+fraud
+finance
+routing
+Phase 3 — Create Account Wizard
+
+After profile:
+build the telecom provisioning wizard.
+
+VERY important:
+
+multi-step onboarding flow
+
+NOT:
+
+single giant form
+
+This becomes:
+
+telecom provisioning workflow
+
+including:
+
+routing
+fraud
+authentication
+IP approvals
+rate cards
+portal access
+validation engine
+
+This will become one of the strongest enterprise workflows in the platform.
+
+Strong Recommendation
+
+Do NOT build:
+
+Client Portal
+
+before:
+
+client operations
+onboarding
+provisioning
+
+are mature internally.
+
+Internal operational workflows come first.
+
+External portals later.
+
+Most Important Architectural Principle
+
+The Clients workspace should feel like:
+
+telecom customer operations
+
+NOT:
+
+CRM
+ERP
+generic SaaS customers module
+
+Everything should remain:
+
+routing-aware
+billing-aware
+fraud-aware
+operationally aware
+
+That is your differentiator.
