@@ -1717,10 +1717,10 @@ export default function DashboardPage() {
           <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">Live Telemetry</span>
           <div className="flex-1 h-px bg-blue-500/15" />
         </div>
-        <div className="flex gap-4 items-start">
+        <div className="flex gap-5 items-start">
 
-          {/* LEFT — Traffic Graph + Live Calls Table */}
-          <div className="flex-1 min-w-0 space-y-4">
+          {/* LEFT — Traffic Graph */}
+          <div className="flex-1 min-w-0">
 
             {/* Traffic Graph */}
             <div className="rounded-xl border border-blue-500/20 bg-card overflow-hidden">
@@ -1773,7 +1773,7 @@ export default function DashboardPage() {
                     {anyPortalActive ? 'Collecting data…' : 'Connect a softswitch to see traffic'}
                   </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height={96}>
+                  <ResponsiveContainer width="100%" height={140}>
                     <AreaChart data={(trafficHist.points).map(p => ({
                       label: p.label,
                       value: trafficMetric === 'asr' ? p.asr : trafficMetric === 'minutes' ? p.minutes : p.total,
@@ -1803,12 +1803,46 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
+          </div>
 
-            {/* Live Calls Table */}
-            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-2 h-2 rounded-full ${liveCalls.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/30'}`} />
+          {/* RIGHT — Top Clients / Vendors / Routes */}
+          <div className="w-[300px] shrink-0 space-y-3">
+            <DashTopEntityCard
+              title="Top Clients"
+              icon="users"
+              entities={(topClients?.entities ?? []).filter(e => !e.idle)}
+              dim="client"
+              color="violet"
+              loading={!topClients}
+            />
+            <DashTopEntityCard
+              title="Top Vendors"
+              icon="radio"
+              entities={(topVendors?.entities ?? []).filter(e => !e.idle)}
+              dim="vendor"
+              color="blue"
+              loading={!topVendors}
+            />
+            <DashTopEntityCard
+              title="Top Routes"
+              icon="globe"
+              entities={(topDests?.entities ?? []).filter(e => !e.idle)}
+              dim="destination"
+              color="emerald"
+              loading={!topDests}
+            />
+          </div>
+
+        </div>
+
+        {/* ── Full-width sections ───────────────────────────────────────────── */}
+        <div className="space-y-4 mt-4">
+
+        {/* Live Calls Table */}
+        <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50">
+            <div className="flex items-center gap-2.5">
+              <div className={`w-2 h-2 rounded-full ${liveCalls.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/30'}`} />
                   <h3 className="font-semibold text-sm">Live Calls</h3>
                   {liveCalls.length > 0 && (
                     <span className="text-[10px] bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 font-semibold">{liveCalls.length} active</span>
@@ -1850,7 +1884,7 @@ export default function DashboardPage() {
                     <tbody>
                       {liveCalls
                         .filter((c: any) => callsFilter === 'all' || (callsFilter === 'connected' ? c.callStatus === 'connected' : c.callStatus !== 'connected'))
-                        .slice(0, 8)
+                        .slice(0, 12)
                         .map((call: any, i: number) => {
                           const isConnected = call.callStatus === 'connected';
                           const setupMs = call.setupTime ? (() => { let s = call.setupTime.trim().replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T').replace(/T(\d{2})(\d{2})(\d{2})/, 'T$1:$2:$3'); return new Date(s).getTime(); })() : null;
@@ -1928,7 +1962,7 @@ export default function DashboardPage() {
                   const max = active[0]?.active ?? 1;
                   return (
                     <div className="space-y-2">
-                      {active.slice(0, 8).map(c => {
+                      {active.slice(0, 10).map(c => {
                         const pct = Math.round((c.active / max) * 100);
                         const crColor = c.connectRate >= 70 ? 'bg-emerald-500' : c.connectRate >= 40 ? 'bg-amber-500' : 'bg-red-500';
                         const crText = c.connectRate >= 70 ? 'text-emerald-400' : c.connectRate >= 40 ? 'text-amber-400' : 'text-red-400';
@@ -1943,9 +1977,9 @@ export default function DashboardPage() {
                           </Link>
                         );
                       })}
-                      {active.length > 8 && (
+                      {active.length > 10 && (
                         <Link href="/bitseye2" className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors mt-1 block text-center">
-                          +{active.length - 8} more countries →
+                          +{active.length - 10} more countries →
                         </Link>
                       )}
                     </div>
@@ -1953,35 +1987,6 @@ export default function DashboardPage() {
                 })()}
               </div>
             </div>
-          </div>
-
-          {/* RIGHT — Top Clients / Vendors / Routes */}
-          <div className="w-[272px] shrink-0 space-y-3">
-            <DashTopEntityCard
-              title="Top Clients"
-              icon="users"
-              entities={(topClients?.entities ?? []).filter(e => !e.idle)}
-              dim="client"
-              color="violet"
-              loading={!topClients}
-            />
-            <DashTopEntityCard
-              title="Top Vendors"
-              icon="radio"
-              entities={(topVendors?.entities ?? []).filter(e => !e.idle)}
-              dim="vendor"
-              color="blue"
-              loading={!topVendors}
-            />
-            <DashTopEntityCard
-              title="Top Routes"
-              icon="globe"
-              entities={(topDests?.entities ?? []).filter(e => !e.idle)}
-              dim="destination"
-              color="emerald"
-              loading={!topDests}
-            />
-          </div>
 
         </div>
       </div>
