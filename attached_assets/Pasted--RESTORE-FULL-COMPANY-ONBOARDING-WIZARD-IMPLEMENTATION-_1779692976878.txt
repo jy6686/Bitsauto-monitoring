@@ -1,0 +1,366 @@
+# RESTORE FULL COMPANY ONBOARDING WIZARD — IMPLEMENTATION PROMPT
+
+Goal:
+Restore the original enterprise-grade telecom onboarding workflow that existed before the navigation/workspace refactor.
+
+Current problem:
+The previous 3–6 step onboarding wizard was unintentionally reduced into a lightweight 2-step account flow.
+
+This caused loss of:
+
+* telecom provisioning flow
+* reseller onboarding
+* white-label setup
+* portal/access configuration
+* routing initialization
+* onboarding validation
+
+The platform needs BOTH:
+
+1. Quick Create Account
+2. Full Company Onboarding Wizard
+
+====================================================
+ARCHITECTURE DECISION
+=====================
+
+KEEP:
+Quick Create Account
+(Simple 2-step fast flow)
+
+RESTORE:
+Full Company Onboarding Wizard
+(Multi-step enterprise telecom onboarding)
+
+These are DIFFERENT workflows.
+
+====================================================
+FINAL NAVIGATION PLACEMENT
+==========================
+
+Clients
+├── Account Management
+│     ├── Accounts
+│     ├── Companies
+│     ├── Resellers
+│     └── Quick Create Account
+│
+├── Operations
+│     ├── Company Onboarding Wizard
+│     ├── DIDs
+│     ├── Recordings
+│     └── Provisioning
+│
+└── Billing & Finance
+├── Billing
+├── Invoices
+└── Rate Cards
+
+====================================================
+WIZARD OBJECTIVE
+================
+
+This is NOT:
+
+* a settings form
+* simple account creation
+* profile editing
+
+This IS:
+
+# telecom operational onboarding workflow
+
+The wizard should support:
+
+* enterprise customers
+* resellers
+* white-label customers
+* carriers
+* retail VoIP clients
+
+====================================================
+WIZARD UX REQUIREMENTS
+======================
+
+Use:
+
+* horizontal stepper
+* persistent progress bar
+* autosave draft
+* validation per step
+* summary/review step
+
+Desktop:
+
+* large operational form layout
+
+Mobile:
+
+* stacked responsive steps
+
+Preserve:
+
+* enterprise telecom feel
+* operational density
+* clean workflow guidance
+
+====================================================
+STEP 1 — COMPANY INFORMATION
+============================
+
+Fields:
+
+* Company Name
+* Company Type
+
+  * Retail
+  * Wholesale
+  * Reseller
+  * Carrier
+* Currency
+* Timezone
+* Region/Country
+* Language
+* Account Manager (KAM)
+* Status
+* Notes
+
+Validation:
+
+* duplicate company detection
+* currency validation
+* timezone required
+
+====================================================
+STEP 2 — CONTACTS & BILLING
+===========================
+
+Sections:
+
+* Billing Contact
+* Technical Contact
+* NOC Contact
+
+Fields:
+
+* name
+* email
+* phone
+* invoice email
+* billing cycle
+* payment terms
+* credit limit
+* tax/VAT
+
+Validation:
+
+* valid emails
+* numeric limits
+* invoice recipient required
+
+====================================================
+STEP 3 — TELECOM PROVISIONING
+=============================
+
+Fields:
+
+* Routing Profile
+* Translation Rules
+* CPS Limits
+* Concurrent Calls
+* Codec Policy
+* DID Allocation
+* SIP Authentication
+* IP Authentication
+* Allowed Regions
+* Fraud Profile
+* CLI Rules
+
+Integrations:
+
+* Sippy auth rules
+* routing groups
+* translation policies
+
+This step restores the original telecom operational depth.
+
+====================================================
+STEP 4 — PORTAL & ACCESS
+========================
+
+Fields:
+
+* Enable Client Portal
+* Enable Reseller Portal
+* Create Initial User
+* Roles
+* API Access
+* IP Whitelist
+* MFA Requirement
+* Permissions Profile
+
+Conditional:
+If reseller:
+
+* enable downstream management
+
+====================================================
+STEP 5 — WHITE LABEL & BRANDING
+===============================
+
+ONLY visible for:
+
+* resellers
+* white-label customers
+
+Fields:
+
+* Company Logo
+* Portal Domain
+* SMTP Branding
+* Theme Colors
+* Invoice Branding
+* Portal Name
+* Support Contacts
+
+Integrates with:
+Settings → Organization → White Labeling
+
+====================================================
+STEP 6 — VALIDATION & ACTIVATION
+================================
+
+Show:
+
+* onboarding summary
+* provisioning summary
+* routing summary
+* portal summary
+* billing summary
+* fraud/security checks
+
+Run:
+
+* validation checks
+* duplicate auth checks
+* missing route checks
+* security warnings
+
+Actions:
+
+* Save Draft
+* Activate
+* Activate Later
+
+====================================================
+QUICK CREATE ACCOUNT (KEEP EXISTING)
+====================================
+
+DO NOT remove current 2-step flow.
+
+Rename clearly:
+
+# Quick Create Account
+
+Purpose:
+
+* internal fast creation
+* testing
+* temporary accounts
+* rapid onboarding
+
+This is separate from:
+
+# Full Company Onboarding Wizard
+
+====================================================
+DATA & BACKEND RULES
+====================
+
+DO:
+
+* reuse existing entities/tables
+* reuse auth systems
+* reuse routing systems
+* reuse reseller logic
+* reuse white-label logic
+
+DO NOT:
+
+* duplicate provisioning logic
+* duplicate company entities
+* create parallel account systems
+
+====================================================
+SAVE DRAFT SUPPORT
+==================
+
+Implement:
+
+* draft onboarding state
+* partial save
+* resume later
+
+Add:
+
+* onboarding status
+
+  * draft
+  * provisioning
+  * pending approval
+  * active
+
+====================================================
+ROLE ACCESS
+===========
+
+Allowed:
+
+* Admin
+* Management
+* KAM
+
+Restricted:
+
+* Client Portal
+* Standard users
+
+====================================================
+IMPORTANT UX RULES
+==================
+
+DO:
+
+* preserve operational flow
+* group telecom concepts logically
+* keep workflow explainable
+
+DO NOT:
+
+* overload single step
+* reduce telecom provisioning depth
+* merge onboarding into settings
+* simplify into generic CRM form
+
+====================================================
+FINAL TARGET
+============
+
+Restore:
+
+# enterprise telecom onboarding workflow
+
+with:
+
+* operational provisioning
+* reseller onboarding
+* white-label setup
+* routing initialization
+* portal/access configuration
+* onboarding validation
+
+while preserving:
+
+# Quick Create Account
+
+for lightweight operational speed.
