@@ -1859,6 +1859,30 @@ export const failoverExecutions = pgTable("failover_executions", {
 export type FailoverExecution       = typeof failoverExecutions.$inferSelect;
 export type InsertFailoverExecution = typeof failoverExecutions.$inferInsert;
 
+// ── Recommendation Outcomes — passive telemetry only ─────────────────────────
+// Append-only. No routes or dashboards until sufficient telemetry exists.
+// Purpose: correlate projected simulation deltas against actual carrier outcomes
+// to create empirical confidence calibration for the future Trust Analytics layer.
+// DO NOT add scoring, weighting, or ML hooks until Phase 1 trust telemetry matures.
+export const recommendationOutcomes = pgTable("recommendation_outcomes", {
+  id:                      serial("id").primaryKey(),
+  recommendationId:        integer("recommendation_id"),
+  executionId:             integer("execution_id"),
+  projectedAsrDelta:       real("projected_asr_delta"),
+  actualAsrDelta:          real("actual_asr_delta"),
+  projectedMarginDelta:    real("projected_margin_delta"),
+  actualMarginDelta:       real("actual_margin_delta"),
+  projectedFasDelta:       real("projected_fas_delta"),
+  actualFasDelta:          real("actual_fas_delta"),
+  projectedStabilityDelta: real("projected_stability_delta"),
+  actualStabilityDelta:    real("actual_stability_delta"),
+  evaluatedAt:             timestamp("evaluated_at").defaultNow().notNull(),
+  rollbackTriggered:       boolean("rollback_triggered").notNull().default(false),
+  rollbackReason:          varchar("rollback_reason", { length: 512 }),
+});
+export type RecommendationOutcome       = typeof recommendationOutcomes.$inferSelect;
+export type InsertRecommendationOutcome = typeof recommendationOutcomes.$inferInsert;
+
 // ── Vendor Stability Snapshots — persists Q-score history per vendor ──────────
 // Written every 30 min by snapshotVendorStability(). Retention: 7 days.
 // Powers the Vendor Stability Timeline page and future risk scoring.
