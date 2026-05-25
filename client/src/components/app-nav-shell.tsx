@@ -71,7 +71,7 @@ const DOMAINS: Domain[] = [
         { href: '/reseller',        label: 'Resellers',      desc: 'Partner & reseller accounts',   icon: Star },
         { href: '/client-portal',   label: 'Client Portal',  desc: 'Self-service client access',    icon: Building2 },
         { href: '/account-names',      label: 'Account Names',    desc: 'Account naming & aliases',        icon: FileText },
-        { href: '/company/onboarding', label: 'Onboarding Wizard',desc: 'Step-by-step new company setup',  icon: Zap },
+        { href: '/company/onboarding', label: 'Company Profile Wizard', desc: 'Company profile, KAM & client setup', icon: Zap },
       ]},
       { label: 'Billing & Finance', desc: 'Payments, invoices, products and rate decks', icon: Wallet, items: [
         { href: '/billing',          label: 'Billing',       desc: 'Payments & invoices',           icon: Wallet },

@@ -44,18 +44,32 @@ const PAYMENT_TERMS = [
   { value: "postpaid", label: "Postpaid" },
   { value: "credit",   label: "Credit" },
 ];
-const CODECS = [
-  { value: "g711u",  label: "G.711u (PCMU)",   desc: "64 kbps, North America" },
-  { value: "g711a",  label: "G.711a (PCMA)",   desc: "64 kbps, Europe/Asia" },
-  { value: "g722",   label: "G.722 HD",         desc: "64 kbps, HD Voice" },
-  { value: "g729",   label: "G.729",            desc: "8 kbps, low bandwidth" },
-  { value: "any",    label: "Any / Passthrough", desc: "No codec restriction" },
+const SERVICE_TIERS = [
+  { value: "basic",        label: "Basic",        desc: "Entry-level VoIP service" },
+  { value: "professional", label: "Professional", desc: "Standard business SIP trunking" },
+  { value: "enterprise",   label: "Enterprise",   desc: "High-availability, SLA-backed" },
+  { value: "custom",       label: "Custom",       desc: "Bespoke pricing and configuration" },
 ];
-const FRAUD_PROFILES = [
-  { value: "standard",   label: "Standard",     desc: "Default detection rules" },
-  { value: "high",       label: "High Alert",   desc: "Strict FAS/IRSF detection" },
-  { value: "wholesale",  label: "Wholesale",    desc: "Relaxed for trusted carriers" },
-  { value: "custom",     label: "Custom",       desc: "Configured separately" },
+const PRODUCTS = [
+  { value: "inbound_voice",  label: "Inbound Voice",        desc: "DID-based inbound calling" },
+  { value: "outbound_voice", label: "Outbound Voice",       desc: "PSTN/mobile termination" },
+  { value: "sip_trunking",   label: "SIP Trunking",         desc: "Direct trunk connectivity" },
+  { value: "did_numbers",    label: "DID Numbers",          desc: "Virtual number inventory" },
+  { value: "conferencing",   label: "Conferencing",         desc: "Audio conferencing bridge" },
+  { value: "recording",      label: "Call Recording",       desc: "Compliance call recording" },
+  { value: "ivr",            label: "IVR / Auto-Attendant", desc: "Interactive voice response" },
+  { value: "sms",            label: "SMS / MMS",            desc: "Business messaging services" },
+];
+const CONTRACT_TYPES = [
+  { value: "month_to_month", label: "Month to Month" },
+  { value: "annual",         label: "Annual" },
+  { value: "multi_year",     label: "Multi-Year" },
+  { value: "trial",          label: "Trial / Pilot" },
+];
+const SLA_LEVELS = [
+  { value: "standard",     label: "Standard",     desc: "99.5% monthly uptime" },
+  { value: "professional", label: "Professional", desc: "99.9% monthly uptime" },
+  { value: "enterprise",   label: "Enterprise",   desc: "99.99% monthly uptime" },
 ];
 
 // ── Helper to derive steps based on company type ──────────────────────────────
@@ -65,7 +79,7 @@ function getSteps(companyType: string) {
   const steps = [
     { id: 1, label: "Company Info",    short: "Company",     icon: Building2 },
     { id: 2, label: "Contacts & Billing", short: "Contacts", icon: Users     },
-    { id: 3, label: "Telecom Provisioning", short: "Provisioning", icon: Server },
+    { id: 3, label: "Products & Services",  short: "Products",     icon: Layers  },
     { id: 4, label: "Portal & Access", short: "Portal",     icon: Globe     },
     ...(isReseller ? [{ id: 5, label: "White Label", short: "Branding", icon: Palette }] : []),
     { id: isReseller ? 6 : 5, label: "Review & Activate", short: "Activate", icon: CheckCircle2 },
@@ -95,10 +109,13 @@ const defaultS2 = () => ({
   creditLimit: "", taxVat: "", legalName: "",
 });
 const defaultS3 = () => ({
-  routingGroupId: "__none__", cpsLimit: "", concurrentCallsLimit: "", codec: "any",
-  didAllocation: "", sipAuthEnabled: false, ipAuthEnabled: true,
-  allowedRegions: "", fraudProfile: "standard", cliRules: "",
-  customNotes: "",
+  serviceTier: "professional",
+  products: [] as string[],
+  rateCard: "",
+  contractType: "month_to_month",
+  contractStartDate: "",
+  slaLevel: "standard",
+  notes: "",
 });
 const defaultS4 = () => ({
   enableClientPortal: false, enableResellerPortal: false,
@@ -222,12 +239,6 @@ export default function CompanyOnboardingPage() {
 
   const { data: kamsData } = useQuery<{ id: number; name: string; email: string; orgRole: string }[]>({
     queryKey: ["/api/kam"], retry: false,
-  });
-
-  const { data: routingGroupsData } = useQuery<{ groups: { groupId: number; groupName: string }[] }>({
-    queryKey: ["/api/sippy/routing-groups/list"],
-    retry: false,
-    staleTime: 60_000,
   });
 
   // ── Resume draft ────────────────────────────────────────────────────────────
@@ -441,10 +452,10 @@ export default function CompanyOnboardingPage() {
         <div>
           <h1 className="text-lg font-bold text-foreground flex items-center gap-2">
             <Building2 className="w-5 h-5 text-amber-400" />
-            Company Onboarding Wizard
+            Company Profile Wizard
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Enterprise telecom onboarding — company, contacts, provisioning, portal, and activation
+            Company profile, KAM assignment, contacts, billing, products &amp; client activation
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -623,77 +634,82 @@ export default function CompanyOnboardingPage() {
           </div>
         )}
 
-        {/* ── STEP 3 — Telecom Provisioning ────────────────────────────── */}
+        {/* ── STEP 3 — Products & Services ─────────────────────────────── */}
         {step === 3 && (
           <div className="space-y-6">
-            <SectionHeading icon={Server} label="Telecom Provisioning" desc="Routing, capacity, authentication and fraud settings" />
+            <SectionHeading icon={Layers} label="Products & Services" desc="Service tier, product selection, contract terms and SLA" />
 
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Routing Group" hint="Maps to Sippy routing group on activation">
-                <Select value={s3.routingGroupId} onValueChange={v => setS3(p => ({ ...p, routingGroupId: v }))}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select routing group" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None — assign after activation</SelectItem>
-                    {(routingGroupsData?.groups ?? []).map(g => (
-                      <SelectItem key={g.groupId} value={String(g.groupId)}>{g.groupName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Codec Policy">
-                <Select value={s3.codec} onValueChange={v => setS3(p => ({ ...p, codec: v }))}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>{CODECS.map(c => <SelectItem key={c.value} value={c.value}>{c.label} — {c.desc}</SelectItem>)}</SelectContent>
-                </Select>
-              </Field>
-              <Field label="Max CPS (Calls Per Second)" hint="Leave blank for unlimited">
-                <Input className="h-9 text-sm" type="number" min="0" value={s3.cpsLimit} onChange={e => setS3(p => ({ ...p, cpsLimit: e.target.value }))} placeholder="e.g. 10" />
-              </Field>
-              <Field label="Max Concurrent Calls" hint="Leave blank for unlimited">
-                <Input className="h-9 text-sm" type="number" min="0" value={s3.concurrentCallsLimit} onChange={e => setS3(p => ({ ...p, concurrentCallsLimit: e.target.value }))} placeholder="e.g. 200" />
-              </Field>
-              <Field label="DID Allocation" hint="Number range or pool name">
-                <Input className="h-9 text-sm" value={s3.didAllocation} onChange={e => setS3(p => ({ ...p, didAllocation: e.target.value }))} placeholder="+44 20 XXXX XXXX pool" />
-              </Field>
-              <Field label="Allowed Regions" hint="Comma-separated regions or 'all'">
-                <Input className="h-9 text-sm" value={s3.allowedRegions} onChange={e => setS3(p => ({ ...p, allowedRegions: e.target.value }))} placeholder="UK, EU, US, Middle East" />
-              </Field>
-              <Field label="Fraud Profile">
-                <Select value={s3.fraudProfile} onValueChange={v => setS3(p => ({ ...p, fraudProfile: v }))}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>{FRAUD_PROFILES.map(f => <SelectItem key={f.value} value={f.value}>{f.label} — {f.desc}</SelectItem>)}</SelectContent>
-                </Select>
-              </Field>
-              <Field label="CLI Rules" hint="Translation / stripping rules">
-                <Input className="h-9 text-sm font-mono" value={s3.cliRules} onChange={e => setS3(p => ({ ...p, cliRules: e.target.value }))} placeholder="s/^44/0/" />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/10">
-                <div>
-                  <p className="text-xs font-medium text-foreground/80">IP Authentication</p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">Allow calls from authorised IPs without SIP digest</p>
-                </div>
-                <Switch checked={s3.ipAuthEnabled} onCheckedChange={v => setS3(p => ({ ...p, ipAuthEnabled: v }))} data-testid="switch-ip-auth" />
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/10">
-                <div>
-                  <p className="text-xs font-medium text-foreground/80">SIP Digest Authentication</p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">Require SIP username/password credentials</p>
-                </div>
-                <Switch checked={s3.sipAuthEnabled} onCheckedChange={v => setS3(p => ({ ...p, sipAuthEnabled: v }))} data-testid="switch-sip-auth" />
+            {/* Service tier */}
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest mb-3">Service Tier</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {SERVICE_TIERS.map(t => (
+                  <TypeCard key={t.value} {...t} active={s3.serviceTier === t.value} onClick={() => setS3(p => ({ ...p, serviceTier: t.value }))} />
+                ))}
               </div>
             </div>
 
-            <Field label="Provisioning Notes">
-              <Textarea className="text-sm min-h-[64px] resize-none" value={s3.customNotes} onChange={e => setS3(p => ({ ...p, customNotes: e.target.value }))} placeholder="Special routing requirements, SBC config notes, trunk preferences…" />
+            {/* Product selection */}
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest mb-3">Products &amp; Features</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {PRODUCTS.map(prod => {
+                  const on = s3.products.includes(prod.value);
+                  return (
+                    <button
+                      key={prod.value}
+                      type="button"
+                      data-testid={`product-toggle-${prod.value}`}
+                      onClick={() => setS3(p => ({
+                        ...p,
+                        products: on
+                          ? p.products.filter(v => v !== prod.value)
+                          : [...p.products, prod.value],
+                      }))}
+                      className={`text-left p-3 rounded-lg border transition-all ${
+                        on
+                          ? "bg-amber-500/10 border-amber-500/50 shadow-sm"
+                          : "border-border hover:border-border/80 hover:bg-muted/30"
+                      }`}
+                    >
+                      <p className={`text-xs font-semibold ${on ? "text-amber-400" : "text-foreground/80"}`}>{prod.label}</p>
+                      <p className="text-[10px] text-muted-foreground/60 mt-0.5">{prod.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Contract & SLA */}
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Rate Card" hint="Primary rate card or tariff plan name">
+                <Input className="h-9 text-sm" value={s3.rateCard} onChange={e => setS3(p => ({ ...p, rateCard: e.target.value }))} placeholder="e.g. UK Standard PAYG" data-testid="input-rate-card" />
+              </Field>
+              <Field label="Contract Type">
+                <Select value={s3.contractType} onValueChange={v => setS3(p => ({ ...p, contractType: v }))}>
+                  <SelectTrigger className="h-9 text-sm" data-testid="select-contract-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>{CONTRACT_TYPES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
+              <Field label="Contract Start Date">
+                <Input className="h-9 text-sm" type="date" value={s3.contractStartDate} onChange={e => setS3(p => ({ ...p, contractStartDate: e.target.value }))} data-testid="input-contract-start" />
+              </Field>
+              <Field label="SLA Level">
+                <Select value={s3.slaLevel} onValueChange={v => setS3(p => ({ ...p, slaLevel: v }))}>
+                  <SelectTrigger className="h-9 text-sm" data-testid="select-sla-level"><SelectValue /></SelectTrigger>
+                  <SelectContent>{SLA_LEVELS.map(s => <SelectItem key={s.value} value={s.value}>{s.label} — {s.desc}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
+            </div>
+
+            <Field label="Commercial Notes">
+              <Textarea className="text-sm min-h-[64px] resize-none" value={s3.notes} onChange={e => setS3(p => ({ ...p, notes: e.target.value }))} placeholder="Special pricing arrangements, trial terms, discounts, product exceptions…" />
             </Field>
 
             <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/8 border border-blue-500/20">
               <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
               <p className="text-[11px] text-blue-300/80">
-                Provisioning config is saved to the company record. Full Sippy account creation (SIP credentials, trunk groups) is done via <strong>Quick Create Account</strong> after activation.
+                Routing, SIP credentials, trunks, codecs, IPs and Sippy provisioning are set up separately via <strong>Create Account Wizard</strong> once the company profile is activated.
               </p>
             </div>
           </div>
@@ -804,7 +820,7 @@ export default function CompanyOnboardingPage() {
                   ["Short Code", s1.shortCode   ],
                   ["Country",    s1.country     ],
                   ["Currency",   s1.currency    ],
-                  ["KAM",        s1.kam || "Unassigned"],
+                  ["KAM",        s1.kam === '__unassigned__' ? "Unassigned" : (s1.kam || "Unassigned")],
                 ].map(([k,v]) => (
                   <div key={k} className="flex justify-between text-xs">
                     <span className="text-muted-foreground/60">{k}</span>
@@ -828,19 +844,18 @@ export default function CompanyOnboardingPage() {
                   </div>
                 ))}
               </div>
-              {/* Provisioning summary */}
+              {/* Products & Services summary */}
               <div className="rounded-lg border border-border/50 bg-muted/10 p-4 space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-3 flex items-center gap-1.5"><Server className="w-3 h-3" /> Provisioning</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-3 flex items-center gap-1.5"><Layers className="w-3 h-3" /> Products &amp; Services</p>
                 {[
-                  ["Routing Group",  s3.routingGroupId && s3.routingGroupId !== '__none__' ? `RG#${s3.routingGroupId}` : "Assign after activation"],
-                  ["Codec",          CODECS.find(c => c.value === s3.codec)?.label || s3.codec],
-                  ["CPS Limit",      s3.cpsLimit || "Unlimited"],
-                  ["Concurrency",    s3.concurrentCallsLimit || "Unlimited"],
-                  ["Fraud Profile",  FRAUD_PROFILES.find(f => f.value === s3.fraudProfile)?.label || s3.fraudProfile],
-                  ["IP Auth",        s3.ipAuthEnabled ? "Enabled" : "Disabled"],
+                  ["Service Tier", SERVICE_TIERS.find(t => t.value === s3.serviceTier)?.label || s3.serviceTier],
+                  ["Products",     s3.products.length > 0 ? s3.products.map(v => PRODUCTS.find(p => p.value === v)?.label || v).join(", ") : "None selected"],
+                  ["Rate Card",    s3.rateCard || "—"],
+                  ["Contract",     CONTRACT_TYPES.find(c => c.value === s3.contractType)?.label || s3.contractType],
+                  ["SLA",          SLA_LEVELS.find(sl => sl.value === s3.slaLevel)?.label || s3.slaLevel],
                 ].map(([k,v]) => (
-                  <div key={k} className="flex justify-between text-xs">
-                    <span className="text-muted-foreground/60">{k}</span>
+                  <div key={k} className="flex justify-between text-xs gap-3">
+                    <span className="text-muted-foreground/60 shrink-0">{k}</span>
                     <span className="font-medium text-foreground/80 text-right">{v}</span>
                   </div>
                 ))}
@@ -873,7 +888,7 @@ export default function CompanyOnboardingPage() {
                   { ok: !!s2.invoiceEmail.trim(), msg: "Invoice email is configured" },
                   { ok: !!s1.currency,            msg: "Currency is selected" },
                   { ok: s2.billingContact.email ? /\S+@\S+\.\S+/.test(s2.billingContact.email) : true, msg: "Billing contact email is valid" },
-                  { ok: !!s3.fraudProfile,        msg: "Fraud profile is assigned" },
+                  { ok: s3.products.length > 0,   msg: "At least one product selected" },
                 ].map(({ ok, msg }) => (
                   <div key={msg} className="flex items-center gap-2 text-xs">
                     {ok
