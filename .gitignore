@@ -4,3 +4,14 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Large binary files — back up separately, not via git
+*.mp4
+*.mov
+*.avi
+*.docx
+*.pptx
+*.xlsx
+*.pdf
+client/public/downloads/
+attached_assets/generated_videos/
