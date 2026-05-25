@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Phone, Bell, Settings, BarChart2, Users, Building2,
   ShieldAlert, FileText, Wrench, Globe, Wallet, Server, Eye, Key,
   LineChart, Search, MessageSquare, Layers, Monitor, SlidersHorizontal,
-  Database, HardDrive, GitBranch, Calculator, ArrowRightLeft, Brain,
+  Database, HardDrive, GitBranch, Calculator, ArrowRightLeft, Brain, BrainCircuit,
   TrendingDown, TrendingUp, BarChart3, History, Map, HeartPulse,
   PhoneCall, FlaskConical, Network, Bot, Shield, Lock, Zap,
   ClipboardList, Mail, Star, Package, Activity, Banknote,
@@ -96,8 +96,10 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Stability Engine',     href: '/vendor-stability-timeline', icon: Activity,  keywords: 'vendor stability intelligence engine' },
   { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Routing Intelligence', href: '/routing-intelligence',icon: GitBranch,      keywords: 'route intelligence engine analysis' },
   { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Carrier Intelligence', href: '/carrier-intelligence',icon: Brain,          keywords: 'carrier intelligence health signals' },
-  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Cost Optimisation',    href: '/cost-optimisation',  icon: TrendingDown,    keywords: 'cost optimisation route engine intelligence' },
-  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Number Intelligence',  href: '/number-intelligence',icon: Phone,           keywords: 'number analysis cli cld prefix intelligence' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Cost Optimisation',    href: '/cost-optimisation',   icon: TrendingDown,    keywords: 'cost optimisation route engine intelligence' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Number Intelligence',  href: '/number-intelligence', icon: Phone,           keywords: 'number analysis cli cld prefix intelligence' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Route Optimisation',   href: '/route-optimisation',  icon: BrainCircuit,    keywords: 'route optimisation recommendations advisory carrier quality intelligence' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Traffic Steering',     href: '/traffic-steering',    icon: ArrowRightLeft,  keywords: 'traffic steering shift carrier routing suggestions advisory' },
 
   // ── Troubleshooting ───────────────────────────────────────────────────────
   { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'SIP Trace',            href: '/sip-trace',          icon: Mic,             keywords: 'packet sip trace debug pcap' },

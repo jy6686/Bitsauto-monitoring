@@ -104,6 +104,8 @@ import VendorPrefixIntelligencePage from "@/pages/vendor-prefix-intelligence";
 import LiveTrafficMapPage from "@/pages/live-traffic-map";
 import VendorStabilityTimelinePage from "@/pages/vendor-stability-timeline";
 import VendorRcaPage from "@/pages/vendor-rca";
+import RouteOptimisationPage from "@/pages/route-optimisation";
+import TrafficSteeringPage from "@/pages/traffic-steering";
 import RtpAnalyticsPage from "@/pages/rtp-analytics";
 import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
@@ -466,6 +468,12 @@ function Router() {
       </Route>
       <Route path="/vendor-rca">
         {() => <ProtectedRoute component={VendorRcaPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/route-optimisation">
+        {() => <ProtectedRoute component={RouteOptimisationPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin']} />}
+      </Route>
+      <Route path="/traffic-steering">
+        {() => <ProtectedRoute component={TrafficSteeringPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin']} />}
       </Route>
       <Route path="/rtp-analytics">
         {() => <ProtectedRoute component={RtpAnalyticsPage} requiredRoles={['admin','management']} mgmtFeature="rtp_analytics" />}

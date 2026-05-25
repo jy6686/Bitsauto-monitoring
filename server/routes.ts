@@ -22218,6 +22218,182 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Intelligence Optimisation Suite: Route Optimisation ─────────────────────
+  // Advisory-only. No routing changes applied automatically.
+  // Combines carrier quality scores + routing suggestions into enriched recommendations.
+  app.get('/api/route-optimisation', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'team_lead', 'super_admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { db: _db2 }          = await import('./db');
+      const { carrierQualityScores: cqs, routingSuggestions: rs } = await import('../shared/schema');
+      const { desc: _desc2 }      = await import('drizzle-orm');
+
+      const allScores = await _db2.select().from(cqs).orderBy(_desc2(cqs.lastComputedAt));
+      const latestByCarrier = new Map<string, typeof allScores[0]>();
+      for (const s of allScores) { if (!latestByCarrier.has(s.carrierName)) latestByCarrier.set(s.carrierName, s); }
+      const scores = [...latestByCarrier.values()];
+
+      const suggestions = await _db2.select().from(rs).orderBy(_desc2(rs.createdAt)).limit(200);
+
+      type Rec = {
+        id: string; carrier: string; carrierId: string | null; priority: string;
+        status: string; suggestionId: number | null; action: string | null;
+        trafficShift: number; confidence: number; stabilityScore: number;
+        trend: string; rollingAsr: number; avgPddMs: number; failureRate: number;
+        sampleCount: number; reasoning: Record<string, string>;
+        projectedImpact: { asrGain: string; marginGain: string; fasReduction: string; trafficShift: string; basedOnSamples: number } | null;
+        computedAt: Date | string;
+      };
+      const recommendations: Rec[] = [];
+
+      for (const s of scores) {
+        const score    = s.stabilityScore ?? 100;
+        const asr      = s.rollingAsr    ?? 100;
+        const trend    = s.trend         ?? 'stable';
+        const pdd      = s.avgPddMs      ?? 0;
+        const failRate = s.failureRate   ?? 0;
+        const matchSug = suggestions.find(sg => sg.carrierName === s.carrierName && sg.status === 'pending');
+
+        let priority = 'healthy', action: string | null = null, trafficShift = 0, confidence = 0;
+        const reasoning: Record<string, string> = {};
+
+        if (score < 35 || (score < 50 && trend === 'degrading')) {
+          priority = 'critical'; trafficShift = 20; confidence = score < 35 ? 92 : 82;
+          action = `Reduce ${s.carrierName} routing priority by 20%`;
+          reasoning.stability = `Score ${score.toFixed(0)}/100 (critical threshold)`;
+          if (asr < 60)          reasoning.asr      = `Rolling ASR: ${asr.toFixed(1)}% — below 60% floor`;
+          if (trend === 'degrading') reasoning.trend = 'Active degradation trend in progress';
+          if (failRate > 40)     reasoning.failRate = `Failure rate: ${failRate.toFixed(1)}%`;
+          if (pdd > 3000)        reasoning.pdd      = `Avg PDD: ${(pdd / 1000).toFixed(2)}s (elevated)`;
+        } else if (score < 55 && trend !== 'improving') {
+          priority = 'high'; trafficShift = 10; confidence = 72;
+          action = `Reduce ${s.carrierName} routing priority by 10%`;
+          reasoning.stability = `Score ${score.toFixed(0)}/100 — below 55-point threshold`;
+          reasoning.trend     = `Trend: ${trend}`;
+          if (pdd > 3000) reasoning.pdd = `Avg PDD: ${(pdd / 1000).toFixed(2)}s`;
+        } else if (score > 80 && trend === 'improving' && asr > 75) {
+          priority = 'opportunity'; trafficShift = -15; confidence = 74;
+          action = `Restore ${s.carrierName} to full routing priority`;
+          reasoning.recovery = `Carrier recovered — Score ${score.toFixed(0)}/100`;
+          reasoning.asr      = `ASR: ${asr.toFixed(1)}% (healthy)`;
+          reasoning.trend    = 'Trend: improving';
+        } else if (pdd > 4000 && score < 70) {
+          priority = 'medium'; trafficShift = 5; confidence = 62;
+          action = `Investigate ${s.carrierName} for routing delay`;
+          reasoning.pdd       = `Avg PDD: ${(pdd / 1000).toFixed(2)}s — exceeds 4s threshold`;
+          reasoning.stability = `Score ${score.toFixed(0)}/100`;
+        }
+
+        const asrGainPct    = trafficShift > 0 ? Math.round(trafficShift * 0.45) : 0;
+        const marginGainPct = trafficShift > 0 ? Math.round(trafficShift * 0.30) : 0;
+        const fasRedPct     = trafficShift > 0 ? Math.round(trafficShift * 1.90) : 0;
+
+        recommendations.push({
+          id: `carrier:${s.carrierName}`,
+          carrier: s.carrierName, carrierId: s.carrierId,
+          priority, status: matchSug?.status ?? (priority === 'healthy' ? 'none' : 'pending'),
+          suggestionId: matchSug?.id ?? null, action, trafficShift, confidence,
+          stabilityScore: score, trend, rollingAsr: asr, avgPddMs: pdd,
+          failureRate: failRate, sampleCount: s.sampleCount,
+          reasoning,
+          projectedImpact: priority !== 'healthy' ? {
+            asrGain:      trafficShift > 0 ? `+${asrGainPct}%`      : `recover ${Math.abs(trafficShift / 2)}%`,
+            marginGain:   trafficShift > 0 ? `+${marginGainPct}%`   : 'stable',
+            fasReduction: trafficShift > 0 ? `-${fasRedPct}%`       : 'n/a',
+            trafficShift: trafficShift > 0 ? `${trafficShift}%`     : `restore ${Math.abs(trafficShift)}%`,
+            basedOnSamples: s.sampleCount,
+          } : null,
+          computedAt: s.lastComputedAt,
+        });
+      }
+
+      const ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, opportunity: 3, healthy: 4 };
+      recommendations.sort((a, b) => (ORDER[a.priority] ?? 9) - (ORDER[b.priority] ?? 9));
+
+      res.json({
+        recommendations,
+        summary: {
+          totalCarriers:    scores.length,
+          criticalCarriers: recommendations.filter(r => r.priority === 'critical').length,
+          highCarriers:     recommendations.filter(r => r.priority === 'high').length,
+          mediumCarriers:   recommendations.filter(r => r.priority === 'medium').length,
+          opportunityCarriers: recommendations.filter(r => r.priority === 'opportunity').length,
+          healthyCarriers:  recommendations.filter(r => r.priority === 'healthy').length,
+          actionableCount:  recommendations.filter(r => r.priority !== 'healthy').length,
+          generatedAt: new Date().toISOString(),
+        },
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Intelligence Optimisation Suite: Geographic Intelligence Overlay ─────────
+  // Merges CDR-based per-country data with carrier quality signals.
+  app.get('/api/geo-intelligence', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'team_lead', 'super_admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { db: _db3 }           = await import('./db');
+      const { carrierQualityScores: cqs2 } = await import('../shared/schema');
+      const { desc: _desc3 }       = await import('drizzle-orm');
+
+      const allScores2 = await _db3.select().from(cqs2).orderBy(_desc3(cqs2.lastComputedAt));
+      const latestByCarrier2 = new Map<string, typeof allScores2[0]>();
+      for (const s of allScores2) { if (!latestByCarrier2.has(s.carrierName)) latestByCarrier2.set(s.carrierName, s); }
+
+      type GeoEntry = { country: string; numericId: string | null; calls: number; answered: number; revenue: number; cost: number; carrierCalls: Map<string, number> };
+      const countryMap = new Map<string, GeoEntry>();
+
+      for (const c of cdrCache.values()) {
+        const country   = (c as any).country   as string | undefined;
+        const numericId = (c as any).countryId as string | undefined;
+        if (!country) continue;
+        if (!countryMap.has(country)) {
+          countryMap.set(country, { country, numericId: numericId ?? null, calls: 0, answered: 0, revenue: 0, cost: 0, carrierCalls: new Map() });
+        }
+        const e = countryMap.get(country)!;
+        e.calls++;
+        const isAns = String((c as any).result) === '0' && Number((c as any).duration) > 0;
+        if (isAns) e.answered++;
+        e.revenue += Number((c as any).revenue) || 0;
+        e.cost    += Number((c as any).cost)    || 0;
+        const vendor = (c as any).vendor as string | undefined;
+        if (vendor) e.carrierCalls.set(vendor, (e.carrierCalls.get(vendor) ?? 0) + 1);
+      }
+
+      const countries = [...countryMap.values()].map(entry => {
+        const totalCC = [...entry.carrierCalls.values()].reduce((a, b) => a + b, 0);
+        let hhi = 0;
+        for (const calls of entry.carrierCalls.values()) { const sh = totalCC > 0 ? calls / totalCC : 0; hhi += sh * sh; }
+        const concentrationScore = Math.round(hhi * 100);
+
+        let qSum = 0, qN = 0;
+        for (const carrier of entry.carrierCalls.keys()) {
+          const sc = latestByCarrier2.get(carrier);
+          if (sc?.stabilityScore != null) { qSum += sc.stabilityScore; qN++; }
+        }
+        const avgQScore = qN > 0 ? Math.round(qSum / qN) : null;
+        const asr = entry.calls > 0 ? (entry.answered / entry.calls) * 100 : 0;
+        const fasRisk = asr < 30 && entry.calls > 100 ? 'high' : asr < 50 && entry.calls > 50 ? 'medium' : 'low';
+
+        const carriers = [...entry.carrierCalls.entries()]
+          .sort((a, b) => b[1] - a[1]).slice(0, 5)
+          .map(([carrier, calls]) => ({
+            carrier, calls,
+            share: totalCC > 0 ? Math.round((calls / totalCC) * 100) : 0,
+            stabilityScore: latestByCarrier2.get(carrier)?.stabilityScore ?? null,
+          }));
+
+        return {
+          country: entry.country, numericId: entry.numericId,
+          calls: entry.calls, answered: entry.answered,
+          revenue: entry.revenue, cost: entry.cost, margin: entry.revenue - entry.cost,
+          asr: Math.round(asr * 10) / 10,
+          avgQScore, concentrationScore, fasRisk,
+          carrierCount: entry.carrierCalls.size, carriers,
+        };
+      });
+
+      res.json({ countries, generatedAt: new Date().toISOString() });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Number Intelligence Lookup ────────────────────────────────────────────────
 
   app.get('/api/number-lookup/:number', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
