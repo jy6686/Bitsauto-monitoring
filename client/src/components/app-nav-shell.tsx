@@ -304,8 +304,8 @@ function inferMeta(path: string): { domain: string; label: string } {
 }
 
 // ── Cascade Menu (L2 dropdown + L3 submenu) ───────────────────────────────────
-function CascadeMenu({ domain, onClose, openLeft, stats }: {
-  domain: Domain; onClose: () => void; openLeft?: boolean; stats: NavStats;
+function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
+  domain: Domain; onClose: () => void; openLeft?: boolean; stats: NavStats; hiddenItems: Set<string>;
 }) {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const groupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -330,11 +330,16 @@ function CascadeMenu({ domain, onClose, openLeft, stats }: {
     boxShadow:            '0 16px 48px rgba(0,0,0,0.45)',
   };
 
+  // Filter out hidden items, then skip groups with nothing left
+  const visibleGroups = domain.groups
+    .map(group => ({ ...group, items: group.items.filter(item => !hiddenItems.has(item.href)) }))
+    .filter(group => group.items.length > 0);
+
   return (
     <div className="relative" onMouseLeave={onClose}>
       {/* ── L2 dropdown ── */}
       <div className="py-1.5 min-w-[210px]" style={panelStyle}>
-        {domain.groups.map(group => {
+        {visibleGroups.map(group => {
           const isActive   = activeGroup === group.label;
           const badgeCount = group.badge ? group.badge(stats) : 0;
           return (
@@ -474,6 +479,12 @@ export function AppNavShell() {
     staleTime: 60_000,
     enabled: !!user && role !== 'viewer' && !compact && !wallboard,
   });
+  const { data: sidebarVisData } = useQuery<{ hiddenItems: string[] }>({
+    queryKey: ['/api/settings/sidebar-visibility'],
+    staleTime: 60_000,
+    enabled: !!user,
+  });
+  const hiddenItemsSet = new Set<string>(sidebarVisData?.hiddenItems ?? []);
 
   const activeIncidents  = Array.isArray(incidentsRaw) ? incidentsRaw.filter((i: any) => i.status === 'active' || !i.resolvedAt).length : 0;
   const pendingApprovals = pendingCountData?.count ?? 0;
@@ -856,6 +867,7 @@ export function AppNavShell() {
               onClose={() => setOpen(null)}
               openLeft={openLeft}
               stats={{ activeIncidents, pendingApprovals, degradedCarriers }}
+              hiddenItems={hiddenItemsSet}
             />
           </div>
         );
