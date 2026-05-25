@@ -508,6 +508,10 @@ export function AppNavShell() {
   }
 
   if (compact || wallboard) return null;
+  // Only internal/admin roles see the full top navigation.
+  // Viewer, KAM, and Client Portal users get a clean restricted interface.
+  const INTERNAL_ROLES = new Set(['super_admin', 'admin', 'management', 'noc_operator', 'team_lead']);
+  if (!role || !INTERNAL_ROLES.has(role)) return null;
 
   const { isOpen: chatOpen, toggle: toggleChat } = useChatDrawer();
 
