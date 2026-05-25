@@ -1,0 +1,241 @@
+That correction makes the architecture significantly stronger.
+
+Routing approvals absolutely should NOT be owned by KAM.
+
+Correct Telecom Governance Model
+Role	Responsibility
+KAM	commercial/customer relationship
+NOC	operational monitoring
+Destination Manager	routing ownership + vendor quality
+Routing Admin	technical execution
+Compliance/Audit	governance trail
+
+So your corrected workflow becomes:
+
+Recommendation Engine
+        ↓
+Destination Manager Review
+        ↓
+Approve / Reject / Adjust %
+        ↓
+Routing Admin Executes
+        ↓
+Audit Log Records Outcome
+
+That is much more realistic telecom architecture.
+
+Why Destination Manager Is Correct
+
+Because the recommendation affects:
+
+carrier quality
+vendor relationships
+margin
+routing balance
+destination-specific performance
+fraud exposure
+route commitments
+
+Those are:
+
+destination ownership decisions
+
+NOT:
+
+customer relationship decisions
+
+So this change is important and correct.
+
+Your Suggested Progression Is Also Correct
+FINAL RECOMMENDED ORDER
+1 — Recommendation Explainability Drawer
+
+(HIGHEST PRIORITY)
+
+This is now the most important feature.
+
+Because:
+
+operators trust evidence, not confidence percentages
+
+The drawer should become:
+
+the forensic explanation layer
+It Should Show
+Stability Timeline
+48h Q-score trend
+degradation windows
+recovery attempts
+Quality Breakdown
+ASR trend
+ACD trend
+PDD trend
+NER trend
+FAS spikes
+Prefix Impact
+worst affected prefixes
+affected countries
+concentration risk
+Incident Correlation
+linked incidents
+lifecycle events
+RCA evidence
+Financial Overlay
+margin delta
+revenue impact
+projected profitability change
+Recommendation Logic
+
+Example:
+
+Confidence 82%
+Reason:
+- ASR deteriorated 14%
+- PDD increased 28%
+- FAS events +41%
+- stability score dropped below 45
+
+This becomes:
+
+operator trust infrastructure
+
+Very important.
+
+2 — Route Simulation Sandbox
+
+(CORRECT SECOND STEP)
+
+This is where the platform becomes:
+
+decision laboratory
+
+NOT:
+
+recommendation dashboard
+Key Architectural Rule
+
+Simulation MUST remain:
+
+pure computation
+
+NO:
+
+live routing changes
+side effects
+provisioning actions
+route pushes
+Inputs
+
+Example:
+
+Shift 20% BD-Mobile:
+Callntalk → CarrierX
+Outputs
+
+Projected:
+
+ASR
+ACD
+margin
+FAS exposure
+vendor concentration
+quality portfolio score
+This Is Extremely Valuable
+
+Because operators can:
+
+compare scenarios
+evaluate risk
+estimate outcomes
+justify routing decisions
+
+before touching production traffic.
+
+3 — Approval Workflow Layer
+
+(NOW REVISED)
+
+Correct Workflow
+Recommendation Created
+        ↓
+Destination Manager Reviews
+        ↓
+Approve / Reject / Modify %
+        ↓
+Routing Admin Executes
+        ↓
+Audit Trail Written
+Important Addition
+
+Destination Manager should also be able to:
+
+partially approve
+modify traffic shift %
+set expiry window
+attach operational note
+
+Example:
+
+Approved:
+10% shift instead of suggested 20%
+Reason:
+Testing vendor stability first
+
+That becomes:
+
+enterprise routing governance
+4 — Closed-Loop Readiness
+
+(MOST STRATEGIC LONG TERM)
+
+Your observation is exactly right:
+
+store the intent now
+
+even before AI automation exists.
+
+Why?
+
+Because later you will need:
+
+Signal	Purpose
+recommendation issued	baseline
+approved/rejected	operator trust
+executed/not executed	operational reality
+post-change ASR	effectiveness
+post-change margin	financial accuracy
+rollback triggered	confidence failure
+
+That becomes:
+
+training history
+
+for future:
+
+confidence calibration
+recommendation ranking
+routing intelligence learning
+eventually semi-autonomous optimisation
+MOST IMPORTANT STRATEGIC INSIGHT
+
+You are building:
+
+explainable telecom intelligence
+
+NOT:
+
+black-box AI routing
+
+And in telecom:
+
+explainability matters more than automation
+
+especially for:
+
+routing
+fraud
+margin
+carrier quality
+regulatory exposure
+
+That is the correct enterprise direction.
