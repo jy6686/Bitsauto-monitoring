@@ -70,7 +70,8 @@ const DOMAINS: Domain[] = [
         { href: '/company-profile', label: 'Company Profile',desc: 'Organisation details',          icon: Building2 },
         { href: '/reseller',        label: 'Resellers',      desc: 'Partner & reseller accounts',   icon: Star },
         { href: '/client-portal',   label: 'Client Portal',  desc: 'Self-service client access',    icon: Building2 },
-        { href: '/account-names',   label: 'Account Names',  desc: 'Account naming & aliases',      icon: FileText },
+        { href: '/account-names',      label: 'Account Names',    desc: 'Account naming & aliases',        icon: FileText },
+        { href: '/company/onboarding', label: 'Onboarding Wizard',desc: 'Step-by-step new company setup',  icon: Zap },
       ]},
       { label: 'Billing & Finance', desc: 'Payments, invoices, products and rate decks', icon: Wallet, items: [
         { href: '/billing',          label: 'Billing',       desc: 'Payments & invoices',           icon: Wallet },
@@ -274,6 +275,7 @@ const DOMAINS: Domain[] = [
   },
 ];
 
+const NAV_HIDDEN_KEY = 'voip-nav-hidden-domains';
 const ROUTE_META: Record<string, { domain: string; label: string }> = {};
 for (const d of DOMAINS) {
   for (const g of d.groups) {
@@ -425,10 +427,15 @@ function CascadeMenu({ domain, onClose, openLeft, stats }: {
 export function AppNavShell() {
   const [location]            = useLocation();
   const search                = useSearch();
-  const [openDomain, setOpen] = useState<string | null>(null);
-  const closeTimer            = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shellRef              = useRef<HTMLDivElement | null>(null);
-  const tabRefs               = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [openDomain, setOpen]             = useState<string | null>(null);
+  const [hiddenDomains, setHiddenDomains] = useState<Set<string>>(() => {
+    try { const s = localStorage.getItem(NAV_HIDDEN_KEY); return s ? new Set<string>(JSON.parse(s)) : new Set<string>(); } catch { return new Set<string>(); }
+  });
+  const [showNavConfig, setShowNavConfig] = useState(false);
+  const closeTimer                        = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shellRef                          = useRef<HTMLDivElement | null>(null);
+  const tabRefs                           = useRef<Map<string, HTMLDivElement>>(new Map());
+  const navConfigRef                      = useRef<HTMLDivElement | null>(null);
   const { user, logout, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
@@ -502,6 +509,25 @@ export function AppNavShell() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem(NAV_HIDDEN_KEY, JSON.stringify([...hiddenDomains])); } catch {}
+  }, [hiddenDomains]);
+
+  useEffect(() => {
+    if (!showNavConfig) return;
+    function handler(e: MouseEvent) {
+      if (navConfigRef.current && !navConfigRef.current.contains(e.target as Node)) setShowNavConfig(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showNavConfig]);
+
+  function toggleDomainVisibility(id: string) {
+    setHiddenDomains(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+
+  const visibleDomains = DOMAINS.filter(d => !hiddenDomains.has(d.id));
 
   const userInitial = user?.firstName?.[0] || user?.email?.[0]?.toUpperCase() || 'U';
   const userName    = user?.firstName || user?.email || '';
@@ -586,7 +612,7 @@ export function AppNavShell() {
 
         {/* ── Centre: domain workspace tabs ── */}
         <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
-          {DOMAINS.map(domain => {
+          {visibleDomains.map(domain => {
             const isActive = meta.domain === domain.id;
             const isOpen   = openDomain === domain.id;
             return (
@@ -662,6 +688,68 @@ export function AppNavShell() {
               <span className="text-muted-foreground/60">{meta.label}</span>
             </div>
           )}
+
+          {/* Nav config toggle */}
+          <div className="relative" ref={navConfigRef}>
+            <button
+              onClick={() => setShowNavConfig(v => !v)}
+              data-testid="nav-config-toggle"
+              title="Customise navigation sections"
+              className={cn(
+                "p-1.5 rounded-lg transition-colors",
+                showNavConfig
+                  ? "bg-white/[0.07] text-foreground/80"
+                  : "text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06]"
+              )}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+            </button>
+            {showNavConfig && (
+              <div
+                className="absolute right-0 top-full mt-1.5 z-[200] py-2 rounded-xl"
+                style={{
+                  background: 'hsl(var(--background)/0.98)',
+                  backdropFilter: 'blur(20px)',
+                  WebkitBackdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  boxShadow: '0 16px 48px rgba(0,0,0,0.45)',
+                  minWidth: 230,
+                }}
+              >
+                <div className="px-3.5 pb-2 mb-1 border-b border-white/[0.06]">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">Top Nav Sections</p>
+                  <p className="text-[10px] text-muted-foreground/30 mt-0.5">Toggle sections on or off</p>
+                </div>
+                {DOMAINS.map(d => {
+                  const on = !hiddenDomains.has(d.id);
+                  return (
+                    <button
+                      key={d.id}
+                      onClick={() => toggleDomainVisibility(d.id)}
+                      data-testid={`nav-toggle-domain-${d.id}`}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-1.5 hover:bg-white/[0.05] transition-colors text-left"
+                    >
+                      <d.icon className={cn("w-3.5 h-3.5 flex-shrink-0 transition-colors", on ? d.color : 'text-muted-foreground/20')} />
+                      <span className={cn("text-[12px] font-medium flex-1 transition-colors", on ? 'text-foreground' : 'text-muted-foreground/30')}>{d.label}</span>
+                      <div className={cn("w-8 h-4 rounded-full transition-colors duration-200 relative flex-shrink-0", on ? "bg-indigo-500" : "bg-white/[0.1]")}>
+                        <div className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all duration-200", on ? "left-[18px]" : "left-0.5")} />
+                      </div>
+                    </button>
+                  );
+                })}
+                {hiddenDomains.size > 0 && (
+                  <div className="px-3.5 pt-2 mt-1 border-t border-white/[0.06]">
+                    <button
+                      onClick={() => setHiddenDomains(new Set())}
+                      className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+                    >
+                      Show all sections
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* ⌘K search chip */}
           <button
