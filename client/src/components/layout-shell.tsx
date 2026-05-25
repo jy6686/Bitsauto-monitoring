@@ -154,7 +154,8 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/balance",         label: "Balance",         icon: Wallet,        roles: ['admin','management']                                      },
       { href: "/client-portal",   label: "Client Portal",   icon: Globe,         roles: ['admin','management']                                      },
       { href: "/dids",            label: "DID Management",  icon: PhoneIncoming, roles: ['admin','management']                                      },
-      { href: "/client/wizard",   label: "Create Account",  icon: UserPlus,      roles: ['admin','management']                                      },
+      { href: "/company/onboarding", label: "Onboarding Wizard", icon: Zap,        roles: ['admin','management'], isNew: true                        },
+      { href: "/client/wizard",      label: "Create Account",    icon: UserPlus,   roles: ['admin','management']                                      },
     ],
   },
   // ─── 2. Operations (Execution Layer) ─────────────────────────────────────────
@@ -326,7 +327,8 @@ const WORKSPACE_RAIL: Record<string, NavItem[]> = {
     { href: '/billing',         label: 'Billing',         icon: Wallet,        roles: ADM_MGT                   },
     { href: '/dids',            label: 'DIDs',            icon: PhoneIncoming, roles: ADM_MGT                   },
     { href: '/client-portal',   label: 'Client Portal',   icon: Globe,         roles: ADM_MGT                   },
-    { href: '/client/wizard',   label: 'Create Account',  icon: UserPlus,      roles: ADM_MGT, isNew: true       },
+    { href: '/company/onboarding', label: 'Onboarding Wizard', icon: Zap,        roles: ADM_MGT, isNew: true       },
+    { href: '/client/wizard',      label: 'Create Account',    icon: UserPlus,   roles: ADM_MGT                    },
   ],
   'vendors': [
     { href: '/vendor-rca',                label: 'Vendor RCA',    icon: ScanSearch, roles: ADM_MGT, isNew: true },

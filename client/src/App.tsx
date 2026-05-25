@@ -119,6 +119,7 @@ import SelfHealPage from "@/pages/self-heal";
 import SidebarSettingsPage from "@/pages/sidebar-settings";
 import CompanyListPage from "@/pages/company-list";
 import CompanyCreatePage from "@/pages/company-create";
+import CompanyOnboardingPage from "@/pages/company-onboarding";
 import ClientWizardPage from "@/pages/client-wizard";
 import ClientConfigPage from "@/pages/client-config";
 import RevenueHeatmapPage from "@/pages/revenue-heatmap";
@@ -511,6 +512,9 @@ function Router() {
       </Route>
       <Route path="/company/edit/:id">
         {() => <ProtectedRoute component={CompanyCreatePage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/company/onboarding">
+        {() => <ProtectedRoute component={CompanyOnboardingPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
       </Route>
       <Route path="/client/wizard">
         {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
