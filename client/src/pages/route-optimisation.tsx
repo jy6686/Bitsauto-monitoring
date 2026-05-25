@@ -1,15 +1,17 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BrainCircuit, AlertTriangle, TrendingDown, TrendingUp, CheckCircle2,
   XCircle, Clock, RefreshCw, Play, ChevronDown, ChevronRight,
   Activity, Zap, Shield, BarChart3, Target, Info, Minus,
-  HelpCircle, X, MapPin, Globe, ArrowRight,
+  HelpCircle, X, MapPin, Globe, ArrowRight, GitBranch, AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery as useExplainQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
+import { getExplainabilityDepth } from "@/lib/governance";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,8 +40,11 @@ type Summary = {
 
 type RouteOptimisationData = { recommendations: RouteRec[]; summary: Summary };
 
+type ExplainEvent = { type: string; ts: string; label: string; description?: string };
+
 type ExplainData = {
   carrier: string;
+  explainabilityDepth?: string;
   verdict: {
     urgency: string; primaryCause: string; confidence: number;
     window: string; trend: string; stabilityScore: number | null;
@@ -56,6 +61,7 @@ type ExplainData = {
     action: string; asrGain: string; marginGain: string;
     fasReduction: string; stabilityGain: string; trafficShift: string;
   } | null;
+  events?: ExplainEvent[];
   sampleCount: number;
   generatedAt: string;
 };
@@ -144,40 +150,95 @@ function DeltaCell({ prev, current, invert = false }: { prev: number | null; cur
 
 // ── Explainability Drawer ─────────────────────────────────────────────────────
 
+const DEPTH_LABEL: Record<string, string> = {
+  full_evidence:     'Full Evidence',
+  execution_impact:  'Execution Impact',
+  executive_summary: 'Executive Summary',
+  none:              'Hidden',
+};
+
+const EVENT_TYPE_META: Record<string, {
+  icon: typeof AlertCircle; color: string; bg: string; border: string;
+}> = {
+  incident_high:           { icon: AlertTriangle,  color: 'text-red-400',     bg: 'bg-red-500/10',     border: 'border-red-500/30'     },
+  incident_medium:         { icon: AlertCircle,    color: 'text-orange-400',  bg: 'bg-orange-500/10',  border: 'border-orange-500/30'  },
+  resolved:                { icon: CheckCircle2,   color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  recommendation_created:  { icon: GitBranch,      color: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/30' },
+  recommendation_approved: { icon: CheckCircle2,   color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+  recommendation_rejected: { icon: XCircle,        color: 'text-slate-400',   bg: 'bg-slate-500/10',   border: 'border-slate-500/30'   },
+  info:                    { icon: Info,            color: 'text-slate-400',   bg: 'bg-slate-500/10',   border: 'border-slate-500/30'   },
+};
+
+async function sendTelemetry(carrier: string, event: string, extra?: Record<string, unknown>) {
+  try {
+    await fetch('/api/explain/telemetry', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ carrier, event, ...extra }),
+    });
+  } catch { /* fire-and-forget — telemetry must never break the drawer */ }
+}
+
 function ExplainDrawer({ carrier, onClose }: { carrier: string; onClose: () => void }) {
+  const { role } = useAuth();
+  const depth = getExplainabilityDepth(role ?? 'viewer');
+  const openedAt = useRef(Date.now());
+
   const { data, isLoading, isError } = useExplainQuery<ExplainData>({
     queryKey: ['/api/route-optimisation/explain', carrier],
     queryFn: () => fetch(`/api/route-optimisation/explain/${encodeURIComponent(carrier)}`, { credentials: 'include' }).then(r => r.json()),
     staleTime: 2 * 60_000,
   });
 
+  useEffect(() => {
+    if (depth === 'none') return;
+    sendTelemetry(carrier, 'drawer_opened', { role: role ?? 'unknown', depth });
+    return () => {
+      sendTelemetry(carrier, 'drawer_closed', { decisionLatencyMs: Date.now() - openedAt.current });
+    };
+  }, [carrier]);
+
+  if (depth === 'none') return null;
+
+  const showConfidence   = depth === 'full_evidence';
+  const showMetricsTable = depth !== 'executive_summary';
+  const showPrefixDetail = depth === 'full_evidence';
+  const showProjection   = depth !== 'executive_summary';
+  const showTimeline     = depth === 'full_evidence';
+
+  const depthBadgeClass =
+    depth === 'full_evidence'     ? 'text-fuchsia-400 border-fuchsia-500/30 bg-fuchsia-500/10' :
+    depth === 'execution_impact'  ? 'text-blue-400 border-blue-500/30 bg-blue-500/10' :
+    depth === 'executive_summary' ? 'text-amber-400 border-amber-500/30 bg-amber-500/10' :
+    'text-slate-400 border-slate-500/30 bg-slate-500/10';
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      {/* Drawer panel */}
       <div className="relative z-10 w-full max-w-xl bg-card border-l border-border flex flex-col h-full shadow-2xl overflow-hidden">
 
-        {/* Drawer header */}
+        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 shrink-0">
           <div className="flex items-center gap-3">
             <HelpCircle className="w-4 h-4 text-fuchsia-400" />
             <div>
               <div className="text-sm font-semibold">Why this recommendation?</div>
-              <div className="text-xs text-muted-foreground font-mono">{carrier}</div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-xs text-muted-foreground font-mono">{carrier}</span>
+                <span className={cn("text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full border", depthBadgeClass)}>
+                  {DEPTH_LABEL[depth]}
+                </span>
+              </div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            data-testid="btn-close-drawer"
-            className="p-1.5 rounded-lg hover:bg-muted/40 transition-colors text-muted-foreground hover:text-foreground"
-          >
+          <button onClick={onClose} data-testid="btn-close-drawer"
+            className="p-1.5 rounded-lg hover:bg-muted/40 transition-colors text-muted-foreground hover:text-foreground">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Drawer content */}
+        {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {isLoading && (
             <div className="flex items-center justify-center h-48">
@@ -192,82 +253,84 @@ function ExplainDrawer({ carrier, onClose }: { carrier: string; onClose: () => v
           {data && (
             <div className="divide-y divide-border/30">
 
-              {/* Section 1 — Executive Verdict */}
+              {/* Section 1 — Operational Briefing (all depths) */}
               <div className="px-5 py-5">
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">Recommendation</div>
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">Operational Briefing</div>
                 <div className="flex items-start gap-3 mb-3">
                   <span className={`text-xs font-semibold px-2 py-1 rounded-full border shrink-0 ${URGENCY_COLOR[data.verdict.urgency] ?? URGENCY_COLOR.INFO}`}>
                     {data.verdict.urgency}
                   </span>
                   <p className="text-sm leading-relaxed text-foreground/90">{data.verdict.primaryCause}</p>
                 </div>
-                <div className="flex items-center gap-4 mt-3">
-                  <div className="flex-1">
-                    <div className="text-[10px] text-muted-foreground mb-1">Confidence</div>
-                    <ConfidenceBar value={data.verdict.confidence} />
+                {showConfidence ? (
+                  <div className="flex items-center gap-4 mt-3">
+                    <div className="flex-1">
+                      <div className="text-[10px] text-muted-foreground mb-1">Confidence</div>
+                      <ConfidenceBar value={data.verdict.confidence} />
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] text-muted-foreground">Comparison window</div>
+                      <div className="text-xs text-foreground/70 mt-0.5">{data.verdict.window}</div>
+                    </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-[10px] text-muted-foreground">Comparison window</div>
-                    <div className="text-xs text-foreground/70 mt-0.5">{data.verdict.window}</div>
+                ) : (
+                  <div className="text-right mt-2">
+                    <div className="text-[10px] text-muted-foreground/60">{data.verdict.window}</div>
                   </div>
-                </div>
-              </div>
-
-              {/* Section 2 — What Changed? */}
-              <div className="px-5 py-5">
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">What changed?</div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-muted-foreground/60">
-                        <th className="text-left font-normal pb-2 pr-3">Metric</th>
-                        <th className="text-right font-normal pb-2 pr-3">168h avg</th>
-                        <th className="text-right font-normal pb-2 pr-3">24h current</th>
-                        <th className="text-right font-normal pb-2">Change</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/20">
-                      {Object.entries(data.metrics).map(([key, m]) => (
-                        <tr key={key}>
-                          <td className="py-2 pr-3 text-muted-foreground">{m.label}</td>
-                          <td className="py-2 pr-3 text-right font-mono">
-                            {m.prev != null ? m.prev.toFixed(1) : '—'}
-                          </td>
-                          <td className="py-2 pr-3 text-right font-mono text-foreground">
-                            {m.current != null ? m.current.toFixed(1) : '—'}
-                          </td>
-                          <td className="py-2 text-right">
-                            <DeltaCell
-                              prev={m.prev}
-                              current={m.current}
-                              invert={key === 'failRate' || key === 'pdd'}
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {data.sampleCount > 0 && (
-                  <p className="text-[10px] text-muted-foreground/50 mt-2">Based on {data.sampleCount.toLocaleString()} call samples</p>
                 )}
               </div>
 
-              {/* Section 3 — Blast Radius */}
-              <div className="px-5 py-5">
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">Blast radius</div>
+              {/* Section 2 — What Changed? (full_evidence + execution_impact) */}
+              {showMetricsTable && Object.keys(data.metrics).length > 0 && (
+                <div className="px-5 py-5">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">What changed?</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-muted-foreground/60">
+                          <th className="text-left font-normal pb-2 pr-3">Metric</th>
+                          <th className="text-right font-normal pb-2 pr-3">168h avg</th>
+                          <th className="text-right font-normal pb-2 pr-3">24h current</th>
+                          <th className="text-right font-normal pb-2">Change</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {Object.entries(data.metrics).map(([key, m]) => (
+                          <tr key={key}>
+                            <td className="py-2 pr-3 text-muted-foreground">{m.label}</td>
+                            <td className="py-2 pr-3 text-right font-mono">{m.prev != null ? m.prev.toFixed(1) : '—'}</td>
+                            <td className="py-2 pr-3 text-right font-mono text-foreground">{m.current != null ? m.current.toFixed(1) : '—'}</td>
+                            <td className="py-2 text-right">
+                              <DeltaCell prev={m.prev} current={m.current} invert={key === 'failRate' || key === 'pdd'} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {data.sampleCount > 0 && (
+                    <p className="text-[10px] text-muted-foreground/50 mt-2">Based on {data.sampleCount.toLocaleString()} call samples</p>
+                  )}
+                </div>
+              )}
 
-                {/* Big exposure number */}
+              {/* Section 3 — Blast Radius (all depths, detail gated) */}
+              <div className="px-5 py-5">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">Blast Radius</div>
                 <div className="flex items-center gap-4 mb-4">
-                  <div className="bg-muted/20 border border-border/40 rounded-xl px-5 py-3 text-center">
+                  <div className={cn(
+                    "bg-muted/20 border rounded-xl px-5 py-3 text-center",
+                    data.blastRadius.portfolioExposure >= 30 ? 'border-red-500/30' :
+                    data.blastRadius.portfolioExposure >= 15 ? 'border-orange-500/30' :
+                    'border-border/40'
+                  )}>
                     <div className={`text-3xl font-bold font-mono ${
                       data.blastRadius.portfolioExposure >= 30 ? 'text-red-400' :
-                      data.blastRadius.portfolioExposure >= 15 ? 'text-orange-400' :
-                      'text-yellow-400'
+                      data.blastRadius.portfolioExposure >= 15 ? 'text-orange-400' : 'text-yellow-400'
                     }`}>
                       {data.blastRadius.portfolioExposure}%
                     </div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">of active portfolio</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">of active portfolio at risk</div>
                   </div>
                   <div className="flex-1 space-y-2 text-xs">
                     <div className="flex justify-between">
@@ -284,8 +347,6 @@ function ExplainDrawer({ carrier, onClose }: { carrier: string; onClose: () => v
                     </div>
                   </div>
                 </div>
-
-                {/* Countries */}
                 {data.blastRadius.countries.length > 0 && (
                   <div className="flex items-center gap-1.5 flex-wrap mb-3">
                     <Globe className="w-3 h-3 text-muted-foreground/50 shrink-0" />
@@ -294,13 +355,10 @@ function ExplainDrawer({ carrier, onClose }: { carrier: string; onClose: () => v
                     ))}
                   </div>
                 )}
-
-                {/* Prefix breakdown */}
-                {data.blastRadius.prefixBreakdown.length > 0 && (
+                {showPrefixDetail && data.blastRadius.prefixBreakdown.length > 0 && (
                   <div className="space-y-1">
                     <div className="text-[10px] text-muted-foreground/60 mb-2 flex items-center gap-1">
-                      <MapPin className="w-3 h-3" />
-                      Affected prefixes
+                      <MapPin className="w-3 h-3" /> Affected prefixes
                     </div>
                     {data.blastRadius.prefixBreakdown.slice(0, 5).map(p => (
                       <div key={p.prefix} className="flex items-center gap-2 text-xs">
@@ -317,26 +375,25 @@ function ExplainDrawer({ carrier, onClose }: { carrier: string; onClose: () => v
                     ))}
                   </div>
                 )}
-
                 {data.blastRadius.portfolioExposure === 0 && data.blastRadius.vendorCalls === 0 && (
-                  <p className="text-xs text-muted-foreground/50">No CDR data in cache for this carrier — exposure calculated from quality score data only.</p>
+                  <p className="text-xs text-muted-foreground/50">No CDR data in cache — exposure estimated from quality score data only.</p>
                 )}
               </div>
 
-              {/* Section 4 — What happens if we act? */}
-              {data.projection && (
+              {/* Section 4 — Projection Summary (full_evidence + execution_impact) */}
+              {showProjection && data.projection && (
                 <div className="px-5 py-5">
-                  <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">What happens if we act?</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">Projection Summary</div>
                   <p className="text-xs text-foreground/70 mb-3 flex items-center gap-1.5">
                     <ArrowRight className="w-3 h-3 text-fuchsia-400 shrink-0" />
                     {data.projection.action}
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { label: 'ASR gain',        value: data.projection.asrGain,       color: 'text-emerald-400' },
-                      { label: 'Margin gain',      value: data.projection.marginGain,    color: 'text-blue-400'    },
-                      { label: 'FAS reduction',    value: data.projection.fasReduction,  color: 'text-orange-400'  },
-                      { label: 'Stability gain',   value: data.projection.stabilityGain, color: 'text-fuchsia-400' },
+                      { label: 'ASR gain',      value: data.projection.asrGain,       color: 'text-emerald-400' },
+                      { label: 'Margin gain',    value: data.projection.marginGain,    color: 'text-blue-400'    },
+                      { label: 'FAS reduction',  value: data.projection.fasReduction,  color: 'text-orange-400'  },
+                      { label: 'Stability gain', value: data.projection.stabilityGain, color: 'text-fuchsia-400' },
                     ].map(({ label, value, color }) => (
                       <div key={label} className="bg-muted/20 border border-border/30 rounded-lg px-3 py-2.5">
                         <div className="text-[10px] text-muted-foreground">{label}</div>
@@ -350,18 +407,19 @@ function ExplainDrawer({ carrier, onClose }: { carrier: string; onClose: () => v
                 </div>
               )}
 
-              {/* Stability timeline sparkline */}
+              {/* Section 5 — 48h Stability Sparkline (all depths) */}
               {data.timeline.length > 0 && (
                 <div className="px-5 py-5">
                   <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">
-                    48h stability timeline ({data.timeline.length} snapshots)
+                    48h Stability Timeline ({data.timeline.length} snapshots)
                   </div>
                   <div className="flex items-end gap-0.5 h-16">
                     {data.timeline.map((t, i) => {
                       const h = Math.max(4, Math.round((t.qScore / 100) * 64));
                       const col = t.qScore >= 80 ? 'bg-emerald-500' : t.qScore >= 55 ? 'bg-yellow-500' : t.qScore >= 35 ? 'bg-orange-500' : 'bg-red-500';
                       return (
-                        <div key={i} title={`${new Date(t.ts).toLocaleTimeString()} — Q:${t.qScore}`}
+                        <div key={i}
+                          title={`${new Date(t.ts).toLocaleTimeString()} — Q:${t.qScore}`}
                           className={`flex-1 rounded-t-sm opacity-80 hover:opacity-100 transition-opacity cursor-default ${col}`}
                           style={{ height: `${h}px` }} />
                       );
@@ -369,6 +427,43 @@ function ExplainDrawer({ carrier, onClose }: { carrier: string; onClose: () => v
                   </div>
                   <div className="flex justify-between text-[10px] text-muted-foreground/40 mt-1">
                     <span>48h ago</span><span>Now</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Section 6 — Incident & Lifecycle Timeline (full_evidence only) */}
+              {showTimeline && data.events && data.events.length > 0 && (
+                <div className="px-5 py-5">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-4">Incident Timeline</div>
+                  <div className="relative">
+                    <div className="absolute left-3 top-0 bottom-0 w-px bg-border/40" />
+                    <div className="space-y-4">
+                      {data.events.map((ev, i) => {
+                        const meta = EVENT_TYPE_META[ev.type] ?? EVENT_TYPE_META.info;
+                        const EvIcon = meta.icon;
+                        return (
+                          <div key={i} className="flex items-start gap-3 relative">
+                            <div className={cn(
+                              "w-6 h-6 rounded-full border flex items-center justify-center shrink-0 z-10 bg-card",
+                              meta.border, meta.bg
+                            )}>
+                              <EvIcon className={cn("w-3 h-3", meta.color)} />
+                            </div>
+                            <div className="flex-1 min-w-0 pt-0.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={cn("text-xs font-medium", meta.color)}>{ev.label}</span>
+                                <span className="text-[10px] text-muted-foreground/50 font-mono">
+                                  {new Date(ev.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              {ev.description && (
+                                <p className="text-xs text-muted-foreground/70 mt-0.5 leading-relaxed">{ev.description}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               )}

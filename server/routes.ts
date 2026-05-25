@@ -22443,7 +22443,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // Returns the full evidence brief for a single carrier recommendation.
   // Combines stability timeline, metric deltas, blast radius, and projection.
 
-  app.get('/api/route-optimisation/explain/:carrier', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+  app.get('/api/route-optimisation/explain/:carrier', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'team_lead', 'super_admin', 'destination_manager', 'routing_admin'], req, res, next), async (req: any, res: any) => {
     try {
       const { db: _db4 }         = await import('./db');
       const { carrierQualityScores: cqs3, vendorStabilitySnapshots: vss } = await import('../shared/schema');
@@ -22539,31 +22539,102 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         trafficShift: `restore ${Math.abs(trafficShift)}%`,
       } : null;
 
+      // ── 7. Role-Aware Explainability Depth ─────────────────────────────────────
+      const userRole = (req.user as any)?.role ?? 'viewer';
+      const EXPLAIN_DEPTH_MAP: Record<string, string> = {
+        super_admin: 'full_evidence', admin: 'full_evidence',
+        destination_manager: 'full_evidence', management: 'full_evidence',
+        routing_admin: 'execution_impact',
+        noc_operator: 'executive_summary', team_lead: 'executive_summary',
+        viewer: 'none',
+      };
+      const explainDepth = EXPLAIN_DEPTH_MAP[userRole] ?? 'executive_summary';
+
+      // ── 8. Incident & Lifecycle Timeline Events (full_evidence only) ──────────
+      let explainEvents: Array<{ type: string; ts: string; label: string; description?: string }> = [];
+      if (explainDepth === 'full_evidence') {
+        try {
+          const { incidents: incidentsTbl2, routingSuggestions: rsTbl2 } = await import('../shared/schema');
+          const { or: _or2 } = await import('drizzle-orm');
+          const [carrierIncidents, carrierSuggestions] = await Promise.all([
+            _db4.select({
+              id: incidentsTbl2.id, title: incidentsTbl2.title,
+              severity: incidentsTbl2.severity, status: incidentsTbl2.status,
+              openedAt: incidentsTbl2.openedAt, resolvedAt: incidentsTbl2.resolvedAt,
+              incidentType: incidentsTbl2.incidentType,
+            }).from(incidentsTbl2)
+              .where(_or2(_eq4(incidentsTbl2.entityId, carrier), _eq4(incidentsTbl2.entityName, carrier)))
+              .orderBy(_desc4(incidentsTbl2.openedAt)).limit(6),
+            _db4.select().from(rsTbl2)
+              .where(_eq4(rsTbl2.carrierName, carrier))
+              .orderBy(_desc4(rsTbl2.createdAt)).limit(6),
+          ]);
+          for (const inc of carrierIncidents) {
+            explainEvents.push({
+              type: ['critical','high'].includes(inc.severity) ? 'incident_high' : 'incident_medium',
+              ts: inc.openedAt.toISOString(),
+              label: inc.status === 'active' ? 'Active Incident' : 'Incident Detected',
+              description: inc.title,
+            });
+            if (inc.resolvedAt && inc.status === 'resolved') {
+              explainEvents.push({
+                type: 'resolved',
+                ts: inc.resolvedAt.toISOString(),
+                label: 'Incident Resolved',
+                description: `${inc.incidentType} resolved`,
+              });
+            }
+          }
+          for (const rs of carrierSuggestions) {
+            explainEvents.push({
+              type: 'recommendation_created',
+              ts: rs.createdAt.toISOString(),
+              label: 'Recommendation Created',
+              description: rs.suggestedAction,
+            });
+            if (rs.resolvedAt && rs.status !== 'pending') {
+              explainEvents.push({
+                type: rs.status === 'approved' ? 'recommendation_approved' : 'recommendation_rejected',
+                ts: rs.resolvedAt.toISOString(),
+                label: rs.status === 'approved' ? 'Recommendation Approved' : 'Recommendation Rejected',
+                description: `Decision: ${rs.status}`,
+              });
+            }
+          }
+          explainEvents = explainEvents
+            .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+            .slice(0, 12);
+        } catch (_) { /* timeline events are non-critical — degrade gracefully */ }
+      }
+
+      const confidenceScore = stability < 35 ? 92 : stability < 50 ? 82 : stability < 55 ? 72 : stability > 80 ? 74 : 55;
+
       res.json({
         carrier,
+        explainabilityDepth: explainDepth,
         verdict: {
           urgency,
           primaryCause,
-          confidence: stability < 35 ? 92 : stability < 50 ? 82 : stability < 55 ? 72 : stability > 80 ? 74 : 55,
+          confidence: confidenceScore,
           window: '24h vs 168h comparison',
           trend: score?.trend ?? 'stable',
           stabilityScore: currentStability,
         },
-        metrics: {
+        metrics: explainDepth !== 'executive_summary' ? {
           asr:       { prev: prevAsr,       current: currentAsr,       window: '168h avg vs 24h',  label: 'ASR (%)'       },
           stability: { prev: prevStability, current: currentStability, window: '168h avg vs 24h',  label: 'Stability Score' },
           failRate:  { prev: prevFailRate,  current: currentFailRate,  window: '168h avg vs 24h',  label: 'Failure Rate (%)' },
           pdd:       { prev: prevPdd != null ? Math.round(prevPdd / 100) / 10 : null,
                        current: currentPdd != null ? Math.round(currentPdd / 100) / 10 : null,
                        window: '168h avg vs 24h', label: 'Avg PDD (s)' },
-        },
+        } : {},
         blastRadius: {
           portfolioExposure: exposure.portfolioExposure,
           revenueExposure:   exposure.revenueExposure,
           vendorCalls:       exposure.vendorCalls,
           totalCalls:        exposure.totalPortfolioCalls,
           countries:         exposure.countries,
-          prefixBreakdown:   exposure.prefixBreakdown.slice(0, 8),
+          prefixBreakdown:   explainDepth === 'full_evidence' ? exposure.prefixBreakdown.slice(0, 8) : [],
         },
         timeline: timeline.map(t => ({
           ts:        t.ts,
@@ -22572,10 +22643,28 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           fasRate:   t.fasRate,
           stability: t.stability,
         })),
-        projection,
+        projection: explainDepth !== 'executive_summary' ? projection : null,
+        events: explainEvents,
         sampleCount: score24?.sampleCount ?? 0,
         generatedAt: new Date().toISOString(),
       });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Explainability Engagement Telemetry ───────────────────────────────────────
+  // Tracks trust signals: drawer opens, section expansions, decision latency.
+  // Fire-and-forget from frontend. Logged now; promoted to DB in Stage 2D.
+  app.post('/api/explain/telemetry', async (req: any, res: any) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const { carrier, event, sectionId, decisionLatencyMs, role, depth } = req.body as {
+        carrier?: string; event?: string; sectionId?: string;
+        decisionLatencyMs?: number; role?: string; depth?: string;
+      };
+      if (!carrier || !event) return res.status(400).json({ message: 'carrier and event required' });
+      const userId = (req.user as any)?.claims?.sub ?? 'unknown';
+      console.log(`[explain-telemetry] user=${userId} role=${role ?? '-'} depth=${depth ?? '-'} carrier="${carrier}" event=${event} section=${sectionId ?? '-'} latency=${decisionLatencyMs != null ? decisionLatencyMs + 'ms' : '-'}`);
+      res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
