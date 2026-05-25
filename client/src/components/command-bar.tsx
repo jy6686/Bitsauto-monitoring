@@ -98,8 +98,9 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Carrier Intelligence', href: '/carrier-intelligence',icon: Brain,          keywords: 'carrier intelligence health signals' },
   { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Cost Optimisation',    href: '/cost-optimisation',   icon: TrendingDown,    keywords: 'cost optimisation route engine intelligence' },
   { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Number Intelligence',  href: '/number-intelligence', icon: Phone,           keywords: 'number analysis cli cld prefix intelligence' },
-  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Route Optimisation',   href: '/route-optimisation',  icon: BrainCircuit,    keywords: 'route optimisation recommendations advisory carrier quality intelligence' },
-  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Traffic Steering',     href: '/traffic-steering',    icon: ArrowRightLeft,  keywords: 'traffic steering shift carrier routing suggestions advisory' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Route Optimisation',   href: '/route-optimisation',   icon: BrainCircuit,    keywords: 'route optimisation recommendations advisory carrier quality intelligence' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Traffic Steering',     href: '/traffic-steering',     icon: ArrowRightLeft,  keywords: 'traffic steering shift carrier routing suggestions advisory' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Simulation Sandbox',   href: '/simulation-sandbox',   icon: FlaskConical,    keywords: 'simulation sandbox route model traffic shift projection what-if laboratory' },
 
   // ── Troubleshooting ───────────────────────────────────────────────────────
   { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'SIP Trace',            href: '/sip-trace',          icon: Mic,             keywords: 'packet sip trace debug pcap' },

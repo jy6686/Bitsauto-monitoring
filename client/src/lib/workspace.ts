@@ -55,6 +55,7 @@ const ROUTE_DOMAIN_MAP: [string, WorkspaceDomain][] = [
   ['/ai-ops',                     'intelligence'],
   ['/route-optimisation',         'intelligence'],
   ['/traffic-steering',           'intelligence'],
+  ['/simulation-sandbox',         'intelligence'],
   // ── Analytics & Reports ───────────────────────────────────────────────────
   ['/revenue-heatmap',            'analytics'],
   ['/traffic-forecast',           'analytics'],

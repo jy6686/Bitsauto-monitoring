@@ -237,8 +237,9 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/routing-intelligence",       label: "Routing Intelligence", icon: Brain,      roles: ['admin','management'], isNew: true },
       { href: "/number-intelligence",        label: "Number Intelligence",  icon: ScanSearch, roles: ['admin','management']              },
       { href: "/cost-optimisation",          label: "Cost Optimisation",    icon: Lightbulb,  roles: ['admin','management']              },
-      { href: "/route-optimisation",         label: "Route Optimisation",   icon: BrainCircuit, roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
+      { href: "/route-optimisation",         label: "Route Optimisation",   icon: BrainCircuit,   roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
       { href: "/traffic-steering",           label: "Traffic Steering",     icon: ArrowRightLeft, roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
+      { href: "/simulation-sandbox",         label: "Simulation Sandbox",   icon: FlaskConical,   roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
     ],
   },
   // ─── 6. Troubleshooting ──────────────────────────────────────────────────────

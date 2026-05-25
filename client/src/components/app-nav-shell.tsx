@@ -173,8 +173,9 @@ const DOMAINS: Domain[] = [
       { label: 'Optimisation',  desc: 'Route optimisation, traffic steering and cost intelligence',
         icon: TrendingDown,
         items: [
-          { href: '/route-optimisation',  label: 'Route Optimisation',  desc: 'Advisory carrier recommendations',  icon: BrainCircuit },
+          { href: '/route-optimisation',   label: 'Route Optimisation',   desc: 'Advisory carrier recommendations',  icon: BrainCircuit },
           { href: '/traffic-steering',    label: 'Traffic Steering',     desc: 'Carrier shift suggestions',         icon: ArrowRightLeft },
+          { href: '/simulation-sandbox',  label: 'Simulation Sandbox',   desc: 'Model traffic shifts — no impact',  icon: FlaskConical },
           { href: '/cost-optimisation',   label: 'Cost Optimisation',    desc: 'Route cost engine',                 icon: TrendingDown },
           { href: '/number-intelligence', label: 'Number Intelligence',  desc: 'Number-level analysis',             icon: Phone },
         ],

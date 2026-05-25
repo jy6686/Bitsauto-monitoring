@@ -4,10 +4,12 @@ import {
   BrainCircuit, AlertTriangle, TrendingDown, TrendingUp, CheckCircle2,
   XCircle, Clock, RefreshCw, Play, ChevronDown, ChevronRight,
   Activity, Zap, Shield, BarChart3, Target, Info, Minus,
+  HelpCircle, X, MapPin, Globe, ArrowRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery as useExplainQuery } from "@tanstack/react-query";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,28 @@ type Summary = {
 };
 
 type RouteOptimisationData = { recommendations: RouteRec[]; summary: Summary };
+
+type ExplainData = {
+  carrier: string;
+  verdict: {
+    urgency: string; primaryCause: string; confidence: number;
+    window: string; trend: string; stabilityScore: number | null;
+  };
+  metrics: Record<string, { prev: number | null; current: number | null; window: string; label: string }>;
+  blastRadius: {
+    portfolioExposure: number; revenueExposure: number;
+    vendorCalls: number; totalCalls: number;
+    countries: string[];
+    prefixBreakdown: Array<{ prefix: string; country: string; flag: string; callShare: number; revenueShare: number }>;
+  };
+  timeline: Array<{ ts: string; qScore: number; asr: number | null; fasRate: number | null; stability: string }>;
+  projection: {
+    action: string; asrGain: string; marginGain: string;
+    fasReduction: string; stabilityGain: string; trafficShift: string;
+  } | null;
+  sampleCount: number;
+  generatedAt: string;
+};
 
 // ── Priority meta ─────────────────────────────────────────────────────────────
 
@@ -68,6 +92,13 @@ const FILTER_TABS = [
   { key: 'healthy',     label: 'Healthy' },
 ];
 
+const URGENCY_COLOR: Record<string, string> = {
+  HIGH:   'text-red-400 bg-red-500/15 border-red-500/30',
+  MEDIUM: 'text-orange-400 bg-orange-500/15 border-orange-500/30',
+  LOW:    'text-emerald-400 bg-emerald-500/15 border-emerald-500/30',
+  INFO:   'text-slate-400 bg-slate-500/15 border-slate-500/30',
+};
+
 // ── Confidence bar ────────────────────────────────────────────────────────────
 
 function ConfidenceBar({ value }: { value: number }) {
@@ -95,9 +126,276 @@ function StabilityGauge({ score }: { score: number }) {
   );
 }
 
+// ── Delta cell ────────────────────────────────────────────────────────────────
+
+function DeltaCell({ prev, current, invert = false }: { prev: number | null; current: number | null; invert?: boolean }) {
+  if (prev == null || current == null) return <span className="text-muted-foreground/40 text-xs">—</span>;
+  const delta = current - prev;
+  const isPositive = invert ? delta < 0 : delta > 0;
+  const isNeutral  = Math.abs(delta) < 0.5;
+  const color = isNeutral ? 'text-slate-400' : isPositive ? 'text-emerald-400' : 'text-red-400';
+  const arrow = isNeutral ? '' : delta > 0 ? '↑' : '↓';
+  return (
+    <span className={`text-xs font-mono font-semibold ${color}`}>
+      {arrow}{Math.abs(delta).toFixed(1)}
+    </span>
+  );
+}
+
+// ── Explainability Drawer ─────────────────────────────────────────────────────
+
+function ExplainDrawer({ carrier, onClose }: { carrier: string; onClose: () => void }) {
+  const { data, isLoading, isError } = useExplainQuery<ExplainData>({
+    queryKey: ['/api/route-optimisation/explain', carrier],
+    queryFn: () => fetch(`/api/route-optimisation/explain/${encodeURIComponent(carrier)}`, { credentials: 'include' }).then(r => r.json()),
+    staleTime: 2 * 60_000,
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+
+      {/* Drawer panel */}
+      <div className="relative z-10 w-full max-w-xl bg-card border-l border-border flex flex-col h-full shadow-2xl overflow-hidden">
+
+        {/* Drawer header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/50 shrink-0">
+          <div className="flex items-center gap-3">
+            <HelpCircle className="w-4 h-4 text-fuchsia-400" />
+            <div>
+              <div className="text-sm font-semibold">Why this recommendation?</div>
+              <div className="text-xs text-muted-foreground font-mono">{carrier}</div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            data-testid="btn-close-drawer"
+            className="p-1.5 rounded-lg hover:bg-muted/40 transition-colors text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Drawer content */}
+        <div className="flex-1 overflow-y-auto">
+          {isLoading && (
+            <div className="flex items-center justify-center h-48">
+              <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground/40" />
+            </div>
+          )}
+          {isError && (
+            <div className="flex items-center justify-center h-48 text-sm text-muted-foreground/60">
+              Could not load explanation data.
+            </div>
+          )}
+          {data && (
+            <div className="divide-y divide-border/30">
+
+              {/* Section 1 — Executive Verdict */}
+              <div className="px-5 py-5">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">Recommendation</div>
+                <div className="flex items-start gap-3 mb-3">
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full border shrink-0 ${URGENCY_COLOR[data.verdict.urgency] ?? URGENCY_COLOR.INFO}`}>
+                    {data.verdict.urgency}
+                  </span>
+                  <p className="text-sm leading-relaxed text-foreground/90">{data.verdict.primaryCause}</p>
+                </div>
+                <div className="flex items-center gap-4 mt-3">
+                  <div className="flex-1">
+                    <div className="text-[10px] text-muted-foreground mb-1">Confidence</div>
+                    <ConfidenceBar value={data.verdict.confidence} />
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] text-muted-foreground">Comparison window</div>
+                    <div className="text-xs text-foreground/70 mt-0.5">{data.verdict.window}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2 — What Changed? */}
+              <div className="px-5 py-5">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">What changed?</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-muted-foreground/60">
+                        <th className="text-left font-normal pb-2 pr-3">Metric</th>
+                        <th className="text-right font-normal pb-2 pr-3">168h avg</th>
+                        <th className="text-right font-normal pb-2 pr-3">24h current</th>
+                        <th className="text-right font-normal pb-2">Change</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/20">
+                      {Object.entries(data.metrics).map(([key, m]) => (
+                        <tr key={key}>
+                          <td className="py-2 pr-3 text-muted-foreground">{m.label}</td>
+                          <td className="py-2 pr-3 text-right font-mono">
+                            {m.prev != null ? m.prev.toFixed(1) : '—'}
+                          </td>
+                          <td className="py-2 pr-3 text-right font-mono text-foreground">
+                            {m.current != null ? m.current.toFixed(1) : '—'}
+                          </td>
+                          <td className="py-2 text-right">
+                            <DeltaCell
+                              prev={m.prev}
+                              current={m.current}
+                              invert={key === 'failRate' || key === 'pdd'}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {data.sampleCount > 0 && (
+                  <p className="text-[10px] text-muted-foreground/50 mt-2">Based on {data.sampleCount.toLocaleString()} call samples</p>
+                )}
+              </div>
+
+              {/* Section 3 — Blast Radius */}
+              <div className="px-5 py-5">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">Blast radius</div>
+
+                {/* Big exposure number */}
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="bg-muted/20 border border-border/40 rounded-xl px-5 py-3 text-center">
+                    <div className={`text-3xl font-bold font-mono ${
+                      data.blastRadius.portfolioExposure >= 30 ? 'text-red-400' :
+                      data.blastRadius.portfolioExposure >= 15 ? 'text-orange-400' :
+                      'text-yellow-400'
+                    }`}>
+                      {data.blastRadius.portfolioExposure}%
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">of active portfolio</div>
+                  </div>
+                  <div className="flex-1 space-y-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Revenue exposure</span>
+                      <span className="font-mono">{data.blastRadius.revenueExposure}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Carrier calls</span>
+                      <span className="font-mono">{data.blastRadius.vendorCalls.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total calls</span>
+                      <span className="font-mono">{data.blastRadius.totalCalls.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Countries */}
+                {data.blastRadius.countries.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                    <Globe className="w-3 h-3 text-muted-foreground/50 shrink-0" />
+                    {data.blastRadius.countries.map(c => (
+                      <span key={c} className="text-xs bg-muted/30 px-2 py-0.5 rounded-full text-foreground/70">{c}</span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Prefix breakdown */}
+                {data.blastRadius.prefixBreakdown.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-muted-foreground/60 mb-2 flex items-center gap-1">
+                      <MapPin className="w-3 h-3" />
+                      Affected prefixes
+                    </div>
+                    {data.blastRadius.prefixBreakdown.slice(0, 5).map(p => (
+                      <div key={p.prefix} className="flex items-center gap-2 text-xs">
+                        <span className="text-base leading-none">{p.flag}</span>
+                        <span className="font-mono text-foreground/80">+{p.prefix}</span>
+                        <span className="text-muted-foreground flex-1">{p.country}</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-16 h-1 bg-muted/30 rounded-full overflow-hidden">
+                            <div className="h-full bg-fuchsia-500/60 rounded-full" style={{ width: `${p.callShare}%` }} />
+                          </div>
+                          <span className="text-muted-foreground w-8 text-right">{p.callShare}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {data.blastRadius.portfolioExposure === 0 && data.blastRadius.vendorCalls === 0 && (
+                  <p className="text-xs text-muted-foreground/50">No CDR data in cache for this carrier — exposure calculated from quality score data only.</p>
+                )}
+              </div>
+
+              {/* Section 4 — What happens if we act? */}
+              {data.projection && (
+                <div className="px-5 py-5">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">What happens if we act?</div>
+                  <p className="text-xs text-foreground/70 mb-3 flex items-center gap-1.5">
+                    <ArrowRight className="w-3 h-3 text-fuchsia-400 shrink-0" />
+                    {data.projection.action}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: 'ASR gain',        value: data.projection.asrGain,       color: 'text-emerald-400' },
+                      { label: 'Margin gain',      value: data.projection.marginGain,    color: 'text-blue-400'    },
+                      { label: 'FAS reduction',    value: data.projection.fasReduction,  color: 'text-orange-400'  },
+                      { label: 'Stability gain',   value: data.projection.stabilityGain, color: 'text-fuchsia-400' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-muted/20 border border-border/30 rounded-lg px-3 py-2.5">
+                        <div className="text-[10px] text-muted-foreground">{label}</div>
+                        <div className={`text-lg font-bold font-mono mt-0.5 ${color}`}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/40 mt-3">
+                    Pre-computed advisory projection. Use the Simulation Sandbox to model custom traffic shifts.
+                  </p>
+                </div>
+              )}
+
+              {/* Stability timeline sparkline */}
+              {data.timeline.length > 0 && (
+                <div className="px-5 py-5">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+                    48h stability timeline ({data.timeline.length} snapshots)
+                  </div>
+                  <div className="flex items-end gap-0.5 h-16">
+                    {data.timeline.map((t, i) => {
+                      const h = Math.max(4, Math.round((t.qScore / 100) * 64));
+                      const col = t.qScore >= 80 ? 'bg-emerald-500' : t.qScore >= 55 ? 'bg-yellow-500' : t.qScore >= 35 ? 'bg-orange-500' : 'bg-red-500';
+                      return (
+                        <div key={i} title={`${new Date(t.ts).toLocaleTimeString()} — Q:${t.qScore}`}
+                          className={`flex-1 rounded-t-sm opacity-80 hover:opacity-100 transition-opacity cursor-default ${col}`}
+                          style={{ height: `${h}px` }} />
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground/40 mt-1">
+                    <span>48h ago</span><span>Now</span>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 border-t border-border/30 bg-card/50 shrink-0">
+          <p className="text-[10px] text-muted-foreground/40 flex items-center gap-1">
+            <Shield className="w-3 h-3 shrink-0" />
+            Advisory only. No routing change happens without explicit human approval.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Recommendation Card ───────────────────────────────────────────────────────
 
-function RecCard({ rec, onAction }: { rec: RouteRec; onAction: (id: number, action: 'approve' | 'reject' | 'snooze') => void }) {
+function RecCard({ rec, onAction, onExplain }: {
+  rec: RouteRec;
+  onAction: (id: number, action: 'approve' | 'reject' | 'snooze') => void;
+  onExplain: (carrier: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const meta   = PRIORITY_META[rec.priority] ?? PRIORITY_META.healthy;
   const Icon   = meta.icon;
@@ -114,7 +412,7 @@ function RecCard({ rec, onAction }: { rec: RouteRec; onAction: (id: number, acti
         <StabilityGauge score={rec.stabilityScore} />
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="font-semibold text-sm truncate">{rec.carrier}</span>
             <span className={`flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-full ${meta.bg} ${meta.color} border ${meta.border}`}>
               <Icon className="w-3 h-3" />
@@ -130,7 +428,6 @@ function RecCard({ rec, onAction }: { rec: RouteRec; onAction: (id: number, acti
             <p className="text-xs text-foreground/80 mb-2">{rec.action}</p>
           )}
 
-          {/* Quick metrics */}
           <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
             <span>ASR <span className="text-foreground font-mono">{rec.rollingAsr.toFixed(1)}%</span></span>
             {rec.avgPddMs > 0 && <span>PDD <span className="text-foreground font-mono">{(rec.avgPddMs / 1000).toFixed(2)}s</span></span>}
@@ -150,23 +447,33 @@ function RecCard({ rec, onAction }: { rec: RouteRec; onAction: (id: number, acti
             <SIcon className="w-3 h-3" />
             {sMeta.label}
           </span>
-          {rec.action && (
+          <div className="flex items-center gap-1 mt-1">
+            {/* Why button */}
             <button
-              onClick={() => setExpanded(e => !e)}
-              data-testid={`btn-expand-${rec.carrier}`}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
+              data-testid={`btn-why-${rec.carrier}`}
+              onClick={() => onExplain(rec.carrier)}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-muted-foreground hover:text-fuchsia-400 hover:bg-fuchsia-500/10 transition-colors border border-transparent hover:border-fuchsia-500/20"
             >
-              {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              {expanded ? 'Less' : 'Details'}
+              <HelpCircle className="w-3 h-3" />
+              Why?
             </button>
-          )}
+            {rec.action && (
+              <button
+                onClick={() => setExpanded(e => !e)}
+                data-testid={`btn-expand-${rec.carrier}`}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                {expanded ? 'Less' : 'Details'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Expanded detail */}
       {expanded && rec.action && (
         <div className="border-t border-border/20 px-4 pb-4 pt-3 space-y-4">
-          {/* Reasoning */}
           {reasonEntries.length > 0 && (
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Evidence</div>
@@ -181,7 +488,6 @@ function RecCard({ rec, onAction }: { rec: RouteRec; onAction: (id: number, acti
             </div>
           )}
 
-          {/* Projected impact */}
           {rec.projectedImpact && (
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Projected Impact</div>
@@ -204,7 +510,6 @@ function RecCard({ rec, onAction }: { rec: RouteRec; onAction: (id: number, acti
             </div>
           )}
 
-          {/* Actions */}
           {rec.suggestionId && rec.status === 'pending' && (
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Human Approval Required</div>
@@ -272,7 +577,8 @@ function SummaryStrip({ summary }: { summary: Summary }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function RouteOptimisationPage() {
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter]         = useState('all');
+  const [explainCarrier, setExplain] = useState<string | null>(null);
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -294,7 +600,7 @@ export default function RouteOptimisationPage() {
     onError:   () => toast({ title: 'Action failed', variant: 'destructive' }),
   });
 
-  const recs = data?.recommendations ?? [];
+  const recs    = data?.recommendations ?? [];
   const summary = data?.summary;
 
   const filtered = useMemo(() =>
@@ -306,6 +612,11 @@ export default function RouteOptimisationPage() {
 
   return (
     <div className="flex flex-col h-full min-h-screen bg-background">
+
+      {/* Explainability Drawer */}
+      {explainCarrier && (
+        <ExplainDrawer carrier={explainCarrier} onClose={() => setExplain(null)} />
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-card/40 shrink-0">
@@ -350,6 +661,7 @@ export default function RouteOptimisationPage() {
         <p className="text-xs text-fuchsia-300/80">
           <span className="font-semibold text-fuchsia-300">Advisory mode.</span>{" "}
           This system recommends and explains — it does not auto-modify routing. Every change requires explicit human approval.
+          Click <span className="font-semibold">Why?</span> on any card to open the full evidence brief.
         </p>
       </div>
 
@@ -413,6 +725,7 @@ export default function RouteOptimisationPage() {
                 key={rec.id}
                 rec={rec}
                 onAction={(id, action) => actionMut.mutate({ id, action })}
+                onExplain={setExplain}
               />
             ))}
             {summary?.generatedAt && (
@@ -428,7 +741,7 @@ export default function RouteOptimisationPage() {
       <div className="flex items-center gap-2 px-6 py-2.5 border-t border-border/20 bg-card/20 shrink-0">
         <Info className="w-3 h-3 text-muted-foreground/40 shrink-0" />
         <p className="text-[10px] text-muted-foreground/40">
-          Recommendations are derived from carrier quality scores, rolling ASR, PDD, and stability trends. Confidence scores are based on signal volume and consistency.
+          Recommendations derive from carrier quality scores, rolling ASR, PDD, and stability trends. Click "Why?" for the full evidence brief including blast radius and metric timeline.
         </p>
       </div>
     </div>

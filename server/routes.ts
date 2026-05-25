@@ -22394,6 +22394,253 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Intelligence Suite: Recommendation Explainability ────────────────────────
+  // Returns the full evidence brief for a single carrier recommendation.
+  // Combines stability timeline, metric deltas, blast radius, and projection.
+
+  app.get('/api/route-optimisation/explain/:carrier', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _db4 }         = await import('./db');
+      const { carrierQualityScores: cqs3, vendorStabilitySnapshots: vss } = await import('../shared/schema');
+      const { desc: _desc4, eq: _eq4, gte: _gte4, and: _and4 } = await import('drizzle-orm');
+      const { resolveVendorExposure } = await import('./exposure-resolver');
+
+      const carrier = decodeURIComponent(req.params.carrier).trim();
+      if (!carrier) return res.status(400).json({ message: 'carrier required' });
+
+      // ── 1. Carrier quality scores (24h and 168h windows) ─────────────────────
+      const allScores = await _db4.select().from(cqs3)
+        .where(_eq4(cqs3.carrierName, carrier))
+        .orderBy(_desc4(cqs3.lastComputedAt));
+
+      const score24  = allScores.find(s => s.windowHours === 24);
+      const score168 = allScores.find(s => s.windowHours === 168);
+      const score    = score24 ?? allScores[0] ?? null;
+
+      // ── 2. Stability timeline (last 48h) ─────────────────────────────────────
+      const since48h = new Date(Date.now() - 48 * 3_600_000);
+      const timeline = await _db4.select().from(vss)
+        .where(_and4(_eq4(vss.vendor, carrier), _gte4(vss.ts, since48h)))
+        .orderBy(vss.ts);
+
+      // ── 3. Blast radius from CDR cache ────────────────────────────────────────
+      const cdrArr = [...cdrCache.values()].map((c: any) => ({
+        vendor:  c.vendor ?? c.i_vendor_name ?? c.vendor_name,
+        callee:  c.callee,
+        duration: c.duration ?? c.total_duration,
+        cost:    c.cost ?? 0,
+        revenue: c.revenue ?? 0,
+      }));
+      const exposure = resolveVendorExposure(carrier, cdrArr);
+
+      // ── 4. Compute metric deltas ──────────────────────────────────────────────
+      const currentAsr       = score24?.rollingAsr    ?? null;
+      const prevAsr          = score168?.rollingAsr   ?? null;
+      const currentStability = score24?.stabilityScore ?? null;
+      const prevStability    = score168?.stabilityScore ?? null;
+      const currentFailRate  = score24?.failureRate   ?? null;
+      const prevFailRate     = score168?.failureRate  ?? null;
+      const currentPdd       = score24?.avgPddMs      ?? null;
+      const prevPdd          = score168?.avgPddMs     ?? null;
+
+      // ── 5. Build executive verdict ────────────────────────────────────────────
+      let urgency = 'LOW', primaryCause = 'No significant issues detected';
+      const stability = currentStability ?? 100;
+      const asr       = currentAsr ?? 100;
+      const trend     = score?.trend ?? 'stable';
+
+      if (stability < 35 || (stability < 50 && trend === 'degrading')) {
+        urgency = 'HIGH';
+        const asrLoss = prevAsr != null && currentAsr != null ? Math.round(prevAsr - currentAsr) : null;
+        const fasSpike = score24?.failureRate != null && score168?.failureRate != null
+          ? Math.round((score24.failureRate - score168.failureRate) * 10) / 10 : null;
+        if (asrLoss && fasSpike) {
+          primaryCause = `${carrier} lost ${asrLoss} ASR points over the review window with concurrent failure rate increase, affecting ${exposure.portfolioExposure}% of portfolio traffic.`;
+        } else if (asrLoss) {
+          primaryCause = `${carrier} lost ${asrLoss} ASR points over the review window, affecting ${exposure.portfolioExposure}% of portfolio traffic.`;
+        } else {
+          primaryCause = `${carrier} stability has dropped to ${stability.toFixed(0)}/100 with a ${trend} trend, affecting ${exposure.portfolioExposure}% of portfolio traffic.`;
+        }
+      } else if (stability < 55) {
+        urgency = 'MEDIUM';
+        primaryCause = `${carrier} stability is below threshold (${stability.toFixed(0)}/100) with trend: ${trend}.`;
+      } else if (stability > 80 && trend === 'improving' && asr > 75) {
+        urgency = 'LOW';
+        primaryCause = `${carrier} has recovered — stability ${stability.toFixed(0)}/100, ASR ${asr.toFixed(1)}%, trend improving.`;
+      } else {
+        urgency = 'INFO';
+        primaryCause = `${carrier} is performing within normal parameters — stability ${stability.toFixed(0)}/100.`;
+      }
+
+      // ── 6. Projected outcome (for suggested action) ───────────────────────────
+      let trafficShift = 0;
+      if (stability < 35)       trafficShift = 20;
+      else if (stability < 55)  trafficShift = 10;
+      else if (stability > 80)  trafficShift = -15;
+
+      const projection = trafficShift > 0 ? {
+        action:      `Reduce ${carrier} traffic by ${trafficShift}%`,
+        asrGain:     `+${Math.round(trafficShift * 0.45)}%`,
+        marginGain:  `+${Math.round(trafficShift * 0.30)}%`,
+        fasReduction: `-${Math.round(trafficShift * 1.90)}%`,
+        stabilityGain: `+${Math.round(trafficShift * 0.70)} pts`,
+        trafficShift: `${trafficShift}%`,
+      } : trafficShift < 0 ? {
+        action: `Restore ${carrier} to full priority`,
+        asrGain: 'restore',
+        marginGain: 'stable',
+        fasReduction: 'n/a',
+        stabilityGain: 'n/a',
+        trafficShift: `restore ${Math.abs(trafficShift)}%`,
+      } : null;
+
+      res.json({
+        carrier,
+        verdict: {
+          urgency,
+          primaryCause,
+          confidence: stability < 35 ? 92 : stability < 50 ? 82 : stability < 55 ? 72 : stability > 80 ? 74 : 55,
+          window: '24h vs 168h comparison',
+          trend: score?.trend ?? 'stable',
+          stabilityScore: currentStability,
+        },
+        metrics: {
+          asr:       { prev: prevAsr,       current: currentAsr,       window: '168h avg vs 24h',  label: 'ASR (%)'       },
+          stability: { prev: prevStability, current: currentStability, window: '168h avg vs 24h',  label: 'Stability Score' },
+          failRate:  { prev: prevFailRate,  current: currentFailRate,  window: '168h avg vs 24h',  label: 'Failure Rate (%)' },
+          pdd:       { prev: prevPdd != null ? Math.round(prevPdd / 100) / 10 : null,
+                       current: currentPdd != null ? Math.round(currentPdd / 100) / 10 : null,
+                       window: '168h avg vs 24h', label: 'Avg PDD (s)' },
+        },
+        blastRadius: {
+          portfolioExposure: exposure.portfolioExposure,
+          revenueExposure:   exposure.revenueExposure,
+          vendorCalls:       exposure.vendorCalls,
+          totalCalls:        exposure.totalPortfolioCalls,
+          countries:         exposure.countries,
+          prefixBreakdown:   exposure.prefixBreakdown.slice(0, 8),
+        },
+        timeline: timeline.map(t => ({
+          ts:        t.ts,
+          qScore:    t.qScore,
+          asr:       t.asr,
+          fasRate:   t.fasRate,
+          stability: t.stability,
+        })),
+        projection,
+        sampleCount: score24?.sampleCount ?? 0,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Intelligence Suite: Route Simulation Sandbox ──────────────────────────────
+  // Pure computation — no writes, no routing changes, no side effects.
+
+  app.post('/api/simulation', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _db5 }         = await import('./db');
+      const { carrierQualityScores: cqs4 } = await import('../shared/schema');
+      const { desc: _desc5 }     = await import('drizzle-orm');
+      const { runSimulation }    = await import('./simulation-engine');
+
+      const { fromCarrier, toCarrier, shiftPercent } = req.body as {
+        fromCarrier: string; toCarrier: string; shiftPercent: number;
+      };
+
+      if (!fromCarrier || !toCarrier || shiftPercent == null) {
+        return res.status(400).json({ message: 'fromCarrier, toCarrier, shiftPercent are required' });
+      }
+
+      // Fetch latest carrier metrics
+      const allScores = await _db5.select().from(cqs4).orderBy(_desc5(cqs4.lastComputedAt));
+      const latestByCarrier = new Map<string, typeof allScores[0]>();
+      for (const s of allScores) {
+        if (!latestByCarrier.has(s.carrierName)) latestByCarrier.set(s.carrierName, s);
+      }
+      const carrierList = [...latestByCarrier.values()];
+
+      // Compute traffic shares from CDR cache
+      const cdrArr = [...cdrCache.values()];
+      const totalCdrs = cdrArr.length || 1;
+      const vendorCallMap = new Map<string, number>();
+      for (const c of cdrArr) {
+        const v = (c as any).vendor ?? (c as any).i_vendor_name ?? (c as any).vendor_name;
+        if (v) vendorCallMap.set(v, (vendorCallMap.get(v) ?? 0) + 1);
+      }
+
+      const carriers = carrierList.map(s => ({
+        carrierName:    s.carrierName,
+        stabilityScore: s.stabilityScore ?? 50,
+        rollingAsr:     s.rollingAsr    ?? 50,
+        avgPddMs:       s.avgPddMs      ?? 2000,
+        failureRate:    s.failureRate   ?? 10,
+        fasRate:        (s.failureRate ?? 10) * 0.3,
+        sampleCount:    s.sampleCount   ?? 0,
+        revenueShare:   0,
+        trafficShare:   Math.round(((vendorCallMap.get(s.carrierName) ?? 0) / totalCdrs) * 100),
+      }));
+
+      const result = runSimulation({ fromCarrier, toCarrier, shiftPercent: Number(shiftPercent), carriers });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Intelligence Suite: Failover Policies CRUD ───────────────────────────────
+
+  app.get('/api/failover-policies', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead', 'super_admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { db: _db6 } = await import('./db');
+      const { intelligentFailoverPolicies: ifp } = await import('../shared/schema');
+      const { desc: _desc6 } = await import('drizzle-orm');
+      const policies = await _db6.select().from(ifp).orderBy(_desc6(ifp.updatedAt));
+      res.json(policies);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post('/api/failover-policies', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _db7 } = await import('./db');
+      const { intelligentFailoverPolicies: ifp } = await import('../shared/schema');
+      const body = req.body;
+      if (!body.label) return res.status(400).json({ message: 'label is required' });
+      const [created] = await _db7.insert(ifp).values({
+        ...body,
+        updatedBy: (req as any).user?.claims?.sub ?? 'unknown',
+        updatedAt: new Date(),
+        createdAt: new Date(),
+      }).returning();
+      res.json(created);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.patch('/api/failover-policies/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _db8 } = await import('./db');
+      const { intelligentFailoverPolicies: ifp } = await import('../shared/schema');
+      const { eq: _eq8 } = await import('drizzle-orm');
+      const id = Number(req.params.id);
+      const [updated] = await _db8.update(ifp).set({
+        ...req.body,
+        updatedBy: (req as any).user?.claims?.sub ?? 'unknown',
+        updatedAt: new Date(),
+      }).where(_eq8(ifp.id, id)).returning();
+      if (!updated) return res.status(404).json({ message: 'Policy not found' });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.delete('/api/failover-policies/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _db9 } = await import('./db');
+      const { intelligentFailoverPolicies: ifp } = await import('../shared/schema');
+      const { eq: _eq9 } = await import('drizzle-orm');
+      const id = Number(req.params.id);
+      await _db9.delete(ifp).where(_eq9(ifp.id, id));
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Number Intelligence Lookup ────────────────────────────────────────────────
 
   app.get('/api/number-lookup/:number', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {

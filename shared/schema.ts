@@ -1787,6 +1787,31 @@ export const entityPresenceRegistry = pgTable("entity_presence_registry", {
 }, (t) => [uniqueIndex("epr_dim_name_uidx").on(t.dim, t.entityName)]);
 export type EntityPresenceRow = typeof entityPresenceRegistry.$inferSelect;
 
+// ── Intelligent Failover Policies — per-route-group auto-heal configuration ───
+// Owned by Destination Manager. Governs policy-based conditional failover
+// for STANDARD routes only. Human-curated approved failover vendor whitelist.
+export const intelligentFailoverPolicies = pgTable("intelligent_failover_policies", {
+  id:                     serial("id").primaryKey(),
+  routeGroupId:           varchar("route_group_id",      { length: 128 }),
+  destinationPrefix:      varchar("destination_prefix",  { length: 32 }),
+  label:                  varchar("label",               { length: 128 }).notNull(),
+  routeClass:             varchar("route_class",         { length: 32 }).notNull().default('STANDARD'),
+  enabled:                boolean("enabled").notNull().default(false),
+  minimumAsr:             real("minimum_asr").notNull().default(38),
+  maximumFas:             real("maximum_fas").notNull().default(5),
+  minimumStability:       real("minimum_stability").notNull().default(55),
+  maxTrafficShift:        integer("max_traffic_shift").notNull().default(20),
+  maxDurationMinutes:     integer("max_duration_minutes").notNull().default(30),
+  rollbackWindowMinutes:  integer("rollback_window_minutes").notNull().default(30),
+  notificationRequired:   boolean("notification_required").notNull().default(true),
+  approvedFailoverVendors: text("approved_failover_vendors").array().notNull().default([]),
+  updatedBy:              varchar("updated_by", { length: 128 }),
+  updatedAt:              timestamp("updated_at").defaultNow().notNull(),
+  createdAt:              timestamp("created_at").defaultNow().notNull(),
+});
+export type IntelligentFailoverPolicy    = typeof intelligentFailoverPolicies.$inferSelect;
+export type InsertIntelligentFailoverPolicy = typeof intelligentFailoverPolicies.$inferInsert;
+
 // ── Vendor Stability Snapshots — persists Q-score history per vendor ──────────
 // Written every 30 min by snapshotVendorStability(). Retention: 7 days.
 // Powers the Vendor Stability Timeline page and future risk scoring.
