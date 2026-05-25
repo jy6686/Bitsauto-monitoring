@@ -66,6 +66,7 @@ const DOMAINS: Domain[] = [
     id: 'clients', label: 'Clients', icon: Users, color: 'text-amber-400',
     groups: [
       { label: 'Account Management', desc: 'Client accounts, companies and resellers', icon: Building2, items: [
+        { href: '/company/list',    label: 'Companies',      desc: 'All company & client profiles', icon: Building2 },
         { href: '/clients',         label: 'Accounts',       desc: 'All client accounts',          icon: Users },
         { href: '/company-profile', label: 'Company Profile',desc: 'Organisation details',          icon: Building2 },
         { href: '/reseller',        label: 'Resellers',      desc: 'Partner & reseller accounts',   icon: Star },
