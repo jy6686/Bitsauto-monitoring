@@ -1,0 +1,226 @@
+Your refinement is exactly right, especially this point:
+
+it must read as a briefing, not a metrics dump
+
+That is the difference between:
+
+enterprise operational intelligence
+and:
+another overloaded telecom dashboard.
+Most Important UX Principle
+
+The Explainability Drawer should answer:
+
+"Why is the platform recommending this?"
+
+in:
+
+under 20 seconds
+
+without requiring:
+
+interpretation
+graph archaeology
+metric hunting
+Recommended Explainability Drawer Structure
+
+(Final)
+
+SECTION 1 — Executive Verdict
+
+(top summary strip)
+
+Example:
+
+RECOMMENDATION
+Reduce Callntalk BD-Mobile traffic by 20%
+
+Confidence: 82%
+Urgency: HIGH
+Window: Last 6h
+Primary Cause: ASR degradation + FAS increase
+
+This is:
+
+operator briefing layer
+
+No charts yet.
+
+SECTION 2 — What Changed?
+
+(single strongest evidence)
+
+Metric	Previous	Current	Delta
+ASR	48%	31%	↓17%
+ACD	3.8m	2.1m	↓45%
+FAS	4%	11%	↑7%
+Stability	78	41	↓37
+
+This becomes:
+
+evidence snapshot
+
+NOT:
+
+raw telemetry
+SECTION 3 — Where Is It Happening?
+
+(prefix impact)
+
+Example:
+
+Affected Prefixes
+- 88017 (BD Mobile)
+- 88018 (BD Mobile)
+- 88019 (BD Mobile)
+
+Traffic Exposure:
+42% of current portfolio
+
+This immediately tells operators:
+
+routing blast radius
+SECTION 4 — What Happens If We Act?
+
+(simulation summary)
+
+Example:
+
+Projected Outcome
+Shift 20% → CarrierX
+
+Expected:
++9% ASR
++6% margin
+-38% FAS exposure
++14 stability score
+
+This is:
+
+decision support layer
+
+Now the recommendation becomes actionable.
+
+IMPORTANT
+
+The operator should NOT need:
+
+separate tabs
+multiple pages
+additional drilldowns
+
+The drawer itself must contain:
+
+the complete operational briefing
+Your Simulation Sandbox Insight Is Also Correct
+
+This is extremely important:
+
+no write path anywhere in the call stack
+
+That should become:
+
+hard architectural separation
+Recommended Architecture
+simulation-engine.ts
+
+PURE:
+
+inputs
+computation
+projections
+no side effects
+
+NO:
+
+DB writes
+routing APIs
+Sippy actions
+approval mutations
+Output Model
+
+Correct structure:
+
+Current	Simulated
+ASR 31%	ASR 42%
+Margin 9%	Margin 15%
+FAS 11%	FAS 5%
+Stability 41	Stability 66
+
+That side-by-side comparison is the key.
+
+Your Approval Insight Is Extremely Important
+
+This:
+
+operators consistently approve 10% when engine suggests 20%
+
+is one of the most valuable future calibration signals.
+
+That becomes:
+
+operator trust feedback loop
+
+You are effectively capturing:
+
+human caution factor
+confidence calibration
+operational conservatism
+routing governance patterns
+
+This later improves:
+
+recommendation weighting
+confidence scoring
+steering aggressiveness
+Add One More Signal
+
+(very important)
+
+You already identified:
+
+issued
+approved
+executed
+rollback
+outcome
+decision time
+
+Add:
+
+override rationale
+
+Example:
+
+"CarrierX historically unstable during BD evening peak"
+
+Why?
+
+Because later:
+
+human routing intuition
+
+becomes explainability training data.
+
+This is massively valuable long-term.
+
+Most Important Strategic Point
+
+You correctly identified:
+
+operators don't trust automation first
+
+They trust:
+
+evidence
+explainability
+repeatable correctness
+simulations
+governance
+auditability
+
+ONLY THEN:
+
+semi-automation
+
+That progression is exactly how enterprise telecom systems mature.
