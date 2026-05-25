@@ -35,119 +35,109 @@ interface RouteEntry {
 // The value prop on CommandItem is made unique with a domain prefix so the
 // Command component does not collapse duplicates.
 export const ROUTE_REGISTRY: RouteEntry[] = [
-  // ── Live Ops ──────────────────────────────────────────────────────────────
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'BitsEye 2',           href: '/bitseye2',          icon: Eye,             keywords: 'live topology observatory noc' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Live Traffic',         href: '/live-traffic',       icon: Activity,        keywords: 'active calls stream concurrent' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Traffic Map',          href: '/traffic-map',        icon: Globe,           keywords: 'geographic world map' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Dashboard',            href: '/',                   icon: LayoutDashboard, keywords: 'home overview summary' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Alerts',               href: '/alerts',             icon: Bell,            keywords: 'incidents active alerts notifications' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Graphs',               href: '/graphs',             icon: LineChart,       keywords: 'performance charts metrics realtime' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Multi-Switch',         href: '/multi-switch',       icon: Layers,          keywords: 'consolidated switch view' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'NOC Command',          href: '/noc-command',        icon: Monitor,         keywords: 'noc command center operator' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Ops Console',          href: '/ops-console',        icon: SlidersHorizontal, keywords: 'unified operations console' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Console',              href: '/console',            icon: Database,        keywords: 'logs debug shell terminal' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Server Monitor',       href: '/server-monitoring',  icon: Server,          keywords: 'infrastructure health uptime server' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'SBC Monitor',          href: '/sbc-monitor',        icon: HardDrive,       keywords: 'session border controller sbc' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Network Topology',     href: '/network-topology',   icon: Network,         keywords: 'topology viewer network map' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'SIP Trace',            href: '/sip-trace',          icon: Mic,             keywords: 'packet sip trace debug pcap' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Replay Engine',        href: '/replay',             icon: Rewind,          keywords: 'call session replay pcap' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Test Campaigns',       href: '/test-campaigns',     icon: FlaskConical,    keywords: 'automated test suite campaign' },
-  { type: 'route', domain: 'Live Ops',      domainColor: 'text-violet-400', label: 'Tools',                href: '/tools',              icon: Wrench,          keywords: 'engineering utilities calculator dial' },
+  // ── Live Network ──────────────────────────────────────────────────────────
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Dashboard',            href: '/',                   icon: LayoutDashboard, keywords: 'home overview summary' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Live Calls',           href: '/calls',              icon: Phone,           keywords: 'active calls live monitor' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'BitsEye 2',            href: '/bitseye2',           icon: Eye,             keywords: 'live topology observatory noc' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Live Traffic',         href: '/live-traffic',       icon: Activity,        keywords: 'active calls stream concurrent' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Traffic Map',          href: '/traffic-map',        icon: Globe,           keywords: 'geographic world map' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Alerts',               href: '/alerts',             icon: Bell,            keywords: 'incidents active alerts notifications' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Graphs',               href: '/graphs',             icon: LineChart,       keywords: 'performance charts metrics realtime' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Multi-Switch',         href: '/multi-switch',       icon: Layers,          keywords: 'consolidated switch view' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'NOC Command',          href: '/noc-command',        icon: Monitor,         keywords: 'noc command center operator' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Ops Console',          href: '/ops-console',        icon: SlidersHorizontal, keywords: 'unified operations console' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Console',              href: '/console',            icon: Database,        keywords: 'logs debug shell terminal' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Server Monitor',       href: '/server-monitoring',  icon: Server,          keywords: 'infrastructure health uptime server' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'SBC Monitor',          href: '/sbc-monitor',        icon: HardDrive,       keywords: 'session border controller sbc' },
+  { type: 'route', domain: 'Live Network',         domainColor: 'text-emerald-400', label: 'Network Topology',     href: '/network-topology',   icon: Network,         keywords: 'topology viewer network map' },
 
-  // ── Clients ───────────────────────────────────────────────────────────────
-  { type: 'route', domain: 'Clients',       domainColor: 'text-amber-400',  label: 'Accounts',             href: '/clients',            icon: Users,           keywords: 'client management accounts customer' },
-  { type: 'route', domain: 'Clients',       domainColor: 'text-amber-400',  label: 'Client Portal',        href: '/client-portal',      icon: Building2,       keywords: 'self service portal' },
-  { type: 'route', domain: 'Clients',       domainColor: 'text-amber-400',  label: 'Company Profile',      href: '/company-profile',    icon: Building2,       keywords: 'organisation company details' },
-  { type: 'route', domain: 'Clients',       domainColor: 'text-amber-400',  label: 'Reseller',             href: '/reseller',           icon: Star,            keywords: 'partner accounts reseller' },
-  { type: 'route', domain: 'Clients',       domainColor: 'text-amber-400',  label: 'Billing',              href: '/billing',            icon: Wallet,          keywords: 'payments invoices billing' },
-  { type: 'route', domain: 'Clients',       domainColor: 'text-amber-400',  label: 'Billing Disputes',     href: '/billing-disputes',   icon: ClipboardList,   keywords: 'dispute resolution billing' },
-  { type: 'route', domain: 'Clients',       domainColor: 'text-amber-400',  label: 'DIDs',                 href: '/dids',               icon: Phone,           keywords: 'number inventory did management' },
-  { type: 'route', domain: 'Clients',       domainColor: 'text-amber-400',  label: 'Account Names',        href: '/account-names',      icon: FileText,        keywords: 'account naming aliases' },
-  { type: 'route', domain: 'Clients',       domainColor: 'text-amber-400',  label: 'Recordings',           href: '/call-recordings',    icon: Mic,             keywords: 'call recording archive' },
+  // ── Company ───────────────────────────────────────────────────────────────
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Accounts',             href: '/clients',            icon: Users,           keywords: 'client management accounts customer' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Client Portal',        href: '/client-portal',      icon: Building2,       keywords: 'self service portal' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Organization Mgmt',    href: '/company-profile',    icon: Building2,       keywords: 'organisation company lifecycle details' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Company List',         href: '/company/list',       icon: Building2,       keywords: 'companies list all profiles' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Reseller Management',  href: '/reseller',           icon: Star,            keywords: 'partner accounts reseller' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Onboarding Wizard',    href: '/company/onboarding', icon: Zap,             keywords: 'onboarding company lifecycle wizard' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Create Account Wizard',href: '/client/wizard',      icon: Users,           keywords: 'new account provision wizard create' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'DIDs',                 href: '/dids',               icon: Phone,           keywords: 'number inventory did management' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Account Names',        href: '/account-names',      icon: FileText,        keywords: 'account naming aliases' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Recordings',           href: '/call-recordings',    icon: Mic,             keywords: 'call recording archive company' },
 
-  // ── Vendors (includes routing) ────────────────────────────────────────────
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Vendor List',          href: '/vendors',            icon: Wifi,            keywords: 'carriers vendor connections list' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'SLA Scorecard',        href: '/vendor-sla-scorecard',icon: HeartPulse,     keywords: 'carrier performance sla scorecard' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Carrier Scoring',      href: '/carrier-scoring',    icon: Star,            keywords: 'quality benchmarks carrier scoring' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Stability Timeline',   href: '/vendor-stability-timeline', icon: Activity, keywords: 'vendor stability timeline history' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Vendor RCA',           href: '/vendor-rca',         icon: Search,          keywords: 'root cause analysis rca vendor degradation' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Carrier Intelligence', href: '/carrier-intelligence',icon: Brain,          keywords: 'market intelligence carrier health signals' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Prefix Intelligence',  href: '/vendor-prefix-intelligence', icon: Globe,    keywords: 'prefix level analytics intelligence' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Balance Monitor',      href: '/balance',            icon: Wallet,          keywords: 'vendor balances account' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Products',             href: '/products',           icon: Package,         keywords: 'product catalogue trunk class' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Rate Cards',           href: '/rate-cards',         icon: FileText,        keywords: 'pricing rate management deck' },
-  // Routing Core (lives under Vendors)
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Routing Manager',      href: '/routing-manager',    icon: GitBranch,       keywords: 'routing groups connections destination sets lcr' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'LCR Analyser',         href: '/lcr-analyser',       icon: Calculator,      keywords: 'least cost routing lcr analyser' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Route Simulator',      href: '/call-flow-simulator',icon: ArrowRightLeft,  keywords: 'route simulation call flow simulator' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Routing Intelligence', href: '/routing-intelligence',icon: Brain,          keywords: 'intelligent routing route analysis' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Number Intelligence',  href: '/number-intelligence',icon: Phone,           keywords: 'number analysis cli cld prefix' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Cost Optimisation',    href: '/cost-optimisation',  icon: TrendingDown,    keywords: 'route cost engine optimise' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Traffic Steering',     href: '/self-heal',          icon: HeartPulse,      keywords: 'self heal auto healing traffic steering routes' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'Route Tester',         href: '/test-call',          icon: PhoneCall,       keywords: 'route test call on demand' },
-  // Quality & RCA
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'ASR / NER Analytics',  href: '/asr-acd',            icon: BarChart3,       keywords: 'asr ner answer seizure ratio quality vendor' },
-  { type: 'route', domain: 'Vendors',       domainColor: 'text-cyan-400',   label: 'RTP Analytics',        href: '/rtp-analytics',      icon: Activity,        keywords: 'rtp media quality jitter mos vendor' },
+  // ── Operations ────────────────────────────────────────────────────────────
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Vendor List',          href: '/vendors',            icon: Wifi,            keywords: 'carriers vendor connections list' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'SLA Scorecard',        href: '/vendor-sla-scorecard',icon: HeartPulse,     keywords: 'carrier performance sla scorecard' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Carrier Scoring',      href: '/carrier-scoring',    icon: BarChart3,       keywords: 'quality benchmarks carrier scoring' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Stability Timeline',   href: '/vendor-stability-timeline', icon: Activity, keywords: 'vendor stability timeline history' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Balance Monitor',      href: '/balance',            icon: Wallet,          keywords: 'vendor balances account' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Routing Manager',      href: '/routing-manager',    icon: GitBranch,       keywords: 'routing groups connections destination sets lcr' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'LCR Analyser',         href: '/lcr-analyser',       icon: Calculator,      keywords: 'least cost routing lcr analyser' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Route Simulator',      href: '/call-flow-simulator',icon: ArrowRightLeft,  keywords: 'route simulation call flow simulator' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Traffic Steering',     href: '/self-heal',          icon: HeartPulse,      keywords: 'self heal auto healing traffic steering routes' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Route Tester',         href: '/test-call',          icon: PhoneCall,       keywords: 'route test call on demand' },
+
+  // ── Analytics & Reports ───────────────────────────────────────────────────
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'Traffic Analytics',    href: '/analytics',          icon: LineChart,       keywords: 'traffic analytics revenue margin' },
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'ASR / ACD',            href: '/asr-acd',            icon: BarChart3,       keywords: 'asr acd call quality kpi' },
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'Reports',              href: '/reports',            icon: BarChart2,       keywords: 'reports standard centre export' },
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'CDR Viewer',           href: '/cdrs',               icon: History,         keywords: 'call detail records cdr viewer export' },
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'Revenue Heatmap',      href: '/revenue-heatmap',    icon: Map,             keywords: 'revenue heatmap visualisation map' },
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'Traffic Forecast',     href: '/traffic-forecast',   icon: TrendingUp,      keywords: 'demand forecast prediction traffic' },
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'QoS Heatmap',          href: '/qos-heatmap',        icon: HeartPulse,      keywords: 'quality of service qos heatmap' },
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'Codec Analytics',      href: '/codec-analytics',    icon: Radio,           keywords: 'codec breakdown analytics' },
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'RTP Analytics',        href: '/rtp-analytics',      icon: Activity,        keywords: 'rtp media quality mos jitter analytics' },
+  { type: 'route', domain: 'Analytics & Reports',  domainColor: 'text-indigo-400',  label: 'BitsEye',              href: '/bitseye',            icon: Eye,             keywords: 'bitseye drill down analytics classic' },
 
   // ── Intelligence ──────────────────────────────────────────────────────────
-  { type: 'route', domain: 'Intelligence',  domainColor: 'text-fuchsia-400',label: 'Intelligence Hub',     href: '/intelligence',       icon: Brain,           keywords: 'correlated insights intelligence hub' },
-  { type: 'route', domain: 'Intelligence',  domainColor: 'text-fuchsia-400',label: 'AI Ops Center',        href: '/ai-ops',             icon: Bot,             keywords: 'ai assisted aiops anomaly detection' },
-  { type: 'route', domain: 'Intelligence',  domainColor: 'text-fuchsia-400',label: 'Validation Console',   href: '/intelligence-validation', icon: Shield,     keywords: 'data quality validation console trust' },
-  // Multi-context: same routes as Vendors, different workflow entry point
-  { type: 'route', domain: 'Intelligence',  domainColor: 'text-fuchsia-400',label: 'Vendor RCA',           href: '/vendor-rca',         icon: Search,          keywords: 'root cause analysis rca intelligence' },
-  { type: 'route', domain: 'Intelligence',  domainColor: 'text-fuchsia-400',label: 'Prefix Intelligence',  href: '/vendor-prefix-intelligence', icon: Globe,    keywords: 'prefix intelligence analysis rca' },
-  { type: 'route', domain: 'Intelligence',  domainColor: 'text-fuchsia-400',label: 'Stability Engine',     href: '/vendor-stability-timeline', icon: Activity,  keywords: 'vendor stability intelligence engine' },
-  { type: 'route', domain: 'Intelligence',  domainColor: 'text-fuchsia-400',label: 'Routing Intelligence', href: '/routing-intelligence',icon: GitBranch,      keywords: 'route intelligence engine analysis' },
-  { type: 'route', domain: 'Intelligence',  domainColor: 'text-fuchsia-400',label: 'Carrier Intelligence', href: '/carrier-intelligence',icon: Brain,          keywords: 'carrier intelligence health signals' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Intelligence Hub',     href: '/intelligence',       icon: Brain,           keywords: 'correlated insights intelligence hub' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'AI Ops Center',        href: '/ai-ops',             icon: Bot,             keywords: 'ai assisted aiops anomaly detection' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Validation Console',   href: '/intelligence-validation', icon: Shield,     keywords: 'data quality validation console trust' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Vendor RCA',           href: '/vendor-rca',         icon: Search,          keywords: 'root cause analysis rca intelligence' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Prefix Intelligence',  href: '/vendor-prefix-intelligence', icon: Globe,    keywords: 'prefix intelligence analysis rca' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Stability Engine',     href: '/vendor-stability-timeline', icon: Activity,  keywords: 'vendor stability intelligence engine' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Routing Intelligence', href: '/routing-intelligence',icon: GitBranch,      keywords: 'route intelligence engine analysis' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Carrier Intelligence', href: '/carrier-intelligence',icon: Brain,          keywords: 'carrier intelligence health signals' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Cost Optimisation',    href: '/cost-optimisation',  icon: TrendingDown,    keywords: 'cost optimisation route engine intelligence' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Number Intelligence',  href: '/number-intelligence',icon: Phone,           keywords: 'number analysis cli cld prefix intelligence' },
 
-  // ── Analytics ─────────────────────────────────────────────────────────────
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'Traffic Analytics',    href: '/analytics',          icon: LineChart,       keywords: 'traffic analytics revenue margin' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'ASR / ACD',            href: '/asr-acd',            icon: BarChart3,       keywords: 'asr acd call quality kpi' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'Reports',              href: '/reports',            icon: BarChart2,       keywords: 'reports standard centre export' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'CDRs',                 href: '/cdrs',               icon: History,         keywords: 'call detail records cdr viewer export' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'Revenue Heatmap',      href: '/revenue-heatmap',    icon: Map,             keywords: 'revenue heatmap visualisation map' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'Traffic Forecast',     href: '/traffic-forecast',   icon: TrendingUp,      keywords: 'demand forecast prediction traffic' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'QoS Heatmap',          href: '/qos-heatmap',        icon: HeartPulse,      keywords: 'quality of service qos heatmap' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'Codec Analytics',      href: '/codec-analytics',    icon: Radio,           keywords: 'codec breakdown analytics' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'RTP Analytics',        href: '/rtp-analytics',      icon: Activity,        keywords: 'rtp media quality mos jitter analytics' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'BitsEye',              href: '/bitseye',            icon: Eye,             keywords: 'bitseye drill down analytics classic' },
-  { type: 'route', domain: 'Analytics',     domainColor: 'text-blue-400',   label: 'BitsEye 2',            href: '/bitseye2',           icon: Eye,             keywords: 'bitseye 2 live analytics topology' },
+  // ── Troubleshooting ───────────────────────────────────────────────────────
+  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'SIP Trace',            href: '/sip-trace',          icon: Mic,             keywords: 'packet sip trace debug pcap' },
+  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'Replay Engine',        href: '/replay',             icon: Rewind,          keywords: 'call session replay pcap' },
+  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'Test Campaigns',       href: '/test-campaigns',     icon: FlaskConical,    keywords: 'automated test suite campaign' },
+  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'Tools',                href: '/tools',              icon: Wrench,          keywords: 'engineering utilities calculator dial' },
+  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'RTP Analytics',        href: '/rtp-analytics',      icon: Activity,        keywords: 'rtp media jitter troubleshooting' },
 
-  // ── Security ──────────────────────────────────────────────────────────────
-  { type: 'route', domain: 'Security',      domainColor: 'text-rose-400',   label: 'Fraud Engine',         href: '/fraud',              icon: ShieldAlert,     keywords: 'fas irsf detection fraud security' },
-  { type: 'route', domain: 'Security',      domainColor: 'text-rose-400',   label: 'Firewall',             href: '/firewall',           icon: Shield,          keywords: 'auto blacklist block firewall ip' },
-  { type: 'route', domain: 'Security',      domainColor: 'text-rose-400',   label: 'STIR/SHAKEN',          href: '/stir-shaken',        icon: Lock,            keywords: 'attestation stir shaken' },
-  { type: 'route', domain: 'Security',      domainColor: 'text-rose-400',   label: 'SLA Breaches',         href: '/sla-breaches',       icon: Zap,             keywords: 'sla breach tracking alerts' },
-  { type: 'route', domain: 'Security',      domainColor: 'text-rose-400',   label: 'Compliance',           href: '/compliance',         icon: ClipboardList,   keywords: 'regulatory compliance rules' },
-  { type: 'route', domain: 'Security',      domainColor: 'text-rose-400',   label: 'Approval Queue',       href: '/approvals',          icon: FileText,        keywords: 'approval queue pending governance' },
-  { type: 'route', domain: 'Security',      domainColor: 'text-rose-400',   label: 'Audit Log',            href: '/audit-log',          icon: FileText,        keywords: 'activity log audit trail platform' },
-  { type: 'route', domain: 'Security',      domainColor: 'text-rose-400',   label: 'Call Recordings',      href: '/call-recordings',    icon: Mic,             keywords: 'call recording archive security' },
-  { type: 'route', domain: 'Security',      domainColor: 'text-rose-400',   label: 'Approval Rules',       href: '/approval-settings',  icon: SlidersHorizontal, keywords: 'approval configuration rules governance' },
+  // ── Security & Compliance ─────────────────────────────────────────────────
+  { type: 'route', domain: 'Security & Compliance',domainColor: 'text-rose-400',    label: 'Fraud Engine',         href: '/fraud',              icon: ShieldAlert,     keywords: 'fas irsf detection fraud security' },
+  { type: 'route', domain: 'Security & Compliance',domainColor: 'text-rose-400',    label: 'Firewall',             href: '/firewall',           icon: Shield,          keywords: 'auto blacklist block firewall ip' },
+  { type: 'route', domain: 'Security & Compliance',domainColor: 'text-rose-400',    label: 'STIR/SHAKEN',          href: '/stir-shaken',        icon: Lock,            keywords: 'attestation stir shaken' },
+  { type: 'route', domain: 'Security & Compliance',domainColor: 'text-rose-400',    label: 'SLA Breaches',         href: '/sla-breaches',       icon: Zap,             keywords: 'sla breach tracking alerts' },
+  { type: 'route', domain: 'Security & Compliance',domainColor: 'text-rose-400',    label: 'Compliance',           href: '/compliance',         icon: ClipboardList,   keywords: 'regulatory compliance rules' },
+  { type: 'route', domain: 'Security & Compliance',domainColor: 'text-rose-400',    label: 'Approval Queue',       href: '/approvals',          icon: FileText,        keywords: 'approval queue pending governance' },
+  { type: 'route', domain: 'Security & Compliance',domainColor: 'text-rose-400',    label: 'Audit Log',            href: '/audit-log',          icon: FileText,        keywords: 'activity log audit trail platform' },
+  { type: 'route', domain: 'Security & Compliance',domainColor: 'text-rose-400',    label: 'Approval Rules',       href: '/approval-settings',  icon: SlidersHorizontal, keywords: 'approval configuration rules governance' },
 
-  // ── Finance ───────────────────────────────────────────────────────────────
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'Billing',              href: '/billing',            icon: Wallet,          keywords: 'billing payments invoices finance' },
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'Billing Disputes',     href: '/billing-disputes',   icon: ClipboardList,   keywords: 'billing dispute resolution finance' },
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'Rate Cards',           href: '/rate-cards',         icon: FileText,        keywords: 'rate cards pricing decks finance' },
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'Products',             href: '/products',           icon: Package,         keywords: 'products catalogue trunk finance' },
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'Cost Optimisation',    href: '/cost-optimisation',  icon: TrendingDown,    keywords: 'cost optimisation route engine finance' },
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'Revenue Heatmap',      href: '/revenue-heatmap',    icon: Map,             keywords: 'revenue heatmap finance analytics' },
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'Balance Monitor',      href: '/balance',            icon: Wallet,          keywords: 'vendor balance monitor finance' },
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'Finance Reports',      href: '/reports',            icon: BarChart2,       keywords: 'finance reports revenue cost settlement' },
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'CDR Billing',          href: '/cdrs',               icon: History,         keywords: 'cdr billing export finance' },
-  { type: 'route', domain: 'Finance',       domainColor: 'text-emerald-400',label: 'Margin Analytics',     href: '/asr-acd',            icon: BarChart3,       keywords: 'margin analytics cost revenue finance' },
+  // ── Finance & Billing ─────────────────────────────────────────────────────
+  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Billing',              href: '/billing',            icon: Wallet,          keywords: 'billing payments invoices finance' },
+  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Billing Disputes',     href: '/billing-disputes',   icon: ClipboardList,   keywords: 'billing dispute resolution finance' },
+  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Rate Cards',           href: '/rate-cards',         icon: FileText,        keywords: 'rate cards pricing decks finance' },
+  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Products',             href: '/products',           icon: Package,         keywords: 'products catalogue trunk finance' },
+  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Revenue Heatmap',      href: '/revenue-heatmap',    icon: Map,             keywords: 'revenue heatmap finance analytics' },
+  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Balance Monitor',      href: '/balance',            icon: Wallet,          keywords: 'vendor balance monitor finance' },
+  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Finance Reports',      href: '/reports',            icon: BarChart2,       keywords: 'finance reports revenue cost settlement' },
+  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'CDR Billing',          href: '/cdrs',               icon: History,         keywords: 'cdr billing export finance' },
+  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Margin Analytics',     href: '/asr-acd',            icon: BarChart3,       keywords: 'margin analytics cost revenue finance' },
 
-  // ── Settings ──────────────────────────────────────────────────────────────
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'Platform Settings',    href: '/settings',           icon: Settings,        roles: ['admin'], keywords: 'system configuration settings platform' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'Team & Roles',         href: '/team',               icon: Users,           roles: ['admin'], keywords: 'role access control team members' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'Company Profile',      href: '/company-profile',    icon: Building2,       keywords: 'organisation company details' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'API Keys',             href: '/api-keys',           icon: Key,             roles: ['admin'], keywords: 'api key integration external' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'Approval Rules',       href: '/approval-settings',  icon: SlidersHorizontal, keywords: 'approval configuration rules' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'WhatsApp Alerts',      href: '/whatsapp-alerts',    icon: MessageSquare,   keywords: 'whatsapp alerts delivery config' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'Email Centre',         href: '/email-centre',       icon: Mail,            keywords: 'email notifications config' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'Sidebar Settings',     href: '/sidebar-settings',   icon: Layers,          keywords: 'navigation sidebar preferences' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'Notification Centre',  href: '/notification-centre',icon: Bell,            keywords: 'notifications centre' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'VPN Config',           href: '/vpn-config',         icon: Lock,            keywords: 'vpn configuration network' },
-  { type: 'route', domain: 'Settings',      domainColor: 'text-slate-400',  label: 'My Account',           href: '/account',            icon: Users,           keywords: 'profile account preferences' },
+  // ── Platform ──────────────────────────────────────────────────────────────
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'Platform Settings',    href: '/settings',           icon: Settings,        roles: ['admin'], keywords: 'system configuration settings platform' },
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'Team & KAM',           href: '/team',               icon: Users,           roles: ['admin'], keywords: 'role access control team members kam' },
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'API Keys',             href: '/api-keys',           icon: Key,             roles: ['admin'], keywords: 'api key integration external' },
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'Approval Rules',       href: '/approval-settings',  icon: SlidersHorizontal, keywords: 'approval configuration rules' },
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'WhatsApp Alerts',      href: '/whatsapp-alerts',    icon: MessageSquare,   keywords: 'whatsapp alerts delivery config' },
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'Email Centre',         href: '/email-centre',       icon: Mail,            keywords: 'email notifications config' },
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'Navigation Manager',   href: '/sidebar-settings',   icon: Layers,          keywords: 'navigation manager enterprise control visibility' },
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'Notification Centre',  href: '/notification-centre',icon: Bell,            keywords: 'notifications centre platform' },
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'VPN Config',           href: '/vpn-config',         icon: Lock,            keywords: 'vpn configuration network' },
+  { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'My Account',           href: '/account',            icon: Users,           keywords: 'profile account preferences' },
 ];
 
 // ── Operational commands ───────────────────────────────────────────────────────
@@ -224,7 +214,7 @@ function pushRecent(href: string) {
 }
 
 // ── Domain display order ───────────────────────────────────────────────────────
-const DOMAIN_ORDER = ['Live Ops', 'Clients', 'Vendors', 'Intelligence', 'Analytics', 'Security', 'Finance', 'Settings'];
+const DOMAIN_ORDER = ['Live Network', 'Company', 'Operations', 'Analytics & Reports', 'Intelligence', 'Troubleshooting', 'Security & Compliance', 'Finance & Billing', 'Platform'];
 
 // ── Per-href urgency weight (signals: degraded carriers, active incidents, pending approvals)
 // Higher = floats to top of domain group when operational conditions match.
@@ -277,18 +267,21 @@ const ALIAS_PRIORITY: Record<string, 'route'> = {
 
 // ── Scope chip styles ─────────────────────────────────────────────────────────
 const SCOPE_CHIPS: Record<string, { label: string; bg: string; fg: string }> = {
-  'Countries':    { label: 'COUNTRY',   bg: 'rgba(56,189,248,0.12)',  fg: '#38BDF8' },
-  'Clients':      { label: 'CLIENT',    bg: 'rgba(251,191,36,0.12)',  fg: '#FBBF24' },
-  'Vendors':      { label: 'VENDOR',    bg: 'rgba(34,211,238,0.12)',  fg: '#22D3EE' },
-  'Destinations': { label: 'DEST',      bg: 'rgba(45,212,191,0.12)',  fg: '#2DD4BF' },
-  'Live Ops':     { label: 'LIVE',      bg: 'rgba(167,139,250,0.12)', fg: '#A78BFA' },
-  'Intelligence': { label: 'INTEL',     bg: 'rgba(232,121,249,0.12)', fg: '#E879F9' },
-  'Analytics':    { label: 'ANALYTICS', bg: 'rgba(96,165,250,0.12)',  fg: '#60A5FA' },
-  'Security':     { label: 'SECURITY',  bg: 'rgba(251,113,133,0.12)', fg: '#FB7185' },
-  'Finance':      { label: 'FINANCE',   bg: 'rgba(52,211,153,0.12)',  fg: '#34D399' },
-  'Settings':     { label: 'SETTINGS',  bg: 'rgba(148,163,184,0.12)', fg: '#94A3B8' },
-  'Commands':     { label: 'ACTION',    bg: 'rgba(99,102,241,0.12)',  fg: '#818CF8' },
-  'Incidents':    { label: 'LIVE',      bg: 'rgba(239,68,68,0.12)',   fg: '#F87171' },
+  'Countries':              { label: 'COUNTRY',   bg: 'rgba(56,189,248,0.12)',  fg: '#38BDF8' },
+  'Clients':                { label: 'CLIENT',    bg: 'rgba(251,191,36,0.12)',  fg: '#FBBF24' },
+  'Vendors':                { label: 'VENDOR',    bg: 'rgba(34,211,238,0.12)',  fg: '#22D3EE' },
+  'Destinations':           { label: 'DEST',      bg: 'rgba(45,212,191,0.12)',  fg: '#2DD4BF' },
+  'Live Network':           { label: 'LIVE',      bg: 'rgba(52,211,153,0.12)',  fg: '#34D399' },
+  'Company':                { label: 'COMPANY',   bg: 'rgba(251,191,36,0.12)',  fg: '#FBBF24' },
+  'Operations':             { label: 'OPS',       bg: 'rgba(96,165,250,0.12)',  fg: '#60A5FA' },
+  'Analytics & Reports':    { label: 'ANALYTICS', bg: 'rgba(99,102,241,0.12)',  fg: '#818CF8' },
+  'Intelligence':           { label: 'INTEL',     bg: 'rgba(232,121,249,0.12)', fg: '#E879F9' },
+  'Troubleshooting':        { label: 'DEBUG',     bg: 'rgba(251,146,60,0.12)',  fg: '#FB923C' },
+  'Security & Compliance':  { label: 'SECURITY',  bg: 'rgba(251,113,133,0.12)', fg: '#FB7185' },
+  'Finance & Billing':      { label: 'FINANCE',   bg: 'rgba(52,211,153,0.12)',  fg: '#34D399' },
+  'Platform':               { label: 'PLATFORM',  bg: 'rgba(148,163,184,0.12)', fg: '#94A3B8' },
+  'Commands':               { label: 'ACTION',    bg: 'rgba(99,102,241,0.12)',  fg: '#818CF8' },
+  'Incidents':              { label: 'LIVE',      bg: 'rgba(239,68,68,0.12)',   fg: '#F87171' },
 };
 
 function ScopeHeading({ label }: { label: string }) {
@@ -308,25 +301,34 @@ function ScopeHeading({ label }: { label: string }) {
   );
 }
 
-// ── @scope filter map (new 8-domain vocabulary) ────────────────────────────────
+// ── @scope filter map (9-domain vocabulary) ────────────────────────────────────
 const SCOPE_FILTER_MAP: Record<string, { type: 'entity' | 'route'; key: string }> = {
   '@country':     { type: 'entity', key: 'Countries' },
   '@geo':         { type: 'entity', key: 'Countries' },
   '@client':      { type: 'entity', key: 'Clients' },
   '@vendor':      { type: 'entity', key: 'Vendors' },
   '@dest':        { type: 'entity', key: 'Destinations' },
-  '@live':        { type: 'route',  key: 'Live Ops' },
-  '@noc':         { type: 'route',  key: 'Live Ops' },
-  '@vendors':     { type: 'route',  key: 'Vendors' },
-  '@routing':     { type: 'route',  key: 'Vendors' },
+  '@live':        { type: 'route',  key: 'Live Network' },
+  '@noc':         { type: 'route',  key: 'Live Network' },
+  '@network':     { type: 'route',  key: 'Live Network' },
+  '@company':     { type: 'route',  key: 'Company' },
+  '@clients':     { type: 'route',  key: 'Company' },
+  '@ops':         { type: 'route',  key: 'Operations' },
+  '@vendors':     { type: 'route',  key: 'Operations' },
+  '@routing':     { type: 'route',  key: 'Operations' },
+  '@analytics':   { type: 'route',  key: 'Analytics & Reports' },
+  '@reports':     { type: 'route',  key: 'Analytics & Reports' },
   '@intelligence':{ type: 'route',  key: 'Intelligence' },
   '@intel':       { type: 'route',  key: 'Intelligence' },
-  '@analytics':   { type: 'route',  key: 'Analytics' },
-  '@security':    { type: 'route',  key: 'Security' },
-  '@fraud':       { type: 'route',  key: 'Security' },
-  '@finance':     { type: 'route',  key: 'Finance' },
-  '@clients':     { type: 'route',  key: 'Clients' },
-  '@settings':    { type: 'route',  key: 'Settings' },
+  '@debug':       { type: 'route',  key: 'Troubleshooting' },
+  '@trace':       { type: 'route',  key: 'Troubleshooting' },
+  '@security':    { type: 'route',  key: 'Security & Compliance' },
+  '@fraud':       { type: 'route',  key: 'Security & Compliance' },
+  '@compliance':  { type: 'route',  key: 'Security & Compliance' },
+  '@finance':     { type: 'route',  key: 'Finance & Billing' },
+  '@billing':     { type: 'route',  key: 'Finance & Billing' },
+  '@platform':    { type: 'route',  key: 'Platform' },
+  '@settings':    { type: 'route',  key: 'Platform' },
 };
 
 const SCOPE_DESCRIPTIONS: Record<string, string> = {
@@ -335,17 +337,26 @@ const SCOPE_DESCRIPTIONS: Record<string, string> = {
   '@client':      'Active client accounts and live traffic',
   '@vendor':      'Carrier vendors and live entity data',
   '@dest':        'Routing destination sets',
-  '@live':        'Real-time NOC, live calls and alerts',
-  '@noc':         'Real-time NOC, live calls and alerts',
-  '@vendors':     'Vendor ops, routing core, and carrier intelligence',
-  '@routing':     'Routing core tools within Vendors workspace',
-  '@intelligence':'AI Ops, RCA, anomaly detection, validation',
+  '@live':        'Real-time NOC, live calls, infrastructure and alerts',
+  '@noc':         'Real-time NOC, live calls, infrastructure and alerts',
+  '@network':     'Live network: NOC, topology, infrastructure',
+  '@company':     'Company accounts, onboarding, DIDs, recordings',
+  '@clients':     'Company accounts, onboarding, DIDs, recordings',
+  '@ops':         'Operations: carriers, routing, LCR, traffic steering',
+  '@vendors':     'Operations: carrier ops, routing and traffic steering',
+  '@routing':     'Operations: routing manager, LCR and simulators',
+  '@analytics':   'Traffic analytics, revenue, CDRs, forecasting, reports',
+  '@reports':     'Reports, traffic analytics and CDR viewer',
+  '@intelligence':'AI Ops, RCA, anomaly detection, validation, optimisation',
   '@intel':       'AI Ops, RCA, anomaly detection, validation',
-  '@analytics':   'Traffic analytics, revenue, CDRs, forecasting',
-  '@security':    'Fraud, firewall, compliance, approvals, audit',
-  '@fraud':       'Fraud detection, firewall and compliance',
-  '@finance':     'Billing, rate cards, costs, revenue reports',
-  '@clients':     'Client accounts, billing, DIDs, portal',
+  '@debug':       'Troubleshooting: SIP trace, replay, test campaigns, tools',
+  '@trace':       'SIP trace, replay engine and packet analysis',
+  '@security':    'Fraud, firewall, compliance, approvals, audit trail',
+  '@fraud':       'Fraud detection, IRSF, firewall and SLA breaches',
+  '@compliance':  'Compliance, audit log, approval governance',
+  '@finance':     'Billing, rate cards, products, costs, revenue reports',
+  '@billing':     'Billing, invoices, disputes, rate cards, products',
+  '@platform':    'Platform config, team, API keys, notifications, account',
   '@settings':    'Platform configuration and administration',
 };
 
@@ -357,15 +368,24 @@ const SCOPE_EXAMPLES: Record<string, string> = {
   '@dest':        '@dest main',
   '@live':        '@live',
   '@noc':         '@noc',
-  '@vendors':     '@vendors rca',
+  '@network':     '@network',
+  '@company':     '@company onboarding',
+  '@clients':     '@clients billing',
+  '@ops':         '@ops routing',
+  '@vendors':     '@vendors sla',
   '@routing':     '@routing lcr',
+  '@analytics':   '@analytics revenue',
+  '@reports':     '@reports finance',
   '@intelligence':'@intelligence rca',
   '@intel':       '@intel anomaly',
-  '@analytics':   '@analytics revenue',
+  '@debug':       '@debug sip',
+  '@trace':       '@trace replay',
   '@security':    '@security fraud',
   '@fraud':       '@fraud fas',
+  '@compliance':  '@compliance audit',
   '@finance':     '@finance billing',
-  '@clients':     '@clients billing',
+  '@billing':     '@billing disputes',
+  '@platform':    '@platform',
   '@settings':    '@settings',
 };
 
@@ -537,7 +557,7 @@ export function CommandBar() {
   // ── Live incident results: shown when query hints at incidents or @live scope
   const showLiveIncidents = useMemo(() => {
     if (activeIncidents.length === 0) return false;
-    if (routeScopeFilter.has('Live Ops') || routeScopeFilter.has('Security')) return true;
+    if (routeScopeFilter.has('Live Network') || routeScopeFilter.has('Security & Compliance')) return true;
     if (!expTokens.length) return false;
     const hay = 'incident alert active degradation anomaly live event';
     return expTokens.some(t => hay.includes(t));
@@ -604,7 +624,7 @@ export function CommandBar() {
             <div className="flex flex-col items-center gap-2 py-6">
               <Search className="w-6 h-6 text-muted-foreground/40" />
               <p className="text-sm text-muted-foreground">No results for &ldquo;{query}&rdquo;</p>
-              <p className="text-xs text-muted-foreground/40">Try @vendors, @security, @finance, or @analytics</p>
+              <p className="text-xs text-muted-foreground/40">Try @network, @ops, @reports, @intel, @debug, @billing, or @platform</p>
             </div>
           </CommandEmpty>
         )}

@@ -17,16 +17,15 @@ import { SIDEBAR_GROUPS } from "@/components/layout-shell";
 const ALWAYS_VISIBLE = new Set(['/', '/chat', '/account', '/sidebar-settings']);
 
 const GROUP_COLORS: Record<string, { badge: string; dot: string }> = {
-  company:         { badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20',   dot: 'bg-amber-400'   },
-  operations:      { badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20',      dot: 'bg-blue-400'    },
-  live_network:    { badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20', dot: 'bg-emerald-400' },
-  intelligence:    { badge: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',      dot: 'bg-cyan-400'    },
-  ai_ops:          { badge: 'bg-violet-500/10 text-violet-400 border-violet-500/20',dot: 'bg-violet-400'  },
-  simulation:      { badge: 'bg-orange-500/10 text-orange-400 border-orange-500/20',dot: 'bg-orange-400'  },
-  analytics:       { badge: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',dot: 'bg-indigo-400'  },
-  troubleshooting: { badge: 'bg-orange-500/10 text-orange-400 border-orange-500/20',dot: 'bg-orange-400'  },
-  security:        { badge: 'bg-rose-500/10 text-rose-400 border-rose-500/20',      dot: 'bg-rose-400'    },
-  platform:        { badge: 'bg-slate-500/10 text-slate-400 border-slate-500/20',   dot: 'bg-slate-400'   },
+  live_network:    { badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',  dot: 'bg-emerald-400'  },
+  company:         { badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20',        dot: 'bg-amber-400'    },
+  operations:      { badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20',           dot: 'bg-blue-400'     },
+  analytics:       { badge: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',     dot: 'bg-indigo-400'   },
+  intelligence:    { badge: 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20',  dot: 'bg-fuchsia-400'  },
+  troubleshooting: { badge: 'bg-orange-500/10 text-orange-400 border-orange-500/20',     dot: 'bg-orange-400'   },
+  security:        { badge: 'bg-rose-500/10 text-rose-400 border-rose-500/20',           dot: 'bg-rose-400'     },
+  finance:         { badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',  dot: 'bg-emerald-400'  },
+  platform:        { badge: 'bg-slate-500/10 text-slate-400 border-slate-500/20',        dot: 'bg-slate-400'    },
 };
 
 export default function SidebarSettingsPage() {
@@ -141,7 +140,7 @@ export default function SidebarSettingsPage() {
             <div className="p-2 rounded-lg bg-violet-500/10 border border-violet-500/20">
               <SlidersHorizontal className="h-5 w-5 text-violet-400" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">Sidebar Menu Configuration</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Navigation Manager</h1>
           </div>
           <p className="text-sm text-muted-foreground">
             Choose which features appear in the sidebar. Hidden items stay accessible by direct URL.

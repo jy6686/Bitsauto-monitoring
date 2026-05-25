@@ -11,7 +11,7 @@ import {
   SlidersHorizontal, Key, Mail, Building2, Wallet, Banknote,
   HeartPulse, Mic, Bot, ClipboardList, ArrowRightLeft,
   FileSpreadsheet, Rewind, Upload, Star, Package, Search,
-  MessageSquare, Bell, Sun, Moon, LogOut,
+  MessageSquare, Bell, Sun, Moon, LogOut, UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -30,9 +30,9 @@ interface Group   { label: string; desc?: string; icon: React.ComponentType<{ cl
 interface Domain  { id: string; label: string; icon: React.ComponentType<{ className?: string }>; color: string; groups: Group[] }
 
 const DOMAINS: Domain[] = [
-  // ── 1. LIVE OPS ──────────────────────────────────────────────────────────────
+  // ── 1. LIVE NETWORK ──────────────────────────────────────────────────────────
   {
-    id: 'live-ops', label: 'Live Ops', icon: Radio, color: 'text-violet-400',
+    id: 'live-network', label: 'Live Network', icon: Radio, color: 'text-emerald-400',
     groups: [
       { label: 'Monitoring',     desc: 'Live topology, call stream and traffic maps',  icon: Eye, items: [
         { href: '/bitseye2',     label: 'BitsEye 2',      desc: 'Live topology observatory',    icon: Eye },
@@ -46,64 +46,55 @@ const DOMAINS: Domain[] = [
         { href: '/sbc-monitor',       label: 'SBC Monitor',      desc: 'Session border controller',  icon: HardDrive },
         { href: '/network-topology',  label: 'Network Topology', desc: 'Topology visualisation',     icon: Network },
       ]},
-      { label: 'Operations',     desc: 'Command centre, console and platform alerts', icon: Monitor, items: [
-        { href: '/noc-command', label: 'NOC Command', desc: 'Operator command centre',   icon: Monitor },
-        { href: '/ops-console', label: 'Ops Console', desc: 'Unified operations surface', icon: SlidersHorizontal },
-        { href: '/console',     label: 'Console',     desc: 'Logs & debug shell',         icon: Database },
-        { href: '/alerts',      label: 'Alerts',      desc: 'Platform alerts & incidents', icon: Zap },
-      ]},
-      { label: 'Diagnostics',    desc: 'SIP trace, session replay and test tools',    icon: Mic, items: [
-        { href: '/sip-trace',      label: 'SIP Trace',      desc: 'Packet-level SIP tracing',  icon: Mic },
-        { href: '/replay',         label: 'Replay Engine',  desc: 'Call session replay',        icon: Rewind },
-        { href: '/test-campaigns', label: 'Test Campaigns', desc: 'Automated test suites',      icon: FlaskConical },
-        { href: '/tools',          label: 'Tools',          desc: 'Engineering utilities',      icon: Wrench },
+      { label: 'Command',        desc: 'Command centre, console and live call management', icon: Monitor, items: [
+        { href: '/calls',       label: 'Live Calls',  desc: 'Active calls monitor',             icon: Phone },
+        { href: '/alerts',      label: 'Alerts',      desc: 'Platform alerts & incidents',       icon: Zap },
+        { href: '/noc-command', label: 'NOC Command', desc: 'Operator command centre',           icon: Monitor },
+        { href: '/ops-console', label: 'Ops Console', desc: 'Unified operations surface',        icon: SlidersHorizontal },
+        { href: '/console',     label: 'Console',     desc: 'Logs & debug shell',                icon: Database },
       ]},
     ],
   },
 
-  // ── 2. CLIENTS ───────────────────────────────────────────────────────────────
+  // ── 2. COMPANY ───────────────────────────────────────────────────────────────
   {
-    id: 'clients', label: 'Clients', icon: Users, color: 'text-amber-400',
+    id: 'company', label: 'Company', icon: Building2, color: 'text-amber-400',
     groups: [
-      { label: 'Account Management', desc: 'Client accounts, companies and resellers', icon: Building2, items: [
-        { href: '/company/list',    label: 'Companies',      desc: 'All company & client profiles', icon: Building2 },
-        { href: '/clients',         label: 'Accounts',       desc: 'All client accounts',          icon: Users },
-        { href: '/company-profile', label: 'Company Profile',desc: 'Organisation details',          icon: Building2 },
-        { href: '/reseller',        label: 'Resellers',      desc: 'Partner & reseller accounts',   icon: Star },
-        { href: '/client-portal',   label: 'Client Portal',  desc: 'Self-service client access',    icon: Building2 },
-        { href: '/account-names',      label: 'Account Names',    desc: 'Account naming & aliases',        icon: FileText },
-        { href: '/company/onboarding', label: 'Company Profile Wizard', desc: 'Company profile, KAM & client setup', icon: Zap },
+      { label: 'Account Operations', desc: 'Client accounts, portals and reseller management', icon: Users, items: [
+        { href: '/clients',       label: 'Accounts',            desc: 'All client accounts',           icon: Users },
+        { href: '/client-portal', label: 'Client Portal',       desc: 'Self-service client access',    icon: Globe },
+        { href: '/reseller',      label: 'Reseller Management', desc: 'Partner & reseller accounts',   icon: Star },
       ]},
-      { label: 'Billing & Finance', desc: 'Payments, invoices, products and rate decks', icon: Wallet, items: [
-        { href: '/billing',          label: 'Billing',       desc: 'Payments & invoices',           icon: Wallet },
-        { href: '/billing-disputes', label: 'Disputes',      desc: 'Billing dispute resolution',    icon: ClipboardList },
-        { href: '/products',         label: 'Products',      desc: 'Product catalogue',             icon: Package },
-        { href: '/rate-cards',       label: 'Rate Cards',    desc: 'Pricing & rate decks',          icon: FileSpreadsheet },
+      { label: 'Onboarding & Provisioning', desc: 'Company lifecycle, onboarding and account creation', icon: Zap, items: [
+        { href: '/company/list',       label: 'Company List',             desc: 'All company & client profiles',       icon: Building2 },
+        { href: '/company-profile',    label: 'Organization Management',  desc: 'Company lifecycle & org details',     icon: Building2 },
+        { href: '/client/wizard',      label: 'Create Account Wizard',    desc: 'Provision a new client account',      icon: UserPlus },
+        { href: '/company/onboarding', label: 'Onboarding Wizard',        desc: 'Full customer onboarding lifecycle',  icon: Zap },
+        { href: '/account-names',      label: 'Account Names',            desc: 'Account naming & aliases',            icon: FileText },
       ]},
-      { label: 'Operations',        desc: 'DIDs, recordings and account provisioning', icon: Phone, items: [
-        { href: '/dids',            label: 'DIDs',           desc: 'Number inventory management',   icon: Phone },
-        { href: '/call-recordings', label: 'Recordings',     desc: 'Call recordings archive',       icon: Mic },
-        { href: '/client/wizard',   label: 'New Account',    desc: 'Provision a new client',        icon: Users },
+      { label: 'Assets', desc: 'DID inventory and call recordings', icon: Phone, items: [
+        { href: '/dids',            label: 'DID Management', desc: 'Number inventory management',  icon: Phone },
+        { href: '/call-recordings', label: 'Recordings',     desc: 'Call recordings archive',      icon: Mic },
       ]},
     ],
   },
 
-  // ── 3. VENDORS ───────────────────────────────────────────────────────────────
+  // ── 3. OPERATIONS ────────────────────────────────────────────────────────────
   {
-    id: 'vendors', label: 'Vendors', icon: Wifi, color: 'text-cyan-400',
+    id: 'operations', label: 'Operations', icon: Wifi, color: 'text-blue-400',
     groups: [
-      { label: 'Carrier Ops',   desc: 'Carrier management, SLA scoring and balances',
+      { label: 'Carriers',     desc: 'Carrier management, SLA scoring and balances',
         icon: Wifi,
         badge: (s) => s.degradedCarriers,
         items: [
-          { href: '/vendors',                   label: 'Vendor List',     desc: 'All carrier accounts',          icon: Wifi },
-          { href: '/vendor-sla-scorecard',      label: 'SLA Scorecard',   desc: 'Carrier SLA performance',       icon: HeartPulse },
-          { href: '/carrier-scoring',           label: 'Carrier Scoring', desc: 'Quality benchmarks',            icon: Star },
-          { href: '/vendor-stability-timeline', label: 'Stability',       desc: 'Vendor stability timeline',     icon: Activity },
-          { href: '/balance',                   label: 'Balance Monitor', desc: 'Vendor account balances',       icon: Wallet },
+          { href: '/vendors',                   label: 'Vendor List',        desc: 'All carrier accounts',         icon: Wifi },
+          { href: '/vendor-sla-scorecard',      label: 'SLA Scorecard',      desc: 'Carrier SLA performance',      icon: HeartPulse },
+          { href: '/carrier-scoring',           label: 'Carrier Scoring',    desc: 'Quality benchmarks',           icon: BarChart3 },
+          { href: '/vendor-stability-timeline', label: 'Stability Timeline', desc: 'Vendor stability timeline',    icon: Activity },
+          { href: '/balance',                   label: 'Balance Monitor',    desc: 'Vendor account balances',      icon: Wallet },
         ],
       },
-      { label: 'Routing Core',  desc: 'Routing groups, LCR analyser and simulators',
+      { label: 'Routing',      desc: 'Routing groups, LCR analyser and simulators',
         icon: GitBranch,
         items: [
           { href: '/routing-manager',     label: 'Routing Manager',  desc: 'Groups, connections & dest. sets', icon: GitBranch },
@@ -113,65 +104,20 @@ const DOMAINS: Domain[] = [
           { href: '/test-call',           label: 'Route Tester',     desc: 'On-demand route test calls',       icon: PhoneCall },
         ],
       },
-      { label: 'Intelligence',  desc: 'RCA, prefix analysis, recommendations and stability',
-        icon: Brain,
-        badge: (s) => s.degradedCarriers,
+      { label: 'Translation',  desc: 'Translation rules, destination sets and connections',
+        icon: Route,
         items: [
-          { href: '/vendor-rca',                 label: 'Vendor RCA',        desc: 'Root cause analysis',           icon: Search },
-          { href: '/vendor-prefix-intelligence', label: 'Prefix Intelligence',desc: 'Prefix-level analytics',       icon: Globe },
-          { href: '/routing-intelligence',       label: 'Routing Intelligence',desc: 'Intelligent route analysis',  icon: Brain },
-          { href: '/number-intelligence',        label: 'Number Intelligence', desc: 'Number-level analysis',       icon: Phone },
-          { href: '/cost-optimisation',          label: 'Cost Optimisation',  desc: 'Route cost engine',            icon: TrendingDown },
-        ],
-      },
-      { label: 'Quality',       desc: 'ASR/NER, RTP media quality and carrier intelligence',
-        icon: BarChart3,
-        items: [
-          { href: '/asr-acd',              label: 'ASR / NER',       desc: 'ASR/NER quality analytics',      icon: BarChart3 },
-          { href: '/rtp-analytics',        label: 'RTP Analytics',   desc: 'Media quality & jitter analysis', icon: Activity },
-          { href: '/carrier-intelligence', label: 'Carrier Intel',   desc: 'Market intelligence signals',     icon: Brain },
+          { href: '/routing-manager?tab=translations',    label: 'Translation Rules', desc: 'Number translation rules',  icon: Route },
+          { href: '/routing-manager?tab=destination-sets',label: 'Destination Sets',  desc: 'Routing destination sets',  icon: Layers },
+          { href: '/routing-manager?tab=connections',     label: 'Connections',       desc: 'Switch connections',        icon: Network },
         ],
       },
     ],
   },
 
-  // ── 4. INTELLIGENCE ──────────────────────────────────────────────────────────
+  // ── 4. ANALYTICS & REPORTS ───────────────────────────────────────────────────
   {
-    id: 'intelligence', label: 'Intelligence', icon: Brain, color: 'text-fuchsia-400',
-    groups: [
-      { label: 'AI Ops',       desc: 'Anomaly detection, AI decisions and recommendations',
-        icon: Bot,
-        badge: (s) => s.activeIncidents,
-        items: [
-          { href: '/ai-ops',       label: 'AI Ops Center',    desc: 'Anomaly detection & AI ops',  icon: Bot },
-          { href: '/intelligence', label: 'Intelligence Hub', desc: 'Correlated multi-source signals', icon: Brain },
-          { href: '/ai-ops?tab=decision-overlay', label: 'Decision Overlay', desc: 'AI steering decisions', icon: Eye },
-        ],
-      },
-      { label: 'Validation',   desc: 'Data quality, trust scoring and lifecycle checks',
-        icon: Shield,
-        items: [
-          { href: '/intelligence-validation', label: 'Validation Console', desc: 'Data quality validation',  icon: Shield },
-          { href: '/carrier-scoring',         label: 'Carrier Scoring',    desc: 'Quality benchmark trust',  icon: Star },
-        ],
-      },
-      { label: 'Analysis',     desc: 'Vendor RCA, prefix signals and route intelligence',
-        icon: Search,
-        badge: (s) => s.degradedCarriers,
-        items: [
-          { href: '/vendor-rca',                 label: 'Vendor RCA',         desc: 'Root cause analysis',        icon: Search },
-          { href: '/vendor-prefix-intelligence', label: 'Prefix Intelligence',desc: 'Prefix-level intelligence',  icon: Globe },
-          { href: '/vendor-stability-timeline',  label: 'Stability Engine',   desc: 'Vendor stability analysis',  icon: Activity },
-          { href: '/routing-intelligence',       label: 'Routing Intelligence',desc: 'Route intelligence engine', icon: GitBranch },
-          { href: '/carrier-intelligence',       label: 'Carrier Intelligence',desc: 'Route health signals',      icon: Brain },
-        ],
-      },
-    ],
-  },
-
-  // ── 5. ANALYTICS ─────────────────────────────────────────────────────────────
-  {
-    id: 'analytics', label: 'Analytics', icon: BarChart2, color: 'text-blue-400',
+    id: 'analytics', label: 'Analytics & Reports', icon: BarChart2, color: 'text-indigo-400',
     groups: [
       { label: 'Traffic & Quality', desc: 'Call traffic analytics and quality heatmaps', icon: Activity, items: [
         { href: '/analytics',       label: 'Traffic Analytics', desc: 'Call traffic analytics',    icon: Activity },
@@ -186,18 +132,80 @@ const DOMAINS: Domain[] = [
         { href: '/traffic-forecast', label: 'Traffic Forecast', desc: 'Demand forecasting',        icon: TrendingDown },
       ]},
       { label: 'Records',           desc: 'CDR viewer and BitsEye drill-down analytics', icon: History, items: [
-        { href: '/cdrs',     label: 'CDRs',      desc: 'Call detail records',    icon: History },
-        { href: '/bitseye',  label: 'BitsEye',   desc: 'Drill-down analytics',   icon: Eye },
-        { href: '/bitseye2', label: 'BitsEye 2', desc: 'Live topology analytics', icon: Eye },
+        { href: '/cdrs',     label: 'CDR Viewer', desc: 'Call detail records',    icon: History },
+        { href: '/bitseye',  label: 'BitsEye',    desc: 'Drill-down analytics',   icon: Eye },
+        { href: '/bitseye2', label: 'BitsEye 2',  desc: 'Live topology analytics', icon: Eye },
       ]},
     ],
   },
 
-  // ── 6. SECURITY ──────────────────────────────────────────────────────────────
+  // ── 5. INTELLIGENCE ──────────────────────────────────────────────────────────
   {
-    id: 'security', label: 'Security', icon: ShieldAlert, color: 'text-rose-400',
+    id: 'intelligence', label: 'Intelligence', icon: Brain, color: 'text-fuchsia-400',
     groups: [
-      { label: 'Fraud Detection', desc: 'FAS/IRSF detection, firewall and SLA breaches',
+      { label: 'AI Ops',        desc: 'Anomaly detection, AI decisions and recommendations',
+        icon: Bot,
+        badge: (s) => s.activeIncidents,
+        items: [
+          { href: '/ai-ops',                      label: 'AI Ops Center',    desc: 'Anomaly detection & AI ops',      icon: Bot },
+          { href: '/intelligence',                label: 'Intelligence Hub', desc: 'Correlated multi-source signals', icon: Brain },
+          { href: '/ai-ops?tab=decision-overlay', label: 'Decision Overlay', desc: 'AI steering decisions',           icon: Eye },
+        ],
+      },
+      { label: 'Validation',    desc: 'Data quality, trust scoring and lifecycle checks',
+        icon: Shield,
+        items: [
+          { href: '/intelligence-validation', label: 'Validation Console', desc: 'Data quality validation',  icon: Shield },
+          { href: '/carrier-scoring',         label: 'Carrier Scoring',    desc: 'Quality benchmark trust',  icon: BarChart3 },
+        ],
+      },
+      { label: 'Analysis',      desc: 'Vendor RCA, prefix signals and route intelligence',
+        icon: Search,
+        badge: (s) => s.degradedCarriers,
+        items: [
+          { href: '/vendor-rca',                 label: 'Vendor RCA',           desc: 'Root cause analysis',        icon: Search },
+          { href: '/vendor-prefix-intelligence', label: 'Prefix Intelligence',  desc: 'Prefix-level intelligence',  icon: Globe },
+          { href: '/vendor-stability-timeline',  label: 'Stability Engine',     desc: 'Vendor stability analysis',  icon: Activity },
+          { href: '/routing-intelligence',       label: 'Routing Intelligence', desc: 'Route intelligence engine',  icon: GitBranch },
+          { href: '/carrier-intelligence',       label: 'Carrier Intelligence', desc: 'Route health signals',       icon: Brain },
+        ],
+      },
+      { label: 'Optimisation',  desc: 'Cost optimisation and number intelligence',
+        icon: TrendingDown,
+        items: [
+          { href: '/cost-optimisation',   label: 'Cost Optimisation',  desc: 'Route cost engine',     icon: TrendingDown },
+          { href: '/number-intelligence', label: 'Number Intelligence', desc: 'Number-level analysis', icon: Phone },
+        ],
+      },
+    ],
+  },
+
+  // ── 6. TROUBLESHOOTING ───────────────────────────────────────────────────────
+  {
+    id: 'troubleshooting', label: 'Troubleshooting', icon: Wrench, color: 'text-orange-400',
+    groups: [
+      { label: 'Tracing',          desc: 'SIP and RTP packet tracing and analysis', icon: Mic, items: [
+        { href: '/sip-trace',     label: 'SIP Trace',      desc: 'Packet-level SIP tracing',    icon: Mic },
+        { href: '/rtp-analytics', label: 'RTP Analytics',  desc: 'Media quality & jitter',       icon: Activity },
+      ]},
+      { label: 'Replay & Testing', desc: 'Session replay, test suites and route testing', icon: Rewind, items: [
+        { href: '/replay',         label: 'Replay Engine',  desc: 'Call session replay',          icon: Rewind },
+        { href: '/test-campaigns', label: 'Test Campaigns', desc: 'Automated test suites',        icon: FlaskConical },
+        { href: '/test-call',      label: 'Route Tester',   desc: 'On-demand route test calls',   icon: PhoneCall },
+      ]},
+      { label: 'Tools',            desc: 'Engineering utilities, server and topology monitoring', icon: Wrench, items: [
+        { href: '/tools',             label: 'Tools',            desc: 'Engineering utilities',    icon: Wrench },
+        { href: '/server-monitoring', label: 'Server Monitor',   desc: 'Infrastructure health',    icon: Server },
+        { href: '/network-topology',  label: 'Network Topology', desc: 'Topology visualisation',   icon: Network },
+      ]},
+    ],
+  },
+
+  // ── 7. SECURITY & COMPLIANCE ─────────────────────────────────────────────────
+  {
+    id: 'security', label: 'Security & Compliance', icon: ShieldAlert, color: 'text-rose-400',
+    groups: [
+      { label: 'Fraud Detection',    desc: 'FAS/IRSF detection, firewall and SLA breaches',
         icon: ShieldAlert,
         badge: (s) => s.activeIncidents,
         items: [
@@ -210,12 +218,12 @@ const DOMAINS: Domain[] = [
         icon: Lock,
         badge: (s) => s.pendingApprovals,
         items: [
-          { href: '/approvals',         label: 'Approval Queue',  desc: 'Pending approval items',     icon: FileText },
-          { href: '/approval-settings', label: 'Approval Rules',  desc: 'Approval rule configuration', icon: SlidersHorizontal },
-          { href: '/stir-shaken',       label: 'STIR/SHAKEN',     desc: 'Call attestation framework', icon: Lock },
+          { href: '/approvals',         label: 'Approval Queue', desc: 'Pending approval items',       icon: FileText },
+          { href: '/approval-settings', label: 'Approval Rules', desc: 'Approval rule configuration',  icon: SlidersHorizontal },
+          { href: '/stir-shaken',       label: 'STIR/SHAKEN',    desc: 'Call attestation framework',   icon: Lock },
         ],
       },
-      { label: 'Compliance',        desc: 'Audit trail, compliance rules and recordings',
+      { label: 'Compliance',         desc: 'Audit trail, compliance rules and recordings',
         icon: ClipboardList,
         items: [
           { href: '/compliance',      label: 'Compliance',  desc: 'Regulatory compliance',      icon: ClipboardList },
@@ -226,11 +234,11 @@ const DOMAINS: Domain[] = [
     ],
   },
 
-  // ── 7. FINANCE ───────────────────────────────────────────────────────────────
+  // ── 8. FINANCE & BILLING ─────────────────────────────────────────────────────
   {
-    id: 'finance', label: 'Finance', icon: Banknote, color: 'text-emerald-400',
+    id: 'finance', label: 'Finance & Billing', icon: Banknote, color: 'text-emerald-400',
     groups: [
-      { label: 'Billing',      desc: 'Invoices, payments, products and rate cards', icon: Wallet, items: [
+      { label: 'Billing',        desc: 'Invoices, payments, products and rate cards', icon: Wallet, items: [
         { href: '/billing',          label: 'Billing',       desc: 'Payments & invoices',         icon: Wallet },
         { href: '/billing-disputes', label: 'Disputes',      desc: 'Billing dispute resolution',  icon: ClipboardList },
         { href: '/products',         label: 'Products',      desc: 'Product catalogue',           icon: Package },
@@ -241,7 +249,7 @@ const DOMAINS: Domain[] = [
         { href: '/revenue-heatmap',   label: 'Revenue Heatmap',   desc: 'Revenue visualisation',      icon: MapIcon },
         { href: '/balance',           label: 'Balance Monitor',   desc: 'Vendor account balances',    icon: Wallet },
       ]},
-      { label: 'Reports',      desc: 'Finance reports, CDR billing and margin analytics', icon: BarChart2, items: [
+      { label: 'Reports',        desc: 'Finance reports, CDR billing and margin analytics', icon: BarChart2, items: [
         { href: '/reports',  label: 'Finance Reports',  desc: 'Revenue & cost reports',      icon: BarChart2 },
         { href: '/cdrs',     label: 'CDR Billing',      desc: 'CDR billing export',          icon: History },
         { href: '/asr-acd',  label: 'Margin Analytics', desc: 'Cost vs revenue margins',     icon: BarChart3 },
@@ -249,27 +257,26 @@ const DOMAINS: Domain[] = [
     ],
   },
 
-  // ── 8. SETTINGS ──────────────────────────────────────────────────────────────
+  // ── 9. PLATFORM ──────────────────────────────────────────────────────────────
   {
-    id: 'settings', label: 'Settings', icon: Settings, color: 'text-slate-400',
+    id: 'platform', label: 'Platform', icon: Settings, color: 'text-slate-400',
     groups: [
-      { label: 'Platform',      desc: 'System configuration, VPN and navigation prefs', icon: Settings, items: [
-        { href: '/settings',        label: 'Platform Settings', desc: 'System configuration',    icon: Settings },
-        { href: '/vpn-config',      label: 'VPN Config',        desc: 'VPN configuration',       icon: Lock },
-        { href: '/sidebar-settings',label: 'Sidebar Settings',  desc: 'Navigation preferences',  icon: Layers },
-        { href: '/company-profile', label: 'Company Profile',   desc: 'Organisation details',    icon: Building2 },
+      { label: 'System',        desc: 'System configuration, VPN and navigation management', icon: Settings, items: [
+        { href: '/settings',         label: 'Platform Settings',  desc: 'System configuration',         icon: Settings },
+        { href: '/vpn-config',       label: 'VPN Config',         desc: 'VPN configuration',            icon: Lock },
+        { href: '/sidebar-settings', label: 'Navigation Manager', desc: 'Enterprise navigation control', icon: Layers },
       ]},
       { label: 'Team & Access', desc: 'Team roles, API keys and approval rules',       icon: Users, items: [
-        { href: '/team',              label: 'Team',           desc: 'Roles & access control',  icon: Users },
-        { href: '/api-keys',          label: 'API Keys',       desc: 'API key management',      icon: Key },
+        { href: '/team',              label: 'Team & KAM',    desc: 'Roles & access control',   icon: Users },
+        { href: '/api-keys',          label: 'API Keys',      desc: 'API key management',       icon: Key },
         { href: '/approval-settings', label: 'Approval Rules', desc: 'Approval configuration',  icon: SlidersHorizontal },
       ]},
       { label: 'Notifications', desc: 'WhatsApp and email alert delivery configuration', icon: Mail, items: [
-        { href: '/whatsapp-alerts', label: 'WhatsApp Alerts', desc: 'Alert delivery via WhatsApp', icon: Mail },
-        { href: '/email-centre',    label: 'Email Centre',    desc: 'Email notification rules',    icon: Mail },
-        { href: '/notification-centre', label: 'Notification Centre', desc: 'All platform notifications', icon: Bell },
+        { href: '/whatsapp-alerts',     label: 'WhatsApp Alerts',     desc: 'Alert delivery via WhatsApp',  icon: MessageSquare },
+        { href: '/email-centre',        label: 'Email Centre',        desc: 'Email notification rules',     icon: Mail },
+        { href: '/notification-centre', label: 'Notification Centre', desc: 'All platform notifications',   icon: Bell },
       ]},
-      { label: 'Account',       desc: 'Your profile and personal preferences',          icon: Users, items: [
+      { label: 'Account',       desc: 'Your profile and personal preferences',           icon: Users, items: [
         { href: '/account', label: 'My Account', desc: 'Profile & personal preferences', icon: Users },
       ]},
     ],

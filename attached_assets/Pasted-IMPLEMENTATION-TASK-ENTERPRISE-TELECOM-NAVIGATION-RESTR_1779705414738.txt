@@ -1,0 +1,407 @@
+IMPLEMENTATION TASK — ENTERPRISE TELECOM NAVIGATION RESTRUCTURE
+(Top Mega Menu + Navigation Manager + Company Lifecycle Architecture)
+
+OBJECTIVE
+Restructure the platform navigation into a clean enterprise telecom architecture driven by the TOP MEGA MENU as the single source of truth.
+
+IMPORTANT RULES
+- Do NOT restore old sidebar behavior.
+- Sidebar remains contextual operational rail only.
+- Top navigation becomes the primary enterprise feature directory.
+- Keep all existing permissions/auth checks.
+- No fake data.
+- No route removals.
+- Preserve existing URLs unless explicitly renamed.
+- Keep current accordion/toggle UX for settings page.
+- Refactor vocabulary + grouping only.
+
+====================================================
+PHASE 1 — TOP ENTERPRISE MEGA MENU
+====================================================
+
+Replace current top domain structure with the following canonical enterprise domains:
+
+1. LIVE NETWORK
+2. COMPANY
+3. OPERATIONS
+4. ANALYTICS & REPORTS
+5. INTELLIGENCE
+6. TROUBLESHOOTING
+7. SECURITY & COMPLIANCE
+8. FINANCE & BILLING
+9. PLATFORM
+
+====================================================
+PHASE 2 — FINAL DEDUPLICATED MENU STRUCTURE
+====================================================
+
+-----------------------------------
+LIVE NETWORK
+-----------------------------------
+
+GROUP: Monitoring
+- BitsEye 2
+- Live Traffic
+- Traffic Map
+- Graphs
+- Multi-Switch
+
+GROUP: Infrastructure
+- Server Monitor
+- SBC Monitor
+- Network Topology
+
+GROUP: Command
+- Live Calls
+- Alerts
+- NOC Command
+- Ops Console
+- Console
+
+REMOVE FROM HERE:
+- SIP Trace
+- Diagnostics
+- Replay
+- Tools
+
+(these move to Troubleshooting)
+
+-----------------------------------
+COMPANY
+-----------------------------------
+
+GROUP: Account Operations
+- Accounts
+- Client Portal
+- Reseller Management
+
+GROUP: Onboarding & Provisioning
+- Company List
+- Organization Management
+- Create Account Wizard
+- Onboarding Wizard
+
+GROUP: Assets
+- DID Management
+- Recordings
+
+IMPORTANT:
+- Company Profile is renamed to Organization Management
+- Restore the large enterprise onboarding/company lifecycle form
+- Keep ALL sections:
+  - Basic Information
+  - Billing Information
+  - Bank Information
+  - POC Information
+  - Commercial Contacts
+  - Billing Contacts
+  - Dispute Contacts
+  - Contact & Address
+
+DO NOT merge this into:
+- Platform
+- Finance
+- Settings
+
+This is COMPANY lifecycle management.
+
+-----------------------------------
+OPERATIONS
+-----------------------------------
+
+GROUP: Carriers
+- Vendor List
+- SLA Scorecard
+- Carrier Scoring
+- Stability Timeline
+- Balance Monitor
+
+GROUP: Routing
+- Routing Manager
+- LCR Analyser
+- Route Simulator
+- Traffic Steering
+- Route Tester
+
+GROUP: Translation
+- Translation Rules
+- Destination Sets
+- Connections
+
+REMOVE FROM OPERATIONS:
+- Vendor RCA
+- Prefix Intelligence
+- Routing Intelligence
+- Cost Optimisation
+
+(these move to Intelligence)
+
+-----------------------------------
+ANALYTICS & REPORTS
+-----------------------------------
+
+GROUP: Traffic & Quality
+- Traffic Analytics
+- ASR/ACD
+- QoS Heatmap
+- Codec Analytics
+- RTP Analytics
+
+GROUP: Revenue
+- Revenue Heatmap
+- Reports
+- Traffic Forecast
+
+GROUP: Records
+- CDR Viewer
+- BitsEye
+- BitsEye 2
+
+-----------------------------------
+INTELLIGENCE
+-----------------------------------
+
+GROUP: AI Ops
+- AI Ops Center
+- Intelligence Hub
+- Decision Overlay
+
+GROUP: Validation
+- Validation Console
+- Carrier Scoring
+
+GROUP: Analysis
+- Vendor RCA
+- Prefix Intelligence
+- Stability Engine
+- Routing Intelligence
+- Carrier Intelligence
+
+GROUP: Optimisation
+- Cost Optimisation
+- Number Intelligence
+
+-----------------------------------
+TROUBLESHOOTING
+-----------------------------------
+
+GROUP: Tracing
+- SIP Trace
+- RTP Analytics
+
+GROUP: Replay & Testing
+- Replay Engine
+- Test Campaigns
+- Route Tester
+
+GROUP: Tools
+- Tools
+- Server Monitor
+- Network Topology
+
+-----------------------------------
+SECURITY & COMPLIANCE
+-----------------------------------
+
+GROUP: Fraud Detection
+- Fraud Engine
+- Firewall
+- SLA Breaches
+
+GROUP: Access & Approvals
+- Approval Queue
+- Approval Rules
+- STIR/SHAKEN
+
+GROUP: Compliance
+- Compliance
+- Audit Log
+- Recordings
+
+-----------------------------------
+FINANCE & BILLING
+-----------------------------------
+
+GROUP: Billing
+- Billing
+- Disputes
+- Products
+- Rate Cards
+
+GROUP: Cost & Revenue
+- Cost Optimisation
+- Revenue Heatmap
+- Balance Monitor
+
+GROUP: Reports
+- Finance Reports
+- CDR Billing
+- Margin Analytics
+
+IMPORTANT:
+Billing exists ONLY here.
+Do NOT duplicate Billing in Company.
+
+-----------------------------------
+PLATFORM
+-----------------------------------
+
+GROUP: System
+- Platform Settings
+- VPN Config
+- Navigation Manager
+
+GROUP: Team & Access
+- Team & KAM
+- API Keys
+- Approval Rules
+
+GROUP: Notifications
+- WhatsApp Alerts
+- Email Centre
+- Notification Centre
+
+GROUP: Account
+- My Account
+
+REMOVE:
+- Company Profile
+
+====================================================
+PHASE 3 — DUPLICATE REMOVAL
+====================================================
+
+FINAL DEDUPLICATION RULES
+
+KEEP ONLY:
+- SIP Trace → Troubleshooting
+- Diagnostics → Troubleshooting
+- Billing → Finance & Billing
+- Company Profile/Organization Management → Company
+
+REMOVE ALL OTHER DUPLICATE MENU ENTRIES.
+
+====================================================
+PHASE 4 — NAVIGATION MANAGER PAGE
+====================================================
+
+Rename:
+"Sidebar Menu Configuration"
+
+TO:
+"Navigation Manager"
+
+IMPORTANT:
+This page now governs:
+- top mega menu
+- sidebar rail
+- command palette
+- workspace cards
+- workspace homes
+
+Keep existing UX:
+- accordion groups
+- toggles
+- search
+- Save button
+- stats cards
+
+ONLY replace old sidebar group vocabulary with the 9 canonical enterprise domains.
+
+Add descriptions under each domain group:
+
+Example:
+LIVE NETWORK
+"Real-time monitoring, network visibility and live incident management."
+
+COMPANY
+"Manage organizations, onboarding, accounts and customer lifecycle."
+
+OPERATIONS
+"Routing operations, carriers, translations and traffic execution."
+
+etc.
+
+====================================================
+PHASE 5 — SIDEBAR RULES
+====================================================
+
+DO NOT restore giant sidebar.
+
+Sidebar must remain:
+- contextual
+- minimal
+- operational rail only
+
+Sidebar should contain:
+- urgent shortcuts
+- pinned tools
+- current workspace acceleration
+
+NOT:
+full feature discovery.
+
+====================================================
+PHASE 6 — COMMAND PALETTE
+====================================================
+
+Update command palette categories to match the new domain names:
+- Company
+- Operations
+- Intelligence
+- Security & Compliance
+- Finance & Billing
+etc.
+
+Remove old vocabulary:
+- Vendors
+- Live Ops
+- Fraud
+- Settings
+(where replaced)
+
+====================================================
+PHASE 7 — COMPANY LIFECYCLE RESTORATION
+====================================================
+
+Restore the missing enterprise Organization Management flow/page.
+
+Current screenshots show this module already existed previously.
+
+Restore ALL sections:
+- Basic Information
+- Billing Information
+- Bank Information
+- POC Information
+- Commercial Contacts
+- Billing Contacts
+- Dispute Contacts
+- Contact Information
+
+This is NOT:
+- a simple profile page
+- onboarding only
+- finance only
+
+This is:
+ENTERPRISE ORGANIZATION LIFECYCLE MANAGEMENT
+
+Keep it under:
+COMPANY → Onboarding & Provisioning
+
+====================================================
+FINAL ARCHITECTURE RULE
+====================================================
+
+TOP MEGA MENU
+=
+MASTER NAVIGATION SOURCE OF TRUTH
+
+Everything else derives from it:
+- sidebar
+- cards
+- workspace homes
+- command palette
+- portals
+
+DO NOT create separate competing menu systems.

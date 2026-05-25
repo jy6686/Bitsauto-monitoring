@@ -3,37 +3,40 @@
 // AppNavShell (top bar active tab + breadcrumb) and LayoutShell (sidebar filter).
 
 export type WorkspaceDomain =
-  | 'live-ops'
-  | 'clients'
-  | 'vendors'
-  | 'intelligence'
+  | 'live-network'
+  | 'company'
+  | 'operations'
   | 'analytics'
+  | 'intelligence'
+  | 'troubleshooting'
   | 'security'
   | 'finance'
-  | 'settings';
+  | 'platform';
 
 // Ordered longest → shortest so longest prefix wins.
 // Multi-context routes: only the FIRST match wins for breadcrumb / tab highlight.
 // Secondary appearances in other domains are purely nav shortcuts.
 const ROUTE_DOMAIN_MAP: [string, WorkspaceDomain][] = [
-  // ── Settings ──────────────────────────────────────────────────────────────
-  ['/approval-settings',          'settings'],
-  ['/sidebar-settings',           'settings'],
-  ['/whatsapp-alerts',            'settings'],
-  ['/email-centre',               'settings'],
-  ['/vpn-config',                 'settings'],
-  ['/api-keys',                   'settings'],
-  ['/account',                    'settings'],
-  ['/settings',                   'settings'],
-  ['/team',                       'settings'],
-  // ── Finance ───────────────────────────────────────────────────────────────
+  // ── Platform ──────────────────────────────────────────────────────────────
+  ['/approval-settings',          'platform'],
+  ['/sidebar-settings',           'platform'],
+  ['/whatsapp-alerts',            'platform'],
+  ['/notification-centre',        'platform'],
+  ['/email-centre',               'platform'],
+  ['/vpn-config',                 'platform'],
+  ['/api-keys',                   'platform'],
+  ['/account',                    'platform'],
+  ['/settings',                   'platform'],
+  ['/team',                       'platform'],
+  // ── Finance & Billing ─────────────────────────────────────────────────────
   ['/billing-disputes',           'finance'],
   ['/billing',                    'finance'],
   ['/rate-cards',                 'finance'],
+  ['/rate-editor',                'finance'],
   ['/products',                   'finance'],
-  // ── Security ──────────────────────────────────────────────────────────────
+  ['/cost-optimisation',          'finance'],
+  // ── Security & Compliance ─────────────────────────────────────────────────
   ['/vendor-sla-scorecard',       'security'],
-  ['/call-recordings',            'security'],
   ['/sla-breaches',               'security'],
   ['/stir-shaken',                'security'],
   ['/compliance',                 'security'],
@@ -44,8 +47,13 @@ const ROUTE_DOMAIN_MAP: [string, WorkspaceDomain][] = [
   // ── Intelligence ──────────────────────────────────────────────────────────
   ['/intelligence-validation',    'intelligence'],
   ['/intelligence',               'intelligence'],
+  ['/routing-intelligence',       'intelligence'],
+  ['/carrier-intelligence',       'intelligence'],
+  ['/vendor-prefix-intelligence', 'intelligence'],
+  ['/number-intelligence',        'intelligence'],
+  ['/vendor-rca',                 'intelligence'],
   ['/ai-ops',                     'intelligence'],
-  // ── Analytics ─────────────────────────────────────────────────────────────
+  // ── Analytics & Reports ───────────────────────────────────────────────────
   ['/revenue-heatmap',            'analytics'],
   ['/traffic-forecast',           'analytics'],
   ['/codec-analytics',            'analytics'],
@@ -56,57 +64,53 @@ const ROUTE_DOMAIN_MAP: [string, WorkspaceDomain][] = [
   ['/bitseye',                    'analytics'],
   ['/reports',                    'analytics'],
   ['/cdrs',                       'analytics'],
-  // ── Vendors (includes routing + carrier ops) ───────────────────────────────
-  ['/vendor-prefix-intelligence', 'vendors'],
-  ['/vendor-stability-timeline',  'vendors'],
-  ['/carrier-intelligence',       'vendors'],
-  ['/carrier-scoring',            'vendors'],
-  ['/routing-intelligence',       'vendors'],
-  ['/call-flow-simulator',        'vendors'],
-  ['/cost-optimisation',          'vendors'],
-  ['/routing-manager',            'vendors'],
-  ['/number-intelligence',        'vendors'],
-  ['/lcr-analyser',               'vendors'],
-  ['/vendor-profile',             'vendors'],
-  ['/vendor-rca',                 'vendors'],
-  ['/rate-editor',                'vendors'],
-  ['/self-heal',                  'vendors'],
-  ['/test-call',                  'vendors'],
-  ['/vendors',                    'vendors'],
-  ['/balance',                    'vendors'],
-  // ── Clients ───────────────────────────────────────────────────────────────
-  ['/account-names',              'clients'],
-  ['/company-profile',            'clients'],
-  ['/company/create',             'clients'],
-  ['/company/list',               'clients'],
-  ['/client-portal',              'clients'],
-  ['/client',                     'clients'],
-  ['/clients',                    'clients'],
-  ['/reseller',                   'clients'],
-  ['/dids',                       'clients'],
-  // ── Live Ops ──────────────────────────────────────────────────────────────
-  ['/server-monitoring',          'live-ops'],
-  ['/network-topology',           'live-ops'],
-  ['/traffic-map',                'live-ops'],
-  ['/multi-switch',               'live-ops'],
-  ['/noc-command',                'live-ops'],
-  ['/ops-console',                'live-ops'],
-  ['/sbc-monitor',                'live-ops'],
-  ['/live-traffic',               'live-ops'],
-  ['/bitseye2',                   'live-ops'],
-  ['/console',                    'live-ops'],
-  ['/graphs',                     'live-ops'],
-  ['/alerts',                     'live-ops'],
-  // Troubleshooting tools → live-ops for breadcrumb purposes
-  ['/replay-engine',              'live-ops'],
-  ['/test-campaigns',             'live-ops'],
-  ['/sip-trace',                  'live-ops'],
-  ['/replay',                     'live-ops'],
-  ['/tools',                      'live-ops'],
+  // ── Operations (carriers + routing) ───────────────────────────────────────
+  ['/vendor-stability-timeline',  'operations'],
+  ['/carrier-scoring',            'operations'],
+  ['/call-flow-simulator',        'operations'],
+  ['/routing-manager',            'operations'],
+  ['/lcr-analyser',               'operations'],
+  ['/vendor-profile',             'operations'],
+  ['/self-heal',                  'operations'],
+  ['/test-call',                  'operations'],
+  ['/vendors',                    'operations'],
+  ['/balance',                    'operations'],
+  // ── Troubleshooting ───────────────────────────────────────────────────────
+  ['/test-campaigns',             'troubleshooting'],
+  ['/sip-trace',                  'troubleshooting'],
+  ['/replay',                     'troubleshooting'],
+  ['/tools',                      'troubleshooting'],
+  // ── Company ───────────────────────────────────────────────────────────────
+  ['/account-names',              'company'],
+  ['/company-profile',            'company'],
+  ['/company/create',             'company'],
+  ['/company/onboarding',         'company'],
+  ['/company/list',               'company'],
+  ['/company',                    'company'],
+  ['/client-portal',              'company'],
+  ['/call-recordings',            'company'],
+  ['/client',                     'company'],
+  ['/clients',                    'company'],
+  ['/reseller',                   'company'],
+  ['/dids',                       'company'],
+  // ── Live Network ──────────────────────────────────────────────────────────
+  ['/server-monitoring',          'live-network'],
+  ['/network-topology',           'live-network'],
+  ['/traffic-map',                'live-network'],
+  ['/multi-switch',               'live-network'],
+  ['/noc-command',                'live-network'],
+  ['/ops-console',                'live-network'],
+  ['/sbc-monitor',                'live-network'],
+  ['/live-traffic',               'live-network'],
+  ['/bitseye2',                   'live-network'],
+  ['/console',                    'live-network'],
+  ['/graphs',                     'live-network'],
+  ['/alerts',                     'live-network'],
+  ['/calls',                      'live-network'],
 ];
 
 export function inferWorkspace(path: string): WorkspaceDomain {
-  if (path === '/' || path === '') return 'live-ops';
+  if (path === '/' || path === '') return 'live-network';
   const clean = path.split('?')[0];
   // Workspace home pages: /workspace/<domain>
   if (clean.startsWith('/workspace/')) {
@@ -118,60 +122,64 @@ export function inferWorkspace(path: string): WorkspaceDomain {
       return domain;
     }
   }
-  return 'live-ops';
+  return 'live-network';
 }
 
 // Private helper used only above — avoids circular dependency with exported WORKSPACE_LABELS
 const WORKSPACE_LABELS_PLACEHOLDER: Record<string, true> = {
-  'live-ops': true, 'clients': true, 'vendors': true,
-  'intelligence': true, 'analytics': true, 'security': true,
-  'finance': true, 'settings': true,
+  'live-network': true, 'company': true, 'operations': true,
+  'analytics': true, 'intelligence': true, 'troubleshooting': true,
+  'security': true, 'finance': true, 'platform': true,
 };
 
 // ── Workspace → sidebar group keys ────────────────────────────────────────────
 export const WORKSPACE_SIDEBAR_GROUPS: Record<WorkspaceDomain, string[]> = {
-  'live-ops':     ['live_network'],
-  'clients':      ['company'],
-  'vendors':      ['operations', 'intelligence', 'simulation'],
-  'intelligence': ['intelligence', 'ai_ops'],
-  'analytics':    ['analytics', 'reports'],
-  'security':     ['security'],
-  'finance':      ['billing'],
-  'settings':     ['platform'],
+  'live-network':    ['live_network'],
+  'company':         ['company'],
+  'operations':      ['operations'],
+  'analytics':       ['analytics'],
+  'intelligence':    ['intelligence'],
+  'troubleshooting': ['troubleshooting'],
+  'security':        ['security'],
+  'finance':         ['finance'],
+  'platform':        ['platform'],
 };
 
 // Human-readable workspace labels (mirrors AppNavShell domain labels)
 export const WORKSPACE_LABELS: Record<WorkspaceDomain, string> = {
-  'live-ops':     'Live Ops',
-  'clients':      'Clients',
-  'vendors':      'Vendors',
-  'intelligence': 'Intelligence',
-  'analytics':    'Analytics',
-  'security':     'Security',
-  'finance':      'Finance',
-  'settings':     'Settings',
+  'live-network':    'Live Network',
+  'company':         'Company',
+  'operations':      'Operations',
+  'analytics':       'Analytics & Reports',
+  'intelligence':    'Intelligence',
+  'troubleshooting': 'Troubleshooting',
+  'security':        'Security & Compliance',
+  'finance':         'Finance & Billing',
+  'platform':        'Platform',
 };
 
 // Tailwind text colour per workspace (matches AppNavShell domain colours)
 export const WORKSPACE_TEXT_COLOR: Record<WorkspaceDomain, string> = {
-  'live-ops':     'text-violet-400',
-  'clients':      'text-amber-400',
-  'vendors':      'text-cyan-400',
-  'intelligence': 'text-fuchsia-400',
-  'analytics':    'text-blue-400',
-  'security':     'text-rose-400',
-  'finance':      'text-emerald-400',
-  'settings':     'text-slate-400',
+  'live-network':    'text-emerald-400',
+  'company':         'text-amber-400',
+  'operations':      'text-blue-400',
+  'analytics':       'text-indigo-400',
+  'intelligence':    'text-fuchsia-400',
+  'troubleshooting': 'text-orange-400',
+  'security':        'text-rose-400',
+  'finance':         'text-emerald-400',
+  'platform':        'text-slate-400',
 };
 
 // Tailwind bg colour for the indicator dot
 export const WORKSPACE_DOT_BG: Record<WorkspaceDomain, string> = {
-  'live-ops':     'bg-violet-400',
-  'clients':      'bg-amber-400',
-  'vendors':      'bg-cyan-400',
-  'intelligence': 'bg-fuchsia-400',
-  'analytics':    'bg-blue-400',
-  'security':     'bg-rose-400',
-  'finance':      'bg-emerald-400',
-  'settings':     'bg-slate-400',
+  'live-network':    'bg-emerald-400',
+  'company':         'bg-amber-400',
+  'operations':      'bg-blue-400',
+  'analytics':       'bg-indigo-400',
+  'intelligence':    'bg-fuchsia-400',
+  'troubleshooting': 'bg-orange-400',
+  'security':        'bg-rose-400',
+  'finance':         'bg-emerald-400',
+  'platform':        'bg-slate-400',
 };
