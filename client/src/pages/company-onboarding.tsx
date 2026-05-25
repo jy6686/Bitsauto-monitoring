@@ -85,7 +85,7 @@ const emptyContact = (): ContactEntry => ({ name: "", email: "", phone: "" });
 const defaultS1 = () => ({
   name: "", shortCode: "", companyType: "retail", currency: "USD",
   timezone: "GMT+00:00 | UTC", country: "", language: "English",
-  kam: "", status: "active", notes: "",
+  kam: "__unassigned__", status: "active", notes: "",
 });
 const defaultS2 = () => ({
   billingContact:   emptyContact(),
@@ -95,7 +95,7 @@ const defaultS2 = () => ({
   creditLimit: "", taxVat: "", legalName: "",
 });
 const defaultS3 = () => ({
-  routingGroupId: "", cpsLimit: "", concurrentCallsLimit: "", codec: "any",
+  routingGroupId: "__none__", cpsLimit: "", concurrentCallsLimit: "", codec: "any",
   didAllocation: "", sipAuthEnabled: false, ipAuthEnabled: true,
   allowedRegions: "", fraudProfile: "standard", cliRules: "",
   customNotes: "",
@@ -296,7 +296,7 @@ export default function CompanyOnboardingPage() {
         name: s1.name.trim(),
         shortCode: s1.shortCode.trim().toUpperCase(),
         country: s1.country,
-        kam: s1.kam,
+        kam: s1.kam === '__unassigned__' ? '' : s1.kam,
         status: s1.status,
         companyType: s1.companyType,
         contractType: "bilateral",
@@ -554,7 +554,7 @@ export default function CompanyOnboardingPage() {
                 <Select value={s1.kam} onValueChange={v => setS1(p => ({ ...p, kam: v }))}>
                   <SelectTrigger className="h-9 text-sm" data-testid="select-kam"><SelectValue placeholder="Unassigned" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Unassigned</SelectItem>
+                    <SelectItem value="__unassigned__">Unassigned</SelectItem>
                     {(kamsData ?? []).map(k => <SelectItem key={k.id} value={k.name}>{k.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -633,7 +633,7 @@ export default function CompanyOnboardingPage() {
                 <Select value={s3.routingGroupId} onValueChange={v => setS3(p => ({ ...p, routingGroupId: v }))}>
                   <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select routing group" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None — assign after activation</SelectItem>
+                    <SelectItem value="__none__">None — assign after activation</SelectItem>
                     {(routingGroupsData?.groups ?? []).map(g => (
                       <SelectItem key={g.groupId} value={String(g.groupId)}>{g.groupName}</SelectItem>
                     ))}
@@ -832,7 +832,7 @@ export default function CompanyOnboardingPage() {
               <div className="rounded-lg border border-border/50 bg-muted/10 p-4 space-y-2">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-3 flex items-center gap-1.5"><Server className="w-3 h-3" /> Provisioning</p>
                 {[
-                  ["Routing Group",  s3.routingGroupId ? `RG#${s3.routingGroupId}` : "Assign after activation"],
+                  ["Routing Group",  s3.routingGroupId && s3.routingGroupId !== '__none__' ? `RG#${s3.routingGroupId}` : "Assign after activation"],
                   ["Codec",          CODECS.find(c => c.value === s3.codec)?.label || s3.codec],
                   ["CPS Limit",      s3.cpsLimit || "Unlimited"],
                   ["Concurrency",    s3.concurrentCallsLimit || "Unlimited"],
