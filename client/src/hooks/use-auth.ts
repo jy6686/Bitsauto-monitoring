@@ -49,6 +49,12 @@ export function useAuth() {
     isAuthenticated: !!user,
     isAdmin: role === 'admin',
     isManagement: role === 'admin' || role === 'management',
+    // 2B governance roles
+    isDestinationManager: role === 'destination_manager' || role === 'admin' || role === 'super_admin',
+    isRoutingAdmin: role === 'routing_admin' || role === 'admin' || role === 'super_admin',
+    // Approver ≠ Executor enforcement helpers
+    canApproveFailover: role === 'destination_manager' || role === 'admin' || role === 'super_admin',
+    canExecuteRouting: role === 'routing_admin' || role === 'admin' || role === 'super_admin',
     logout: logoutMutation.mutate,
     isLoggingOut: logoutMutation.isPending,
   };

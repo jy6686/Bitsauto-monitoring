@@ -266,7 +266,7 @@ function Router() {
         {() => <ProtectedRoute component={CallDetailPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/alerts">
-        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} viewerAssignment="alerts" mgmtFeature="alerts" />}
+        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead','destination_manager','routing_admin']} viewerAssignment="alerts" mgmtFeature="alerts" />}
       </Route>
       <Route path="/reports">
         {() => <ProtectedRoute component={ReportsPage} requiredRoles={['admin','management']} viewerAssignment="reports" mgmtFeature="reports" />}
@@ -302,7 +302,7 @@ function Router() {
         {() => <ProtectedRoute component={TrafficForecastPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/audit-log">
-        {() => <ProtectedRoute component={AuditLogPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={AuditLogPage} requiredRoles={['admin','management','destination_manager','routing_admin']} />}
       </Route>
       <Route path="/balance">
         {() => <ProtectedRoute component={BalanceMonitorPage} requiredRoles={['admin','management']} viewerAssignment="balance_monitor" mgmtFeature="balance_monitor" />}
@@ -344,19 +344,19 @@ function Router() {
         {() => <ProtectedRoute component={TestCallPage} requiredRoles={['admin','management']} mgmtFeature="test_call" />}
       </Route>
       <Route path="/lcr-analyser">
-        {() => <ProtectedRoute component={LcrAnalyserPage} requiredRoles={['admin','management']} mgmtFeature="lcr_analyser" />}
+        {() => <ProtectedRoute component={LcrAnalyserPage} requiredRoles={['admin','management','routing_admin']} mgmtFeature="lcr_analyser" />}
       </Route>
       <Route path="/call-flow-simulator">
         {() => <ProtectedRoute component={CallFlowSimulatorPage} requiredRoles={['admin','management']} mgmtFeature="call_flow_simulator" />}
       </Route>
       <Route path="/vendor-sla-scorecard">
-        {() => <ProtectedRoute component={VendorSlaScorecardPage} requiredRoles={['admin','management']} mgmtFeature="vendor_sla" />}
+        {() => <ProtectedRoute component={VendorSlaScorecardPage} requiredRoles={['admin','management','destination_manager','routing_admin']} mgmtFeature="vendor_sla" />}
       </Route>
       <Route path="/carrier-scoring">
         {() => <ProtectedRoute component={CarrierScoringPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="carrier_scoring" />}
       </Route>
       <Route path="/cost-optimisation">
-        {() => <ProtectedRoute component={CostOptimisationPage} requiredRoles={['admin','management']} mgmtFeature="cost_optimisation" />}
+        {() => <ProtectedRoute component={CostOptimisationPage} requiredRoles={['admin','management','destination_manager']} mgmtFeature="cost_optimisation" />}
       </Route>
       <Route path="/multi-switch">
         {() => <ProtectedRoute component={MultiSwitchPage} requiredRoles={['admin','management']} mgmtFeature="multi_switch" />}
@@ -402,19 +402,19 @@ function Router() {
         {() => <ProtectedRoute component={BillingPage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/routing-manager">
-        {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management']} mgmtFeature="routing_manager" />}
+        {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management', 'routing_admin']} mgmtFeature="routing_manager" />}
       </Route>
       <Route path="/approvals">
-        {() => <ProtectedRoute component={ApprovalQueuePage} requiredRoles={['admin', 'management', 'super_admin', 'noc_operator', 'team_lead']} mgmtFeature="approval_queue" />}
+        {() => <ProtectedRoute component={ApprovalQueuePage} requiredRoles={['admin', 'management', 'super_admin', 'noc_operator', 'team_lead', 'destination_manager', 'routing_admin']} mgmtFeature="approval_queue" />}
       </Route>
       <Route path="/vendors">
-        {() => <ProtectedRoute component={VendorsPage} requiredRoles={['admin', 'management']} mgmtFeature="vendor_connections" />}
+        {() => <ProtectedRoute component={VendorsPage} requiredRoles={['admin', 'management', 'destination_manager', 'routing_admin']} mgmtFeature="vendor_connections" />}
       </Route>
       <Route path="/vendors/:name">
-        {() => <ProtectedRoute component={VendorProfilePage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={VendorProfilePage} requiredRoles={['admin', 'management', 'destination_manager', 'routing_admin']} />}
       </Route>
       <Route path="/approval-settings">
-        {() => <ProtectedRoute component={ApprovalSettingsPage} requiredRoles={['admin', 'super_admin']} />}
+        {() => <ProtectedRoute component={ApprovalSettingsPage} requiredRoles={['admin', 'super_admin', 'destination_manager']} />}
       </Route>
       <Route path="/company-profile">
         {() => <ProtectedRoute component={CompanyProfilePage} requiredRoles={['admin', 'management']} mgmtFeature="company_profile" />}
@@ -423,7 +423,7 @@ function Router() {
         {() => <ProtectedRoute component={SipTracePage} requiredRoles={['admin','management']} mgmtFeature="sip_trace" />}
       </Route>
       <Route path="/routing-intelligence">
-        {() => <ProtectedRoute component={RoutingIntelligencePage} requiredRoles={['admin','management']} mgmtFeature="routing_intelligence" />}
+        {() => <ProtectedRoute component={RoutingIntelligencePage} requiredRoles={['admin','management','destination_manager','routing_admin']} mgmtFeature="routing_intelligence" />}
       </Route>
       <Route path="/number-intelligence">
         {() => <ProtectedRoute component={NumberIntelligencePage} requiredRoles={['admin','management']} mgmtFeature="number_intelligence" />}
@@ -450,34 +450,34 @@ function Router() {
         {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="ai_ops" />}
       </Route>
       <Route path="/carrier-intelligence">
-        {() => <ProtectedRoute component={CarrierIntelligencePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+        {() => <ProtectedRoute component={CarrierIntelligencePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead','destination_manager']} />}
       </Route>
       <Route path="/intelligence">
-        {() => <ProtectedRoute component={IntelligencePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={IntelligencePage} requiredRoles={['admin','management','destination_manager']} />}
       </Route>
       <Route path="/intelligence-validation">
-        {() => <ProtectedRoute component={IntelligenceValidationPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={IntelligenceValidationPage} requiredRoles={['admin','management','destination_manager']} />}
       </Route>
       <Route path="/live-traffic-map">
         {() => <ProtectedRoute component={LiveTrafficMapPage} requiredRoles={['admin','noc','management']} />}
       </Route>
       <Route path="/vendor-prefix-intelligence">
-        {() => <ProtectedRoute component={VendorPrefixIntelligencePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={VendorPrefixIntelligencePage} requiredRoles={['admin','management','destination_manager']} />}
       </Route>
       <Route path="/vendor-stability-timeline">
-        {() => <ProtectedRoute component={VendorStabilityTimelinePage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={VendorStabilityTimelinePage} requiredRoles={['admin','management','destination_manager','routing_admin']} />}
       </Route>
       <Route path="/vendor-rca">
-        {() => <ProtectedRoute component={VendorRcaPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={VendorRcaPage} requiredRoles={['admin','management','destination_manager']} />}
       </Route>
       <Route path="/route-optimisation">
-        {() => <ProtectedRoute component={RouteOptimisationPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin']} />}
+        {() => <ProtectedRoute component={RouteOptimisationPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin','destination_manager']} />}
       </Route>
       <Route path="/traffic-steering">
-        {() => <ProtectedRoute component={TrafficSteeringPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin']} />}
+        {() => <ProtectedRoute component={TrafficSteeringPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin','destination_manager']} />}
       </Route>
       <Route path="/simulation-sandbox">
-        {() => <ProtectedRoute component={SimulationSandboxPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin']} />}
+        {() => <ProtectedRoute component={SimulationSandboxPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin','destination_manager']} />}
       </Route>
       <Route path="/rtp-analytics">
         {() => <ProtectedRoute component={RtpAnalyticsPage} requiredRoles={['admin','management']} mgmtFeature="rtp_analytics" />}

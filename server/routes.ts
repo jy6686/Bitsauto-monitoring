@@ -88,7 +88,7 @@ const accountNameCache: Map<string, string> = new Map();
 // ── Client Portal Scope Resolver ──────────────────────────────────────────────
 // Returns null = unrestricted (admin/management/super_admin/noc_operator).
 // Returns populated sets for KAM-role users scoped to their account subtree.
-const UNRESTRICTED_ROLES = new Set(['admin', 'super_admin', 'management', 'noc_operator']);
+const UNRESTRICTED_ROLES = new Set(['admin', 'super_admin', 'management', 'noc_operator', 'destination_manager', 'routing_admin']);
 async function resolveUserScope(req: any): Promise<{ accountIds: Set<string> | null; clis: Set<string> | null }> {
   const role = req.user?.role as string | undefined;
   if (!role || UNRESTRICTED_ROLES.has(role)) return { accountIds: null, clis: null };
@@ -1297,7 +1297,7 @@ export async function registerRoutes(
   }
 
   // ── Audit Log API ─────────────────────────────────────────────────────────
-  app.get('/api/audit-log', (req: any, res, next) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+  app.get('/api/audit-log', (req: any, res, next) => requireRole(['admin','management','destination_manager','routing_admin'], req, res, next), async (req: any, res) => {
     try {
       const q = req.query as Record<string, string>;
       const result = await queryAudit({
@@ -1313,7 +1313,7 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.get('/api/audit-log/stats', (req: any, res, next) => requireRole(['admin','management'], req, res, next), async (_req, res) => {
+  app.get('/api/audit-log/stats', (req: any, res, next) => requireRole(['admin','management','destination_manager','routing_admin'], req, res, next), async (_req, res) => {
     try {
       const stats = await auditStats();
       res.json({ stats });
@@ -1339,7 +1339,7 @@ export async function registerRoutes(
   app.patch('/api/team/:userId/role', (req: any, res, next) => requireRole(['admin', 'super_admin'], req, res, next), async (req: any, res) => {
     const { userId } = req.params;
     const { role, teamId } = req.body as { role: string; teamId?: string };
-    const VALID_ROLES: Role[] = ['super_admin', 'admin', 'noc_operator', 'team_lead', 'management', 'viewer'];
+    const VALID_ROLES: Role[] = ['super_admin', 'admin', 'destination_manager', 'routing_admin', 'noc_operator', 'team_lead', 'management', 'viewer'];
     if (!VALID_ROLES.includes(role as Role)) {
       return res.status(400).json({ message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
     }
@@ -4314,7 +4314,7 @@ export async function registerRoutes(
   // ── GET /api/vendor-prefix-intelligence ──────────────────────────────────────
   // Computes Q-scores per vendor × destination prefix bucket from the CDR cache.
   // Zero additional Sippy calls — read-only against in-memory cache + DB.
-  app.get('/api/vendor-prefix-intelligence', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
+  app.get('/api/vendor-prefix-intelligence', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'destination_manager'], req, res, next), async (_req: any, res: any) => {
     try {
       const result = await computeVendorPrefixIntelligence(cdrCache);
       res.json(result);
@@ -4862,7 +4862,7 @@ export async function registerRoutes(
   // Uses ONLY real CDR cache + incident DB — zero new Sippy calls, no synthetic data.
   // Returns: telemetry health, Q-score decomposition, recommendation audit,
   //          degradation audit, incident attribution, and cross-engine assertions.
-  app.get('/api/intelligence/validation', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
+  app.get('/api/intelligence/validation', (req: any, res, next) => requireRole(['admin', 'management', 'destination_manager'], req, res, next), async (req: any, res) => {
     try {
       const { desc: _desc, gte: _gte } = await import('drizzle-orm');
       const now = Date.now();
@@ -18731,6 +18731,51 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Platform Feature Flags API ────────────────────────────────────────────────
+  // GET  /api/platform/flags — return all flags (admin/super_admin/destination_manager)
+  // PATCH /api/platform/flags/:key — toggle a flag (admin/super_admin only; audited)
+  app.get('/api/platform/flags', (req: any, res: any, next: any) =>
+    requireRole(['admin', 'super_admin', 'destination_manager'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const { db: flagDb } = await import('./db');
+        const { platformFeatureFlags } = await import('../shared/schema');
+        const flags = await flagDb.select().from(platformFeatureFlags);
+        res.json({ flags });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  app.patch('/api/platform/flags/:key', (req: any, res: any, next: any) =>
+    requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { key } = req.params;
+        const { enabled, reason } = req.body as { enabled: boolean; reason?: string };
+        if (typeof enabled !== 'boolean') return res.status(400).json({ message: 'enabled must be boolean' });
+        const { db: flagDb } = await import('./db');
+        const { platformFeatureFlags } = await import('../shared/schema');
+        const { eq } = await import('drizzle-orm');
+        const existing = await flagDb.select().from(platformFeatureFlags).where(eq(platformFeatureFlags.key, key)).limit(1);
+        if (!existing.length) return res.status(404).json({ message: 'Flag not found' });
+        const userId = req.user?.claims?.sub as string;
+        const userName = req.user?.claims?.name ?? req.user?.claims?.email ?? userId;
+        const [updated] = await flagDb.update(platformFeatureFlags)
+          .set({
+            enabled,
+            prevState: existing[0].enabled,
+            changedBy: userId,
+            changedByName: userName,
+            changedAt: new Date(),
+            reason: reason ?? null,
+          })
+          .where(eq(platformFeatureFlags.key, key))
+          .returning();
+        res.json({ flag: updated });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
   // GET /api/vendors/balance-history?vendor=X — in-memory time-series for sparkline
   app.get('/api/vendors/balance-history', async (req: any, res: any) => {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
@@ -22186,7 +22231,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // POST /api/routing-suggestions/:id/approve
-  app.post('/api/routing-suggestions/:id/approve', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+  app.post('/api/routing-suggestions/:id/approve', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'destination_manager'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { routingSuggestions } = await import('../shared/schema');
@@ -22197,7 +22242,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // POST /api/routing-suggestions/:id/reject
-  app.post('/api/routing-suggestions/:id/reject', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+  app.post('/api/routing-suggestions/:id/reject', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'destination_manager'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
       const { routingSuggestions } = await import('../shared/schema');
@@ -22588,7 +22633,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── Intelligence Suite: Failover Policies CRUD ───────────────────────────────
 
-  app.get('/api/failover-policies', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead', 'super_admin'], req, res, next), async (_req: any, res: any) => {
+  app.get('/api/failover-policies', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead', 'super_admin', 'destination_manager', 'routing_admin'], req, res, next), async (_req: any, res: any) => {
     try {
       const { db: _db6 } = await import('./db');
       const { intelligentFailoverPolicies: ifp } = await import('../shared/schema');
@@ -22598,7 +22643,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.post('/api/failover-policies', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+  app.post('/api/failover-policies', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead', 'super_admin', 'destination_manager'], req, res, next), async (req: any, res: any) => {
     try {
       const { db: _db7 } = await import('./db');
       const { intelligentFailoverPolicies: ifp } = await import('../shared/schema');
@@ -22614,7 +22659,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
-  app.patch('/api/failover-policies/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {
+  app.patch('/api/failover-policies/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'team_lead', 'super_admin', 'destination_manager'], req, res, next), async (req: any, res: any) => {
     try {
       const { db: _db8 } = await import('./db');
       const { intelligentFailoverPolicies: ifp } = await import('../shared/schema');
@@ -24335,7 +24380,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // POST /api/actions/:id/approve
-  app.post('/api/actions/:id/approve', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+  app.post('/api/actions/:id/approve', (req: any, res: any, next: any) => requireRole(['admin','management','destination_manager'], req, res, next), async (req: any, res: any) => {
     try {
       const action = await getAction(Number(req.params.id));
       if (!action) return res.status(404).json({ message: 'Action not found' });
@@ -24368,7 +24413,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // POST /api/actions/:id/reject
-  app.post('/api/actions/:id/reject', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (req: any, res: any) => {
+  app.post('/api/actions/:id/reject', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator','destination_manager'], req, res, next), async (req: any, res: any) => {
     try {
       const action = await getAction(Number(req.params.id));
       if (!action) return res.status(404).json({ message: 'Action not found' });
@@ -24399,7 +24444,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // POST /api/actions/:id/rollback
-  app.post('/api/actions/:id/rollback', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+  app.post('/api/actions/:id/rollback', (req: any, res: any, next: any) => requireRole(['admin','management','routing_admin'], req, res, next), async (req: any, res: any) => {
     try {
       const action = await getAction(Number(req.params.id));
       if (!action) return res.status(404).json({ message: 'Action not found' });
@@ -24467,7 +24512,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // GET /api/intelligence/chain?window=60
   // Returns a unified causal timeline: ledger intent groups + incidents + carrier scores.
   // This is the Layer 2 data contract — all three hub panels read from here.
-  app.get('/api/intelligence/chain', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+  app.get('/api/intelligence/chain', (req: any, res: any, next: any) => requireRole(['admin','management','destination_manager'], req, res, next), async (req: any, res: any) => {
     try {
       const windowMinutes = Math.min(Number(req.query.window ?? 60), 1440);
       const fromIso = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();

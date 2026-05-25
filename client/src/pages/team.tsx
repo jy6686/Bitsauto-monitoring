@@ -1755,6 +1755,8 @@ export default function TeamPage() {
                 >
                   <option value="super_admin">Super Admin</option>
                   <option value="admin">Admin</option>
+                  <option value="destination_manager">Destination Manager</option>
+                  <option value="routing_admin">Routing Admin</option>
                   <option value="management">Management</option>
                   <option value="noc_operator">NOC Operator</option>
                   <option value="team_lead">Team Lead</option>
@@ -1840,9 +1842,11 @@ export default function TeamPage() {
                 <option value="all">All Roles</option>
                 <option value="super_admin">Super Admin</option>
                 <option value="admin">Admin</option>
+                <option value="destination_manager">Destination Manager</option>
+                <option value="routing_admin">Routing Admin</option>
+                <option value="management">Management</option>
                 <option value="noc_operator">NOC Operator</option>
                 <option value="team_lead">Team Lead</option>
-                <option value="management">Management</option>
                 <option value="viewer">Viewer</option>
               </select>
               <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />

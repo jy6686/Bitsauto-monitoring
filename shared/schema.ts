@@ -513,16 +513,31 @@ export const userRoles = pgTable("user_roles", {
 
 export type UserRole = typeof userRoles.$inferSelect;
 export type InsertUserRole = typeof userRoles.$inferInsert;
-export type Role = 'super_admin' | 'admin' | 'noc_operator' | 'team_lead' | 'management' | 'viewer';
+
+// Platform roles — ordered from highest to lowest authority.
+// destination_manager: routing decision authority (approve/reject failover, edit thresholds, manage vendor whitelist)
+// routing_admin:       routing execution authority (execute approved changes, rollback, modify route order)
+// HARD GOVERNANCE RULE: approver ≠ executor — destination_manager approves, routing_admin executes.
+export type Role =
+  | 'super_admin'
+  | 'admin'
+  | 'destination_manager'
+  | 'routing_admin'
+  | 'noc_operator'
+  | 'team_lead'
+  | 'management'
+  | 'viewer';
 
 // Approval Workflow RBAC policy (configurable — policy may be updated over time)
 export const APPROVAL_POLICY: Record<Role, { canSubmit: boolean; approveScope: 'all' | 'team' | 'none'; selfApproval: boolean }> = {
-  super_admin:  { canSubmit: true,  approveScope: 'all',  selfApproval: true  },
-  admin:        { canSubmit: true,  approveScope: 'all',  selfApproval: false },
-  noc_operator: { canSubmit: true,  approveScope: 'none', selfApproval: false },
-  team_lead:    { canSubmit: false, approveScope: 'team', selfApproval: false },
-  management:   { canSubmit: true,  approveScope: 'none', selfApproval: false },
-  viewer:       { canSubmit: false, approveScope: 'none', selfApproval: false },
+  super_admin:          { canSubmit: true,  approveScope: 'all',  selfApproval: true  },
+  admin:                { canSubmit: true,  approveScope: 'all',  selfApproval: false },
+  destination_manager:  { canSubmit: true,  approveScope: 'all',  selfApproval: false }, // approves failover; cannot execute
+  routing_admin:        { canSubmit: true,  approveScope: 'none', selfApproval: false }, // executes approved changes; cannot self-approve
+  noc_operator:         { canSubmit: true,  approveScope: 'none', selfApproval: false },
+  team_lead:            { canSubmit: false, approveScope: 'team', selfApproval: false },
+  management:           { canSubmit: true,  approveScope: 'none', selfApproval: false },
+  viewer:               { canSubmit: false, approveScope: 'none', selfApproval: false },
 };
 
 // Approval Requests: queued change requests awaiting admin review
@@ -1831,3 +1846,20 @@ export const vendorStabilitySnapshots = pgTable("vendor_stability_snapshots", {
   index("vsn_vendor_ts_idx").on(t.vendor, t.ts),
 ]);
 export type VendorStabilitySnapshot = typeof vendorStabilitySnapshots.$inferSelect;
+
+// ── Platform Feature Flags — progressive activation of automation layers ──────
+// Each flag has an ownerRole (who can toggle it) and creates an audit log entry
+// on every state change. Flags control activation of 2C→2E pipeline stages.
+// IMPORTANT: flags are advisory — they never override backend governance checks.
+export const platformFeatureFlags = pgTable("platform_feature_flags", {
+  key:          varchar("key",           { length: 64  }).primaryKey(),
+  enabled:      boolean("enabled").notNull().default(false),
+  ownerRole:    varchar("owner_role",    { length: 32  }).notNull(),
+  changedBy:    varchar("changed_by",    { length: 255 }),
+  changedByName:varchar("changed_by_name",{ length: 128 }),
+  changedAt:    timestamp("changed_at").defaultNow(),
+  reason:       text("reason"),
+  prevState:    boolean("prev_state"),
+});
+export type PlatformFeatureFlag    = typeof platformFeatureFlags.$inferSelect;
+export type InsertPlatformFeatureFlag = typeof platformFeatureFlags.$inferInsert;
