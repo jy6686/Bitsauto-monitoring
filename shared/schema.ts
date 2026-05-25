@@ -1323,6 +1323,11 @@ export const routingSuggestions = pgTable("routing_suggestions", {
   status:          varchar("status", { length: 32 }).notNull().default('pending'),
   createdAt:       timestamp("created_at").defaultNow().notNull(),
   resolvedAt:      timestamp("resolved_at"),
+  simulationValidatedAt: timestamp("simulation_validated_at"),
+  simulationScenario:    json("simulation_scenario").$type<{
+    fromCarrier: string; toCarrier: string; shiftPercent: number;
+    delta: { asr: number; stability: number; fasRate: number; margin: number };
+  }>(),
 });
 export type RoutingSuggestion = typeof routingSuggestions.$inferSelect;
 export type InsertRoutingSuggestion = typeof routingSuggestions.$inferInsert;

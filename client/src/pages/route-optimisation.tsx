@@ -5,6 +5,7 @@ import {
   XCircle, Clock, RefreshCw, Play, ChevronDown, ChevronRight,
   Activity, Zap, Shield, BarChart3, Target, Info, Minus,
   HelpCircle, X, MapPin, Globe, ArrowRight, GitBranch, AlertCircle,
+  FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -29,7 +30,19 @@ type RouteRec = {
   avgPddMs: number; failureRate: number; sampleCount: number;
   reasoning: Record<string, string>;
   projectedImpact: ProjectedImpact | null;
+  simulationValidatedAt: string | null;
   computedAt: string;
+};
+
+type SimPortfolioMetrics = {
+  portfolioAsr: number; portfolioStability: number;
+  portfolioFasRate: number; portfolioMargin: number;
+};
+type SimResult = {
+  valid: boolean; reason?: string;
+  current: SimPortfolioMetrics;
+  simulated: SimPortfolioMetrics;
+  delta: { asr: number; stability: number; fasRate: number; margin: number; concentration?: number };
 };
 
 type Summary = {
@@ -484,14 +497,191 @@ function ExplainDrawer({ carrier, onClose }: { carrier: string; onClose: () => v
   );
 }
 
+// ── Simulation Panel ──────────────────────────────────────────────────────────
+
+function SimulationPanel({ rec, allCarriers, onValidated }: {
+  rec: RouteRec;
+  allCarriers: string[];
+  onValidated: (simulationValidatedAt: string) => void;
+}) {
+  const toOptions = allCarriers.filter(c => c !== rec.carrier);
+  const [toCarrier, setToCarrier]     = useState(toOptions[0] ?? '');
+  const [shiftPct, setShiftPct]       = useState(rec.trafficShift > 0 ? Math.min(rec.trafficShift, 50) : 10);
+  const [simResult, setSimResult]     = useState<SimResult | null>(null);
+  const [running, setRunning]         = useState(false);
+  const [validating, setValidating]   = useState(false);
+  const { toast } = useToast();
+
+  async function runSim() {
+    setRunning(true);
+    setSimResult(null);
+    try {
+      const r = await apiRequest('POST', '/api/simulation', { fromCarrier: rec.carrier, toCarrier, shiftPercent: shiftPct });
+      const d = await r.json();
+      setSimResult(d);
+    } catch (e: any) {
+      toast({ title: 'Simulation failed', description: e.message ?? String(e), variant: 'destructive' });
+    } finally { setRunning(false); }
+  }
+
+  async function confirmValidation() {
+    if (!simResult || !rec.suggestionId) return;
+    setValidating(true);
+    try {
+      const r = await apiRequest('POST', `/api/routing-suggestions/${rec.suggestionId}/simulate-validate`, {
+        fromCarrier: rec.carrier, toCarrier, shiftPercent: shiftPct,
+      });
+      const d = await r.json();
+      toast({ title: 'Simulation validated ✓', description: `Stamp recorded at ${new Date(d.simulationValidatedAt).toLocaleTimeString()}. You may now approve.` });
+      onValidated(d.simulationValidatedAt);
+    } catch (e: any) {
+      toast({ title: 'Validation failed', description: e.message ?? String(e), variant: 'destructive' });
+    } finally { setValidating(false); }
+  }
+
+  return (
+    <div className="bg-blue-950/30 border border-blue-500/20 rounded-xl p-4 space-y-4">
+      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-blue-400">
+        <FlaskConical className="w-3.5 h-3.5" />
+        Simulation Sandbox
+      </div>
+
+      {/* Carrier selectors */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <div className="text-[10px] text-muted-foreground mb-1.5">From Carrier</div>
+          <div className="text-xs font-medium bg-muted/20 border border-border/30 rounded-lg px-3 py-2 text-foreground/80 truncate">{rec.carrier}</div>
+        </div>
+        <div>
+          <div className="text-[10px] text-muted-foreground mb-1.5">To Carrier</div>
+          {toOptions.length > 0 ? (
+            <select
+              value={toCarrier}
+              onChange={e => { setToCarrier(e.target.value); setSimResult(null); }}
+              data-testid={`sim-to-carrier-${rec.carrier}`}
+              className="w-full text-xs bg-muted/20 border border-border/30 rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-blue-500/50"
+            >
+              {toOptions.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          ) : (
+            <div className="text-xs text-muted-foreground/50 px-3 py-2 bg-muted/10 border border-border/20 rounded-lg">No other carriers</div>
+          )}
+        </div>
+      </div>
+
+      {/* Traffic shift slider */}
+      <div>
+        <div className="flex justify-between text-[10px] text-muted-foreground mb-2">
+          <span>Traffic shift from {rec.carrier}</span>
+          <span className="font-mono text-blue-400 font-semibold">{shiftPct}%</span>
+        </div>
+        <input
+          type="range" min={1} max={50} value={shiftPct}
+          data-testid={`sim-shift-${rec.carrier}`}
+          onChange={e => { setShiftPct(Number(e.target.value)); setSimResult(null); }}
+          className="w-full accent-blue-500"
+        />
+        <div className="flex justify-between text-[10px] text-muted-foreground/40 mt-0.5">
+          <span>1%</span><span>50%</span>
+        </div>
+      </div>
+
+      <button
+        data-testid={`btn-run-sim-${rec.carrier}`}
+        onClick={runSim}
+        disabled={running || !toCarrier}
+        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-blue-500/15 border border-blue-500/30 text-blue-400 hover:bg-blue-500/25 text-xs font-medium transition-colors disabled:opacity-50"
+      >
+        {running ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+        {running ? 'Running simulation…' : 'Run Simulation'}
+      </button>
+
+      {/* Results */}
+      {simResult && (
+        <div className="space-y-3">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Portfolio Impact</div>
+          <div className="overflow-x-auto -mx-1 px-1">
+            <table className="w-full text-xs min-w-[280px]">
+              <thead>
+                <tr>
+                  <th className="text-left text-muted-foreground/60 font-normal pb-2 pr-2">Metric</th>
+                  <th className="text-right text-muted-foreground/60 font-normal pb-2 pr-2">Current</th>
+                  <th className="text-right text-muted-foreground/60 font-normal pb-2 pr-2">Simulated</th>
+                  <th className="text-right text-muted-foreground/60 font-normal pb-2">Delta</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/20">
+                {([
+                  { label: 'Portfolio ASR',  cur: simResult.current.portfolioAsr,      sim: simResult.simulated.portfolioAsr,      d: simResult.delta.asr,       unit: '%', invert: false },
+                  { label: 'Stability',      cur: simResult.current.portfolioStability, sim: simResult.simulated.portfolioStability, d: simResult.delta.stability,  unit: '',  invert: false },
+                  { label: 'FAS Rate',       cur: simResult.current.portfolioFasRate,   sim: simResult.simulated.portfolioFasRate,   d: simResult.delta.fasRate,    unit: '%', invert: true  },
+                  { label: 'Margin Index',   cur: simResult.current.portfolioMargin,    sim: simResult.simulated.portfolioMargin,    d: simResult.delta.margin,     unit: '',  invert: false },
+                ] as { label: string; cur: number; sim: number; d: number; unit: string; invert: boolean }[]).map(row => {
+                  const isGood  = row.invert ? row.d < 0 : row.d > 0;
+                  const dColor  = Math.abs(row.d) < 0.05 ? 'text-slate-400' : isGood ? 'text-emerald-400' : 'text-red-400';
+                  const prefix  = row.d > 0 ? '+' : '';
+                  return (
+                    <tr key={row.label}>
+                      <td className="py-1.5 pr-2 text-muted-foreground">{row.label}</td>
+                      <td className="py-1.5 pr-2 text-right font-mono">{row.cur.toFixed(1)}{row.unit}</td>
+                      <td className="py-1.5 pr-2 text-right font-mono text-foreground">{row.sim.toFixed(1)}{row.unit}</td>
+                      <td className={`py-1.5 text-right font-mono font-semibold ${dColor}`}>{prefix}{row.d.toFixed(1)}{row.unit}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {!simResult.valid && (
+            <div className="flex items-start gap-2 text-xs text-orange-400 bg-orange-500/10 border border-orange-500/20 rounded-lg px-3 py-2">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>{simResult.reason ?? 'Simulation has warnings — review carefully before proceeding.'}</span>
+            </div>
+          )}
+
+          <button
+            data-testid={`btn-confirm-sim-${rec.carrier}`}
+            onClick={confirmValidation}
+            disabled={validating || !rec.suggestionId}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 text-xs font-medium transition-colors disabled:opacity-50"
+          >
+            {validating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+            {validating ? 'Recording validation…' : 'Confirm Simulation'}
+          </button>
+
+          <p className="text-[10px] text-muted-foreground/40 leading-relaxed">
+            Confirming records this simulation as the pre-approval validation stamp. The actual routing change still requires a separate Approve decision.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Recommendation Card ───────────────────────────────────────────────────────
 
-function RecCard({ rec, onAction, onExplain }: {
+function RecCard({ rec, onAction, onExplain, allCarriers }: {
   rec: RouteRec;
   onAction: (id: number, action: 'approve' | 'reject' | 'snooze') => void;
   onExplain: (carrier: string) => void;
+  allCarriers: string[];
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded]                       = useState(false);
+  const [showSimPanel, setShowSimPanel]               = useState(false);
+  const [localSimValidatedAt, setLocalSimValidatedAt] = useState<string | null>(null);
+
+  // ── Simulation freshness ────────────────────────────────────────────────────
+  const SIM_WARN_MS  = 25 * 60_000;
+  const SIM_STALE_MS = 30 * 60_000;
+  const simValidatedAt = localSimValidatedAt ?? rec.simulationValidatedAt ?? null;
+  const simAgeMs   = simValidatedAt ? Date.now() - new Date(simValidatedAt).getTime() : null;
+  const simFresh   = simAgeMs != null && simAgeMs < SIM_WARN_MS;
+  const simWarning = simAgeMs != null && simAgeMs >= SIM_WARN_MS && simAgeMs < SIM_STALE_MS;
+  const simExpired = simAgeMs != null && simAgeMs >= SIM_STALE_MS;
+  const simMinAgo  = simAgeMs != null ? Math.round(simAgeMs / 60_000) : null;
+  const simMinLeft = simAgeMs != null ? Math.max(0, Math.round((SIM_STALE_MS - simAgeMs) / 60_000)) : null;
+
   const meta   = PRIORITY_META[rec.priority] ?? PRIORITY_META.healthy;
   const Icon   = meta.icon;
   const tMeta  = TREND_META[rec.trend as keyof typeof TREND_META] ?? TREND_META.stable;
@@ -606,9 +796,58 @@ function RecCard({ rec, onAction, onExplain }: {
           )}
 
           {rec.suggestionId && rec.status === 'pending' && (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">Human Approval Required</div>
-              <div className="flex gap-2">
+            <div className="space-y-3">
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Human Approval Required</div>
+
+              {/* ── Simulation freshness badge ──────────────────────────── */}
+              {simFresh && (
+                <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                  Simulation validated {simMinAgo === 0 ? 'just now' : `${simMinAgo}m ago`}
+                </div>
+              )}
+              {simWarning && (
+                <div className="flex items-center gap-1.5 text-xs text-amber-400">
+                  <Clock className="w-3 h-3 shrink-0" />
+                  Simulation stale in ~{simMinLeft}m — consider re-validating
+                </div>
+              )}
+              {simExpired && simValidatedAt && (
+                <div className="flex items-center gap-1.5 text-xs text-red-400">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  Simulation expired — re-validate before approving
+                </div>
+              )}
+
+              {/* ── Simulate button ─────────────────────────────────────── */}
+              <button
+                data-testid={`btn-simulate-${rec.carrier}`}
+                onClick={() => setShowSimPanel(p => !p)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border',
+                  showSimPanel
+                    ? 'bg-blue-500/20 border-blue-500/40 text-blue-300'
+                    : 'bg-blue-500/10 border-blue-500/25 text-blue-400 hover:bg-blue-500/20'
+                )}
+              >
+                <FlaskConical className="w-3.5 h-3.5" />
+                {showSimPanel ? 'Hide Simulation' : simFresh ? 'Re-Simulate' : 'Simulate First'}
+              </button>
+
+              {/* ── Inline simulation panel ─────────────────────────────── */}
+              {showSimPanel && (
+                <SimulationPanel
+                  rec={rec}
+                  allCarriers={allCarriers}
+                  onValidated={ts => {
+                    setLocalSimValidatedAt(ts);
+                    setShowSimPanel(false);
+                  }}
+                />
+              )}
+
+              {/* ── Action buttons ──────────────────────────────────────── */}
+              <div className="flex gap-2 flex-wrap">
                 <button
                   data-testid={`btn-approve-${rec.carrier}`}
                   onClick={() => onAction(rec.suggestionId!, 'approve')}
@@ -821,6 +1060,7 @@ export default function RouteOptimisationPage() {
                 rec={rec}
                 onAction={(id, action) => actionMut.mutate({ id, action })}
                 onExplain={setExplain}
+                allCarriers={recs.map(r => r.carrier)}
               />
             ))}
             {summary?.generatedAt && (

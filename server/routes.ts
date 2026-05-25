@@ -22234,10 +22234,94 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   app.post('/api/routing-suggestions/:id/approve', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'destination_manager'], req, res, next), async (req: any, res: any) => {
     try {
       const { db } = await import('./db');
-      const { routingSuggestions } = await import('../shared/schema');
+      const { routingSuggestions, platformFeatureFlags } = await import('../shared/schema');
       const { eq } = await import('drizzle-orm');
-      await db.update(routingSuggestions).set({ status: 'approved', resolvedAt: new Date() }).where(eq(routingSuggestions.id, Number(req.params.id)));
+      const id = Number(req.params.id);
+
+      // ── Simulation Validation Gate ────────────────────────────────────────────
+      // When simulation_validation flag is ON, simulationValidatedAt is a mandatory
+      // pre-condition. Stale simulations (>30 min) are also rejected.
+      const flagRows = await db.select().from(platformFeatureFlags).where(eq(platformFeatureFlags.key, 'simulation_validation')).limit(1);
+      if (flagRows[0]?.enabled) {
+        const sugRows = await db.select().from(routingSuggestions).where(eq(routingSuggestions.id, id)).limit(1);
+        if (!sugRows[0]) return res.status(404).json({ message: 'Suggestion not found' });
+        const sug = sugRows[0];
+        if (!sug.simulationValidatedAt) {
+          return res.status(422).json({ message: 'Simulation validation required before approval. Run a simulation and confirm it before approving.', code: 'SIM_REQUIRED' });
+        }
+        const staleCutoff = new Date(Date.now() - 30 * 60_000);
+        if (sug.simulationValidatedAt < staleCutoff) {
+          return res.status(422).json({ message: 'Simulation is stale — re-validate within 30 minutes of approval. Telecom conditions may have changed.', code: 'SIM_STALE' });
+        }
+      }
+
+      await db.update(routingSuggestions).set({ status: 'approved', resolvedAt: new Date() }).where(eq(routingSuggestions.id, id));
       res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/routing-suggestions/:id/simulate-validate
+  // Runs simulation, writes simulationValidatedAt + scenario to the suggestion.
+  // Does NOT approve the suggestion — approval is a separate human decision.
+  app.post('/api/routing-suggestions/:id/simulate-validate', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'destination_manager', 'routing_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _dbSV } = await import('./db');
+      const { routingSuggestions: rsSV, carrierQualityScores: cqsSV } = await import('../shared/schema');
+      const { eq: _eqSV, desc: _descSV } = await import('drizzle-orm');
+      const { runSimulation } = await import('./simulation-engine');
+
+      const id = Number(req.params.id);
+      const { fromCarrier, toCarrier, shiftPercent } = req.body as {
+        fromCarrier: string; toCarrier: string; shiftPercent: number;
+      };
+      if (!fromCarrier || !toCarrier || shiftPercent == null) {
+        return res.status(400).json({ message: 'fromCarrier, toCarrier, shiftPercent are required' });
+      }
+
+      // Verify suggestion exists and is pending
+      const sugRows = await _dbSV.select().from(rsSV).where(_eqSV(rsSV.id, id)).limit(1);
+      if (!sugRows[0]) return res.status(404).json({ message: 'Suggestion not found' });
+      if (sugRows[0].status !== 'pending') {
+        return res.status(400).json({ message: `Cannot validate simulation for a suggestion with status '${sugRows[0].status}'` });
+      }
+
+      // Fetch carrier quality scores for simulation engine
+      const allScores = await _dbSV.select().from(cqsSV).orderBy(_descSV(cqsSV.lastComputedAt));
+      const latestByCarrierSV = new Map<string, typeof allScores[0]>();
+      for (const s of allScores) {
+        if (!latestByCarrierSV.has(s.carrierName)) latestByCarrierSV.set(s.carrierName, s);
+      }
+      const cdrArrSV = [...cdrCache.values()];
+      const totalCdrsSV = cdrArrSV.length || 1;
+      const vendorCallMapSV = new Map<string, number>();
+      for (const c of cdrArrSV) {
+        const v = (c as any).vendor ?? (c as any).i_vendor_name ?? (c as any).vendor_name;
+        if (v) vendorCallMapSV.set(v, (vendorCallMapSV.get(v) ?? 0) + 1);
+      }
+      const carriers = [...latestByCarrierSV.values()].map(s => ({
+        carrierName: s.carrierName, stabilityScore: s.stabilityScore ?? 50,
+        rollingAsr: s.rollingAsr ?? 50, avgPddMs: s.avgPddMs ?? 2000,
+        failureRate: s.failureRate ?? 10, fasRate: (s.failureRate ?? 10) * 0.3,
+        sampleCount: s.sampleCount ?? 0, revenueShare: 0,
+        trafficShare: Math.round(((vendorCallMapSV.get(s.carrierName) ?? 0) / totalCdrsSV) * 100),
+      }));
+
+      const result = runSimulation({ fromCarrier, toCarrier, shiftPercent: Number(shiftPercent), carriers });
+
+      // Write simulationValidatedAt and scenario to suggestion
+      const scenario = {
+        fromCarrier, toCarrier, shiftPercent: Number(shiftPercent),
+        delta: { asr: result.delta.asr, stability: result.delta.stability, fasRate: result.delta.fasRate, margin: result.delta.margin },
+      };
+      const now = new Date();
+      await _dbSV.update(rsSV).set({ simulationValidatedAt: now, simulationScenario: scenario }).where(_eqSV(rsSV.id, id));
+
+      res.json({
+        ok: true,
+        simulationValidatedAt: now.toISOString(),
+        simulation: result,
+        scenario,
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -22286,6 +22370,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         trend: string; rollingAsr: number; avgPddMs: number; failureRate: number;
         sampleCount: number; reasoning: Record<string, string>;
         projectedImpact: { asrGain: string; marginGain: string; fasReduction: string; trafficShift: string; basedOnSamples: number } | null;
+        simulationValidatedAt: string | null;
         computedAt: Date | string;
       };
       const recommendations: Rec[] = [];
@@ -22347,6 +22432,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             trafficShift: trafficShift > 0 ? `${trafficShift}%`     : `restore ${Math.abs(trafficShift)}%`,
             basedOnSamples: s.sampleCount,
           } : null,
+          simulationValidatedAt: matchSug?.simulationValidatedAt?.toISOString() ?? null,
           computedAt: s.lastComputedAt,
         });
       }
