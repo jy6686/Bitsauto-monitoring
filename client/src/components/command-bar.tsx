@@ -62,6 +62,7 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'DIDs',                 href: '/dids',               icon: Phone,           keywords: 'number inventory did management' },
   { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Account Names',        href: '/account-names',      icon: FileText,        keywords: 'account naming aliases' },
   { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Recordings',           href: '/call-recordings',    icon: Mic,             keywords: 'call recording archive company' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Products',             href: '/products',           icon: Package,         keywords: 'products catalogue trunk classes company' },
 
   // ── Operations ────────────────────────────────────────────────────────────
   { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Vendor List',          href: '/vendors',            icon: Wifi,            keywords: 'carriers vendor connections list' },
@@ -72,7 +73,7 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Routing Manager',      href: '/routing-manager',    icon: GitBranch,       keywords: 'routing groups connections destination sets lcr' },
   { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'LCR Analyser',         href: '/lcr-analyser',       icon: Calculator,      keywords: 'least cost routing lcr analyser' },
   { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Route Simulator',      href: '/call-flow-simulator',icon: ArrowRightLeft,  keywords: 'route simulation call flow simulator' },
-  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Traffic Steering',     href: '/self-heal',          icon: HeartPulse,      keywords: 'self heal auto healing traffic steering routes' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Failover Engine',      href: '/self-heal',          icon: HeartPulse,      keywords: 'failover engine auto healing self-heal traffic steering routes policy' },
   { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Route Tester',         href: '/test-call',          icon: PhoneCall,       keywords: 'route test call on demand' },
 
   // ── Analytics & Reports ───────────────────────────────────────────────────
@@ -102,12 +103,11 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Traffic Steering',     href: '/traffic-steering',     icon: ArrowRightLeft,  keywords: 'traffic steering shift carrier routing suggestions advisory' },
   { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Simulation Sandbox',   href: '/simulation-sandbox',   icon: FlaskConical,    keywords: 'simulation sandbox route model traffic shift projection what-if laboratory' },
 
-  // ── Troubleshooting ───────────────────────────────────────────────────────
-  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'SIP Trace',            href: '/sip-trace',          icon: Mic,             keywords: 'packet sip trace debug pcap' },
-  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'Replay Engine',        href: '/replay',             icon: Rewind,          keywords: 'call session replay pcap' },
-  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'Test Campaigns',       href: '/test-campaigns',     icon: FlaskConical,    keywords: 'automated test suite campaign' },
-  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'Tools',                href: '/tools',              icon: Wrench,          keywords: 'engineering utilities calculator dial' },
-  { type: 'route', domain: 'Troubleshooting',      domainColor: 'text-orange-400',  label: 'RTP Analytics',        href: '/rtp-analytics',      icon: Activity,        keywords: 'rtp media jitter troubleshooting' },
+  // ── Operations — Troubleshooting tools (merged under Operations per architecture spec) ──
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'SIP Trace',            href: '/sip-trace',          icon: Mic,             keywords: 'packet sip trace debug pcap troubleshooting' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Replay Engine',        href: '/replay',             icon: Rewind,          keywords: 'call session replay pcap troubleshooting' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Test Campaigns',       href: '/test-campaigns',     icon: FlaskConical,    keywords: 'automated test suite campaign troubleshooting' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Tools',                href: '/tools',              icon: Wrench,          keywords: 'engineering utilities calculator dial troubleshooting' },
 
   // ── Security & Compliance ─────────────────────────────────────────────────
   { type: 'route', domain: 'Security & Compliance',domainColor: 'text-rose-400',    label: 'Fraud Engine',         href: '/fraud',              icon: ShieldAlert,     keywords: 'fas irsf detection fraud security' },
@@ -123,7 +123,7 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Billing',              href: '/billing',            icon: Wallet,          keywords: 'billing payments invoices finance' },
   { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Billing Disputes',     href: '/billing-disputes',   icon: ClipboardList,   keywords: 'billing dispute resolution finance' },
   { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Rate Cards',           href: '/rate-cards',         icon: FileText,        keywords: 'rate cards pricing decks finance' },
-  { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Products',             href: '/products',           icon: Package,         keywords: 'products catalogue trunk finance' },
+  { type: 'route', domain: 'Company',              domainColor: 'text-amber-400',   label: 'Products',             href: '/products',           icon: Package,         keywords: 'products catalogue trunk classes company' },
   { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Revenue Heatmap',      href: '/revenue-heatmap',    icon: Map,             keywords: 'revenue heatmap finance analytics' },
   { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Balance Monitor',      href: '/balance',            icon: Wallet,          keywords: 'vendor balance monitor finance' },
   { type: 'route', domain: 'Finance & Billing',    domainColor: 'text-emerald-400', label: 'Finance Reports',      href: '/reports',            icon: BarChart2,       keywords: 'finance reports revenue cost settlement' },
@@ -141,6 +141,13 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'Notification Centre',  href: '/notification-centre',icon: Bell,            keywords: 'notifications centre platform' },
   { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'VPN Config',           href: '/vpn-config',         icon: Lock,            keywords: 'vpn configuration network' },
   { type: 'route', domain: 'Platform',             domainColor: 'text-slate-400',   label: 'My Account',           href: '/account',            icon: Users,           keywords: 'profile account preferences' },
+
+  // ── Backward-compatibility aliases — old vocabulary still resolves ─────────
+  // These entries catch operators searching with old nav terminology.
+  // They resolve to the same hrefs under their new domain homes.
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Troubleshooting',      href: '/tools',              icon: Wrench,          keywords: 'troubleshooting debug tools utilities diagnostics' },
+  { type: 'route', domain: 'Intelligence',         domainColor: 'text-fuchsia-400', label: 'Cost Optimisation',    href: '/cost-optimisation',  icon: Lightbulb,       keywords: 'cost optimisation finance route margin intelligence' },
+  { type: 'route', domain: 'Operations',           domainColor: 'text-blue-400',    label: 'Traffic Steering (Failover)', href: '/self-heal',   icon: HeartPulse,      keywords: 'traffic steering self heal failover policy old' },
 ];
 
 // ── Operational commands ───────────────────────────────────────────────────────

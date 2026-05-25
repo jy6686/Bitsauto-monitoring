@@ -180,6 +180,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/account-names",      label: "Account Names",         icon: FileText,     roles: ['admin','management']                                      },
       { href: "/dids",               label: "DID Management",        icon: PhoneIncoming,roles: ['admin','management']                                      },
       { href: "/call-recordings",    label: "Recordings",            icon: Mic,          roles: ['admin','management']                                      },
+      { href: "/products",           label: "Products",              icon: Package,      roles: ['admin','management']                                      },
     ],
   },
   // ─── 3. Operations ───────────────────────────────────────────────────────────
@@ -196,10 +197,12 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/routing-manager",                      label: "Routing Manager",   icon: Database,    roles: ['admin','management'], hasSubmenu: 'routingmgr'               },
       { href: "/lcr-analyser",                         label: "LCR Analyser",      icon: GitBranch,   roles: ['admin','management']                                          },
       { href: "/call-flow-simulator",                  label: "Route Simulator",   icon: Workflow,    roles: ['admin','management']                                          },
-      { href: "/self-heal",                            label: "Traffic Steering",  icon: HeartPulse,  roles: ['admin','management'], isNew: true                             },
+      { href: "/self-heal",                            label: "Failover Engine",   icon: HeartPulse,  roles: ['admin','management'], isNew: true                             },
       { href: "/test-call",                            label: "Route Tester",      icon: PhoneCall,   roles: ['admin','management'], hasSubmenu: 'testing'                  },
-      { href: "/routing-manager?tab=connections",      label: "Connections",       icon: Network,     roles: ['admin','management']                                          },
-      { href: "/routing-manager?tab=destination-sets", label: "Destination Sets",  icon: Layers,      roles: ['admin','management']                                          },
+      { href: "/sip-trace",                            label: "SIP Trace",         icon: GitBranch,   roles: ['admin','management'], isNew: true                             },
+      { href: "/replay",                               label: "Replay Engine",     icon: Rewind,      roles: ['admin','management'], isNew: true                             },
+      { href: "/test-campaigns",                       label: "Test Campaigns",    icon: FlaskConical,roles: ['admin','management']                                          },
+      { href: "/tools",                                label: "Tools",             icon: Wrench,      roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType      },
     ],
   },
   // ─── 4. Analytics & Reports ──────────────────────────────────────────────────
@@ -218,7 +221,6 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/traffic-forecast", label: "Traffic Forecast",   icon: TrendingUp,     roles: ['admin','management'], isNew: true      },
       { href: "/cdrs",             label: "CDR Viewer",         icon: FileText,       roles: ['admin','management'], hasSubmenu: 'cdr'},
       { href: "/bitseye",          label: "BitsEye",            icon: Eye,            roles: ['admin','management'], hasSubmenu: 'bitseye' },
-      { href: "/graphs",           label: "Graphs",             icon: LineChart,      roles: ['admin','management']                    },
     ],
   },
   // ─── 5. Intelligence ─────────────────────────────────────────────────────────
@@ -242,19 +244,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/simulation-sandbox",         label: "Simulation Sandbox",   icon: FlaskConical,   roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
     ],
   },
-  // ─── 6. Troubleshooting ──────────────────────────────────────────────────────
-  {
-    key: 'troubleshooting',
-    label: 'Troubleshooting',
-    roles: ['admin','management'],
-    items: [
-      { href: "/sip-trace",     label: "SIP Trace",       icon: GitBranch, roles: ['admin','management'], isNew: true              },
-      { href: "/replay",        label: "Replay Engine",   icon: Rewind,    roles: ['admin','management'], isNew: true              },
-      { href: "/test-campaigns",label: "Test Campaigns",  icon: FlaskConical, roles: ['admin','management']                        },
-      { href: "/tools",         label: "Tools",           icon: Wrench,    roles: ['admin','management'], hasSubmenu: 'tools' as SubmenuType },
-    ],
-  },
-  // ─── 7. Security & Compliance ────────────────────────────────────────────────
+  // ─── 6. Security & Compliance ────────────────────────────────────────────────
   {
     key: 'security',
     label: 'Security & Compliance',
@@ -278,7 +268,6 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     items: [
       { href: "/billing",          label: "Billing",          icon: Wallet,        roles: ['admin','management']                              },
       { href: "/billing-disputes", label: "Billing Disputes", icon: FileText,      roles: ['admin','management']                              },
-      { href: "/products",         label: "Products",         icon: Package,       roles: ['admin','management']                              },
       { href: "/rate-cards",       label: "Rate Cards",       icon: CreditCard,    roles: ['admin','management'], hasSubmenu: 'ratecards'    },
     ],
   },
@@ -325,6 +314,7 @@ const WORKSPACE_RAIL: Record<string, NavItem[]> = {
     { href: '/client-portal',      label: 'Client Portal',    icon: Globe,        roles: ADM_MGT                   },
     { href: '/company/onboarding', label: 'Onboarding Wizard',icon: Zap,          roles: ADM_MGT, isNew: true       },
     { href: '/client/wizard',      label: 'Create Account',   icon: UserPlus,     roles: ADM_MGT                    },
+    { href: '/products',           label: 'Products',         icon: Package,      roles: ADM_MGT                    },
   ],
   'operations': [
     { href: '/vendors',            label: 'Vendor List',    icon: Building2,  roles: ALL_OPS              },
@@ -332,7 +322,7 @@ const WORKSPACE_RAIL: Record<string, NavItem[]> = {
     { href: '/lcr-analyser',       label: 'LCR Analyser',   icon: GitBranch,  roles: ADM_MGT              },
     { href: '/balance',            label: 'Balances',       icon: Wallet,     roles: ADM_MGT              },
     { href: '/vendor-stability-timeline', label: 'Stability', icon: Activity, roles: ADM_MGT, isNew: true },
-    { href: '/self-heal',          label: 'Traffic Steering',icon: HeartPulse, roles: ADM_MGT, isNew: true },
+    { href: '/self-heal',          label: 'Failover Engine',  icon: HeartPulse, roles: ADM_MGT, isNew: true },
   ],
   'intelligence': [
     { href: '/ai-ops',                   label: 'AI Ops Center',      icon: Bot,          roles: ALL_OPS, isNew: true },
@@ -366,7 +356,6 @@ const WORKSPACE_RAIL: Record<string, NavItem[]> = {
     { href: '/billing',      label: 'Billing',         icon: Wallet,     roles: ADM_MGT },
     { href: '/balance',      label: 'Balance Monitor', icon: Wallet,     roles: ADM_MGT },
     { href: '/rate-cards',   label: 'Rate Cards',      icon: CreditCard, roles: ADM_MGT },
-    { href: '/products',     label: 'Products',        icon: Package,    roles: ADM_MGT },
     { href: '/reports',      label: 'Finance Reports', icon: BarChart2,  roles: ADM_MGT },
   ],
   'platform': [
