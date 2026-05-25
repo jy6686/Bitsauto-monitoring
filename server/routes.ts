@@ -24862,8 +24862,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           .map((a: any) => ({
             iAccount: a.iAccount,
             username: (a as any).username || `i_account:${a.iAccount}`,
+            description: (a as any).description || '',
             balance: (a as any).balance ?? 0,
             maxSessions: a.maxSessions ?? null,
+            blocked: (a as any).blocked ?? false,
+            currency: (a as any).baseCurrency || (a as any).currency || 'USD',
           }));
 
         // For each provisioned company, find auth rules not in approved IP list = orphaned IPs
@@ -24882,14 +24885,38 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           } catch { /* skip on Sippy error */ }
         }
 
+        // Platform companies provisioned but their sippyIAccount not found in Sippy
+        const sippySet = new Set(sippyAccounts.map((a: any) => Number(a.iAccount)));
+        const platformOnlyCompanies = provisioned
+          .filter((c: any) => c.sippyIAccount && !sippySet.has(Number(c.sippyIAccount)))
+          .map((c: any) => ({
+            companyId: c.id,
+            companyName: c.name,
+            shortCode: c.shortCode,
+            sippyIAccount: c.sippyIAccount,
+          }));
+
+        // Unprovisioned platform companies (draft/pending — not yet in Sippy at all)
+        const unprovisioned = allCompanies
+          .filter((c: any) => !c.sippyIAccount && c.provisioningStatus !== 'imported')
+          .map((c: any) => ({
+            companyId: c.id,
+            companyName: c.name,
+            shortCode: c.shortCode,
+            provisioningStatus: c.provisioningStatus ?? 'draft',
+          }));
+
         res.json({
           orphanedAccounts,
           orphanedAuthRules,
+          platformOnlyCompanies,
+          unprovisioned,
           summary: {
             sippyAccountCount:     sippyAccounts.length,
             platformAccountCount:  provisioned.length,
             orphanedAccountCount:  orphanedAccounts.length,
             orphanedAuthRuleCount: orphanedAuthRules.length,
+            platformOnlyCount:     platformOnlyCompanies.length,
           },
         });
       } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -24927,5 +24954,130 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   );
 
+
+  // ── Sync Import ───────────────────────────────────────────────────────────────
+  // POST /api/sippy/sync/import
+  // Body: { iAccount: number, name?: string }
+  // Fetches full account info from Sippy and creates a platform company record.
+  app.post('/api/sippy/sync/import',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { iAccount, name: overrideName } = req.body as { iAccount: number; name?: string };
+        if (!iAccount || isNaN(Number(iAccount))) return res.status(400).json({ message: 'iAccount is required.' });
+
+        const settings = await storage.getSettings();
+        const { username, password } = sippyXmlCreds(settings as any);
+        const portalUrl = sippyPortalUrl(settings as any);
+
+        // Check if already linked
+        const existing = await storage.getCompanyBySippyAccount(Number(iAccount));
+        if (existing) return res.status(409).json({ message: `Account ${iAccount} is already linked to company "${existing.name}".` });
+
+        // Fetch full account details from Sippy
+        const info = await sippy.getAccountInfo(username, password, portalUrl, Number(iAccount));
+
+        // Derive company name: caller override → Sippy name/description → username
+        const sipName = info?.name || info?.description || info?.username || '';
+        const companyName = overrideName?.trim() || sipName || `Sippy-${iAccount}`;
+
+        // Derive short code: username (alphanumeric, max 16 chars) or fallback
+        const rawCode = (info?.username || `acct${iAccount}`).replace(/[^a-z0-9_-]/gi, '').slice(0, 16).toUpperCase() || `SIPPY${iAccount}`;
+
+        // Check for name/shortCode collision and make unique if needed
+        const allCompanies: any[] = await storage.getCompanies();
+        const nameTaken  = allCompanies.some((c: any) => c.name.toLowerCase() === companyName.toLowerCase());
+        const codeTaken  = allCompanies.some((c: any) => c.shortCode.toLowerCase() === rawCode.toLowerCase());
+        const finalName  = nameTaken  ? `${companyName} (i_acct:${iAccount})` : companyName;
+        const finalCode  = codeTaken  ? `${rawCode}${iAccount}`.slice(0, 32)  : rawCode;
+
+        const reviewer = (req as any).user?.id ?? 'system';
+        const company = await storage.createCompany({
+          name:               finalName,
+          shortCode:          finalCode,
+          status:             (info?.blocked ?? false) ? 'inactive' : 'active',
+          companyType:        'retail',
+          contractType:       'bilateral',
+          currency:           info?.baseCurrency || 'USD',
+          provisioningStatus: 'imported',
+          sippyIAccount:      Number(iAccount),
+          provisionedAt:      new Date(),
+          provisionedBy:      reviewer,
+          notes:              `Imported from Sippy. Username: ${info?.username ?? ''}. i_account: ${iAccount}.`,
+        } as any, [], []);
+
+        console.log(`[sync/import] Imported Sippy account ${iAccount} → company #${company.id} "${finalName}" by ${reviewer}`);
+        res.json({ success: true, company });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // ── Sync Link ─────────────────────────────────────────────────────────────────
+  // POST /api/sippy/sync/link
+  // Body: { companyId: number, iAccount: number }
+  // Links an existing platform company to a Sippy account.
+  app.post('/api/sippy/sync/link',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { companyId, iAccount } = req.body as { companyId: number; iAccount: number };
+        if (!companyId || !iAccount) return res.status(400).json({ message: 'companyId and iAccount are required.' });
+
+        const company = await storage.getCompany(Number(companyId));
+        if (!company) return res.status(404).json({ message: 'Company not found.' });
+
+        // Check if target iAccount is already claimed by another company
+        const existingLink = await storage.getCompanyBySippyAccount(Number(iAccount));
+        if (existingLink && existingLink.id !== Number(companyId)) {
+          return res.status(409).json({ message: `Sippy account ${iAccount} is already linked to "${existingLink.name}".` });
+        }
+
+        const updated = await storage.updateCompany(Number(companyId), {
+          sippyIAccount:      Number(iAccount),
+          provisioningStatus: 'provisioned',
+          provisionedAt:      new Date(),
+          provisionedBy:      (req as any).user?.id ?? 'system',
+        } as any);
+
+        console.log(`[sync/link] Linked company #${companyId} "${company.name}" → Sippy i_account: ${iAccount}`);
+        res.json({ success: true, company: updated });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // ── Sync Pull ─────────────────────────────────────────────────────────────────
+  // POST /api/sippy/sync/pull
+  // Body: { companyId: number }
+  // Pulls latest Sippy account state into the platform company record.
+  app.post('/api/sippy/sync/pull',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { companyId } = req.body as { companyId: number };
+        if (!companyId) return res.status(400).json({ message: 'companyId is required.' });
+
+        const company = await storage.getCompany(Number(companyId));
+        if (!company) return res.status(404).json({ message: 'Company not found.' });
+        if (!company.sippyIAccount) return res.status(400).json({ message: 'Company has no linked Sippy account.' });
+
+        const settings = await storage.getSettings();
+        const { username, password } = sippyXmlCreds(settings as any);
+        const portalUrl = sippyPortalUrl(settings as any);
+
+        const info = await sippy.getAccountInfo(username, password, portalUrl, company.sippyIAccount);
+        if (!info) return res.status(502).json({ message: `Could not fetch Sippy account ${company.sippyIAccount}.` });
+
+        const updates: any = {
+          status: info.blocked ? 'inactive' : 'active',
+        };
+
+        const updated = await storage.updateCompany(Number(companyId), updates);
+        console.log(`[sync/pull] Pulled Sippy i_account:${company.sippyIAccount} → company #${companyId} "${company.name}" (blocked=${info.blocked})`);
+        res.json({ success: true, company: updated, sippyInfo: { username: info.username, blocked: info.blocked, balance: info.balance, currency: info.baseCurrency } });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
   return httpServer;
 }
+

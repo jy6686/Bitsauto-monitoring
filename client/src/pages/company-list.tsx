@@ -606,18 +606,27 @@ function PreProvisionChecks({ company }: { company: Company }) {
 }
 
 // ── Sync Dialog ───────────────────────────────────────────────────────────────
-type OrphanedAccount  = { iAccount: number; username: string; balance: number; maxSessions: number | null };
+type OrphanedAccount  = { iAccount: number; username: string; description: string; balance: number; maxSessions: number | null; blocked: boolean; currency: string };
 type OrphanedAuthRule = { iAccount: number; iAuthentication: number; remoteIp: string; companyName: string; companyId: number };
+type PlatformOnlyCompany = { companyId: number; companyName: string; shortCode: string; sippyIAccount: number };
 type SyncPreview = {
   orphanedAccounts: OrphanedAccount[];
   orphanedAuthRules: OrphanedAuthRule[];
-  summary: { sippyAccountCount: number; platformAccountCount: number; orphanedAccountCount: number; orphanedAuthRuleCount: number };
+  platformOnlyCompanies: PlatformOnlyCompany[];
+  summary: { sippyAccountCount: number; platformAccountCount: number; orphanedAccountCount: number; orphanedAuthRuleCount: number; platformOnlyCount: number };
 };
+
+type SyncTab = 'import' | 'cleanup' | 'broken';
 
 function SyncDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { toast } = useToast();
+  const [tab, setTab]                             = useState<SyncTab>('import');
   const [selectedAccounts,  setSelectedAccounts]  = useState<Set<number>>(new Set());
   const [selectedAuthRules, setSelectedAuthRules] = useState<Set<number>>(new Set());
+  const [importingId,       setImportingId]       = useState<number | null>(null);
+  const [importName,        setImportName]        = useState('');
+  const [linkingCompanyId,  setLinkingCompanyId]  = useState<number | null>(null);
+  const [linkIAccount,      setLinkIAccount]      = useState('');
 
   const { data, isFetching, error, refetch } = useQuery<SyncPreview>({
     queryKey: ['/api/sippy/sync/preview'],
@@ -627,6 +636,32 @@ function SyncDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
     enabled: open,
     staleTime: 0,
     retry: false,
+  });
+
+  const importMutation = useMutation({
+    mutationFn: (payload: { iAccount: number; name: string }) =>
+      apiRequest('POST', '/api/sippy/sync/import', payload),
+    onSuccess: async (_res: any, vars) => {
+      toast({ title: 'Account imported', description: `Sippy i_account:${vars.iAccount} has been added to the platform.` });
+      setImportingId(null);
+      setImportName('');
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ['/api/companies'] });
+    },
+    onError: (e: any) => toast({ title: 'Import failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: (payload: { companyId: number; iAccount: number }) =>
+      apiRequest('POST', '/api/sippy/sync/link', payload),
+    onSuccess: async (_res: any, vars) => {
+      toast({ title: 'Linked', description: `Company linked to Sippy i_account:${vars.iAccount}.` });
+      setLinkingCompanyId(null);
+      setLinkIAccount('');
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ['/api/companies'] });
+    },
+    onError: (e: any) => toast({ title: 'Link failed', description: e.message, variant: 'destructive' }),
   });
 
   const executeMutation = useMutation({
@@ -646,142 +681,345 @@ function SyncDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
           variant: 'destructive',
         });
       } else {
-        toast({ title: 'Sync executed', description: `${selectedAccounts.size + selectedAuthRules.size} item(s) removed from Sippy.` });
+        toast({ title: 'Cleanup done', description: `${selectedAccounts.size + selectedAuthRules.size} item(s) removed from Sippy.` });
       }
       setSelectedAccounts(new Set());
       setSelectedAuthRules(new Set());
       refetch();
     },
-    onError: (e: any) => toast({ title: 'Sync failed', description: e.message, variant: 'destructive' }),
+    onError: (e: any) => toast({ title: 'Cleanup failed', description: e.message, variant: 'destructive' }),
   });
 
   const toggleAccount  = (id: number) => setSelectedAccounts(s  => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAuthRule = (id: number) => setSelectedAuthRules(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  const totalSelected     = selectedAccounts.size + selectedAuthRules.size;
-  const orphanedAccounts  = data?.orphanedAccounts  ?? [];
-  const orphanedAuthRules = data?.orphanedAuthRules ?? [];
+  const totalSelected        = selectedAccounts.size + selectedAuthRules.size;
+  const orphanedAccounts     = data?.orphanedAccounts     ?? [];
+  const orphanedAuthRules    = data?.orphanedAuthRules    ?? [];
+  const platformOnlyCompanies = data?.platformOnlyCompanies ?? [];
+  const allInSync            = orphanedAccounts.length === 0 && orphanedAuthRules.length === 0 && platformOnlyCompanies.length === 0;
+
+  const TABS: { id: SyncTab; label: string; count?: number; color?: string }[] = [
+    { id: 'import',  label: 'Import from Sippy', count: orphanedAccounts.length,     color: orphanedAccounts.length > 0 ? 'text-blue-400' : undefined },
+    { id: 'broken',  label: 'Broken Links',      count: platformOnlyCompanies.length, color: platformOnlyCompanies.length > 0 ? 'text-amber-400' : undefined },
+    { id: 'cleanup', label: 'Cleanup',            count: orphanedAuthRules.length,    color: orphanedAuthRules.length > 0 ? 'text-rose-400' : undefined },
+  ];
 
   return (
-    <Dialog open={open} onOpenChange={o => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={o => { if (!o) { onClose(); setImportingId(null); setLinkingCompanyId(null); } }}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col gap-0 p-0">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border/40">
           <DialogTitle className="flex items-center gap-2">
             <RefreshCw className="h-4 w-4 text-blue-400" />
-            Sippy Sync
+            Sippy ↔ Platform Sync
             <Badge variant="outline" className="text-[10px] font-normal ml-1">Admin</Badge>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 pt-1">
+        <div className="flex flex-col gap-0 overflow-hidden flex-1 min-h-0">
           {/* Summary cards */}
           {data?.summary && (
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-5 gap-2 px-5 pt-3 pb-2">
               {[
-                { label: 'Sippy Accounts',    value: data.summary.sippyAccountCount,    color: 'text-blue-400'    },
-                { label: 'Platform Tracked',  value: data.summary.platformAccountCount, color: 'text-emerald-400' },
-                { label: 'Orphaned Accounts', value: data.summary.orphanedAccountCount,  color: data.summary.orphanedAccountCount  > 0 ? 'text-rose-400'  : 'text-muted-foreground' },
-                { label: 'Orphaned IPs',      value: data.summary.orphanedAuthRuleCount, color: data.summary.orphanedAuthRuleCount > 0 ? 'text-amber-400' : 'text-muted-foreground' },
+                { label: 'In Sippy',        value: data.summary.sippyAccountCount,    color: 'text-blue-400' },
+                { label: 'In Platform',     value: data.summary.platformAccountCount, color: 'text-emerald-400' },
+                { label: 'Sippy Only',      value: data.summary.orphanedAccountCount,  color: data.summary.orphanedAccountCount  > 0 ? 'text-blue-300'  : 'text-muted-foreground' },
+                { label: 'Broken Links',    value: data.summary.platformOnlyCount ?? 0, color: (data.summary.platformOnlyCount ?? 0) > 0 ? 'text-amber-400' : 'text-muted-foreground' },
+                { label: 'Orphaned IPs',   value: data.summary.orphanedAuthRuleCount, color: data.summary.orphanedAuthRuleCount > 0 ? 'text-rose-400' : 'text-muted-foreground' },
               ].map(s => (
-                <div key={s.label} className="text-center border border-border/40 rounded-lg p-2">
-                  <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
+                <div key={s.label} className="text-center border border-border/40 rounded-lg py-2 px-1">
+                  <p className={`text-base font-bold ${s.color}`}>{s.value}</p>
                   <p className="text-[10px] text-muted-foreground leading-tight">{s.label}</p>
                 </div>
               ))}
             </div>
           )}
 
-          {isFetching && (
-            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Fetching Sippy accounts…
-            </div>
-          )}
+          {/* Tabs */}
+          <div className="flex gap-0 px-5 border-b border-border/40">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`text-xs px-3 py-2 border-b-2 transition-colors flex items-center gap-1.5 ${
+                  tab === t.id
+                    ? 'border-blue-400 text-blue-400'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t.label}
+                {t.count !== undefined && t.count > 0 && (
+                  <span className={`text-[10px] font-semibold px-1 rounded ${t.color ?? ''}`}>{t.count}</span>
+                )}
+              </button>
+            ))}
+          </div>
 
-          {error && (
-            <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
-              <XCircle className="h-4 w-4 shrink-0" /> {(error as any).message ?? 'Failed to load sync data'}
-            </div>
-          )}
-
-          {!isFetching && !error && orphanedAccounts.length === 0 && orphanedAuthRules.length === 0 && data && (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-3 text-sm text-emerald-300">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              Sippy and platform are fully in sync — no orphaned items found.
-            </div>
-          )}
-
-          {/* Orphaned Accounts */}
-          {orphanedAccounts.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                <Server className="h-3 w-3 text-rose-400" />
-                Orphaned Accounts ({orphanedAccounts.length})
-                <span className="text-[10px] font-normal normal-case text-muted-foreground/60">exist in Sippy, not tracked in platform</span>
-              </p>
-              <div className="space-y-1">
-                {orphanedAccounts.map(a => (
-                  <button
-                    key={a.iAccount}
-                    data-testid={`sync-account-${a.iAccount}`}
-                    onClick={() => toggleAccount(a.iAccount)}
-                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded border transition-colors ${
-                      selectedAccounts.has(a.iAccount)
-                        ? 'bg-rose-500/15 border-rose-500/50 text-rose-200'
-                        : 'bg-rose-500/5 border-rose-500/20 text-rose-300 hover:bg-rose-500/10'
-                    }`}
-                  >
-                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-                      selectedAccounts.has(a.iAccount) ? 'bg-rose-500 border-rose-500' : 'border-rose-500/40'
-                    }`}>
-                      {selectedAccounts.has(a.iAccount) && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
-                    </div>
-                    <span className="text-xs font-mono font-medium flex-1">{a.username}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">i_account: {a.iAccount}</span>
-                    {a.balance !== 0 && (
-                      <span className="text-[10px] text-amber-400 shrink-0">bal: {a.balance}</span>
-                    )}
-                  </button>
-                ))}
+          {/* Tab content */}
+          <div className="overflow-y-auto flex-1 px-5 py-3 space-y-3">
+            {isFetching && (
+              <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Comparing Sippy ↔ Platform…
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Orphaned Auth Rules */}
-          {orphanedAuthRules.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                <AlertCircle className="h-3 w-3 text-amber-400" />
-                Orphaned Auth Rules ({orphanedAuthRules.length})
-                <span className="text-[10px] font-normal normal-case text-muted-foreground/60">IPs in Sippy not in platform's approved list</span>
-              </p>
-              <div className="space-y-1">
-                {orphanedAuthRules.map(r => (
-                  <button
-                    key={r.iAuthentication}
-                    data-testid={`sync-authrule-${r.iAuthentication}`}
-                    onClick={() => toggleAuthRule(r.iAuthentication)}
-                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded border transition-colors ${
-                      selectedAuthRules.has(r.iAuthentication)
-                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-200'
-                        : 'bg-amber-500/5 border-amber-500/20 text-amber-300 hover:bg-amber-500/10'
-                    }`}
-                  >
-                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-                      selectedAuthRules.has(r.iAuthentication) ? 'bg-amber-500 border-amber-500' : 'border-amber-500/40'
-                    }`}>
-                      {selectedAuthRules.has(r.iAuthentication) && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
-                    </div>
-                    <span className="text-xs font-mono flex-1">{r.remoteIp}</span>
-                    <span className="text-[10px] text-muted-foreground">→ {r.companyName}</span>
-                    <span className="text-[10px] text-muted-foreground ml-auto shrink-0">auth #{r.iAuthentication}</span>
-                  </button>
-                ))}
+            {error && (
+              <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
+                <XCircle className="h-4 w-4 shrink-0" /> {(error as any).message ?? 'Failed to load sync data'}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Actions */}
-          <div className="flex items-center gap-2 pt-2 border-t border-border/40">
+            {!isFetching && !error && allInSync && data && (
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.07] px-4 py-4 text-sm text-emerald-300">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                Everything is in sync — no mismatches found.
+              </div>
+            )}
+
+            {/* ── TAB: Import from Sippy ────────────────────────────────── */}
+            {tab === 'import' && !isFetching && (
+              <>
+                {orphanedAccounts.length === 0 && data && (
+                  <p className="text-xs text-muted-foreground py-4 text-center">
+                    All Sippy accounts are tracked in the platform.
+                  </p>
+                )}
+                {orphanedAccounts.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold pb-1">
+                      {orphanedAccounts.length} Sippy account{orphanedAccounts.length !== 1 ? 's' : ''} not yet in platform — click "Import" to add them
+                    </p>
+                    {orphanedAccounts.map(a => (
+                      <div key={a.iAccount} className="rounded border border-border/50 bg-muted/20 p-2.5 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Server className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                          <span className="text-xs font-mono font-medium flex-1">{a.username || `i_account:${a.iAccount}`}</span>
+                          {a.description && <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">{a.description}</span>}
+                          <span className="text-[10px] text-muted-foreground/60 shrink-0">#{a.iAccount}</span>
+                          {a.blocked && <Badge variant="outline" className="text-[10px] bg-rose-500/10 text-rose-400 border-rose-500/30 shrink-0">blocked</Badge>}
+                          {a.balance !== 0 && <span className="text-[10px] text-amber-400 shrink-0">{a.currency} {a.balance}</span>}
+                        </div>
+
+                        {importingId === a.iAccount ? (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              data-testid={`input-import-name-${a.iAccount}`}
+                              className="h-7 text-xs flex-1"
+                              placeholder={`Company name (default: ${a.description || a.username || `Sippy-${a.iAccount}`})`}
+                              value={importName}
+                              onChange={e => setImportName(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') importMutation.mutate({ iAccount: a.iAccount, name: importName }); if (e.key === 'Escape') { setImportingId(null); setImportName(''); } }}
+                              autoFocus
+                            />
+                            <Button
+                              data-testid={`btn-confirm-import-${a.iAccount}`}
+                              size="sm"
+                              className="h-7 text-xs gap-1 bg-blue-600 hover:bg-blue-700"
+                              disabled={importMutation.isPending}
+                              onClick={() => importMutation.mutate({ iAccount: a.iAccount, name: importName })}
+                            >
+                              {importMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                              Confirm
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setImportingId(null); setImportName(''); }}>
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            data-testid={`btn-import-account-${a.iAccount}`}
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs gap-1.5 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                            onClick={() => { setImportingId(a.iAccount); setImportName(a.description || a.username || ''); }}
+                          >
+                            <PlusCircle className="h-3 w-3" /> Import to Platform
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── TAB: Broken Links ─────────────────────────────────────── */}
+            {tab === 'broken' && !isFetching && (
+              <>
+                {platformOnlyCompanies.length === 0 && data && (
+                  <p className="text-xs text-muted-foreground py-4 text-center">
+                    All provisioned platform companies are confirmed in Sippy.
+                  </p>
+                )}
+                {platformOnlyCompanies.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold pb-1">
+                      {platformOnlyCompanies.length} platform compan{platformOnlyCompanies.length !== 1 ? 'ies' : 'y'} whose linked Sippy account no longer exists
+                    </p>
+                    {platformOnlyCompanies.map(c => (
+                      <div key={c.companyId} className="rounded border border-amber-500/30 bg-amber-500/5 p-2.5 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                          <span className="text-xs font-semibold flex-1">{c.companyName}</span>
+                          <span className="text-[10px] font-mono text-muted-foreground">{c.shortCode}</span>
+                          <span className="text-[10px] text-amber-400/70 shrink-0">was i_account:{c.sippyIAccount}</span>
+                        </div>
+
+                        {linkingCompanyId === c.companyId ? (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              data-testid={`input-link-iaccount-${c.companyId}`}
+                              className="h-7 text-xs w-36"
+                              placeholder="New i_account #"
+                              value={linkIAccount}
+                              type="number"
+                              onChange={e => setLinkIAccount(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && linkIAccount) linkMutation.mutate({ companyId: c.companyId, iAccount: parseInt(linkIAccount, 10) });
+                                if (e.key === 'Escape') { setLinkingCompanyId(null); setLinkIAccount(''); }
+                              }}
+                              autoFocus
+                            />
+                            <Button
+                              data-testid={`btn-confirm-link-${c.companyId}`}
+                              size="sm"
+                              className="h-7 text-xs gap-1 bg-amber-600 hover:bg-amber-700"
+                              disabled={linkMutation.isPending || !linkIAccount}
+                              onClick={() => linkMutation.mutate({ companyId: c.companyId, iAccount: parseInt(linkIAccount, 10) })}
+                            >
+                              {linkMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                              Re-link
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setLinkingCompanyId(null); setLinkIAccount(''); }}>
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <Button
+                              data-testid={`btn-relink-company-${c.companyId}`}
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                              onClick={() => { setLinkingCompanyId(c.companyId); setLinkIAccount(''); }}
+                            >
+                              <Play className="h-3 w-3" /> Re-link to Sippy Account
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── TAB: Cleanup ──────────────────────────────────────────── */}
+            {tab === 'cleanup' && !isFetching && (
+              <>
+                {orphanedAuthRules.length === 0 && orphanedAccounts.length === 0 && data && (
+                  <p className="text-xs text-muted-foreground py-4 text-center">
+                    No orphaned auth rules or untracked accounts to clean up.
+                  </p>
+                )}
+
+                {/* Untracked accounts (can also delete here) */}
+                {orphanedAccounts.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <Server className="h-3 w-3 text-rose-400" />
+                      Untracked Sippy Accounts ({orphanedAccounts.length})
+                      <span className="text-[10px] font-normal normal-case text-muted-foreground/60">select to delete from Sippy</span>
+                    </p>
+                    <div className="space-y-1">
+                      {orphanedAccounts.map(a => (
+                        <button
+                          key={a.iAccount}
+                          data-testid={`sync-account-${a.iAccount}`}
+                          onClick={() => toggleAccount(a.iAccount)}
+                          className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded border transition-colors ${
+                            selectedAccounts.has(a.iAccount)
+                              ? 'bg-rose-500/15 border-rose-500/50 text-rose-200'
+                              : 'bg-rose-500/5 border-rose-500/20 text-rose-300 hover:bg-rose-500/10'
+                          }`}
+                        >
+                          <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                            selectedAccounts.has(a.iAccount) ? 'bg-rose-500 border-rose-500' : 'border-rose-500/40'
+                          }`}>
+                            {selectedAccounts.has(a.iAccount) && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
+                          </div>
+                          <span className="text-xs font-mono font-medium flex-1">{a.username}</span>
+                          <span className="text-[10px] text-muted-foreground shrink-0">i_account: {a.iAccount}</span>
+                          {a.balance !== 0 && <span className="text-[10px] text-amber-400 shrink-0">bal: {a.balance}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Orphaned Auth Rules */}
+                {orphanedAuthRules.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <AlertCircle className="h-3 w-3 text-amber-400" />
+                      Orphaned Auth Rules ({orphanedAuthRules.length})
+                      <span className="text-[10px] font-normal normal-case text-muted-foreground/60">IPs in Sippy not in platform's approved list</span>
+                    </p>
+                    <div className="space-y-1">
+                      {orphanedAuthRules.map(r => (
+                        <button
+                          key={r.iAuthentication}
+                          data-testid={`sync-authrule-${r.iAuthentication}`}
+                          onClick={() => toggleAuthRule(r.iAuthentication)}
+                          className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded border transition-colors ${
+                            selectedAuthRules.has(r.iAuthentication)
+                              ? 'bg-amber-500/15 border-amber-500/50 text-amber-200'
+                              : 'bg-amber-500/5 border-amber-500/20 text-amber-300 hover:bg-amber-500/10'
+                          }`}
+                        >
+                          <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+                            selectedAuthRules.has(r.iAuthentication) ? 'bg-amber-500 border-amber-500' : 'border-amber-500/40'
+                          }`}>
+                            {selectedAuthRules.has(r.iAuthentication) && <CheckCircle2 className="h-2.5 w-2.5 text-white" />}
+                          </div>
+                          <span className="text-xs font-mono flex-1">{r.remoteIp}</span>
+                          <span className="text-[10px] text-muted-foreground">→ {r.companyName}</span>
+                          <span className="text-[10px] text-muted-foreground ml-auto shrink-0">auth #{r.iAuthentication}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {totalSelected > 0 && (
+                  <div className="pt-2 border-t border-border/40">
+                    <Button
+                      data-testid="btn-execute-sync"
+                      size="sm"
+                      variant="destructive"
+                      disabled={executeMutation.isPending}
+                      onClick={() => {
+                        const parts = [];
+                        if (selectedAccounts.size  > 0) parts.push(`${selectedAccounts.size} Sippy account(s)`);
+                        if (selectedAuthRules.size > 0) parts.push(`${selectedAuthRules.size} auth rule(s)`);
+                        if (confirm(`Permanently delete ${parts.join(' and ')} from Sippy?\n\nThis cannot be undone.`))
+                          executeMutation.mutate();
+                      }}
+                      className="gap-1.5"
+                    >
+                      {executeMutation.isPending
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Deleting…</>
+                        : <><Trash2 className="h-3.5 w-3.5" /> Delete {totalSelected} Selected from Sippy</>
+                      }
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center gap-2 px-5 py-3 border-t border-border/40">
             <Button
               data-testid="btn-refresh-sync"
               size="sm"
@@ -793,27 +1031,6 @@ function SyncDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
               <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            {totalSelected > 0 && (
-              <Button
-                data-testid="btn-execute-sync"
-                size="sm"
-                variant="destructive"
-                disabled={executeMutation.isPending}
-                onClick={() => {
-                  const parts = [];
-                  if (selectedAccounts.size  > 0) parts.push(`${selectedAccounts.size} Sippy account(s)`);
-                  if (selectedAuthRules.size > 0) parts.push(`${selectedAuthRules.size} auth rule(s)`);
-                  if (confirm(`Permanently delete ${parts.join(' and ')} from Sippy?\n\nThis cannot be undone.`))
-                    executeMutation.mutate();
-                }}
-                className="gap-1.5"
-              >
-                {executeMutation.isPending
-                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Executing…</>
-                  : <><Trash2 className="h-3.5 w-3.5" /> Delete {totalSelected} Selected</>
-                }
-              </Button>
-            )}
             <Button size="sm" variant="ghost" onClick={onClose} className="ml-auto">Close</Button>
           </div>
         </div>
