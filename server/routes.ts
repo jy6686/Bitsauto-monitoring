@@ -22861,6 +22861,179 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Failover Policy: Simulate-Validate ───────────────────────────────────────
+  // Runs simulation engine against this policy's thresholds and stamps
+  // simulationValidatedAt. Does NOT arm the policy — that is a separate step.
+  app.post('/api/failover-policies/:id/simulate-validate', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'destination_manager', 'routing_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _dbFPSV } = await import('./db');
+      const { intelligentFailoverPolicies: ifpSV, carrierQualityScores: cqsFPSV } = await import('../shared/schema');
+      const { eq: _eqFPSV, desc: _descFPSV } = await import('drizzle-orm');
+      const { runSimulation } = await import('./simulation-engine');
+
+      const id = Number(req.params.id);
+      const { fromCarrier, toCarrier, shiftPercent } = req.body as { fromCarrier: string; toCarrier: string; shiftPercent: number };
+      if (!fromCarrier || !toCarrier || shiftPercent == null) return res.status(400).json({ message: 'fromCarrier, toCarrier, shiftPercent are required' });
+
+      const polRows = await _dbFPSV.select().from(ifpSV).where(_eqFPSV(ifpSV.id, id)).limit(1);
+      if (!polRows[0]) return res.status(404).json({ message: 'Policy not found' });
+
+      const allScores = await _dbFPSV.select().from(cqsFPSV).orderBy(_descFPSV(cqsFPSV.lastComputedAt));
+      const latestByCarrierFP = new Map<string, typeof allScores[0]>();
+      for (const s of allScores) { if (!latestByCarrierFP.has(s.carrierName)) latestByCarrierFP.set(s.carrierName, s); }
+      const cdrArrFP = [...cdrCache.values()];
+      const totalCdrsFP = cdrArrFP.length || 1;
+      const vendorCallMapFP = new Map<string, number>();
+      for (const c of cdrArrFP) {
+        const v = (c as any).vendor ?? (c as any).i_vendor_name ?? (c as any).vendor_name;
+        if (v) vendorCallMapFP.set(v, (vendorCallMapFP.get(v) ?? 0) + 1);
+      }
+      const carriers = [...latestByCarrierFP.values()].map(s => ({
+        carrierName: s.carrierName, stabilityScore: s.stabilityScore ?? 50,
+        rollingAsr: s.rollingAsr ?? 50, avgPddMs: s.avgPddMs ?? 2000,
+        failureRate: s.failureRate ?? 10, fasRate: (s.failureRate ?? 10) * 0.3,
+        sampleCount: s.sampleCount ?? 0, revenueShare: 0,
+        trafficShare: Math.round(((vendorCallMapFP.get(s.carrierName) ?? 0) / totalCdrsFP) * 100),
+      }));
+
+      const result = runSimulation({ fromCarrier, toCarrier, shiftPercent: Number(shiftPercent), carriers });
+      const scenario = { fromCarrier, toCarrier, shiftPercent: Number(shiftPercent), delta: { asr: result.delta.asr, stability: result.delta.stability, fasRate: result.delta.fasRate, margin: result.delta.margin } };
+      const now = new Date();
+      await _dbFPSV.update(ifpSV).set({ simulationValidatedAt: now, simulationScenario: scenario }).where(_eqFPSV(ifpSV.id, id));
+      res.json({ ok: true, simulationValidatedAt: now.toISOString(), simulation: result, scenario });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Failover Policy: Arm ─────────────────────────────────────────────────────
+  // Routing Admin only. When failover_simulation_required is ON, simulationValidatedAt
+  // must be present and fresh (<30 min). Sets armingStatus = 'armed'.
+  app.post('/api/failover-policies/:id/arm', (req: any, res: any, next: any) => requireRole(['routing_admin', 'admin', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _dbArm } = await import('./db');
+      const { intelligentFailoverPolicies: ifpArm, platformFeatureFlags: pffArm } = await import('../shared/schema');
+      const { eq: _eqArm } = await import('drizzle-orm');
+      const id = Number(req.params.id);
+      const actor = (req as any).user?.claims?.sub ?? (req as any).user?.id ?? 'unknown';
+
+      const polRows = await _dbArm.select().from(ifpArm).where(_eqArm(ifpArm.id, id)).limit(1);
+      if (!polRows[0]) return res.status(404).json({ message: 'Policy not found' });
+      const pol = polRows[0];
+      if (pol.armingStatus === 'armed') return res.status(409).json({ message: 'Policy is already armed' });
+
+      // Check intelligent_failover feature flag
+      const ifFlag = await _dbArm.select().from(pffArm).where(_eqArm(pffArm.key, 'intelligent_failover')).limit(1);
+      if (!ifFlag[0]?.enabled) return res.status(422).json({ message: 'Intelligent failover feature is currently disabled. Enable the feature flag to arm policies.', code: 'FEATURE_DISABLED' });
+
+      // Check simulation_required flag
+      const simReqFlag = await _dbArm.select().from(pffArm).where(_eqArm(pffArm.key, 'failover_simulation_required')).limit(1);
+      if (simReqFlag[0]?.enabled) {
+        if (!pol.simulationValidatedAt) return res.status(422).json({ message: 'Simulation validation is required before arming this policy. Run a simulation and confirm it first.', code: 'SIM_REQUIRED' });
+        const staleCutoff = new Date(Date.now() - 30 * 60_000);
+        if (pol.simulationValidatedAt < staleCutoff) return res.status(422).json({ message: 'Simulation is stale (>30 min). Re-validate before arming.', code: 'SIM_STALE' });
+      }
+
+      const now = new Date();
+      const [updated] = await _dbArm.update(ifpArm).set({ armingStatus: 'armed', armedAt: now, armedBy: actor, updatedAt: now, updatedBy: actor }).where(_eqArm(ifpArm.id, id)).returning();
+      res.json({ ok: true, policy: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Failover Policy: Disarm ──────────────────────────────────────────────────
+  app.post('/api/failover-policies/:id/disarm', (req: any, res: any, next: any) => requireRole(['routing_admin', 'destination_manager', 'admin', 'management', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _dbDisarm } = await import('./db');
+      const { intelligentFailoverPolicies: ifpD } = await import('../shared/schema');
+      const { eq: _eqD } = await import('drizzle-orm');
+      const id = Number(req.params.id);
+      const actor = (req as any).user?.claims?.sub ?? (req as any).user?.id ?? 'unknown';
+      const now = new Date();
+      const [updated] = await _dbDisarm.update(ifpD).set({ armingStatus: 'disarmed', armedAt: null, armedBy: null, updatedAt: now, updatedBy: actor }).where(_eqD(ifpD.id, id)).returning();
+      if (!updated) return res.status(404).json({ message: 'Policy not found' });
+      res.json({ ok: true, policy: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Failover Policy: Execute ─────────────────────────────────────────────────
+  // Routing Admin only. Policy must be 'armed'. Creates a failoverExecution record.
+  // System bounds-checks: shiftPercent ≤ policy.maxTrafficShift.
+  // Does NOT bypass toCarrier whitelist — toCarrier must be in approvedFailoverVendors (if non-empty).
+  app.post('/api/failover-policies/:id/execute', (req: any, res: any, next: any) => requireRole(['routing_admin', 'admin', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _dbExec } = await import('./db');
+      const { intelligentFailoverPolicies: ifpExec, failoverExecutions: feExec, platformFeatureFlags: pffExec } = await import('../shared/schema');
+      const { eq: _eqExec } = await import('drizzle-orm');
+      const id = Number(req.params.id);
+      const actor = (req as any).user?.claims?.sub ?? (req as any).user?.id ?? 'unknown';
+      const { fromCarrier, toCarrier, shiftPercent, reason } = req.body as { fromCarrier: string; toCarrier: string; shiftPercent: number; reason?: string };
+      if (!fromCarrier || !toCarrier || shiftPercent == null) return res.status(400).json({ message: 'fromCarrier, toCarrier, shiftPercent are required' });
+
+      const polRows = await _dbExec.select().from(ifpExec).where(_eqExec(ifpExec.id, id)).limit(1);
+      if (!polRows[0]) return res.status(404).json({ message: 'Policy not found' });
+      const pol = polRows[0];
+
+      if (pol.armingStatus !== 'armed') return res.status(422).json({ message: `Policy must be 'armed' before execution. Current status: '${pol.armingStatus}'.`, code: 'NOT_ARMED' });
+      if (Number(shiftPercent) > pol.maxTrafficShift) return res.status(422).json({ message: `Traffic shift ${shiftPercent}% exceeds policy maximum of ${pol.maxTrafficShift}%.`, code: 'SHIFT_EXCEEDED' });
+      if (pol.approvedFailoverVendors.length > 0 && !pol.approvedFailoverVendors.includes(toCarrier)) {
+        return res.status(422).json({ message: `Carrier '${toCarrier}' is not in this policy's approved failover vendor whitelist.`, code: 'VENDOR_NOT_WHITELISTED' });
+      }
+
+      const rfFlag = await _dbExec.select().from(pffExec).where(_eqExec(pffExec.key, 'failover_rollback_required')).limit(1);
+      const now = new Date();
+      const rollbackAt = rfFlag[0]?.enabled ? new Date(now.getTime() + pol.maxDurationMinutes * 60_000) : null;
+
+      const initAudit = [{ ts: now.toISOString(), event: 'execution_started', actor, detail: `${fromCarrier} → ${toCarrier} at ${shiftPercent}%${reason ? `. Reason: ${reason}` : ''}` }];
+      const [execution] = await _dbExec.insert(feExec).values({
+        policyId: id, status: 'active', fromCarrier, toCarrier, shiftPercent: Number(shiftPercent),
+        executedAt: now, executedBy: actor, rollbackAt, auditLog: initAudit,
+      }).returning();
+
+      // Update policy status to 'active'
+      await _dbExec.update(ifpExec).set({ armingStatus: 'active', updatedAt: now, updatedBy: actor }).where(_eqExec(ifpExec.id, id));
+
+      res.json({ ok: true, execution, rollbackAt: rollbackAt?.toISOString() ?? null });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Failover Executions: List ────────────────────────────────────────────────
+  app.get('/api/failover-executions', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'routing_admin', 'destination_manager', 'team_lead', 'super_admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { db: _dbFEL } = await import('./db');
+      const { failoverExecutions: feL, intelligentFailoverPolicies: ifpL } = await import('../shared/schema');
+      const { desc: _descFEL, eq: _eqFEL } = await import('drizzle-orm');
+      const rows = await _dbFEL.select().from(feL).orderBy(_descFEL(feL.executedAt)).limit(100);
+      const policyIds = [...new Set(rows.map(r => r.policyId))];
+      const policies = policyIds.length > 0 ? await _dbFEL.select({ id: ifpL.id, label: ifpL.label }).from(ifpL) : [];
+      const policyMap = new Map(policies.map(p => [p.id, p.label]));
+      res.json(rows.map(r => ({ ...r, policyLabel: policyMap.get(r.policyId) ?? `Policy #${r.policyId}` })));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Failover Executions: Rollback ────────────────────────────────────────────
+  app.post('/api/failover-executions/:id/rollback', (req: any, res: any, next: any) => requireRole(['routing_admin', 'admin', 'management', 'super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { db: _dbRB } = await import('./db');
+      const { failoverExecutions: feRB, intelligentFailoverPolicies: ifpRB } = await import('../shared/schema');
+      const { eq: _eqRB } = await import('drizzle-orm');
+      const id = Number(req.params.id);
+      const actor = (req as any).user?.claims?.sub ?? (req as any).user?.id ?? 'unknown';
+      const { reason } = req.body as { reason?: string };
+
+      const rows = await _dbRB.select().from(feRB).where(_eqRB(feRB.id, id)).limit(1);
+      if (!rows[0]) return res.status(404).json({ message: 'Execution not found' });
+      if (rows[0].status !== 'active') return res.status(409).json({ message: `Cannot rollback execution with status '${rows[0].status}'` });
+
+      const now = new Date();
+      const auditEvent = { ts: now.toISOString(), event: 'rolled_back', actor, detail: reason ?? 'Manual rollback initiated' };
+      const newAuditLog = [...(rows[0].auditLog ?? []), auditEvent];
+      const [updated] = await _dbRB.update(feRB).set({ status: 'rolled_back', rolledBackAt: now, rolledBackBy: actor, auditLog: newAuditLog }).where(_eqRB(feRB.id, id)).returning();
+
+      // Reset policy armingStatus back to 'armed' (ready to re-execute if needed)
+      await _dbRB.update(ifpRB).set({ armingStatus: 'armed', updatedAt: now, updatedBy: actor }).where(_eqRB(ifpRB.id, rows[0].policyId));
+
+      res.json({ ok: true, execution: updated });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Number Intelligence Lookup ────────────────────────────────────────────────
 
   app.get('/api/number-lookup/:number', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next), async (req: any, res: any) => {

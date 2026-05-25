@@ -1828,9 +1828,36 @@ export const intelligentFailoverPolicies = pgTable("intelligent_failover_policie
   updatedBy:              varchar("updated_by", { length: 128 }),
   updatedAt:              timestamp("updated_at").defaultNow().notNull(),
   createdAt:              timestamp("created_at").defaultNow().notNull(),
+  // ── Stage 2E: Simulation-Gated Arming ─────────────────────────────────────
+  simulationValidatedAt:  timestamp("simulation_validated_at"),
+  simulationScenario:     json("simulation_scenario").$type<{
+    fromCarrier: string; toCarrier: string; shiftPercent: number;
+    delta: { asr: number; stability: number; fasRate: number; margin: number };
+  }>(),
+  armingStatus:           varchar("arming_status", { length: 32 }).notNull().default('disarmed'),
+  armedAt:                timestamp("armed_at"),
+  armedBy:                varchar("armed_by", { length: 128 }),
 });
 export type IntelligentFailoverPolicy    = typeof intelligentFailoverPolicies.$inferSelect;
 export type InsertIntelligentFailoverPolicy = typeof intelligentFailoverPolicies.$inferInsert;
+
+// ── Failover Executions — audit trail for each policy execution ──────────────
+export const failoverExecutions = pgTable("failover_executions", {
+  id:            serial("id").primaryKey(),
+  policyId:      integer("policy_id").notNull(),
+  status:        varchar("status",         { length: 32  }).notNull().default('active'),
+  fromCarrier:   varchar("from_carrier",   { length: 256 }).notNull(),
+  toCarrier:     varchar("to_carrier",     { length: 256 }).notNull(),
+  shiftPercent:  integer("shift_percent").notNull(),
+  executedAt:    timestamp("executed_at").defaultNow().notNull(),
+  executedBy:    varchar("executed_by",    { length: 128 }).notNull(),
+  rollbackAt:    timestamp("rollback_at"),
+  rolledBackAt:  timestamp("rolled_back_at"),
+  rolledBackBy:  varchar("rolled_back_by", { length: 128 }),
+  auditLog:      json("audit_log").$type<{ ts: string; event: string; actor: string; detail?: string }[]>().notNull().default([]),
+});
+export type FailoverExecution       = typeof failoverExecutions.$inferSelect;
+export type InsertFailoverExecution = typeof failoverExecutions.$inferInsert;
 
 // ── Vendor Stability Snapshots — persists Q-score history per vendor ──────────
 // Written every 30 min by snapshotVendorStability(). Retention: 7 days.
