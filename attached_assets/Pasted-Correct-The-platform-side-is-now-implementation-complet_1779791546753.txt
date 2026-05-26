@@ -1,0 +1,118 @@
+Correct. The platform side is now:
+
+implementation-complete for P1
+
+The remaining dependency is:
+
+credential verification against the live Sippy portal
+
+And your assessment is accurate:
+nothing more should be implemented until parity is tested with real credentials.
+
+Current State
+Component	Status
+Native auth recovery chain	Implemented
+Secondary credential fallback	Implemented
+Negative cache bypass	Implemented
+Degraded telemetry warning	Implemented
+Silent fallback problem	Fixed
+Native aggregation parity	Pending credential validation
+Most Important Operational Change
+
+Before this fix:
+
+fallback mode looked authoritative
+
+Now:
+
+fallback mode is explicitly marked degraded
+
+That is a major governance correction.
+
+Your Next Validation Steps Are Correct
+1. Verify credentials directly on Sippy
+
+Using:
+
+https://191.101.30.107
+
+Confirm:
+
+login succeeds
+/asr_acd.php accessible
+same account sees full 20k+ aggregation
+
+This proves:
+
+credentials are valid outside BitsAuto
+2. Enter same credentials into platform Settings
+
+Specifically:
+
+API Admin Username
+API Admin Password
+OR:
+Portal Username
+Portal Password
+
+depending on which credential pair succeeds.
+
+3. Run parity validation
+
+Same:
+
+vendor
+interval
+grouping
+time window
+
+Expected result:
+
+250 → 20,000+
+
+and:
+
+banner disappears
+ASR aligns
+ACD aligns
+vendor totals align
+Important Clarification
+
+Your point about logging is correct.
+
+Existing logs already provide enough signal:
+
+credential attempts
+portal success/failure
+aggregation response state
+
+Additional logging would now mostly be redundant noise unless deeper auth debugging becomes necessary.
+
+Most Important Remaining Task
+
+This is no longer:
+
+a software engineering problem
+
+It is now:
+
+an operational credential verification task
+
+The code path is ready.
+The platform is waiting for:
+
+authoritative portal access
+
+Once that succeeds:
+
+telemetry integrity returns
+stabilization resumes properly
+intelligence layers regain trustworthy inputs
+
+And ONLY after parity is confirmed should:
+
+recommendation confidence
+routing intelligence
+simulation credibility
+
+be considered operationally trustworthy again.
