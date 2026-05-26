@@ -1,2 +1,3 @@
 - [Sippy portal CDR pagination](sippy-portal-cdr-pagination.md) — portal ignores n= offset on some pages; use scrapePortalCDRsAll (login once, dedup+diminishing-returns stop).
 - [Sippy CDR access constraints](sippy-cdr-access.md) — XML-RPC CDR calls 401 for all creds; only customer portal (/c1/) works via ssp-root fallback; Mera enrichment also 401.
+- [Sippy portal auth chain for /asr_acd.php](sippy-portal-auth-chain.md) — ssp-root needs admin_web_password (not api_admin_password) for portal login; CDR list page vs /asr_acd.php are structurally different data layers; set portal_username=ssp-root + portal_password=admin_web_password to restore native aggregation.
