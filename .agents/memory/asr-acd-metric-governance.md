@@ -1,6 +1,6 @@
 ---
 name: ASR/ACD metric governance
-description: Rules for NER/FAS null vs zero, dual-layer telemetry architecture, and enrichment overlay plan for the ASR/ACD report page.
+description: Rules for NER/FAS null vs zero, dual-layer telemetry architecture, and enrichment overlay implementation for the ASR/ACD report page.
 ---
 
 ## Core rule: absence of evidence ≠ evidence of zero
@@ -9,37 +9,44 @@ When a metric cannot be derived from the current data source, send `null` — ne
 
 **Why:** The portal's `/asr_acd.php` returns SQL-aggregated totals only — no per-call durations (FAS) or per-call result codes (NER). Previous code set `nerPct: r.asr` (copy of ASR as NER proxy) and `fasRate: 0` (hardcoded). Both were removed and replaced with `null`.
 
-**How to apply:** Any time a metric is produced from an aggregated source rather than per-call records, check whether the aggregation provides the required input data. If not, emit `null`, not a fallback value.
+**How to apply:** Any time a metric is produced from an aggregated source rather than per-call records, check whether the aggregation provides the required input data. If not, emit `null`, not a fallback value. This rule applies platform-wide: carrier scoring, fraud indicators, recommendations, automation readiness.
 
-## Dual-layer telemetry architecture
+## Dual-layer telemetry architecture (implemented)
 
 | Layer | Source | Authoritative for | Cannot provide |
 |---|---|---|---|
 | Layer 1 | `/asr_acd.php` (Sippy portal SQL) | Calls, ASR, ACD, Revenue, Vendor totals | FAS, true NER, per-call behavior |
-| Layer 2 | CDR cache (per-call portal scrape) | FAS, NER, duration patterns, fraud heuristics | Authoritative totals (pagination ceiling ~250 CDRs) |
+| Layer 2 | CDR cache (per-call portal scrape) | FAS, NER, duration patterns, fraud heuristics | Authoritative totals (pagination ceiling) |
 
-The two layers must be combined as **overlay** (portal totals + CDR enrichment), NOT as **either/or fallback**. Layer 1 supplies authoritative accounting; Layer 2 supplies behavioral intelligence.
+The two layers are combined as **overlay** (portal totals + CDR enrichment), NOT as either/or fallback. Layer 1 supplies authoritative accounting; Layer 2 supplies behavioral intelligence.
+
+## P2-C/D: Enrichment overlay (implemented)
+
+After portal aggregation loads, the server filters `cdrCache` by the query time window (`c.startTime`) and computes FAS/NER from per-call records. The overlay is applied only to `origTotal`/`termTotal` — individual rows remain null (per-row matching would be statistically unreliable at low coverage).
+
+**Confidence scoring (P2-D):**
+- ≥60% coverage → `high` (green panel)
+- 25–60% → `medium` (blue panel)
+- 5–25% → `low` (amber panel)
+- <5% → `suppressed` (overlay not applied; "—" shown)
+
+**Additive-only invariant:** Calls, ASR, ACD, revenue from Layer 1 are NEVER overwritten by the overlay.
+
+**`enrichmentMeta` in API response:**
+```json
+{ sampleSize, nativeTotalCalls, coverageRatio, coveragePct, confidence }
+```
 
 ## Metric provenance in the UI
 
-- `nerPct` and `fasRate` are typed `number | null` in `ReportRow` interface.
-- Column headers carry a subtle italic "derived" label to signal enrichment-only metrics.
-- `!= null` guards on all rendering paths — null renders as "—", never "0.0%".
-- KPI NER card shows "—" with explanation text when null, not a zeroed quality bar.
-- Critical-alert row highlighting skips NER check entirely when `nerPct` is null.
-- CSV export emits empty cell for null NER/FAS rather than "0.00".
-
-## P2-C / P2-D plan (not yet implemented)
-
-After native aggregation loads (Layer 1), run a second pass using the CDR cache window for the same time range to compute enrichment overlays (FAS, NER). Attach confidence scoring based on coverage ratio:
-
-- >60% coverage → High confidence
-- 25–60% → Medium
-- <25% → Low
-- <5% → Suppress overlay entirely
-
-Enrichment must never overwrite Layer 1 totals (calls, ASR, ACD, revenue) — additive only.
+- `nerPct` and `fasRate` typed as `number | null` in `ReportRow`.
+- Column headers carry italic "derived" label.
+- `!= null` guards on all rendering paths — null renders as "—".
+- Enrichment info panel shown below degraded warning banner (color-coded by confidence).
+- NER KPI card sub-label shows quality + confidence level + "(derived)" when overlay active.
+- Critical-alert strip skips NER check entirely when `nerPct` is null.
+- CSV export emits empty cell for null NER/FAS.
 
 ## Important constraint
 
-The CDR cache path (`/c1/cdrs_customer.php`) has a ~250-CDR window ceiling due to portal pagination limits. For large windows (e.g., 20,232 calls), a 250-CDR enrichment sample is only ~1.2% coverage — flag as low-confidence rather than silently overlaying.
+CDR cache pagination ceiling means coverage is often low for large windows (e.g., 20,232 native calls vs ~4,000 cache records = ~20% → low confidence). Confidence scoring correctly reflects this. XML-RPC CDRs (getAccountCDRs) can supplement the cache when available.

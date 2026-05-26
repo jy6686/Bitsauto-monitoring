@@ -107,6 +107,14 @@ interface ReportRow {
   iConnection?: number;
 }
 
+interface EnrichmentMeta {
+  sampleSize:       number;
+  nativeTotalCalls: number;
+  coverageRatio:    number;
+  coveragePct:      number;
+  confidence:       'high' | 'medium' | 'low' | 'suppressed';
+}
+
 interface ReportData {
   ok: boolean;
   highlightBelow: number;
@@ -119,6 +127,7 @@ interface ReportData {
   source?: string;
   degraded?: boolean;
   degradedReason?: string;
+  enrichmentMeta?: EnrichmentMeta;
 }
 
 interface FilterState {
@@ -732,6 +741,58 @@ export default function AsrAcdReportPage() {
         </div>
       )}
 
+      {/* ── Enrichment overlay info panel ── */}
+      {data?.enrichmentMeta && !data?.degraded && (
+        <div className={cn(
+          "flex items-start gap-3 rounded-lg border px-4 py-3 text-xs",
+          data.enrichmentMeta.confidence === 'high'
+            ? "border-emerald-500/30 bg-emerald-500/5"
+            : data.enrichmentMeta.confidence === 'medium'
+            ? "border-blue-500/30 bg-blue-500/5"
+            : data.enrichmentMeta.confidence === 'low'
+            ? "border-amber-500/30 bg-amber-500/5"
+            : "border-border bg-muted/20"
+        )} data-testid="banner-enrichment">
+          <Info className={cn("h-3.5 w-3.5 mt-0.5 shrink-0",
+            data.enrichmentMeta.confidence === 'high'    ? "text-emerald-500" :
+            data.enrichmentMeta.confidence === 'medium'  ? "text-blue-500"    :
+            data.enrichmentMeta.confidence === 'low'     ? "text-amber-500"   : "text-muted-foreground"
+          )} />
+          <div className="flex-1 min-w-0">
+            <span className={cn("font-semibold",
+              data.enrichmentMeta.confidence === 'high'   ? "text-emerald-700 dark:text-emerald-400" :
+              data.enrichmentMeta.confidence === 'medium' ? "text-blue-700 dark:text-blue-400"       :
+              data.enrichmentMeta.confidence === 'low'    ? "text-amber-700 dark:text-amber-400"     : "text-muted-foreground"
+            )}>
+              {data.enrichmentMeta.confidence === 'suppressed'
+                ? "Enrichment unavailable"
+                : `Enrichment overlay · ${data.enrichmentMeta.confidence.charAt(0).toUpperCase() + data.enrichmentMeta.confidence.slice(1)} confidence`
+              }
+            </span>
+            {" — "}
+            <span className="text-muted-foreground">
+              {data.enrichmentMeta.sampleSize.toLocaleString()} CDR sample / {data.enrichmentMeta.nativeTotalCalls.toLocaleString()} native calls
+              {" "}({data.enrichmentMeta.coveragePct}% coverage).
+              {" "}
+              {data.enrichmentMeta.confidence === 'suppressed'
+                ? "NER and FAS require ≥5% sample coverage — showing as unavailable."
+                : data.enrichmentMeta.confidence === 'low'
+                ? "NER and FAS estimates shown in totals — treat as indicative only."
+                : "NER and FAS shown in totals row. Per-row enrichment pending per-call vendor resolution."}
+            </span>
+          </div>
+          <span className={cn(
+            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+            data.enrichmentMeta.confidence === 'high'    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" :
+            data.enrichmentMeta.confidence === 'medium'  ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"         :
+            data.enrichmentMeta.confidence === 'low'     ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"       :
+            "bg-muted text-muted-foreground"
+          )}>
+            {data.enrichmentMeta.confidence}
+          </span>
+        </div>
+      )}
+
       {/* ── KPI tiles — only shown after a report is loaded ── */}
       {data && !loading && totalCalls > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -753,7 +814,12 @@ export default function AsrAcdReportPage() {
             label="NER"
             value={overallNer != null ? `${overallNer.toFixed(1)}%` : "—"}
             sub={overallNer != null
-              ? (overallNer >= BENCH.ner.good ? "Above target" : overallNer >= BENCH.ner.warning ? "Acceptable" : "Needs attention")
+              ? (() => {
+                  const quality = overallNer >= BENCH.ner.good ? "Above target" : overallNer >= BENCH.ner.warning ? "Acceptable" : "Needs attention";
+                  const conf    = data?.enrichmentMeta?.confidence;
+                  const badge   = conf && conf !== 'suppressed' ? ` · ${conf} confidence` : '';
+                  return `${quality}${badge} (derived)`;
+                })()
               : "Derived — unavailable from aggregated source"}
             level={overallNer != null ? nerQuality(overallNer, totalCalls) : "neutral"}
             icon={overallNer != null && overallNer >= BENCH.ner.warning ? <Shield className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}

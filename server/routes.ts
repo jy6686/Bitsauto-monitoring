@@ -4040,6 +4040,55 @@ export async function registerRoutes(
           ? termRows.map(toReportRow)
           : origRows.map(toReportRow);
 
+        // ── P2-C: Enrichment overlay from CDR cache ───────────────────────────
+        // Layer 1 (portal aggregation) supplies authoritative totals.
+        // Layer 2 (CDR cache per-call records) supplies FAS / NER enrichment.
+        // Overlay is additive-only — native totals (calls, ASR, ACD, revenue)
+        // are NEVER overwritten.
+        const nativeTotalCalls = portalResult.origTotal.totalCalls;
+        const windowCdrs = [...cdrCache.values()].filter((c: any) => {
+          const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+          return ts >= startMs && ts <= endMs;
+        });
+        const sampleSize    = windowCdrs.length;
+        const coverageRatio = nativeTotalCalls > 0 ? sampleSize / nativeTotalCalls : 0;
+
+        // P2-D: Confidence scoring based on sample coverage
+        // >60%  → high    (statistically representative)
+        // 25–60%→ medium  (usable with caveat)
+        // 5–25% → low     (show with explicit low-confidence label)
+        // <5%   → suppressed (too sparse — surface as unavailable)
+        const confidence: 'high' | 'medium' | 'low' | 'suppressed' =
+          coverageRatio >= 0.60 ? 'high'   :
+          coverageRatio >= 0.25 ? 'medium' :
+          coverageRatio >= 0.05 ? 'low'    : 'suppressed';
+
+        let enrichmentOverlay: { nerPct: number; fasRate: number } | null = null;
+        if (confidence !== 'suppressed' && windowCdrs.length > 0) {
+          const eCmpl   = windowCdrs.filter((c: any) => String(c.result) === '0');
+          const eBill   = eCmpl.filter((c: any) => (Number(c.duration) || 0) > 0);
+          const eRna    = eCmpl.filter((c: any) => (Number(c.duration) || 0) === 0);
+          const eBillN  = eBill.length;
+          const eTotalN = windowCdrs.length;
+          const eNer    = eTotalN > 0 ? parseFloat(((eBillN + eRna.length) / eTotalN * 100).toFixed(2)) : 0;
+          const eFasCt  = eBill.filter((c: any) => (Number(c.duration) || 0) <= 5).length;
+          const eFas    = eBillN > 0 ? parseFloat((eFasCt / eBillN * 100).toFixed(2)) : 0;
+          enrichmentOverlay = { nerPct: eNer, fasRate: eFas };
+        }
+
+        const enrichmentMeta = {
+          sampleSize,
+          nativeTotalCalls,
+          coverageRatio:    parseFloat(coverageRatio.toFixed(4)),
+          coveragePct:      parseFloat((coverageRatio * 100).toFixed(1)),
+          confidence,
+        };
+
+        const baseOrigTotal = calcTotal(origRows as any);
+        const baseTermTotal = calcTotal(termRows as any);
+        const overlayNer  = enrichmentOverlay?.nerPct  ?? null;
+        const overlayFas  = enrichmentOverlay?.fasRate ?? null;
+
         return res.json({
           ok:                true,
           source:            'portal',
@@ -4050,10 +4099,11 @@ export async function registerRoutes(
           highlightBelow,
           generatedAt:       new Date().toISOString(),
           cdrCount:          portalResult.origTotal.totalCalls,
+          enrichmentMeta,
           origination:       origRows,
           termination:       termRows,
-          origTotal:         calcTotal(origRows as any),
-          termTotal:         calcTotal(termRows as any),
+          origTotal:         { ...baseOrigTotal, nerPct: overlayNer, fasRate: overlayFas },
+          termTotal:         { ...baseTermTotal, nerPct: overlayNer, fasRate: overlayFas },
         });
       }
 
