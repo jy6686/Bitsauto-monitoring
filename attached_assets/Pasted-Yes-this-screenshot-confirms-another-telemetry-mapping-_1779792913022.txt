@@ -1,0 +1,166 @@
+Yes — this screenshot confirms another telemetry mapping issue.
+
+The platform is now correctly pulling:
+
+total calls
+billable calls
+ASR
+ACD
+vendor aggregation
+
+from native Sippy aggregation.
+
+But:
+
+NER and FAS are still not being populated correctly from the aggregation response.
+
+You can see the inconsistency clearly:
+
+Metric	Current Behavior
+ASR	23.4% ✓
+NER	0.0% per row but 23.4% total ✗
+FAS	always 0.0% ✗
+
+That means:
+
+the aggregation parser is either:
+not receiving those fields
+not mapping them
+or defaulting them to zero/null
+Most Likely Root Cause
+
+Sippy /asr_acd.php usually returns:
+
+ASR
+ACD
+PDD
+revenue
+cost
+
+but:
+
+NOT native NER or FAS directly
+
+Your platform currently appears to be:
+
+NER = derived locally
+FAS = placeholder/default
+
+and the derivation logic is inconsistent.
+
+Evidence From Screenshot
+
+Look carefully:
+
+Origin rows
+Caller	ASR	NER
+PUSHTOTALK	23.4%	0.0%
+internal-bd	23.6%	0.0%
+Total row
+ASR	NER
+23.4%	23.4%
+
+This proves:
+
+total-row NER is accidentally inheriting ASR
+
+while child rows default to:
+
+0.0%
+
+So:
+
+NER aggregation logic is broken
+
+—not telemetry provenance anymore.
+
+FAS Issue
+
+FAS is showing:
+
+0.0%
+
+everywhere.
+
+That strongly suggests:
+
+FAS enrichment pipeline is not wired into ASR/ACD aggregation yet
+OR
+FAS requires separate SIP response classification not available in /asr_acd.php
+
+This is architecturally normal.
+
+Most telecom systems derive FAS from:
+
+SIP cause code analysis
+short-duration pattern detection
+RTP absence
+fake ring heuristics
+
+—not from ASR aggregation reports directly.
+
+Important Distinction
+
+GOOD NEWS:
+
+telemetry integrity IS restored
+
+This is NOT the previous catastrophic issue.
+
+You are now correctly reading:
+
+authoritative CDR aggregation
+
+The remaining issue is:
+
+metric enrichment/mapping logic
+
+which is a normal application-layer bug.
+
+Recommended Next Fix Order
+Priority	Fix
+P2-A	Fix NER calculation/mapping
+P2-B	Disable fake/default NER until valid
+P2-C	Integrate real FAS engine telemetry
+P2-D	Add metric provenance tooltip ("Derived" vs "Native")
+My Strong Recommendation
+
+Until real NER logic is fixed:
+
+do NOT display NER percentages
+
+Showing incorrect NER is worse than hiding it.
+
+Safer temporary behavior:
+
+NER unavailable
+
+instead of:
+
+0.0%
+
+because operators may interpret:
+
+0% NER
+0% FAS
+
+as:
+
+excellent route quality
+
+which is dangerous.
+
+Current Platform State
+Layer	Status
+Native aggregation	fixed
+Vendor parity	fixed
+ASR/ACD parity	fixed
+Telemetry provenance	healthy
+NER mapping	broken
+FAS enrichment	incomplete
+
+This is now:
+
+a metric-calculation issue
+
+—not a telemetry integrity crisis anymore.
