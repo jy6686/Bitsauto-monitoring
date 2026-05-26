@@ -2753,7 +2753,7 @@ export async function registerRoutes(
   let liveCallsCache: { calls: any[]; ts: number } = { calls: [], ts: 0 };
   let consecutiveZeros = 0;
   const LIVE_CALLS_STALE_MS    = 45_000; // stale flag threshold — matches background interval
-  const LIVE_CALLS_CACHE_MAX   = 90_000; // serve from background cache if fresher than 90 s
+  const LIVE_CALLS_CACHE_MAX   = 65_000; // serve from background cache if fresher than 65 s (slightly over 60s job interval)
   const ZERO_CONFIRM_COUNT     = 2;      // require this many consecutive zero polls to accept 0
 
   app.get('/api/sippy/live-calls', async (_req, res) => {

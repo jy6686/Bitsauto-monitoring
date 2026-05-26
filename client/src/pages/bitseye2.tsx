@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { apiRequest } from "@/lib/queryClient";
+import { useNocWebSocket } from "@/hooks/use-noc-ws";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar,
@@ -2297,6 +2298,20 @@ export default function BitsEye2Page() {
 
   const qc = useQueryClient();
 
+  // NOC WebSocket tick — background job fires every ~60s; all live queries refetch together
+  // so Active Channels / Connected / Routing always update from the same cache snapshot.
+  const { lastTick } = useNocWebSocket();
+  useEffect(() => {
+    if (!lastTick) return;
+    qc.invalidateQueries({ queryKey: ['/api/sippy/live-calls'] });
+    qc.invalidateQueries({ queryKey: ['/api/bitseye/live-summary'] });
+    qc.invalidateQueries({ queryKey: ['/api/bitseye/concurrent-trend'] });
+    qc.invalidateQueries({ queryKey: ['/api/bitseye/live-slice', 'client'] });
+    qc.invalidateQueries({ queryKey: ['/api/bitseye/live-slice', 'vendor'] });
+    qc.invalidateQueries({ queryKey: ['/api/bitseye/live-slice', 'country'] });
+    qc.invalidateQueries({ queryKey: ['/api/bitseye/live-slice', 'destination'] });
+  }, [lastTick]);
+
   const { data: incidentRows } = useQuery<IncidentAlert[]>({
     queryKey: ['/api/bitseye/alerts'],
     queryFn: () => fetch('/api/bitseye/alerts').then(r => r.json()),
@@ -2355,6 +2370,15 @@ export default function BitsEye2Page() {
   const cs         = concTrend?.summary;
   const concPoints = concTrend?.points ?? [];
   const isFetching = fetchSum || fetchConc || fetchDetail;
+
+  // ── Single source of truth for call counts ────────────────────────────────
+  // Derive Active / Connected / Routing from the same liveCallsData snapshot
+  // so the three numbers are always internally consistent (Active = Connected + Routing).
+  // Falls back to liveSummary (reads same server cache) then cs (concurrent-trend) if not ready.
+  const lcCalls       = (liveCallsData as any)?.calls ?? [];
+  const liveTotal     = lcCalls.length > 0 ? lcCalls.length                                               : (liveSummary?.total      ?? cs?.currentActive    ?? 0);
+  const liveConnected = lcCalls.length > 0 ? lcCalls.filter((c: any) => c.callStatus === 'connected').length : (liveSummary?.connected   ?? cs?.currentConnected ?? 0);
+  const liveRouting   = lcCalls.length > 0 ? lcCalls.length - liveConnected                               : (liveSummary?.routing     ?? cs?.currentRouting   ?? 0);
 
   // Accumulate local sparkline history on each poll cycle
   useEffect(() => {
@@ -2479,15 +2503,15 @@ export default function BitsEye2Page() {
           <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' as const, letterSpacing: '0.08em' }}>BitsEye 2 · Live</span>
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: '#1F2937', letterSpacing: '-0.02em' }}>
-          {cs?.currentActive !== undefined || liveSummary?.total !== undefined
-            ? <AnimatedNumber value={cs?.currentActive ?? liveSummary?.total ?? 0} />
+          {liveCallsData !== undefined || liveSummary !== undefined
+            ? <AnimatedNumber value={liveTotal} />
             : '—'
           }
           <span style={{ fontSize: 12, fontWeight: 500, color: '#9CA3AF', marginLeft: 5 }}>active calls</span>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-          <span style={{ fontSize: 11, color: '#16A34A', fontWeight: 600 }}>✓ {cs?.currentConnected ?? liveSummary?.connected ?? '—'}</span>
-          <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600 }}>⟳ {cs?.currentRouting ?? liveSummary?.routing ?? '—'}</span>
+          <span style={{ fontSize: 11, color: '#16A34A', fontWeight: 600 }}>✓ {liveConnected}</span>
+          <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600 }}>⟳ {liveRouting}</span>
         </div>
       </div>
 
@@ -2839,9 +2863,9 @@ export default function BitsEye2Page() {
 
       {/* ── 1. KPI Strip ── */}
       <div style={{ display: 'flex', gap: 10 }}>
-        <KpiCard label="Active Channels" value={String(cs?.currentActive ?? liveSummary?.total ?? 0)}           numericValue={cs?.currentActive ?? liveSummary?.total ?? 0}          color="#2563EB" icon={Activity}   delay={0.00} />
-        <KpiCard label="Connected"        value={String(liveSummary?.connected ?? cs?.currentConnected ?? 0)}   numericValue={liveSummary?.connected ?? cs?.currentConnected ?? 0}    color="#16A34A" icon={TrendingUp} delay={0.05} />
-        <KpiCard label="Routing"          value={String(liveSummary?.routing ?? cs?.currentRouting ?? 0)}       numericValue={liveSummary?.routing ?? cs?.currentRouting ?? 0}        color="#F59E0B" icon={Zap}        delay={0.10} />
+        <KpiCard label="Active Channels" value={String(liveTotal)}     numericValue={liveTotal}     color="#2563EB" icon={Activity}   delay={0.00} />
+        <KpiCard label="Connected"        value={String(liveConnected)} numericValue={liveConnected} color="#16A34A" icon={TrendingUp} delay={0.05} />
+        <KpiCard label="Routing"          value={String(liveRouting)}   numericValue={liveRouting}   color="#F59E0B" icon={Zap}        delay={0.10} />
         <KpiCard
           label="Connect Rate" value={liveSummary ? `${liveSummary.liveConnectRatio}%` : '—'}
           numericValue={liveSummary?.liveConnectRatio}
@@ -3208,9 +3232,9 @@ export default function BitsEye2Page() {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#FAFBFC', overflow: 'hidden' }}>
       {/* KPI Strip */}
       <div style={{ display: 'flex', flexShrink: 0, borderBottom: '1px solid #E6EAF0', background: '#fff' }}>
-        <KpiCard label="Active Calls"  value={String(cs?.currentActive ?? liveSummary?.total ?? 0)}         numericValue={cs?.currentActive ?? liveSummary?.total ?? 0}       color="#2563EB" icon={Activity}   delay={0} />
-        <KpiCard label="Connected"     value={String(liveSummary?.connected ?? cs?.currentConnected ?? 0)}  numericValue={liveSummary?.connected ?? cs?.currentConnected ?? 0}  color="#16A34A" icon={TrendingUp} delay={0} />
-        <KpiCard label="Routing"       value={String(liveSummary?.routing ?? cs?.currentRouting ?? 0)}      numericValue={liveSummary?.routing ?? cs?.currentRouting ?? 0}      color="#F59E0B" icon={Zap}        delay={0} />
+        <KpiCard label="Active Calls"  value={String(liveTotal)}     numericValue={liveTotal}     color="#2563EB" icon={Activity}   delay={0} />
+        <KpiCard label="Connected"     value={String(liveConnected)} numericValue={liveConnected} color="#16A34A" icon={TrendingUp} delay={0} />
+        <KpiCard label="Routing"       value={String(liveRouting)}   numericValue={liveRouting}   color="#F59E0B" icon={Zap}        delay={0} />
         <KpiCard
           label="Connect Rate" value={liveSummary ? `${liveSummary.liveConnectRatio}%` : '—'}
           numericValue={liveSummary?.liveConnectRatio}
