@@ -1,0 +1,175 @@
+Yes — this is now safe and well-scoped to implement.
+
+This is no longer a foundational telemetry-risk change like P1 was.
+P2 is:
+
+enrichment reconciliation
+
+on top of already-correct authoritative aggregation.
+
+And your refinement about:
+
+statistical confidence
+
+is extremely important and should absolutely be included in the implementation.
+
+Recommended Implementation Order
+Priority	Item	Risk	Value
+P2-A	Fix NER row mapping inconsistency	Very low	High
+P2-B	Suppress fake zeros / add provenance labels	Very low	Very high
+P2-C	Overlay enrichment onto portal aggregation	Medium	Very high
+P2-D	Confidence scoring for overlay sample quality	Medium	High
+What SHOULD Be Implemented Immediately
+1. Fix NER mapping
+
+Current:
+
+nerPct = r.asr
+
+This should become:
+
+real derived NER if available
+otherwise:
+null
+
+and UI renders:
+
+—
+
+NOT:
+
+0.0%
+2. Remove fake FAS zeros
+
+Current:
+
+fasRate: 0
+
+This is operationally dangerous because:
+operators interpret:
+
+0%
+
+as:
+
+clean route quality
+
+Instead:
+
+null → —
+
+until enrichment overlay supplies real values.
+
+3. Add provenance badges
+
+This is absolutely the correct governance move.
+
+Example UI:
+
+Metric	Badge
+ASR	Native
+ACD	Native
+FAS	Derived
+NER	Derived
+
+This matters later for:
+
+explainability
+trust analytics
+audit defensibility
+operator confidence calibration
+Most Important Part — Overlay Confidence
+
+Your observation is correct:
+
+enrichment quality depends on sample representativeness
+
+This should absolutely NOT silently overlay:
+
+250 sampled CDRs
+onto
+20,232 authoritative calls
+
+without confidence labeling.
+
+Correct Confidence Model
+
+Example:
+
+Coverage Ratio	Confidence
+>60%	High
+25–60%	Medium
+<25%	Low
+<5%	Very Low / suppress
+
+This becomes:
+
+enrichmentConfidence
+
+in the API response.
+
+Recommended Overlay Rules
+FAS
+
+ONLY display if:
+
+sampled billable calls > minimum threshold
+coverage ratio acceptable
+
+Otherwise:
+
+—
+Low-confidence enrichment sample
+NER
+
+Can tolerate lower confidence because:
+
+less burst-sensitive than FAS
+less affected by tiny sample anomalies
+
+But still:
+show provenance + confidence.
+
+IMPORTANT ARCHITECTURAL RULE
+
+Never allow:
+
+derived enrichment
+to overwrite
+native aggregation totals
+
+Overlay must be:
+
+additive only
+
+Meaning:
+
+Calls
+Revenue
+ASR
+ACD
+
+always remain:
+
+authoritative native values
+My Recommendation
+
+Implement:
+
+P2-A + P2-B first
+
+immediately.
+
+They are:
+
+low-risk
+high-governance-value
+prevent misleading metrics
+
+Then:
+
+P2-C + P2-D together
+
+as one coordinated enrichment-overlay sprint.
+
+That sequence is the safest operationally and the cleanest architecturally.

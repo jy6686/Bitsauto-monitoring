@@ -100,8 +100,8 @@ interface ReportRow {
   asr: number;
   avgPdd: number;
   amount: number;
-  nerPct?: number;
-  fasRate?: number;
+  nerPct?: number | null;
+  fasRate?: number | null;
   rnaCount?: number;
   iVendor?: number;
   iConnection?: number;
@@ -384,10 +384,14 @@ function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, thr
                 <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap min-w-[110px]">
                   NER %
                   <span className="ml-1 text-[9px] font-normal text-muted-foreground/60 normal-case">≥{BENCH.ner.warning}% good</span>
+                  <span className="ml-1 text-[8px] font-normal text-muted-foreground/40 italic">derived</span>
                 </th>
               )}
               <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap">PDD sec</th>
-              <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap">FAS %</th>
+              <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap">
+                FAS %
+                <span className="ml-1 text-[8px] font-normal text-muted-foreground/40 italic">derived</span>
+              </th>
               <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap">{amountLabel}</th>
             </tr>
           </thead>
@@ -402,9 +406,9 @@ function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, thr
             ) : (
               rows.map((row, i) => {
                 const aLvl = asrQuality(row.asr, row.totalCalls);
-                const nLvl = nerQuality(row.nerPct ?? 0, row.totalCalls);
-                const fLvl = fasQuality(row.fasRate ?? 0, row.billableCalls);
-                const rowAlert = aLvl === "critical" || nLvl === "critical";
+                const nLvl = row.nerPct != null ? nerQuality(row.nerPct, row.totalCalls) : "neutral";
+                const fLvl = row.fasRate != null ? fasQuality(row.fasRate, row.billableCalls) : "neutral";
+                const rowAlert = aLvl === "critical" || (row.nerPct != null && nLvl === "critical");
                 return (
                   <tr key={i} data-testid={`row-${title.toLowerCase()}-${i}`}
                     className={cn(
@@ -429,8 +433,8 @@ function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, thr
                     {/* NER with quality bar */}
                     {showNer && (
                       <td className="px-3 py-2.5">
-                        {row.totalCalls > 0
-                          ? <QualityBar pct={row.nerPct ?? 0} level={nLvl} maxPct={100} />
+                        {row.totalCalls > 0 && row.nerPct != null
+                          ? <QualityBar pct={row.nerPct} level={nLvl} maxPct={100} />
                           : <span className="text-muted-foreground/40 text-xs">—</span>}
                       </td>
                     )}
@@ -444,13 +448,13 @@ function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, thr
                     </td>
                     {/* FAS */}
                     <td className="px-3 py-2.5 text-right tabular-nums text-xs">
-                      {row.billableCalls > 0 ? (
+                      {row.billableCalls > 0 && row.fasRate != null ? (
                         <span className={cn("font-mono", {
                           "text-red-500":    fLvl === "critical",
                           "text-amber-500":  fLvl === "warning",
                           "text-muted-foreground": fLvl === "good" || fLvl === "neutral",
                         })}>
-                          {(row.fasRate ?? 0).toFixed(1)}%
+                          {row.fasRate.toFixed(1)}%
                         </span>
                       ) : <span className="text-muted-foreground/40">—</span>}
                     </td>
@@ -480,13 +484,13 @@ function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, thr
                 </td>
                 {showNer && (
                   <td className="px-3 py-2.5">
-                    {total.totalCalls > 0
-                      ? <QualityBar pct={total.nerPct ?? 0} level={nerQuality(total.nerPct ?? 0, total.totalCalls)} />
+                    {total.totalCalls > 0 && total.nerPct != null
+                      ? <QualityBar pct={total.nerPct} level={nerQuality(total.nerPct, total.totalCalls)} />
                       : <span className="text-muted-foreground/40">—</span>}
                   </td>
                 )}
                 <td className="px-3 py-2.5 text-right tabular-nums font-mono">{total.avgPdd > 0 ? total.avgPdd.toFixed(2) : "—"}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{total.billableCalls > 0 ? `${(total.fasRate ?? 0).toFixed(1)}%` : "—"}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{total.billableCalls > 0 && total.fasRate != null ? `${total.fasRate.toFixed(1)}%` : "—"}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{total.amount > 0 ? `$${total.amount.toFixed(4)}` : "—"}</td>
               </tr>
             </tfoot>
@@ -634,14 +638,14 @@ export default function AsrAcdReportPage() {
   const overallAsr = origTotal?.totalCalls
     ? origTotal.asr : (termTotal?.asr ?? 0);
   const overallNer = origTotal?.totalCalls
-    ? (origTotal.nerPct ?? 0) : (termTotal?.nerPct ?? 0);
+    ? (origTotal.nerPct ?? null) : (termTotal?.nerPct ?? null);
   const overallAcd  = origTotal?.acdSec ?? 0;
-  const overallFas  = origTotal?.fasRate ?? termTotal?.fasRate ?? 0;
+  const overallFas  = origTotal?.fasRate ?? termTotal?.fasRate ?? null;
   const totalCalls  = origTotal?.totalCalls ?? termTotal?.totalCalls ?? 0;
 
   // Critical-row counts for the alert strip
-  const critOrigCount = data?.origination.filter(r => asrQuality(r.asr, r.totalCalls) === "critical" || nerQuality(r.nerPct ?? 0, r.totalCalls) === "critical").length ?? 0;
-  const critTermCount = data?.termination.filter(r => asrQuality(r.asr, r.totalCalls) === "critical" || nerQuality(r.nerPct ?? 0, r.totalCalls) === "critical").length ?? 0;
+  const critOrigCount = data?.origination.filter(r => asrQuality(r.asr, r.totalCalls) === "critical" || (r.nerPct != null && nerQuality(r.nerPct, r.totalCalls) === "critical")).length ?? 0;
+  const critTermCount = data?.termination.filter(r => asrQuality(r.asr, r.totalCalls) === "critical" || (r.nerPct != null && nerQuality(r.nerPct, r.totalCalls) === "critical")).length ?? 0;
 
   // CSV export
   function downloadCsv() {
@@ -655,7 +659,7 @@ export default function AsrAcdReportPage() {
     data.origination.forEach(r => {
       lines.push([`"${r.name.replace(/"/g,'""')}"`,r.totalCalls,r.billableCalls,
         fmtDuration(r.durationSec),fmtDuration(r.acdSec),
-        r.asr.toFixed(4),(r.nerPct??0).toFixed(2),(r.fasRate??0).toFixed(2),
+        r.asr.toFixed(4),(r.nerPct!=null?r.nerPct.toFixed(2):""),(r.fasRate!=null?r.fasRate.toFixed(2):""),
         r.avgPdd.toFixed(3),r.amount.toFixed(6)].join(","));
     });
     lines.push("");
@@ -664,7 +668,7 @@ export default function AsrAcdReportPage() {
     data.termination.forEach(r => {
       lines.push([`"${r.name.replace(/"/g,'""')}"`,r.totalCalls,r.billableCalls,
         fmtDuration(r.durationSec),fmtDuration(r.acdSec),
-        r.asr.toFixed(4),(r.nerPct??0).toFixed(2),(r.fasRate??0).toFixed(2),
+        r.asr.toFixed(4),(r.nerPct!=null?r.nerPct.toFixed(2):""),(r.fasRate!=null?r.fasRate.toFixed(2):""),
         r.avgPdd.toFixed(3),r.amount.toFixed(6)].join(","));
     });
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -747,10 +751,12 @@ export default function AsrAcdReportPage() {
           />
           <KpiCard
             label="NER"
-            value={`${overallNer.toFixed(1)}%`}
-            sub={overallNer >= BENCH.ner.good ? "Above target" : overallNer >= BENCH.ner.warning ? "Acceptable" : "Needs attention"}
-            level={nerQuality(overallNer, totalCalls)}
-            icon={overallNer >= BENCH.ner.warning ? <Shield className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+            value={overallNer != null ? `${overallNer.toFixed(1)}%` : "—"}
+            sub={overallNer != null
+              ? (overallNer >= BENCH.ner.good ? "Above target" : overallNer >= BENCH.ner.warning ? "Acceptable" : "Needs attention")
+              : "Derived — unavailable from aggregated source"}
+            level={overallNer != null ? nerQuality(overallNer, totalCalls) : "neutral"}
+            icon={overallNer != null && overallNer >= BENCH.ner.warning ? <Shield className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
           />
           <KpiCard
             label="Avg ACD"

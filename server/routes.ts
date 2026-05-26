@@ -4032,8 +4032,8 @@ export async function registerRoutes(
           asr:                   r.asr,
           avgPdd:                r.avgPdd,
           revenueUsd:            r.amount,
-          nerPct:                r.asr,   // portal has no RNA data; NER ≈ ASR (conservative)
-          fasRate:               0,        // portal has no per-call duration distribution
+          nerPct:                null,     // portal aggregation has no per-call RNA data — suppress rather than guess
+          fasRate:               null,     // portal aggregation has no per-call durations — suppress rather than show fake zero
           rnaCount:              0,
         });
         const portalReportRows = groupBy === 'callee'
