@@ -498,11 +498,9 @@ function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, thr
 
 export default function AsrAcdReportPage() {
   function defaultFilters(): FilterState {
-    const end   = new Date();
-    const start = new Date(end.getTime() - 60 * 60_000);
     return {
-      startTime:     toUtcText(start),
-      endTime:       toUtcText(end),
+      startTime:     "",
+      endTime:       "",
       cli:           "",
       cld:           "",
       groupOrig:     "caller",
@@ -521,7 +519,7 @@ export default function AsrAcdReportPage() {
   const [filters, setFilters]     = useState<FilterState>(defaultFilters);
   const [submitted, setSubmitted] = useState<FilterState | null>(null);
   const [enabled, setEnabled]     = useState(false);
-  const [activePreset, setActivePreset] = useState<string | null>("1h");
+  const [activePreset, setActivePreset] = useState<string | null>(null);
   const [relFrom, setRelFrom]     = useState("90");
   const [relTo, setRelTo]         = useState("0");
 
