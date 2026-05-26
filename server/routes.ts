@@ -4060,6 +4060,76 @@ export async function registerRoutes(
       console.warn('[api/reports/asr-acd] Portal error:', portalErr.message, '— falling back to CDR cache');
     }
 
+    // ── On-demand paginated CDR fetch for exact time window ───────────────────
+    // The background CDR cache only accumulates CDRs periodically and may not
+    // cover the full requested window (especially high-volume switches).
+    // Do a fresh paginated fetch using the same credentials as refreshCdrCache,
+    // then merge results into cdrCache so the report sees ALL CDRs in the window.
+    try {
+      const settings = await storage.getSettings();
+      if (settings) {
+        const credPairs  = sippyXmlCredsPairs(settings);
+        const portalUrl  = sippyPortalUrl(settings);
+        const apiUser    = settings.apiAdminUsername  ?? '';
+        const apiPass    = settings.apiAdminPassword  ?? '';
+        const webPass    = (settings as any).adminWebPassword ?? '';
+        const portUser   = settings.portalUsername    ?? '';
+        const portPass   = settings.portalPassword    ?? '';
+        const startIso   = new Date(startMs).toISOString();
+        const endIso     = new Date(endMs).toISOString();
+        const XMLRPC_PAGE  = 1000; // XML-RPC supports large pages
+        const MAX_PAGES    = 200;  // safeguard: 200 × 50 = 10,000 CDRs per on-demand fetch
+
+        let freshBatch: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+
+        // Path A: XML-RPC with date range + pagination (stops when page < XMLRPC_PAGE)
+        if (!xmlRpcCircuitGuard()) {
+          for (const { username, password } of credPairs) {
+            let pg = 0;
+            while (pg < MAX_PAGES) {
+              const page = await sippy.getSippyCDRs(username, password, XMLRPC_PAGE, {
+                startDate: startIso, endDate: endIso, offset: pg * XMLRPC_PAGE,
+              }, portalUrl);
+              if (page.length > 0) { xmlRpcRecordSuccess(); freshBatch.push(...page); }
+              if (page.length < XMLRPC_PAGE) break;
+              pg++;
+            }
+            if (freshBatch.length > 0) break;
+          }
+        }
+
+        // Path B: customer portal scrape — login once, paginate internally.
+        if (freshBatch.length === 0 && portUser && portPass) {
+          const pages = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
+            startDate: startIso, endDate: endIso,
+            fallbackUsername: apiUser, fallbackPassword: webPass || apiPass,
+            maxPages: MAX_PAGES,
+          });
+          if (pages.length > 0) freshBatch.push(...pages);
+        }
+
+        // Merge fresh CDRs into the cache (same dedup logic as refreshCdrCache)
+        let freshAdded = 0;
+        for (const c of freshBatch) {
+          const isPortalScraped = typeof c.callId === 'string' &&
+            (c.callId.startsWith('portal-cdr-') || c.callId.startsWith('admin-cdr-'));
+          const key = (!isPortalScraped && (c.callId || c.iCdr)) ||
+            `${c.startTime}:${c.caller}:${c.callee}`;
+          if (!key) continue;
+          if (!c.vendor && c.iConnection) {
+            const enriched = connectionVendorCache.get(String(c.iConnection));
+            if (enriched) c.vendor = enriched;
+          }
+          if (!cdrCache.has(key)) { cdrCache.set(key, c); freshAdded++; }
+        }
+        if (freshBatch.length > 0) {
+          console.log(`[api/reports/asr-acd] on-demand fetch: ${freshBatch.length} CDRs retrieved, ${freshAdded} new entries merged into cache`);
+        }
+      }
+    } catch (onDemandErr: any) {
+      console.warn('[api/reports/asr-acd] on-demand CDR fetch failed:', onDemandErr.message);
+    }
+
     // ── Fallback: CDR cache (when portal is unreachable) ─────────────────────
     const allCdrs = [...cdrCache.values()].filter((c: any) => {
       const ts = c.startTime ? new Date(c.startTime).getTime() : NaN;
@@ -5127,13 +5197,27 @@ export async function registerRoutes(
       let batch: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
 
       const pUrl = sippyPortalUrl(settings!);
+      // ── Paginated XML-RPC CDR fetch ──────────────────────────────────────────
+      // Sippy XML-RPC uses standard limit+offset pagination.
+      // Portal scrape caps at 50 rows per page regardless of limit parameter,
+      // so we use PORTAL_PAGE_CAP for offset stepping there.
+      const CDR_PAGE_SIZE      = 1000;  // XML-RPC page size
+      const PORTAL_PAGE_CAP    = 50;    // Sippy portal hard display cap per page
+      const CDR_CACHE_MAX_PAGES = 200;  // safeguard: 200 × 50 = 10,000 CDRs per refresh
       if (!xmlRpcCircuitGuard()) {
-        let allFailed = true;
         for (const { username, password } of credPairs) {
-          batch = await sippy.getSippyCDRs(username, password, 500, {}, pUrl);
-          if (batch.length > 0) { xmlRpcRecordSuccess(); allFailed = false; break; }
+          let xmlPage = 0;
+          while (xmlPage < CDR_CACHE_MAX_PAGES) {
+            const page = await sippy.getSippyCDRs(username, password, CDR_PAGE_SIZE, { offset: xmlPage * CDR_PAGE_SIZE }, pUrl);
+            if (page.length > 0) {
+              xmlRpcRecordSuccess();
+              batch.push(...page);
+            }
+            if (page.length < CDR_PAGE_SIZE) break; // last page (fewer rows than requested)
+            xmlPage++;
+          }
+          if (batch.length > 0) break;
         }
-        // empty CDR result is not a circuit failure
         console.log(`[cdr-cache] XML-RPC CDR fetch → ${batch.length} record(s) (circuit=${xmlRpcCircuitGuard() ? 'open' : 'closed'})`);
       } else {
         console.log('[cdr-cache] XML-RPC CDR fetch skipped — circuit open');
@@ -5142,6 +5226,8 @@ export async function registerRoutes(
       // Fallback: portal scrape — this Sippy build only grants customer sessions
       // (logins redirect to /c1/).  Try scrapePortalCDRs (customer portal) first with
       // RTST1 credentials, then fall back to scrapeAdminPortalCDRs for each cred combo.
+      // Sippy portal caps at 50 rows per page regardless of limit param, so we step
+      // offset by PORTAL_PAGE_CAP (50) and stop when a page returns 0 rows.
       if (batch.length === 0 && settings) {
         const portalUrl = sippyPortalUrl(settings);
         const apiUser  = settings.apiAdminUsername  ?? '';
@@ -5150,35 +5236,43 @@ export async function registerRoutes(
         const portUser = settings.portalUsername    ?? '';
         const portPass = settings.portalPassword    ?? '';
 
-        // ── Attempt 1: RTST1 customer portal (most likely to have CDR data) ──
+        // ── Attempt 1: customer portal (/c1/) — login once, paginate internally ──
         if (portUser && portPass) {
           try {
-            const scraped = await sippy.scrapePortalCDRs(portUser, portPass, portalUrl, {
-              limit: 500,
+            const scraped = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
               fallbackUsername: apiUser,
               fallbackPassword: webPass || apiPass,
+              maxPages: CDR_CACHE_MAX_PAGES,
             });
             if (scraped.length > 0) {
-              console.log(`[cdr-cache] portal scrape OK via ${portUser}@${portalUrl} (customer /c1/) — ${scraped.length} CDRs`);
-              batch = scraped;
+              batch.push(...scraped);
+              console.log(`[cdr-cache] portal scrape OK via ${portUser}@${portalUrl} (customer /c1/) — ${batch.length} CDRs`);
             }
           } catch (scrapeErr: any) {
             console.warn(`[cdr-cache] portal scrape (customer) failed (${portUser}@${portalUrl}): ${scrapeErr.message}`);
           }
         }
 
-        // ── Attempt 2: admin scrape with each credential combo ────────────────
+        // ── Attempt 2: admin scrape (/cdrs_customer.php) — paginated ─────────
         if (batch.length === 0) {
           const scrapeAttempts: Array<{ user: string; pass: string; base: string }> = [];
-          if (apiUser && webPass)  scrapeAttempts.push({ user: apiUser,  pass: webPass,  base: portalUrl });
-          if (apiUser && apiPass)  scrapeAttempts.push({ user: apiUser,  pass: apiPass,  base: portalUrl });
+          if (apiUser && webPass)   scrapeAttempts.push({ user: apiUser,  pass: webPass,  base: portalUrl });
+          if (apiUser && apiPass)   scrapeAttempts.push({ user: apiUser,  pass: apiPass,  base: portalUrl });
           if (portUser && portPass) scrapeAttempts.push({ user: portUser, pass: portPass, base: portalUrl });
           for (const { user, pass, base } of scrapeAttempts) {
             try {
-              const scraped = await sippy.scrapeAdminPortalCDRs(user, pass, base, { limit: 500 });
-              if (scraped.length > 0) {
-                console.log(`[cdr-cache] portal scrape OK via ${user}@${base} (admin) — ${scraped.length} CDRs`);
-                batch = scraped;
+              let adminPage = 0;
+              while (adminPage < CDR_CACHE_MAX_PAGES) {
+                const scraped = await sippy.scrapeAdminPortalCDRs(user, pass, base, {
+                  limit:  PORTAL_PAGE_CAP,
+                  offset: adminPage * PORTAL_PAGE_CAP,
+                });
+                if (scraped.length > 0) batch.push(...scraped);
+                if (scraped.length === 0) break;
+                adminPage++;
+              }
+              if (batch.length > 0) {
+                console.log(`[cdr-cache] portal scrape OK via ${user}@${base} (admin) — ${batch.length} CDRs`);
                 break;
               }
             } catch (scrapeErr: any) {

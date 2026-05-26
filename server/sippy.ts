@@ -2850,6 +2850,7 @@ export async function scrapePortalCDRs(
   base: string,
   opts: {
     limit?: number;
+    offset?: number;      // starting row offset for pagination (n=N in Sippy CDR URL)
     startDate?: string;   // natural-language OR MM/DD/YYYY HH:MM:SS
     endDate?: string;
     callsSelect?: string; // '1'=all '3'=non-zero+errors '4'=non-zero '6'=errors
@@ -2862,6 +2863,7 @@ export async function scrapePortalCDRs(
   const startDate = toSippyPortalDate(opts.startDate || '1 day ago');
   const endDate   = toSippyPortalDate(opts.endDate   || 'now');
   const limit     = opts.limit     || 100;
+  const offset    = opts.offset    ?? 0;
   const callsSel  = opts.callsSelect || '1';
 
   // Login with primary, then fallback credentials
@@ -2877,7 +2879,7 @@ export async function scrapePortalCDRs(
 
   try {
     const qs = [
-      'n=0', 'action=search', 'from_form=1',
+      'n=' + offset, 'action=search', 'from_form=1',
       'startDate=' + encodeURIComponent(startDate),
       'endDate='   + encodeURIComponent(endDate),
       'source=', 'destination=', 'caller=0_0',
@@ -3010,6 +3012,170 @@ export async function scrapePortalCDRs(
   } catch {
     return FAIL();
   }
+}
+
+// scrapePortalCDRsAll — like scrapePortalCDRs but logs in ONCE and paginates
+// through all pages using offset stepping.  Stops when a page returns 0 rows.
+// PORTAL_CAP=50 is the Sippy hard limit per page regardless of the limit= param.
+export async function scrapePortalCDRsAll(
+  portalUsername: string,
+  portalPassword: string,
+  base: string,
+  opts: {
+    startDate?: string;
+    endDate?: string;
+    callsSelect?: string;
+    fallbackUsername?: string;
+    fallbackPassword?: string;
+    maxPages?: number;
+  } = {},
+): Promise<SippyCDR[]> {
+  const PORTAL_CAP = 50;
+  const MAX_PAGES  = opts.maxPages ?? 200;
+
+  const startDate = toSippyPortalDate(opts.startDate || '1 day ago');
+  const endDate   = toSippyPortalDate(opts.endDate   || 'now');
+  const callsSel  = opts.callsSelect || '1';
+
+  // Login once
+  let loginRes = await portalLogin(base, portalUsername, portalPassword, 'customer');
+  console.log(`[scrapePortalCDRsAll] login ${portalUsername}: ${loginRes.success ? 'OK' : 'FAIL — ' + loginRes.message}`);
+  if (!loginRes.success && opts.fallbackUsername && opts.fallbackPassword &&
+      opts.fallbackUsername !== portalUsername) {
+    loginRes = await portalLogin(base, opts.fallbackUsername, opts.fallbackPassword, 'customer');
+    console.log(`[scrapePortalCDRsAll] fallback login ${opts.fallbackUsername}: ${loginRes.success ? 'OK' : 'FAIL'}`);
+  }
+  if (!loginRes.success) return [];
+  const cookies = loginRes.cookies;
+
+  const allCdrs: SippyCDR[] = [];
+  const seenKeys = new Set<string>(); // dedup by startTime+caller+callee fingerprint
+  let pageIndex = 0;
+
+  while (pageIndex < MAX_PAGES) {
+    const offset = pageIndex * PORTAL_CAP;
+    const qs = [
+      'n=' + offset, 'action=search', 'from_form=1',
+      'startDate=' + encodeURIComponent(startDate),
+      'endDate='   + encodeURIComponent(endDate),
+      'source=', 'destination=', 'caller=0_0',
+      'calls_select=' + callsSel,
+      'cdr_currency=USD', 'cli_clause=0', 'cld_clause=0',
+      'bt_clause=0', 'bt_pattern=', 'account_class=0',
+      'result_filter_opt=0_0',
+      'limit=' + PORTAL_CAP,
+    ].join('&');
+
+    let resp = await rawRequest('GET', `${base}/c1/cdrs_customer.php?${qs}`, null, {}, cookies);
+    if (!resp.body || resp.body.length < 500) {
+      resp = await rawRequest('GET', `${base}/cdrs_customer.php?${qs}`, null, {}, cookies);
+    }
+    const html = resp.body;
+    if (!html || html.length < 500) break;
+
+    const rawTableHtml = findCdrTableHtml(html);
+    if (!rawTableHtml) break;
+    const tableHtml = stripNestedTables(rawTableHtml);
+
+    const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let m: RegExpExecArray | null;
+    const pageCdrs: SippyCDR[] = [];
+    let rowIndex = allCdrs.length;
+    let rowsTotal = 0, rowsTooFew = 0, rowsHeader = 0, rowsEmpty = 0, rowsNoCli = 0;
+
+    while ((m = trRe.exec(tableHtml)) !== null) {
+      rowsTotal++;
+      const rowHtml = m[1];
+      const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+      const cells: string[] = [];
+      let td: RegExpExecArray | null;
+      while ((td = tdRe.exec(rowHtml)) !== null) {
+        const txt = td[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+        cells.push(txt);
+      }
+      if (cells.length < 7) { rowsTooFew++; continue; }
+      if (/^(caller|cli|cld)/i.test(cells[1] || '') || /^(caller|cli|cld)/i.test(cells[0] || '')) { rowsHeader++; continue; }
+      if (/list is empty/i.test(cells.join(' '))) { rowsEmpty++; continue; }
+      if (!cells[2] && !cells[3]) { rowsEmpty++; continue; }
+
+      const callerAcct  = cells[1] || '';
+      const cli         = cells[2] || '-';
+      const cld         = cells[3] || '-';
+      const country     = cells[4] || '';
+      const description = cells[5] || '';
+      const setupTime   = cells[6] || '';
+      const durationRaw = cells[7] || '0:00';
+      const billedRaw   = cells[8] || '0:00';
+      const amountRaw   = cells[9] || '0';
+
+      if (!cli || cli === '-') { rowsNoCli++; continue; }
+
+      const durationSec = parseMMSS(durationRaw);
+      const billedSec   = parseMMSS(billedRaw);
+      const cost        = parseFloat(amountRaw) || 0;
+
+      const CUST_MONTHS: Record<string, string> = {
+        Jan:'01', Feb:'02', Mar:'03', Apr:'04', May:'05', Jun:'06',
+        Jul:'07', Aug:'08', Sep:'09', Oct:'10', Nov:'11', Dec:'12',
+      };
+      let connectTime: string | undefined;
+      const dtMonMatch = setupTime.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+      if (dtMonMatch) {
+        const [, day, mon, year, time] = dtMonMatch;
+        const mo = CUST_MONTHS[mon] || '01';
+        connectTime = `${year}-${mo}-${day.padStart(2,'0')}T${time}Z`;
+      } else {
+        const dtSlashMatch = setupTime.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+        if (dtSlashMatch) {
+          connectTime = `${dtSlashMatch[3]}-${dtSlashMatch[1]}-${dtSlashMatch[2]}T${dtSlashMatch[4]}Z`;
+        }
+      }
+      const resultCode = billedSec > 0 ? '0' : 'failed';
+
+      pageCdrs.push({
+        callId:            `portal-cdr-${rowIndex++}`,
+        caller:            cli,
+        callee:            cld,
+        country:           country || undefined,
+        description,
+        areaName:          description || undefined,
+        connectTime,
+        startTime:         connectTime || new Date().toISOString(),
+        duration:          billedSec,
+        totalDuration:     durationSec,
+        billedDuration:    billedSec,
+        cost,
+        result:            resultCode,
+        clientName:        callerAcct || undefined,
+        dispositionSource: 'portal-customer',
+      });
+    }
+
+    // Dedup against already-collected CDRs: if this Sippy portal ignores the
+    // n= offset and keeps serving the same rows, every subsequent page will have
+    // 0 NEW records → break to avoid an infinite loop.
+    let newOnPage = 0;
+    for (const cdr of pageCdrs) {
+      const fp = `${cdr.startTime}:${cdr.caller}:${cdr.callee}`;
+      if (!seenKeys.has(fp)) {
+        seenKeys.add(fp);
+        allCdrs.push(cdr);
+        newOnPage++;
+      }
+    }
+
+    console.log(`[scrapePortalCDRsAll] page=${pageIndex} offset=${offset} rows: total=${rowsTotal} tooFewCells=${rowsTooFew} header=${rowsHeader} empty=${rowsEmpty} noCli=${rowsNoCli} parsed=${pageCdrs.length} new=${newOnPage}`);
+
+    // Stop when: (a) page returned 0 CDRs, (b) 0 new after dedup (portal ignoring offset),
+    // or (c) fewer than 10% of the page is new — diminishing returns on a live system.
+    const newThreshold = Math.max(1, Math.floor(PORTAL_CAP * 0.10));
+    if (pageCdrs.length === 0 || newOnPage === 0 || newOnPage < newThreshold) break;
+    pageIndex++;
+  }
+
+  const via = loginRes.cookies ? portalUsername : (opts.fallbackUsername ?? portalUsername);
+  console.log(`[scrapePortalCDRsAll] done — ${allCdrs.length} CDRs across ${pageIndex} pages via ${via}@${base}`);
+  return allCdrs;
 }
 
 // scrapeAdminPortalCDRs — logs into admin portal as 'admin' (acct_type=admin) using
