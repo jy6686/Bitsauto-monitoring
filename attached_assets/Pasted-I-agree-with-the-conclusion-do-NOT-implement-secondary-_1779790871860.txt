@@ -1,0 +1,135 @@
+I agree with the conclusion:
+
+do NOT implement secondary fixes first
+
+The investigation now clearly shows:
+
+Issue	Impact
+Portal auth failure	catastrophic
+HTML fallback scrape	low-fidelity emergency mode
+Vendor label mismatch	cosmetic compared to root issue
+Refresh interval	unrelated to data integrity
+
+So the architecture decision is now obvious:
+
+P1 is NOT optional anymore
+
+Because until:
+
+/asr_acd.php
+
+works correctly,
+the platform is effectively operating on:
+
+partial sampled telemetry
+
+That means:
+
+ASR incorrect
+NER incorrect
+ACD unreliable
+vendor statistics incomplete
+route intelligence unreliable
+simulation projections unreliable
+optimization recommendations unreliable
+
+The most important realization from the investigation is this:
+
+the platform silently degraded into fallback mode
+
+without making that degradation operationally obvious.
+
+That is the actual governance failure.
+
+Because operators saw:
+
+charts
+vendors
+percentages
+totals
+
+and reasonably assumed:
+
+the data was authoritative
+
+when it was actually:
+
+HTML page scrape subset mode
+Correct Next Step
+
+Do NOT:
+
+tune labels
+improve fallback grouping
+optimize refresh
+build more intelligence features
+
+until:
+
+primary aggregation integrity is restored
+
+Meaning:
+
+fix Sippy portal authentication
+verify /asr_acd.php works
+confirm totals match native Sippy
+disable silent fallback behavior
+show explicit degradation warning if fallback activates
+
+Example:
+
+WARNING:
+Running in fallback scrape mode.
+Analytics accuracy degraded.
+Native aggregation unavailable.
+
+That warning should exist BEFORE any intelligence layer consumes the data.
+
+Very Important Architectural Lesson
+
+This issue exposed something deeper than a bug:
+
+telemetry provenance matters
+
+The platform correctly built:
+
+governance
+explainability
+simulation
+failover discipline
+
+But all of those layers ultimately depend on:
+
+trustworthy source telemetry
+
+Without that:
+
+explainability explains wrong data
+simulation simulates wrong reality
+governance governs incorrect assumptions
+
+So this issue is actually:
+
+foundational platform integrity work
+
+not merely:
+
+ASR report mismatch
+Recommendation
+
+My recommendation is:
+
+Stop all intelligence expansion temporarily
+
+until:
+
+native Sippy aggregation path restored
+aggregation parity validated
+telemetry provenance guaranteed
+
+Then:
+resume stabilization mode.
+
+Because:
+
+trustworthy telemetry is the prerequisite for trustworthy intelligence.
