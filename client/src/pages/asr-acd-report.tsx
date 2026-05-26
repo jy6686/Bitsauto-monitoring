@@ -116,6 +116,9 @@ interface ReportData {
   termination: ReportRow[];
   origTotal: ReportRow;
   termTotal: ReportRow;
+  source?: string;
+  degraded?: boolean;
+  degradedReason?: string;
 }
 
 interface FilterState {
@@ -709,6 +712,21 @@ export default function AsrAcdReportPage() {
           </Button>
         </div>
       </div>
+
+      {/* ── Degradation Warning Banner ── */}
+      {data?.degraded && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3" data-testid="banner-degraded-mode">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+              Analytics running in fallback mode — accuracy degraded
+            </p>
+            <p className="text-xs text-amber-600/80 dark:text-amber-400/80 mt-0.5">
+              Native Sippy aggregation is unavailable (portal authentication failed). Data shown is a partial CDR cache sample — totals, ASR, ACD, and vendor breakdowns are incomplete and should not be used for routing or operational decisions. Restore portal credentials in Settings to enable full reporting.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── KPI tiles — only shown after a report is loaded ── */}
       {data && !loading && totalCalls > 0 && (

@@ -1167,6 +1167,7 @@ export async function getSippyPerAccountStats(
   toDate?: Date,
   cli?: string,
   cld?: string,
+  adminWebPassword?: string,
 ): Promise<SippyPerAccountStats> {
   const FAIL = (error: string): SippyPerAccountStats => ({
     ok: false, period: `${periodMinutes} min`, fetchedAt: new Date().toISOString(),
@@ -1184,11 +1185,27 @@ export async function getSippyPerAccountStats(
     // ── Step 1: Get portal session ────────────────────────────────────────────
     // Prefer admin/reseller (shows correct vendor termination costs).
     // Fall back to any session (customer) so we still return origination revenue.
+    // Also include SIPPY_PROV_USERNAME/PASSWORD env vars as additional credential candidates.
+    const provUser = process.env.SIPPY_PROV_USERNAME?.trim() ?? '';
+    const provPass = process.env.SIPPY_PROV_PASSWORD?.trim() ?? '';
+
     let cookies = await getAdminPortalSession(
       base,
       fallbackUsername ?? '', fallbackPassword ?? '',  // ssp-root / apiAdminUsername first
       portalUsername, portalPassword,                   // RTST1 / portalUsername second
+      adminWebPassword,
     );
+
+    // If admin session failed, also try provisioning credentials as a third option
+    if (!cookies && provUser && provPass) {
+      cookies = await getAdminPortalSession(
+        base,
+        provUser, provPass,
+        portalUsername, portalPassword,
+        adminWebPassword,
+        true, // bypass negative cache for provisioning creds
+      );
+    }
     let vendorDataFull = true;
     if (!cookies) {
       // Try any session (customer login) — origination amounts will be correct,

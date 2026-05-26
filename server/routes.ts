@@ -3974,6 +3974,7 @@ export async function registerRoutes(
       const portalPass = settings.portalPassword   || settings.apiAdminPassword || '';
       const adminUser  = settings.apiAdminUsername || '';
       const adminPass  = settings.apiAdminPassword || '';
+      const webPass    = (settings as any).adminWebPassword || '';
 
       const portalResult = await sippy.getSippyPerAccountStats(
         portalUser, portalPass,
@@ -3982,6 +3983,7 @@ export async function registerRoutes(
         new Date(startMs), new Date(endMs),
         cli   || undefined,
         cld   || undefined,
+        webPass || undefined,
       );
 
       if (portalResult.ok) {
@@ -4212,18 +4214,20 @@ export async function registerRoutes(
       : origRowsFb.map(toReportRowFb);
 
     res.json({
-      ok:          true,
-      source:      'cdr-cache',
-      _source:     'cdr-cache',
-      _cdrCount:   allCdrs.length,
-      rows:        cdrReportRows,
+      ok:             true,
+      source:         'cdr-cache',
+      _source:        'cdr-cache',
+      _cdrCount:      allCdrs.length,
+      rows:           cdrReportRows,
       highlightBelow,
-      generatedAt: new Date().toISOString(),
-      cdrCount:    allCdrs.length,
-      origination: origRowsFb,
-      termination: termRowsFb,
-      origTotal:   calcTotal(origRowsFb),
-      termTotal:   calcTotal(termRowsFb),
+      generatedAt:    new Date().toISOString(),
+      cdrCount:       allCdrs.length,
+      origination:    origRowsFb,
+      termination:    termRowsFb,
+      origTotal:      calcTotal(origRowsFb),
+      termTotal:      calcTotal(termRowsFb),
+      degraded:       true,
+      degradedReason: 'Native Sippy aggregation unavailable — portal authentication failed. Showing partial CDR cache data only. Analytics accuracy is degraded.',
     });
   });
 
