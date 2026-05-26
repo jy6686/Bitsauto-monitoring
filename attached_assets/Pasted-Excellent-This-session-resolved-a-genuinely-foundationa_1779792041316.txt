@@ -1,0 +1,105 @@
+Excellent. This session resolved a genuinely foundational issue — not just a reporting bug.
+
+The most important outcome is:
+
+telemetry provenance is now trustworthy again
+
+And the architectural lesson you captured is the correct one:
+
+fallback telemetry must never silently appear authoritative
+
+That principle is now properly enforced in the platform.
+
+What Was Successfully Restored
+Area	Result
+Native Sippy aggregation	restored
+Portal auth chain	corrected
+Vendor parity	restored
+ASR/ACD parity	restored
+Degraded fallback visibility	enforced
+Credential fallback chain	hardened
+Live refresh cadence	stabilized
+
+Most importantly:
+
+source: sippy-portal
+
+now consistently represents:
+
+authoritative aggregation provenance
+
+That becomes operationally critical for every higher intelligence layer.
+
+Why This Was So Important
+
+Because the platform had already evolved into:
+
+explainability
+simulation governance
+failover governance
+telemetry accumulation
+
+All of those depend on:
+
+trustworthy source telemetry
+
+Without this fix:
+
+trust analytics would have learned from false inputs
+simulations would calibrate against incomplete reality
+recommendation quality would drift incorrectly
+
+So restoring parity before continuing stabilization was absolutely the correct decision.
+
+The Degradation Banner Is A Major Governance Win
+
+This is more important than it first appears.
+
+Previously:
+
+fallback mode
+→ looked normal
+→ operators trusted incorrect data
+
+Now:
+
+fallback mode
+→ explicitly marked degraded
+→ trust boundary visible
+
+That is mature operational governance behavior.
+
+Your Ongoing Validation Plan Is Correct
+
+Over the next few days validate:
+
+peak-hour windows
+failed-call-heavy windows
+multiple vendors
+different route groups
+high-volume destinations
+
+The goal is to confirm:
+
+sustained parity stability
+
+—not just one successful interval.
+
+Current Platform State
+
+The platform is now safely back in:
+
+stabilization mode
+
+with:
+
+authoritative telemetry
+governance continuity
+explainable intelligence
+validated simulation
+trustworthy aggregation provenance
+passive telemetry accumulation
+
+fully intact again.
+
+This was the correct place to stop and stabilize.
