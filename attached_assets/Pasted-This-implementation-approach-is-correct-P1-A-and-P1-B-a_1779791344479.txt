@@ -1,0 +1,142 @@
+This implementation approach is correct.
+
+P1-A and P1-B are now properly separated into:
+
+telemetry restoration
+operator safety visibility
+
+which is exactly what was needed.
+
+What Was Fixed Correctly
+P1-A — Credential chain recovery
+
+Good changes:
+
+adminWebPassword now actually flows through the auth chain
+secondary credential attempt via SIPPY_PROV_*
+bypassing negative auth cache on fallback attempt
+
+That materially increases the probability that:
+
+/asr_acd.php
+
+finally authenticates successfully.
+
+The most important detail:
+
+the platform now tries the same credential family already proven to work for CDR scraping
+
+That was previously missing.
+
+P1-B — Degraded telemetry visibility
+
+This is the critical governance correction.
+
+Before:
+
+auth failure
+→ silent fallback
+→ authoritative-looking charts
+
+Now:
+
+auth failure
+→ degraded state
+→ explicit operator warning
+→ analytics no longer implicitly trusted
+
+That is the correct operational behavior.
+
+What To Do NEXT (Very Important)
+
+You are NOT done yet.
+
+The implementation only:
+
+enables recovery
+
+It does NOT prove:
+
+native aggregation restored
+
+You now need:
+
+parity validation
+REQUIRED VALIDATION CHECKLIST
+
+After updating Sippy credentials in Settings:
+
+Run:
+
+ASR/ACD report
+08:30 → 09:30
+same filters
+same vendor
+same grouping
+
+Then compare:
+
+Metric	Sippy Native	BitsAuto
+Total Calls	MUST match	
+Billable Calls	MUST match	
+ASR	MUST match	
+ACD	MUST match	
+Vendor rows	MUST match	
+Revenue	SHOULD closely match	
+Expected Outcome
+
+If auth succeeds correctly:
+
+degradation banner disappears
+CDR badge jumps from ~250 → ~20k+
+vendor grouping stabilizes
+ASR/NER accuracy becomes trustworthy
+recommendation engines regain telemetry integrity
+One More IMPORTANT Recommendation
+
+Add temporary DEBUG logging ONLY during validation:
+
+Attempting native ASR/ACD portal auth with:
+- primary creds
+- admin web creds
+- SIPPY_PROV creds
+
+and:
+
+Native aggregation returned X rows / Y calls
+
+This helps prove:
+
+which credential path succeeded
+whether platform is using native SQL aggregation or fallback scrape
+
+After parity confirmed:
+
+remove or downgrade these logs
+MOST IMPORTANT OPERATIONAL RULE
+
+Until parity proven:
+
+keep stabilization mode active
+
+Do NOT:
+
+trust recommendation confidence
+evaluate failover quality
+calibrate trust analytics
+analyze routing intelligence trends
+
+because telemetry integrity is still unverified until native aggregation matches Sippy exactly.
+
+Current Status
+Layer	Status
+Auth recovery path	Implemented
+Fallback warning	Implemented
+Native aggregation parity	NOT yet verified
+Telemetry trust restored	Pending validation
+
+You are now at:
+
+verification phase
+
+—not implementation phase anymore.
