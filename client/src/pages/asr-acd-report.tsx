@@ -362,9 +362,23 @@ interface ReportTableProps {
   threshold: number;
   icon: React.ReactNode;
   showNer?: boolean;
+  enrichmentMeta?: EnrichmentMeta;
 }
 
-function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, threshold, icon, showNer = true }: ReportTableProps) {
+function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, threshold, icon, showNer = true, enrichmentMeta }: ReportTableProps) {
+  // Derive provenance label and tooltip text for NER/FAS column headers
+  const conf = enrichmentMeta?.confidence;
+  const derivedLabel =
+    !conf                  ? "derived"       :
+    conf === 'suppressed'  ? "unavailable"   :
+    conf === 'low'         ? "low confidence":
+    conf === 'medium'      ? "est. derived"  : "derived";
+  const derivedTooltip =
+    !conf
+      ? "Computed from per-call CDR analysis"
+      : conf === 'suppressed'
+      ? `Enrichment suppressed — sample too small (${enrichmentMeta.sampleSize.toLocaleString()} CDRs / ${enrichmentMeta.nativeTotalCalls.toLocaleString()} native, ${enrichmentMeta.coveragePct}% coverage). Requires ≥5% to overlay.`
+      : `Derived from ${enrichmentMeta.sampleSize.toLocaleString()} CDR sample / ${enrichmentMeta.nativeTotalCalls.toLocaleString()} native calls (${enrichmentMeta.coveragePct}% coverage) · ${conf.charAt(0).toUpperCase() + conf.slice(1)} confidence`;
   return (
     <div className="rounded-lg border border-border overflow-hidden" data-testid={`section-${title.toLowerCase()}`}>
       <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/30 border-b border-border">
@@ -393,13 +407,29 @@ function ReportTable({ title, subtitle, rows, total, amountLabel, nameLabel, thr
                 <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap min-w-[110px]">
                   NER %
                   <span className="ml-1 text-[9px] font-normal text-muted-foreground/60 normal-case">≥{BENCH.ner.warning}% good</span>
-                  <span className="ml-1 text-[8px] font-normal text-muted-foreground/40 italic">derived</span>
+                  <span
+                    className={cn("ml-1 text-[8px] font-normal italic cursor-help",
+                      conf === 'suppressed' ? "text-muted-foreground/30" :
+                      conf === 'low'        ? "text-amber-500/60"         :
+                      conf === 'medium'     ? "text-blue-500/60"          :
+                      "text-muted-foreground/40"
+                    )}
+                    title={derivedTooltip}
+                  >{derivedLabel}</span>
                 </th>
               )}
               <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap">PDD sec</th>
               <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap">
                 FAS %
-                <span className="ml-1 text-[8px] font-normal text-muted-foreground/40 italic">derived</span>
+                <span
+                  className={cn("ml-1 text-[8px] font-normal italic cursor-help",
+                    conf === 'suppressed' ? "text-muted-foreground/30" :
+                    conf === 'low'        ? "text-amber-500/60"         :
+                    conf === 'medium'     ? "text-blue-500/60"          :
+                    "text-muted-foreground/40"
+                  )}
+                  title={derivedTooltip}
+                >{derivedLabel}</span>
               </th>
               <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap">{amountLabel}</th>
             </tr>
@@ -1103,6 +1133,7 @@ export default function AsrAcdReportPage() {
             nameLabel={submitted?.groupOrig === "ip" ? "IP" : submitted?.groupOrig === "ip_caller" ? "IP / Caller" : submitted?.groupOrig === "none" ? "Group" : "Caller"}
             threshold={threshold}
             icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}
+            enrichmentMeta={data.enrichmentMeta}
           />
           <ReportTable
             title="Termination"
@@ -1113,6 +1144,7 @@ export default function AsrAcdReportPage() {
             nameLabel={submitted?.groupTerm === "vendor" ? "Vendor" : submitted?.groupTerm === "none" ? "Group" : "Vendor / Connection"}
             threshold={threshold}
             icon={<TrendingDown className="h-4 w-4 text-rose-400" />}
+            enrichmentMeta={data.enrichmentMeta}
           />
         </div>
       )}
