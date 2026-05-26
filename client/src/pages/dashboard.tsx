@@ -528,8 +528,8 @@ export default function DashboardPage() {
   // Sippy live calls — poll every 60 s; WS tick triggers an immediate refetch on top of that.
   const { data: sippyLiveCalls, refetch: refetchLiveCalls, dataUpdatedAt: liveCallsUpdatedAt } = useQuery<{ calls: any[]; connected?: boolean; stale?: boolean; lastUpdated?: number; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 25_000,
+    refetchInterval: 30_000,   // fallback polling — NOC tick is primary but WS can be unreliable in production
   });
   // WS tick also triggers an immediate refetch
   useEffect(() => { if (lastTick) refetchLiveCalls(); }, [lastTick]);

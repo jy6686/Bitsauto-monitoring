@@ -339,7 +339,8 @@ function SwitchPanel({
   const { data: primarySippyLiveCalls, isLoading: sippyLoading, refetch: refetchSippy } = useQuery<{ calls: LiveCall[]; connected?: boolean }>({
     queryKey: ['/api/sippy/live-calls'],
     enabled: isPrimary,
-    staleTime: 50_000,
+    staleTime: 25_000,
+    refetchInterval: 30_000,   // fallback polling — NOC tick is primary but WS can be unreliable in production
   });
   // Trigger live-calls refetch whenever the server pushes a NOC tick
   useEffect(() => {

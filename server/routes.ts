@@ -3951,6 +3951,15 @@ export async function registerRoutes(
         }
       }
 
+      // ── Step 3b: Mera-enriched vendor (portal-scraped CDRs enriched via confId/dstIp) ──
+      // cdrCache entries enriched by the Mera CDR feed carry vendorName / vendorResolved.
+      // Use these before giving up so termination rows show the real carrier name.
+      const meraVendor = (cdr as any).vendorName || (cdr as any).vendorResolved;
+      if (meraVendor) {
+        if (groupTerm === 'vendor') return String(meraVendor);
+        return `${meraVendor} / Unknown Connection`;
+      }
+
       // ── Step 4: all deterministic paths exhausted ─────────────────────
       return 'Unknown Vendor / Unknown Connection';
     }
@@ -3996,6 +4005,20 @@ export async function registerRoutes(
         if (vendorFilter) termRows = termRows.filter(r => r.name.toLowerCase().includes(vendorFilter.toLowerCase()));
         if (hideTermEmpty) termRows = termRows.filter(r => r.totalCalls > 0);
         termRows = sortRows(termRows as any, sortTerm) as any;
+
+        // When portal returns no termination rows (customer session has no vendor view),
+        // synthesise a single row from the origination totals using best-effort vendor labeling.
+        if (termRows.length === 0 && origRows.length > 0) {
+          const totalCalls    = origRows.reduce((s, r) => s + r.totalCalls, 0);
+          const billableCalls = origRows.reduce((s, r) => s + r.billableCalls, 0);
+          const durationSec   = origRows.reduce((s, r) => s + r.durationSec, 0);
+          const acdSec        = billableCalls > 0 ? parseFloat((durationSec / billableCalls).toFixed(1)) : 0;
+          const asr           = totalCalls > 0 ? parseFloat((billableCalls / totalCalls * 100).toFixed(4)) : 0;
+          const latestSnap    = vendorBalanceHistory[vendorBalanceHistory.length - 1];
+          const activeVendors = latestSnap ? latestSnap.vendors.filter(v => v.balance > 0) : [];
+          const vendorLabel   = activeVendors.length === 1 ? `${activeVendors[0].name} / Unknown Connection` : 'Unknown Vendor / Unknown Connection';
+          termRows = [{ name: vendorLabel, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd: 0, amount: 0 }];
+        }
 
         // Build AsrAcdReportRow compat array for reports.tsx
         const toReportRow = (r: { name: string; totalCalls: number; billableCalls: number; durationSec: number; acdSec: number; asr: number; avgPdd: number; amount: number }) => ({
@@ -4072,10 +4095,33 @@ export async function registerRoutes(
       if (!termGroupsFb[k]) termGroupsFb[k] = [];
       termGroupsFb[k].push(cdr);
     }
-    const termRowsFb = sortRows(
+    let termRowsFb = sortRows(
       Object.entries(termGroupsFb).map(([n, s]) => buildRow(n, s)).filter(r => !hideTermEmpty || r.totalCalls > 0),
       sortTerm,
     );
+
+    // ── Vendor best-effort labeling ────────────────────────────────────────────
+    // Portal-scraped customer CDRs have no remoteIp/iConnection, so termKey() falls
+    // through to "Unknown Vendor / Unknown Connection" for some or all rows.
+    // When vendorBalanceHistory shows exactly one vendor with a non-zero balance
+    // (the only carrier handling traffic), relabel those unknown rows with the real name.
+    // This is safe for single-vendor switches — all traffic has unambiguous attribution.
+    if (termRowsFb.some(r => r.name === 'Unknown Vendor / Unknown Connection')) {
+      const latestSnap = vendorBalanceHistory[vendorBalanceHistory.length - 1];
+      if (latestSnap) {
+        const activeVendors = latestSnap.vendors.filter(v => v.balance > 0);
+        if (activeVendors.length === 1) {
+          const vName = activeVendors[0].name;
+          const unknownCount = termRowsFb.filter(r => r.name === 'Unknown Vendor / Unknown Connection').length;
+          termRowsFb = termRowsFb.map(r =>
+            r.name === 'Unknown Vendor / Unknown Connection'
+              ? { ...r, name: `${vName} / Unknown Connection` }
+              : r
+          );
+          console.log(`[api/reports/asr-acd] vendor best-effort: relabeled ${unknownCount} row(s) → ${vName}`);
+        }
+      }
+    }
 
     // Build AsrAcdReportRow compat array for reports.tsx — NER/FAS are available from buildRow
     const toReportRowFb = (r: ReturnType<typeof buildRow>) => ({
