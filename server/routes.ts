@@ -22972,6 +22972,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const pol = polRows[0];
 
       if (pol.armingStatus !== 'armed') return res.status(422).json({ message: `Policy must be 'armed' before execution. Current status: '${pol.armingStatus}'.`, code: 'NOT_ARMED' });
+      if (pol.armedBy && pol.armedBy === actor) return res.status(422).json({ message: 'The same user who armed this policy cannot execute it. A second approver is required.', code: 'APPROVER_EXECUTOR_SAME' });
       if (Number(shiftPercent) > pol.maxTrafficShift) return res.status(422).json({ message: `Traffic shift ${shiftPercent}% exceeds policy maximum of ${pol.maxTrafficShift}%.`, code: 'SHIFT_EXCEEDED' });
       if (pol.approvedFailoverVendors.length > 0 && !pol.approvedFailoverVendors.includes(toCarrier)) {
         return res.status(422).json({ message: `Carrier '${toCarrier}' is not in this policy's approved failover vendor whitelist.`, code: 'VENDOR_NOT_WHITELISTED' });
