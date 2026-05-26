@@ -5239,6 +5239,8 @@ export async function registerRoutes(
         // ── Attempt 1: customer portal (/c1/) — login once, paginate internally ──
         if (portUser && portPass) {
           try {
+            // No fixed date window — Sippy portal default shows recent CDRs and the
+            // user can filter any time range they want in the report UI.
             const scraped = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
               fallbackUsername: apiUser,
               fallbackPassword: webPass || apiPass,

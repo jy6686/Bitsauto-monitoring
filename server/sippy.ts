@@ -3166,10 +3166,10 @@ export async function scrapePortalCDRsAll(
 
     console.log(`[scrapePortalCDRsAll] page=${pageIndex} offset=${offset} rows: total=${rowsTotal} tooFewCells=${rowsTooFew} header=${rowsHeader} empty=${rowsEmpty} noCli=${rowsNoCli} parsed=${pageCdrs.length} new=${newOnPage}`);
 
-    // Stop when: (a) page returned 0 CDRs, (b) 0 new after dedup (portal ignoring offset),
-    // or (c) fewer than 10% of the page is new — diminishing returns on a live system.
-    const newThreshold = Math.max(1, Math.floor(PORTAL_CAP * 0.10));
-    if (pageCdrs.length === 0 || newOnPage === 0 || newOnPage < newThreshold) break;
+    // Stop only when the page is empty or every CDR on it was already seen (portal
+    // ignores the n= offset and repeats the same rows).  No early-exit on low-new-count
+    // because on a live system new calls complete between pages and that is expected.
+    if (pageCdrs.length === 0 || newOnPage === 0) break;
     pageIndex++;
   }
 

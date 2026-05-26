@@ -11,8 +11,9 @@ Use `sippy.scrapePortalCDRsAll()` for any paginated CDR fetch from the customer 
 **How to apply:**
 - `scrapePortalCDRsAll` logs in once, then paginates using the same session cookies.
 - Dedup fingerprint: `${startTime}:${caller}:${callee}` — tracks new-vs-duplicate per page.
-- Stop conditions: `pageCdrs.length === 0` OR `newOnPage === 0` (portal ignoring offset) OR `newOnPage < PORTAL_CAP * 0.10` (diminishing returns on live system).
-- Result: 430–680 CDRs per cycle vs the old 50. Cycle time ~15s (login + 10–16 pages × ~0.5s each).
+- Stop conditions: `pageCdrs.length === 0` OR `newOnPage === 0` (portal ignoring offset). No early-exit on low new-count — on a live system calls complete between pages and occasional low-new pages are normal. Let it run until genuinely `new=0`.
+- No fixed date window on the background scrape — Sippy portal default is used. User selects their own time range in the report UI.
+- Result: 690 CDRs across 32 pages per cycle vs the old 50. Cycle time ~104s (login once + 32 pages).
 
 ## Background
 The portal at `/c1/cdrs_customer.php` uses a Sippy session. RTST1 credentials fail portal login (redirect loop); ssp-root succeeds via 302→/c1/. Primary credentials always try first, ssp-root fallback kicks in automatically.
