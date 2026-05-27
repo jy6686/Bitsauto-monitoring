@@ -26091,6 +26091,60 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   );
 
+  // ── SMTP Sender Profiles ─────────────────────────────────────────────────────
+  app.get('/api/sender-profiles', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const profiles = await storage.listSmtpSenderProfiles();
+      // Strip smtp_pass from response
+      res.json({ profiles: profiles.map(p => ({ ...p, smtpPass: '••••••••' })) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/sender-profiles', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const profile = await storage.createSmtpSenderProfile(req.body);
+      res.status(201).json({ profile: { ...profile, smtpPass: '••••••••' } });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.put('/api/sender-profiles/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const updates = { ...req.body };
+      // If password is the masked sentinel, don't update it
+      if (updates.smtpPass === '••••••••') delete updates.smtpPass;
+      const profile = await storage.updateSmtpSenderProfile(id, updates);
+      res.json({ profile: { ...profile, smtpPass: '••••••••' } });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete('/api/sender-profiles/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      await storage.deleteSmtpSenderProfile(Number(req.params.id));
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/sender-profiles/:id/test — send a test email via this profile
+  app.post('/api/sender-profiles/:id/test', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const profile = await storage.getSmtpSenderProfile(id);
+      if (!profile) return res.status(404).json({ error: 'Profile not found' });
+      const { testEmail } = req.body ?? {};
+      if (!testEmail?.trim()) return res.status(400).json({ error: 'testEmail is required' });
+      const html = `<p style="font-family:Arial;color:#fff;background:#1a1a2e;padding:24px;border-radius:8px">
+        <strong>Sender Profile Test</strong><br/><br/>
+        Profile: <strong>${profile.name}</strong><br/>
+        From: <strong>${profile.emailAddress}</strong><br/>
+        Type: <strong>${profile.communicationType}</strong><br/><br/>
+        If you received this, the sender profile is configured correctly.
+      </p>`;
+      const result = await emailSvc.sendViaProfile({ to: testEmail.trim(), subject: `[Test] Sender Profile: ${profile.name}`, html, profile });
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Commercial Notifications ──────────────────────────────────────────────────
   // GET /api/commercial-notifications — list all (admin)
   app.get('/api/commercial-notifications', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req: any, res: any) => {
@@ -26199,6 +26253,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // Fetch inserted rows to get their IDs
       const storedRecipients = await storage.getCommercialNotificationRecipients(id);
 
+      // Resolve sender profile for this notification
+      let senderProfile: Awaited<ReturnType<typeof storage.getSmtpSenderProfile>> | null = null;
+      if (notif.senderProfileId) {
+        senderProfile = await storage.getSmtpSenderProfile(notif.senderProfileId);
+      }
+
       // Send emails
       let sent = 0, failed = 0;
       const html = (body: string) => `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#0f0f0f;color:#e0e0e0;padding:24px">
@@ -26224,10 +26284,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           .replace(/\{\{destination\}\}/gi, notif.destination ?? '')
           .replace(/\{\{effective_date\}\}/gi, notif.effectiveDate ?? '');
 
-        const result = await emailSvc.sendDirectEmail({
+        const result = await emailSvc.sendViaProfile({
           to: recipient.email,
           subject: personalSubject,
           html: html(personalBody),
+          profile: senderProfile ?? null,
         });
 
         if (result.ok) {

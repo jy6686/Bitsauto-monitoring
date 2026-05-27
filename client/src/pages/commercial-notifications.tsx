@@ -196,11 +196,17 @@ function ComposeWizard({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     subject: DEFAULT_TEMPLATES.interval_change.subject,
     body: DEFAULT_TEMPLATES.interval_change.body,
     audienceType: 'all_clients',
+    senderProfileId: '' as string | number,
   });
 
   const { data: audienceData } = useQuery<{ companies: any[]; total: number; withoutEmail: number }>({
     queryKey: ['/api/commercial-notifications/audience/companies'],
   });
+
+  const { data: profilesData } = useQuery<{ profiles: { id: number; name: string; emailAddress: string; communicationType: string }[] }>({
+    queryKey: ['/api/sender-profiles'],
+  });
+  const senderProfiles = profilesData?.profiles ?? [];
 
   const saveDraft = useMutation({
     mutationFn: () => apiRequest('POST', '/api/commercial-notifications', form),
@@ -346,6 +352,35 @@ function ComposeWizard({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               onChange={e => setForm(f => ({ ...f, body: e.target.value }))}
               className="bg-white/5 border-white/10 text-white text-sm font-mono min-h-[200px]"
             />
+          </div>
+
+          {/* Sender Profile picker */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <Label className="text-white/70 text-xs">Sender Profile</Label>
+              <a href="/sender-profiles" className="text-xs text-indigo-400 hover:text-indigo-300" target="_blank">Manage profiles →</a>
+            </div>
+            <Select
+              value={String(form.senderProfileId || '')}
+              onValueChange={v => setForm(f => ({ ...f, senderProfileId: v === 'system' ? '' : Number(v) }))}
+            >
+              <SelectTrigger className="bg-white/5 border-white/10 text-white text-sm" data-testid="select-sender-profile">
+                <SelectValue placeholder="System default (Settings → Email)" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1a1a2e] border-white/10">
+                <SelectItem value="system" className="text-white/50 hover:bg-white/10">System default (Settings → Email)</SelectItem>
+                {senderProfiles.map(p => (
+                  <SelectItem key={p.id} value={String(p.id)} className="text-white hover:bg-white/10">
+                    {p.name} <span className="text-white/40 text-xs ml-1">— {p.emailAddress}</span>
+                  </SelectItem>
+                ))}
+                {senderProfiles.length === 0 && (
+                  <SelectItem value="no-profiles" disabled className="text-white/30 hover:bg-white/10">
+                    No profiles configured — add them in Sender Profiles
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex justify-end">

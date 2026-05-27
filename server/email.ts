@@ -59,6 +59,66 @@ async function getTransporter(): Promise<{ transporter: nodemailer.Transporter; 
 }
 
 /**
+ * Build a transporter from a specific SMTP sender profile.
+ * Used by the Commercial Notifications dispatch engine.
+ */
+export async function buildProfileTransporter(profile: {
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpPass: string;
+  smtpSecure: boolean | null;
+  emailAddress: string;
+  name: string;
+}): Promise<nodemailer.Transporter> {
+  return nodemailer.createTransport({
+    host: profile.smtpHost,
+    port: profile.smtpPort,
+    secure: profile.smtpSecure ?? false,
+    auth: { user: profile.smtpUser, pass: profile.smtpPass },
+    connectionTimeout: 10_000,
+    socketTimeout:     12_000,
+    greetingTimeout:    8_000,
+  } as any);
+}
+
+/**
+ * Send a single email via a specific SMTP sender profile.
+ * Falls back to the default system transporter if profile is null.
+ */
+export async function sendViaProfile(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  profile: {
+    smtpHost: string; smtpPort: number; smtpUser: string;
+    smtpPass: string; smtpSecure: boolean | null;
+    emailAddress: string; name: string; replyTo?: string | null;
+  } | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (!opts.profile) {
+      // Fall back to system default transport
+      return sendDirectEmail({ to: opts.to, subject: opts.subject, html: opts.html });
+    }
+    const transport = await buildProfileTransporter(opts.profile);
+    const fromLine  = `"${opts.profile.name}" <${opts.profile.emailAddress}>`;
+    await transport.sendMail({
+      from:    fromLine,
+      to:      opts.to,
+      subject: opts.subject,
+      html:    opts.html,
+      ...(opts.profile.replyTo ? { replyTo: opts.profile.replyTo } : {}),
+    });
+    console.log(`[email-profile] Sent via ${opts.profile.emailAddress}: ${opts.subject} → ${opts.to}`);
+    return { ok: true };
+  } catch (err: any) {
+    console.error(`[email-profile] Failed ${opts.to}: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
  * Send a single email directly to a specific address.
  * Used by the Email Centre bulk-send feature.
  */

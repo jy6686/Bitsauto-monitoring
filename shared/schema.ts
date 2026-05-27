@@ -1934,8 +1934,9 @@ export const commercialNotifications = pgTable("commercial_notifications", {
   effectiveDate: varchar("effective_date",{ length: 32  }),
   subject:       varchar("subject",       { length: 512 }).notNull(),
   body:          text("body").notNull(),
-  audienceType:  varchar("audience_type", { length: 64  }).notNull().default('all_clients'),
+  audienceType:      varchar("audience_type",      { length: 64  }).notNull().default('all_clients'),
   // 'all_clients' | 'manual' | 'internal_team' | 'vendors'
+  senderProfileId:   integer("sender_profile_id"),
   createdBy:     varchar("created_by",    { length: 128 }),
   createdAt:     timestamp("created_at").defaultNow().notNull(),
   status:        varchar("status",        { length: 32  }).notNull().default('draft'),
@@ -1961,3 +1962,27 @@ export const commercialNotificationRecipients = pgTable("commercial_notification
 });
 export type CommercialNotificationRecipient       = typeof commercialNotificationRecipients.$inferSelect;
 export type InsertCommercialNotificationRecipient = typeof commercialNotificationRecipients.$inferInsert;
+
+// ── SMTP Sender Profiles — named sending identities per communication type ────
+// Operators configure separate identities for billing, rates, pricing, NOC etc.
+// The dispatch engine picks the profile matching the notification type.
+// smtp_pass is stored encrypted-at-rest via DB; never returned to frontend.
+export const smtpSenderProfiles = pgTable("smtp_sender_profiles", {
+  id:                serial("id").primaryKey(),
+  name:              varchar("name",              { length: 128 }).notNull(),
+  emailAddress:      varchar("email_address",     { length: 256 }).notNull(),
+  replyTo:           varchar("reply_to",          { length: 256 }),
+  communicationType: varchar("communication_type",{ length: 64  }).notNull().default('general'),
+  // 'billing' | 'rates' | 'pricing' | 'support' | 'noc' | 'general'
+  isDefault:         boolean("is_default").default(false),
+  smtpHost:          varchar("smtp_host",         { length: 256 }).notNull().default('smtp.gmail.com'),
+  smtpPort:          integer("smtp_port").notNull().default(587),
+  smtpUser:          varchar("smtp_user",         { length: 256 }).notNull(),
+  smtpPass:          varchar("smtp_pass",         { length: 512 }).notNull(),
+  smtpSecure:        boolean("smtp_secure").default(false),
+  createdAt:         timestamp("created_at").defaultNow().notNull(),
+  updatedAt:         timestamp("updated_at").defaultNow().notNull(),
+});
+export type SmtpSenderProfile       = typeof smtpSenderProfiles.$inferSelect;
+export type InsertSmtpSenderProfile = typeof smtpSenderProfiles.$inferInsert;
+export const insertSmtpSenderProfileSchema = createInsertSchema(smtpSenderProfiles).omit({ id: true, createdAt: true, updatedAt: true });

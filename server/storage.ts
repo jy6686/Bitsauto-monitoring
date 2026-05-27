@@ -74,6 +74,8 @@ import {
   commercialNotifications, commercialNotificationRecipients,
   type CommercialNotification, type InsertCommercialNotification,
   type CommercialNotificationRecipient, type InsertCommercialNotificationRecipient,
+  smtpSenderProfiles,
+  type SmtpSenderProfile, type InsertSmtpSenderProfile,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -335,6 +337,13 @@ export interface IStorage {
   getDataRetentionPolicies(): Promise<DataRetentionPolicy[]>;
   updateDataRetentionPolicy(dataType: string, updates: Partial<DataRetentionPolicy>): Promise<void>;
   seedDefaultRetentionPolicies(): Promise<void>;
+
+  // ── SMTP Sender Profiles ─────────────────────────────────────────────────────
+  listSmtpSenderProfiles(): Promise<SmtpSenderProfile[]>;
+  getSmtpSenderProfile(id: number): Promise<SmtpSenderProfile | null>;
+  createSmtpSenderProfile(data: InsertSmtpSenderProfile): Promise<SmtpSenderProfile>;
+  updateSmtpSenderProfile(id: number, updates: Partial<SmtpSenderProfile>): Promise<SmtpSenderProfile>;
+  deleteSmtpSenderProfile(id: number): Promise<void>;
 
   // ── Commercial Notifications ─────────────────────────────────────────────────
   listCommercialNotifications(): Promise<CommercialNotification[]>;
@@ -2095,6 +2104,33 @@ export class DatabaseStorage implements IStorage {
   async pruneConcurrentSnapshots(): Promise<void> {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     await db.delete(concurrentSnapshots).where(lt(concurrentSnapshots.ts, cutoff));
+  }
+
+  // ── SMTP Sender Profiles ─────────────────────────────────────────────────────
+  async listSmtpSenderProfiles(): Promise<SmtpSenderProfile[]> {
+    return db.select().from(smtpSenderProfiles).orderBy(smtpSenderProfiles.communicationType, smtpSenderProfiles.name);
+  }
+
+  async getSmtpSenderProfile(id: number): Promise<SmtpSenderProfile | null> {
+    const [row] = await db.select().from(smtpSenderProfiles).where(eq(smtpSenderProfiles.id, id));
+    return row ?? null;
+  }
+
+  async createSmtpSenderProfile(data: InsertSmtpSenderProfile): Promise<SmtpSenderProfile> {
+    const [row] = await db.insert(smtpSenderProfiles).values(data).returning();
+    return row;
+  }
+
+  async updateSmtpSenderProfile(id: number, updates: Partial<SmtpSenderProfile>): Promise<SmtpSenderProfile> {
+    const [row] = await db.update(smtpSenderProfiles)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(smtpSenderProfiles.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteSmtpSenderProfile(id: number): Promise<void> {
+    await db.delete(smtpSenderProfiles).where(eq(smtpSenderProfiles.id, id));
   }
 
   // ── Commercial Notifications ─────────────────────────────────────────────────

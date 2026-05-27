@@ -84,6 +84,7 @@ import FirewallPage from "@/pages/firewall";
 import VpnConfigPage from "@/pages/vpn-config";
 import EmailCentrePage from "@/pages/email-centre";
 import CommercialNotificationsPage from "@/pages/commercial-notifications";
+import SenderProfilesPage from "@/pages/sender-profiles";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
@@ -398,6 +399,9 @@ function Router() {
       </Route>
       <Route path="/commercial-notifications">
         {() => <ProtectedRoute component={CommercialNotificationsPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/sender-profiles">
+        {() => <ProtectedRoute component={SenderProfilesPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/notification-centre">
         {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}
