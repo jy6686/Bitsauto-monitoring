@@ -112,6 +112,17 @@ export {
   getCdrsByPrefix,
 } from './sippy-cdr.service';
 
+// ── Immutable rating snapshots (Layer 4C) ────────────────────────────────────
+export * as ratingSnapshot from './sippy-rating-snapshot.service';
+export {
+  computeSnapshotHash,
+  verifySnapshotIntegrity,
+  createSnapshot,
+  lockBatch,
+  getSnapshotSummary,
+  runIntegrityAudit,
+} from './sippy-rating-snapshot.service';
+
 // ── Rating verification (Layer 4B) ───────────────────────────────────────────
 export * as ratingVerification from './sippy-rating-verification.service';
 export {

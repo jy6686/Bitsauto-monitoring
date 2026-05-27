@@ -26511,6 +26511,75 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Rating Snapshots (Layer 4C) ───────────────────────────────────────────
+  // GET  /api/rating-snapshots             — list with filters
+  // GET  /api/rating-snapshots/summary     — aggregated economics summary
+  // GET  /api/rating-snapshots/:id         — single snapshot with full detail
+  // POST /api/rating-snapshots/lock-batch  — crystallize verified CDRs into snapshots
+  // POST /api/rating-snapshots/integrity-audit — re-verify SHA-256 hashes
+
+  app.get('/api/rating-snapshots/summary', async (req: any, res: any) => {
+    try {
+      const { getSnapshotSummary } = await import('./services/sippy/index');
+      const iTariff = req.query.iTariff as string | undefined;
+      const since   = req.query.since ? new Date(req.query.since as string) : undefined;
+      const summary = await getSnapshotSummary({ iTariff, since });
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/rating-snapshots', async (req: any, res: any) => {
+    try {
+      const opts: any = {};
+      if (req.query.iTariff)            opts.iTariff            = req.query.iTariff;
+      if (req.query.verificationStatus) opts.verificationStatus = req.query.verificationStatus;
+      if (req.query.since)              opts.since              = new Date(req.query.since as string);
+      if (req.query.limit)              opts.limit              = Number(req.query.limit);
+      const rows = await storage.listInvoiceCdrSnapshots(opts);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/rating-snapshots/:id', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const row = await storage.getInvoiceCdrSnapshot(id);
+      if (!row) return res.status(404).json({ error: 'Not found' });
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/rating-snapshots/lock-batch', async (req: any, res: any) => {
+    try {
+      const { lockBatch } = await import('./services/sippy/index');
+      const { iTariff, limit = 1000 } = req.body ?? {};
+      const result = await lockBatch({ iTariff: iTariff || undefined, limit });
+      res.json(result);
+    } catch (err: any) {
+      console.error('[rating-snapshots] lock-batch error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/rating-snapshots/integrity-audit', async (req: any, res: any) => {
+    try {
+      const { runIntegrityAudit } = await import('./services/sippy/index');
+      const { iTariff, limit = 500 } = req.body ?? {};
+      const result = await runIntegrityAudit({ iTariff: iTariff || undefined, limit });
+      res.json(result);
+    } catch (err: any) {
+      console.error('[rating-snapshots] integrity-audit error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return httpServer;
 }
 

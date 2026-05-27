@@ -35,6 +35,21 @@ NEVER: Route → server/sippy.ts directly (existing routes grandfathered, new ro
 - CDR service: syncCdrs() always tries XML-RPC first, falls back to portal scraping
 - server/sippy.ts (16,712 lines, 350 exports) remains the low-level execution layer
 
+## Layer 4C — Immutable Rating Snapshots (COMPLETE)
+- Table: `invoice_cdr_snapshots` (migration: `migrations/006_rating_snapshots.sql`)
+- 7 indexes: UNIQUE on cdr_id (idempotency), i_tariff, rating_verification_id, tariff_version_id, verification_status, locked_at DESC, partial on delta WHERE ABS(delta) > 0.0001
+- Both FK refs use SET NULL on delete — financial snapshots survive cleanup
+- Service: `sippy-rating-snapshot.service.ts`
+  - computeSnapshotHash() — SHA-256 of canonical JSON of immutable economic fields (deterministic, no operational fields)
+  - createSnapshot(verificationId) — idempotent: checks existing by cdrId before inserting; parses rate_snapshot JSON from 4B record
+  - lockBatch(opts) — batch crystallization of verified CDRs; skips unique conflicts (code 23505)
+  - verifySnapshotIntegrity(id) — re-computes hash and compares to stored value
+  - runIntegrityAudit(opts) — bulk hash audit, returns failures list
+  - getSnapshotSummary(opts) — totals for reproduced, actual, delta, exact vs withDelta counts
+- API: GET /api/rating-snapshots (filters), GET /api/rating-snapshots/summary, GET /api/rating-snapshots/:id, POST /api/rating-snapshots/lock-batch, POST /api/rating-snapshots/integrity-audit
+- UI: /rating-snapshots — summary cards, accuracy bar, lock/audit buttons, batch result card, integrity audit card, snapshot table, detail dialog (crystallized economics + rate params + tamper-evident hash display)
+- Sidebar: "Rating Snapshots" with Lock icon
+
 ## Layer 4B — Rating Verification Engine (COMPLETE)
 - Table: `rating_verifications` (migration: `migrations/005_rating_verification.sql`)
 - Also adds 4A enhancements: version_hash + change_source on tariff_versions; notification_sent + acknowledged + impact_score on tariff_change_events

@@ -2078,3 +2078,44 @@ export const ratingVerifications = pgTable("rating_verifications", {
 export type RatingVerification       = typeof ratingVerifications.$inferSelect;
 export type InsertRatingVerification = typeof ratingVerifications.$inferInsert;
 export const insertRatingVerificationSchema = createInsertSchema(ratingVerifications).omit({ id: true, createdAt: true });
+
+// ── Immutable Rating Snapshots — Layer 4C ─────────────────────────────────────
+// Crystallized telecom finance truth — permanent invoice-safe record.
+//
+// Once created:
+//   - Economic fields are NEVER mutated.
+//   - snapshot_hash detects any tampering.
+//   - locked_at is the immutable commit timestamp.
+//
+// This is the prerequisite for:
+//   5B — Automated Invoice Delivery (invoices reference these snapshots)
+//   5C — Carrier Invoice Reconciliation (discrepancy proofs use these snapshots)
+export const invoiceCdrSnapshots = pgTable("invoice_cdr_snapshots", {
+  id:                     serial("id").primaryKey(),
+  cdrId:                  varchar("cdr_id",              { length: 128 }),
+  cdrStartTime:           varchar("cdr_start_time",      { length: 64  }),
+  callee:                 varchar("callee",               { length: 256 }),
+  durationSecs:           integer("duration_secs"),
+  iTariff:                varchar("i_tariff",             { length: 64  }),
+  tariffVersionId:        integer("tariff_version_id"),
+  ratingVerificationId:   integer("rating_verification_id"),
+  reproducedCost:         real("reproduced_cost").notNull(),
+  actualCost:             real("actual_cost"),
+  delta:                  real("delta"),
+  interval1Used:          integer("interval_1_used"),
+  intervalNUsed:          integer("interval_n_used"),
+  price1Used:             real("price_1_used"),
+  priceNUsed:             real("price_n_used"),
+  connectFeeUsed:         real("connect_fee_used"),
+  gracePeriodUsed:        integer("grace_period_used"),
+  freeSecondsUsed:        integer("free_seconds_used"),
+  postCallSurchargeUsed:  real("post_call_surcharge_used"),
+  prefix:                 varchar("prefix",               { length: 32  }),
+  verificationStatus:     varchar("verification_status",  { length: 32  }).notNull().default('pending'),
+  snapshotHash:           varchar("snapshot_hash",        { length: 64  }).notNull(),
+  lockedAt:               timestamp("locked_at").defaultNow().notNull(),
+  createdAt:              timestamp("created_at").defaultNow().notNull(),
+});
+export type InvoiceCdrSnapshot       = typeof invoiceCdrSnapshots.$inferSelect;
+export type InsertInvoiceCdrSnapshot = typeof invoiceCdrSnapshots.$inferInsert;
+export const insertInvoiceCdrSnapshotSchema = createInsertSchema(invoiceCdrSnapshots).omit({ id: true, createdAt: true, lockedAt: true });

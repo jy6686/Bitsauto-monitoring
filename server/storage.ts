@@ -81,6 +81,8 @@ import {
   type TariffChangeEvent, type InsertTariffChangeEvent,
   ratingVerifications,
   type RatingVerification, type InsertRatingVerification,
+  invoiceCdrSnapshots,
+  type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -349,6 +351,17 @@ export interface IStorage {
   createSmtpSenderProfile(data: InsertSmtpSenderProfile): Promise<SmtpSenderProfile>;
   updateSmtpSenderProfile(id: number, updates: Partial<SmtpSenderProfile>): Promise<SmtpSenderProfile>;
   deleteSmtpSenderProfile(id: number): Promise<void>;
+
+  // ── Immutable Rating Snapshots (Layer 4C) ─────────────────────────────────
+  createInvoiceCdrSnapshot(data: InsertInvoiceCdrSnapshot): Promise<InvoiceCdrSnapshot>;
+  getInvoiceCdrSnapshot(id: number): Promise<InvoiceCdrSnapshot | null>;
+  getInvoiceCdrSnapshotByCdrId(cdrId: string): Promise<InvoiceCdrSnapshot | null>;
+  listInvoiceCdrSnapshots(opts?: {
+    iTariff?:            string;
+    verificationStatus?: string;
+    since?:              Date;
+    limit?:              number;
+  }): Promise<InvoiceCdrSnapshot[]>;
 
   // ── Rating Verification (Layer 4B) ────────────────────────────────────────
   createRatingVerification(data: InsertRatingVerification): Promise<RatingVerification>;
@@ -2197,6 +2210,41 @@ export class DatabaseStorage implements IStorage {
 
   async updateCommercialNotificationRecipient(id: number, updates: Partial<CommercialNotificationRecipient>): Promise<void> {
     await db.update(commercialNotificationRecipients).set(updates).where(eq(commercialNotificationRecipients.id, id));
+  }
+
+  // ── Immutable Rating Snapshots (Layer 4C) ────────────────────────────────────
+  async createInvoiceCdrSnapshot(data: InsertInvoiceCdrSnapshot): Promise<InvoiceCdrSnapshot> {
+    const [row] = await db.insert(invoiceCdrSnapshots).values(data).returning();
+    return row;
+  }
+
+  async getInvoiceCdrSnapshot(id: number): Promise<InvoiceCdrSnapshot | null> {
+    const [row] = await db.select().from(invoiceCdrSnapshots).where(eq(invoiceCdrSnapshots.id, id));
+    return row ?? null;
+  }
+
+  async getInvoiceCdrSnapshotByCdrId(cdrId: string): Promise<InvoiceCdrSnapshot | null> {
+    const [row] = await db.select().from(invoiceCdrSnapshots)
+      .where(eq(invoiceCdrSnapshots.cdrId, cdrId));
+    return row ?? null;
+  }
+
+  async listInvoiceCdrSnapshots(opts: {
+    iTariff?:            string;
+    verificationStatus?: string;
+    since?:              Date;
+    limit?:              number;
+  } = {}): Promise<InvoiceCdrSnapshot[]> {
+    const conditions = [];
+    if (opts.iTariff)            conditions.push(eq(invoiceCdrSnapshots.iTariff, opts.iTariff));
+    if (opts.verificationStatus) conditions.push(eq(invoiceCdrSnapshots.verificationStatus, opts.verificationStatus));
+    if (opts.since)              conditions.push(gte(invoiceCdrSnapshots.lockedAt, opts.since));
+
+    const q = db.select().from(invoiceCdrSnapshots);
+    const filtered = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    return filtered
+      .orderBy(desc(invoiceCdrSnapshots.lockedAt))
+      .limit(opts.limit ?? 500);
   }
 
   // ── Rating Verification (Layer 4B) ───────────────────────────────────────────
