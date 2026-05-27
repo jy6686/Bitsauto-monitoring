@@ -83,6 +83,13 @@ import {
   type RatingVerification, type InsertRatingVerification,
   invoiceCdrSnapshots,
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
+  reportJobs,
+  type ReportJob, type InsertReportJob,
+  invoices, invoiceLineItems,
+  type Invoice, type InsertInvoice,
+  type InvoiceLineItem, type InsertInvoiceLineItem,
+  carrierReconciliations,
+  type CarrierReconciliation, type InsertCarrierReconciliation,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -351,6 +358,27 @@ export interface IStorage {
   createSmtpSenderProfile(data: InsertSmtpSenderProfile): Promise<SmtpSenderProfile>;
   updateSmtpSenderProfile(id: number, updates: Partial<SmtpSenderProfile>): Promise<SmtpSenderProfile>;
   deleteSmtpSenderProfile(id: number): Promise<void>;
+
+  // ── Layer 5A — Executive Report Jobs ──────────────────────────────────────
+  createReportJob(data: InsertReportJob): Promise<ReportJob>;
+  getReportJob(id: number): Promise<ReportJob | null>;
+  listReportJobs(opts?: { limit?: number }): Promise<ReportJob[]>;
+  updateReportJob(id: number, updates: Partial<ReportJob>): Promise<ReportJob>;
+
+  // ── Layer 5B — Invoices ────────────────────────────────────────────────────
+  createInvoice(data: InsertInvoice): Promise<Invoice>;
+  getInvoice(id: number): Promise<Invoice | null>;
+  listInvoices(opts?: { status?: string; iTariff?: string; limit?: number }): Promise<Invoice[]>;
+  updateInvoice(id: number, updates: Partial<Invoice>): Promise<Invoice>;
+  countInvoices(): Promise<number>;
+  bulkCreateInvoiceLineItems(items: InsertInvoiceLineItem[]): Promise<void>;
+  listInvoiceLineItems(invoiceId: number): Promise<InvoiceLineItem[]>;
+
+  // ── Layer 5C — Carrier Reconciliation ─────────────────────────────────────
+  createCarrierReconciliation(data: InsertCarrierReconciliation): Promise<CarrierReconciliation>;
+  getCarrierReconciliation(id: number): Promise<CarrierReconciliation | null>;
+  listCarrierReconciliations(opts?: { status?: string; iTariff?: string; limit?: number }): Promise<CarrierReconciliation[]>;
+  updateCarrierReconciliation(id: number, updates: Partial<CarrierReconciliation>): Promise<CarrierReconciliation>;
 
   // ── Immutable Rating Snapshots (Layer 4C) ─────────────────────────────────
   createInvoiceCdrSnapshot(data: InsertInvoiceCdrSnapshot): Promise<InvoiceCdrSnapshot>;
@@ -2210,6 +2238,95 @@ export class DatabaseStorage implements IStorage {
 
   async updateCommercialNotificationRecipient(id: number, updates: Partial<CommercialNotificationRecipient>): Promise<void> {
     await db.update(commercialNotificationRecipients).set(updates).where(eq(commercialNotificationRecipients.id, id));
+  }
+
+  // ── Layer 5A — Executive Report Jobs ─────────────────────────────────────────
+  async createReportJob(data: InsertReportJob): Promise<ReportJob> {
+    const [row] = await db.insert(reportJobs).values(data).returning();
+    return row;
+  }
+
+  async getReportJob(id: number): Promise<ReportJob | null> {
+    const [row] = await db.select().from(reportJobs).where(eq(reportJobs.id, id));
+    return row ?? null;
+  }
+
+  async listReportJobs(opts: { limit?: number } = {}): Promise<ReportJob[]> {
+    return db.select().from(reportJobs)
+      .orderBy(desc(reportJobs.createdAt))
+      .limit(opts.limit ?? 50);
+  }
+
+  async updateReportJob(id: number, updates: Partial<ReportJob>): Promise<ReportJob> {
+    const [row] = await db.update(reportJobs).set(updates).where(eq(reportJobs.id, id)).returning();
+    return row;
+  }
+
+  // ── Layer 5B — Invoices ───────────────────────────────────────────────────────
+  async createInvoice(data: InsertInvoice): Promise<Invoice> {
+    const [row] = await db.insert(invoices).values(data).returning();
+    return row;
+  }
+
+  async getInvoice(id: number): Promise<Invoice | null> {
+    const [row] = await db.select().from(invoices).where(eq(invoices.id, id));
+    return row ?? null;
+  }
+
+  async listInvoices(opts: { status?: string; iTariff?: string; limit?: number } = {}): Promise<Invoice[]> {
+    const conditions = [];
+    if (opts.status)  conditions.push(eq(invoices.status,  opts.status));
+    if (opts.iTariff) conditions.push(eq(invoices.iTariff, opts.iTariff));
+    const q = db.select().from(invoices);
+    const filtered = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    return filtered.orderBy(desc(invoices.createdAt)).limit(opts.limit ?? 100);
+  }
+
+  async updateInvoice(id: number, updates: Partial<Invoice>): Promise<Invoice> {
+    const [row] = await db.update(invoices).set(updates).where(eq(invoices.id, id)).returning();
+    return row;
+  }
+
+  async countInvoices(): Promise<number> {
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(invoices);
+    return count ?? 0;
+  }
+
+  async bulkCreateInvoiceLineItems(items: InsertInvoiceLineItem[]): Promise<void> {
+    if (items.length === 0) return;
+    await db.insert(invoiceLineItems).values(items);
+  }
+
+  async listInvoiceLineItems(invoiceId: number): Promise<InvoiceLineItem[]> {
+    return db.select().from(invoiceLineItems)
+      .where(eq(invoiceLineItems.invoiceId, invoiceId))
+      .orderBy(asc(invoiceLineItems.id))
+      .limit(50000);
+  }
+
+  // ── Layer 5C — Carrier Reconciliation ────────────────────────────────────────
+  async createCarrierReconciliation(data: InsertCarrierReconciliation): Promise<CarrierReconciliation> {
+    const [row] = await db.insert(carrierReconciliations).values(data).returning();
+    return row;
+  }
+
+  async getCarrierReconciliation(id: number): Promise<CarrierReconciliation | null> {
+    const [row] = await db.select().from(carrierReconciliations).where(eq(carrierReconciliations.id, id));
+    return row ?? null;
+  }
+
+  async listCarrierReconciliations(opts: { status?: string; iTariff?: string; limit?: number } = {}): Promise<CarrierReconciliation[]> {
+    const conditions = [];
+    if (opts.status)  conditions.push(eq(carrierReconciliations.status,  opts.status));
+    if (opts.iTariff) conditions.push(eq(carrierReconciliations.iTariff, opts.iTariff));
+    const q = db.select().from(carrierReconciliations);
+    const filtered = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    return filtered.orderBy(desc(carrierReconciliations.createdAt)).limit(opts.limit ?? 100);
+  }
+
+  async updateCarrierReconciliation(id: number, updates: Partial<CarrierReconciliation>): Promise<CarrierReconciliation> {
+    const [row] = await db.update(carrierReconciliations).set(updates).where(eq(carrierReconciliations.id, id)).returning();
+    return row;
   }
 
   // ── Immutable Rating Snapshots (Layer 4C) ────────────────────────────────────

@@ -35,6 +35,40 @@ NEVER: Route → server/sippy.ts directly (existing routes grandfathered, new ro
 - CDR service: syncCdrs() always tries XML-RPC first, falls back to portal scraping
 - server/sippy.ts (16,712 lines, 350 exports) remains the low-level execution layer
 
+## Layer 5A — Executive Report Engine (COMPLETE)
+- Table: `report_jobs` (migration: `migrations/007_layer5.sql`)
+- Service: `sippy-executive-report.service.ts`
+  - generateMonthlyReport(opts) — pulls CDR cache stats + verification summary + tariff change count, renders to HTML, stores in report_jobs
+  - generateReportHtml(opts) — produces full standalone HTML document (inline styles, printable)
+  - listReportJobs() — thin wrapper around storage
+- API: POST /api/executive-reports/generate, GET /api/executive-reports, GET /api/executive-reports/:id
+- UI: /executive-reports — month/year picker, generate button, stats, report list, iframe preview dialog, "Open Full Page" button
+- Safe to deploy immediately — intelligence layer only, no financial truth
+
+## Layer 5B — Invoice Engine (COMPLETE)
+- Tables: `invoices`, `invoice_line_items` (migration: `migrations/007_layer5.sql`)
+- CRITICAL CONSTRAINT: generateInvoice() sources ONLY from invoice_cdr_snapshots — never live tariffs
+- Draft flow: draft → review → approved → sent. NO auto-send. Human approval required.
+- Service: `sippy-invoice.service.ts`
+  - generateInvoice(opts) — queries snapshots for period+iTariff, batches 500 line items, generates HTML, stores all
+  - approveInvoice(id) — transitions status, sets approvedAt
+  - voidInvoice(id) — marks void
+  - generateInvoiceHtml(opts) — full B2B invoice HTML with DRAFT/REVIEW/FINAL watermark
+  - countInvoices() — used for sequential invoice number generation (INV-YYYYMM-NNNN)
+- API: POST /api/invoices/generate, GET /api/invoices, GET /api/invoices/:id, POST /api/invoices/:id/approve, POST /api/invoices/:id/void
+- UI: /invoices — amber warning banner, generate dialog, list with approval button, iframe preview
+
+## Layer 5C — Carrier Reconciliation (COMPLETE)
+- Table: `carrier_reconciliations` (migration: `migrations/007_layer5.sql`)
+- DEPLOYMENT MODE: shadow only. Status always starts as 'shadow'. NO auto-accounting.
+- Compares: Carrier Invoice Total vs Sippy Actual vs BitsAuto Reproduced vs Snapshot Total
+- Service: `sippy-reconciliation.service.ts`
+  - runReconciliation(opts) — queries snapshots, computes 4 deltas, classifies discrepancy type + severity (none/minor/major/critical at $0.50/$5/$50 thresholds), generates recommendations, persists
+  - Discrepancy types: exact_match, overbilled_by_carrier, underbilled_by_carrier, sippy_vs_reproduced_drift, large_discrepancy, missing_snapshots
+  - updateReconciliationStatus(id, status, notes) — manual lifecycle: shadow→pending→reviewed→resolved→disputed
+- API: POST /api/carrier-reconciliations/run, GET /api/carrier-reconciliations, GET /api/carrier-reconciliations/:id, PATCH /api/carrier-reconciliations/:id/status
+- UI: /carrier-reconciliation — shadow mode banner, run form with tariff picker, delta-colored table, last result analysis card with recommendations
+
 ## Layer 4C — Immutable Rating Snapshots (COMPLETE)
 - Table: `invoice_cdr_snapshots` (migration: `migrations/006_rating_snapshots.sql`)
 - 7 indexes: UNIQUE on cdr_id (idempotency), i_tariff, rating_verification_id, tariff_version_id, verification_status, locked_at DESC, partial on delta WHERE ABS(delta) > 0.0001

@@ -26580,6 +26580,193 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Layer 5A — Executive Reports ──────────────────────────────────────────
+  // GET  /api/executive-reports          — list all report jobs
+  // GET  /api/executive-reports/:id      — single report (includes htmlContent)
+  // POST /api/executive-reports/generate — generate a new monthly report
+
+  app.get('/api/executive-reports', async (_req: any, res: any) => {
+    try {
+      const rows = await storage.listReportJobs({ limit: 50 });
+      // strip htmlContent from list view for performance
+      res.json(rows.map(r => ({ ...r, htmlContent: undefined })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/executive-reports/:id', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const row = await storage.getReportJob(id);
+      if (!row) return res.status(404).json({ error: 'Not found' });
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/executive-reports/generate', async (req: any, res: any) => {
+    try {
+      const { generateMonthlyReport } = await import('./services/sippy/index');
+      const { year, month, iTariff } = req.body ?? {};
+      const job = await generateMonthlyReport({
+        year:    year    ? Number(year)  : undefined,
+        month:   month   ? Number(month) : undefined,
+        iTariff: iTariff || undefined,
+      });
+      res.json(job);
+    } catch (err: any) {
+      console.error('[executive-reports] generate error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Layer 5B — Invoices ───────────────────────────────────────────────────
+  // GET  /api/invoices                   — list invoices (filter: status, iTariff)
+  // GET  /api/invoices/:id               — single invoice with htmlContent
+  // POST /api/invoices/generate          — generate draft invoice from snapshots
+  // POST /api/invoices/:id/approve       — approve invoice (draft/review → approved)
+  // POST /api/invoices/:id/void          — void an invoice
+
+  app.get('/api/invoices', async (req: any, res: any) => {
+    try {
+      const opts: any = {};
+      if (req.query.status)  opts.status  = req.query.status;
+      if (req.query.iTariff) opts.iTariff = req.query.iTariff;
+      if (req.query.limit)   opts.limit   = Number(req.query.limit);
+      const rows = await storage.listInvoices(opts);
+      // Strip htmlContent from list for performance
+      res.json(rows.map(r => ({ ...r, htmlContent: undefined })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/invoices/:id', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const row = await storage.getInvoice(id);
+      if (!row) return res.status(404).json({ error: 'Not found' });
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/invoices/generate', async (req: any, res: any) => {
+    try {
+      const { generateInvoice } = await import('./services/sippy/index');
+      const { iTariff, periodStart, periodEnd, customerName, notes } = req.body ?? {};
+      if (!iTariff || !periodStart || !periodEnd || !customerName) {
+        return res.status(400).json({ error: 'iTariff, periodStart, periodEnd, customerName required' });
+      }
+      const result = await generateInvoice({ iTariff, periodStart, periodEnd, customerName, notes });
+      res.json(result);
+    } catch (err: any) {
+      console.error('[invoices] generate error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/invoices/:id/approve', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { approveInvoice } = await import('./services/sippy/index');
+      const invoice = await approveInvoice(id);
+      res.json(invoice);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/invoices/:id/void', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { voidInvoice } = await import('./services/sippy/index');
+      const invoice = await voidInvoice(id);
+      res.json(invoice);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Layer 5C — Carrier Reconciliation ────────────────────────────────────
+  // GET  /api/carrier-reconciliations         — list (filter: status, iTariff)
+  // GET  /api/carrier-reconciliations/:id     — single reconciliation
+  // POST /api/carrier-reconciliations/run     — run reconciliation (shadow mode)
+  // PATCH /api/carrier-reconciliations/:id/status — update status for reviewed/resolved
+
+  app.get('/api/carrier-reconciliations', async (req: any, res: any) => {
+    try {
+      const opts: any = {};
+      if (req.query.status)  opts.status  = req.query.status;
+      if (req.query.iTariff) opts.iTariff = req.query.iTariff;
+      if (req.query.limit)   opts.limit   = Number(req.query.limit);
+      const rows = await storage.listCarrierReconciliations(opts);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/carrier-reconciliations/:id', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const row = await storage.getCarrierReconciliation(id);
+      if (!row) return res.status(404).json({ error: 'Not found' });
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/carrier-reconciliations/run', async (req: any, res: any) => {
+    try {
+      const { runReconciliation } = await import('./services/sippy/index');
+      const {
+        carrierName, iTariff, invoiceRef, invoiceDate,
+        periodStart, periodEnd, carrierTotal, notes,
+      } = req.body ?? {};
+      if (!carrierName || !periodStart || !periodEnd || carrierTotal == null) {
+        return res.status(400).json({ error: 'carrierName, periodStart, periodEnd, carrierTotal required' });
+      }
+      const result = await runReconciliation({
+        carrierName,
+        iTariff:    iTariff    || undefined,
+        invoiceRef: invoiceRef || undefined,
+        invoiceDate: invoiceDate || undefined,
+        periodStart,
+        periodEnd,
+        carrierTotal: Number(carrierTotal),
+        notes:       notes     || undefined,
+      });
+      res.json(result);
+    } catch (err: any) {
+      console.error('[carrier-reconciliations] run error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/carrier-reconciliations/:id/status', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { status, notes } = req.body ?? {};
+      if (!status) return res.status(400).json({ error: 'status required' });
+      const { updateReconciliationStatus } = await import('./services/sippy/index');
+      const updated = await updateReconciliationStatus(id, status, notes);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return httpServer;
 }
 

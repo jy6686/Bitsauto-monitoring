@@ -2119,3 +2119,91 @@ export const invoiceCdrSnapshots = pgTable("invoice_cdr_snapshots", {
 export type InvoiceCdrSnapshot       = typeof invoiceCdrSnapshots.$inferSelect;
 export type InsertInvoiceCdrSnapshot = typeof invoiceCdrSnapshots.$inferInsert;
 export const insertInvoiceCdrSnapshotSchema = createInsertSchema(invoiceCdrSnapshots).omit({ id: true, createdAt: true, lockedAt: true });
+
+// ── Layer 5A — Monthly Executive Reports ──────────────────────────────────────
+// Intelligence presentation layer — NOT financial truth generation.
+// Safe to deploy immediately. Does not depend on tariff versioning or snapshots.
+export const reportJobs = pgTable("report_jobs", {
+  id:             serial("id").primaryKey(),
+  reportType:     varchar("report_type",     { length: 32  }).notNull().default('executive_monthly'),
+  title:          varchar("title",           { length: 256 }),
+  periodStart:    varchar("period_start",    { length: 32  }),
+  periodEnd:      varchar("period_end",      { length: 32  }),
+  deliveryStatus: varchar("delivery_status", { length: 32  }).notNull().default('generated'),
+  recipientsJson: text("recipients_json"),
+  htmlContent:    text("html_content"),
+  generatedAt:    timestamp("generated_at").defaultNow(),
+  sentAt:         timestamp("sent_at"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+export type ReportJob       = typeof reportJobs.$inferSelect;
+export type InsertReportJob = typeof reportJobs.$inferInsert;
+export const insertReportJobSchema = createInsertSchema(reportJobs).omit({ id: true, createdAt: true });
+
+// ── Layer 5B — Automated Invoice Delivery ─────────────────────────────────────
+// CRITICAL: Invoices MUST use invoice_cdr_snapshots ONLY. Never live tariffs.
+// Draft flow: draft → review → approved → sent (NEVER auto-send on first deploy).
+export const invoices = pgTable("invoices", {
+  id:              serial("id").primaryKey(),
+  invoiceNumber:   varchar("invoice_number",  { length: 64  }).notNull(),
+  iTariff:         varchar("i_tariff",         { length: 64  }),
+  customerName:    varchar("customer_name",    { length: 256 }),
+  periodStart:     varchar("period_start",     { length: 32  }),
+  periodEnd:       varchar("period_end",       { length: 32  }),
+  totalReproduced: real("total_reproduced"),
+  totalActual:     real("total_actual"),
+  totalDelta:      real("total_delta"),
+  lineCount:       integer("line_count"),
+  status:          varchar("status",           { length: 32  }).notNull().default('draft'),
+  generatedAt:     timestamp("generated_at").defaultNow(),
+  approvedAt:      timestamp("approved_at"),
+  sentAt:          timestamp("sent_at"),
+  notes:           text("notes"),
+  htmlContent:     text("html_content"),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+});
+export type Invoice       = typeof invoices.$inferSelect;
+export type InsertInvoice = typeof invoices.$inferInsert;
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true, createdAt: true });
+
+export const invoiceLineItems = pgTable("invoice_line_items", {
+  id:             serial("id").primaryKey(),
+  invoiceId:      integer("invoice_id").notNull(),
+  snapshotId:     integer("snapshot_id"),
+  cdrCallId:      varchar("cdr_call_id",  { length: 128 }),
+  prefix:         varchar("prefix",       { length: 32  }),
+  durationSecs:   integer("duration_secs"),
+  reproducedCost: real("reproduced_cost"),
+  actualCost:     real("actual_cost"),
+  delta:          real("delta"),
+});
+export type InvoiceLineItem       = typeof invoiceLineItems.$inferSelect;
+export type InsertInvoiceLineItem = typeof invoiceLineItems.$inferInsert;
+export const insertInvoiceLineItemSchema = createInsertSchema(invoiceLineItems).omit({ id: true });
+
+// ── Layer 5C — Carrier Invoice Reconciliation ─────────────────────────────────
+// Shadow verification mode ONLY on first deploy.
+// Compares: Carrier Invoice vs Sippy Actual vs BitsAuto Reproduced vs Immutable Snapshot.
+// No automatic accounting actions. Discrepancy intelligence only.
+export const carrierReconciliations = pgTable("carrier_reconciliations", {
+  id:                       serial("id").primaryKey(),
+  carrierName:              varchar("carrier_name",    { length: 256 }).notNull(),
+  iTariff:                  varchar("i_tariff",         { length: 64  }),
+  invoiceRef:               varchar("invoice_ref",      { length: 128 }),
+  invoiceDate:              varchar("invoice_date",     { length: 32  }),
+  periodStart:              varchar("period_start",     { length: 32  }),
+  periodEnd:                varchar("period_end",       { length: 32  }),
+  carrierTotal:             real("carrier_total"),
+  sippyTotal:               real("sippy_total"),
+  reproducedTotal:          real("reproduced_total"),
+  snapshotTotal:            real("snapshot_total"),
+  deltaCarrierVsReproduced: real("delta_carrier_vs_reproduced"),
+  deltaCarrierVsSippy:      real("delta_carrier_vs_sippy"),
+  discrepancyCount:         integer("discrepancy_count").default(0),
+  status:                   varchar("status",           { length: 32  }).notNull().default('shadow'),
+  notes:                    text("notes"),
+  createdAt:                timestamp("created_at").defaultNow().notNull(),
+});
+export type CarrierReconciliation       = typeof carrierReconciliations.$inferSelect;
+export type InsertCarrierReconciliation = typeof carrierReconciliations.$inferInsert;
+export const insertCarrierReconciliationSchema = createInsertSchema(carrierReconciliations).omit({ id: true, createdAt: true });

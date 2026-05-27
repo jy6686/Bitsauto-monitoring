@@ -112,6 +112,34 @@ export {
   getCdrsByPrefix,
 } from './sippy-cdr.service';
 
+// ── Executive reports (Layer 5A) ─────────────────────────────────────────────
+export * as executiveReport from './sippy-executive-report.service';
+export {
+  buildMonthPeriod,
+  buildCurrentMonthPeriod,
+  generateMonthlyReport,
+  listReportJobs,
+  generateReportHtml,
+} from './sippy-executive-report.service';
+
+// ── Invoice engine (Layer 5B) ─────────────────────────────────────────────────
+export * as invoice from './sippy-invoice.service';
+export {
+  generateInvoice,
+  approveInvoice,
+  voidInvoice,
+  getInvoiceWithLineItems,
+  generateInvoiceHtml,
+} from './sippy-invoice.service';
+
+// ── Carrier reconciliation (Layer 5C) ─────────────────────────────────────────
+export * as reconciliation from './sippy-reconciliation.service';
+export {
+  runReconciliation,
+  updateReconciliationStatus,
+  listReconciliations,
+} from './sippy-reconciliation.service';
+
 // ── Immutable rating snapshots (Layer 4C) ────────────────────────────────────
 export * as ratingSnapshot from './sippy-rating-snapshot.service';
 export {
