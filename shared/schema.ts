@@ -1924,6 +1924,29 @@ export type InsertPlatformFeatureFlag = typeof platformFeatureFlags.$inferInsert
 // Standalone module: compose → audience → dispatch → audit.
 // Types: interval_change | rate_change | surcharge_added | qos_advisory |
 //        maintenance_notice | fraud_advisory | routing_advisory
+export const communicationPolicies = pgTable("communication_policies", {
+  id:               serial("id").primaryKey(),
+  triggerType:      varchar("trigger_type",    { length: 64  }).notNull(),
+  severityFilter:   varchar("severity_filter", { length: 32  }).notNull().default('all'),
+  // 'all' | 'minor' | 'major' | 'critical'
+  senderProfileId:  integer("sender_profile_id"),
+  templateType:     varchar("template_type",   { length: 64  }),
+  // maps to commercial_notification.type
+  recipientGroup:   varchar("recipient_group", { length: 64  }).notNull().default('all_clients'),
+  // 'all_clients' | 'management' | 'finance' | 'noc' | 'internal_team'
+  channelType:      varchar("channel_type",    { length: 32  }).notNull().default('email'),
+  // 'email' | 'whatsapp' | 'email+whatsapp'
+  autoDraft:        boolean("auto_draft").notNull().default(true),
+  cooldownMinutes:  integer("cooldown_minutes").notNull().default(0),
+  approvalRequired: boolean("approval_required").notNull().default(true),
+  enabled:          boolean("enabled").notNull().default(true),
+  description:      text("description"),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+});
+export type CommunicationPolicy       = typeof communicationPolicies.$inferSelect;
+export type InsertCommunicationPolicy = typeof communicationPolicies.$inferInsert;
+export const insertCommunicationPolicySchema = createInsertSchema(communicationPolicies).omit({ id: true, createdAt: true });
+
 export const commercialNotifications = pgTable("commercial_notifications", {
   id:            serial("id").primaryKey(),
   type:          varchar("type",          { length: 64  }).notNull(),
@@ -1937,6 +1960,9 @@ export const commercialNotifications = pgTable("commercial_notifications", {
   audienceType:      varchar("audience_type",      { length: 64  }).notNull().default('all_clients'),
   // 'all_clients' | 'manual' | 'internal_team' | 'vendors'
   senderProfileId:   integer("sender_profile_id"),
+  // New: traceability columns
+  tariffChangeEventId: integer("tariff_change_event_id"),
+  policyId:            integer("policy_id"),
   createdBy:     varchar("created_by",    { length: 128 }),
   createdAt:     timestamp("created_at").defaultNow().notNull(),
   status:        varchar("status",        { length: 32  }).notNull().default('draft'),

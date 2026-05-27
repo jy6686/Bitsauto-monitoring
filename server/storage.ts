@@ -83,6 +83,8 @@ import {
   type RatingVerification, type InsertRatingVerification,
   invoiceCdrSnapshots,
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
+  communicationPolicies,
+  type CommunicationPolicy, type InsertCommunicationPolicy,
   reportJobs,
   type ReportJob, type InsertReportJob,
   invoices, invoiceLineItems,
@@ -358,6 +360,13 @@ export interface IStorage {
   createSmtpSenderProfile(data: InsertSmtpSenderProfile): Promise<SmtpSenderProfile>;
   updateSmtpSenderProfile(id: number, updates: Partial<SmtpSenderProfile>): Promise<SmtpSenderProfile>;
   deleteSmtpSenderProfile(id: number): Promise<void>;
+
+  // ── Communication Policies Engine ─────────────────────────────────────────
+  listCommunicationPolicies(opts: { enabled?: boolean; triggerType?: string }): Promise<CommunicationPolicy[]>;
+  getCommunicationPolicy(id: number): Promise<CommunicationPolicy | null>;
+  createCommunicationPolicy(data: InsertCommunicationPolicy): Promise<CommunicationPolicy>;
+  updateCommunicationPolicy(id: number, updates: Partial<CommunicationPolicy>): Promise<CommunicationPolicy>;
+  deleteCommunicationPolicy(id: number): Promise<void>;
 
   // ── Layer 5A — Executive Report Jobs ──────────────────────────────────────
   createReportJob(data: InsertReportJob): Promise<ReportJob>;
@@ -2238,6 +2247,35 @@ export class DatabaseStorage implements IStorage {
 
   async updateCommercialNotificationRecipient(id: number, updates: Partial<CommercialNotificationRecipient>): Promise<void> {
     await db.update(commercialNotificationRecipients).set(updates).where(eq(commercialNotificationRecipients.id, id));
+  }
+
+  // ── Communication Policies Engine ────────────────────────────────────────────
+  async listCommunicationPolicies(opts: { enabled?: boolean; triggerType?: string } = {}): Promise<CommunicationPolicy[]> {
+    const conditions = [];
+    if (opts.enabled !== undefined) conditions.push(eq(communicationPolicies.enabled, opts.enabled));
+    if (opts.triggerType)           conditions.push(eq(communicationPolicies.triggerType, opts.triggerType));
+    const q = db.select().from(communicationPolicies);
+    const filtered = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    return filtered.orderBy(asc(communicationPolicies.id));
+  }
+
+  async getCommunicationPolicy(id: number): Promise<CommunicationPolicy | null> {
+    const [row] = await db.select().from(communicationPolicies).where(eq(communicationPolicies.id, id));
+    return row ?? null;
+  }
+
+  async createCommunicationPolicy(data: InsertCommunicationPolicy): Promise<CommunicationPolicy> {
+    const [row] = await db.insert(communicationPolicies).values(data).returning();
+    return row;
+  }
+
+  async updateCommunicationPolicy(id: number, updates: Partial<CommunicationPolicy>): Promise<CommunicationPolicy> {
+    const [row] = await db.update(communicationPolicies).set(updates).where(eq(communicationPolicies.id, id)).returning();
+    return row;
+  }
+
+  async deleteCommunicationPolicy(id: number): Promise<void> {
+    await db.delete(communicationPolicies).where(eq(communicationPolicies.id, id));
   }
 
   // ── Layer 5A — Executive Report Jobs ─────────────────────────────────────────

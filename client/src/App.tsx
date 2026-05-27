@@ -91,6 +91,7 @@ import RatingSnapshotsPage from "@/pages/rating-snapshots";
 import ExecutiveReportsPage from "@/pages/executive-reports";
 import InvoicesPage from "@/pages/invoices";
 import CarrierReconciliationPage from "@/pages/carrier-reconciliation";
+import CommunicationPoliciesPage from "@/pages/communication-policies";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
@@ -426,6 +427,9 @@ function Router() {
       </Route>
       <Route path="/carrier-reconciliation">
         {() => <ProtectedRoute component={CarrierReconciliationPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/communication-policies">
+        {() => <ProtectedRoute component={CommunicationPoliciesPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/notification-centre">
         {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}

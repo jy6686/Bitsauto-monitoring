@@ -289,6 +289,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/executive-reports",        label: "Executive Reports",   icon: BarChart3,        roles: ['admin','management']                              },
       { href: "/invoices",                 label: "Invoices",            icon: FileText,         roles: ['admin','management']                              },
       { href: "/carrier-reconciliation",   label: "Carrier Reconciliation", icon: ArrowRightLeft, roles: ['admin','management']                            },
+      { href: "/communication-policies",   label: "Comm. Policies",         icon: Workflow,       roles: ['admin']                                           },
       { href: "/commercial-notifications", label: "Commercial Notices", icon: Megaphone,        roles: ['admin']                                           },
       { href: "/sender-profiles",          label: "Sender Profiles",    icon: Mail,             roles: ['admin']                                           },
       { href: "/email-centre",         label: "Notifications",      icon: Mail,             roles: ['admin'],              hasSubmenu: 'notifications' },

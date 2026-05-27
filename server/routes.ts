@@ -26767,6 +26767,85 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Communication Policies Engine ─────────────────────────────────────────────
+  // GET    /api/communication-policies         — list all (optional ?enabled=true)
+  // GET    /api/communication-policies/:id     — single policy
+  // POST   /api/communication-policies         — create policy
+  // PATCH  /api/communication-policies/:id     — update policy
+  // DELETE /api/communication-policies/:id     — delete policy
+  // POST   /api/communication-policies/test-dispatch — manually trigger policy dispatch
+
+  app.get('/api/communication-policies', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const opts: any = {};
+      if (req.query.enabled !== undefined) opts.enabled = req.query.enabled === 'true';
+      if (req.query.triggerType) opts.triggerType = String(req.query.triggerType);
+      const policies = await storage.listCommunicationPolicies(opts);
+      res.json(policies);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/communication-policies/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const policy = await storage.getCommunicationPolicy(id);
+      if (!policy) return res.status(404).json({ error: 'Not found' });
+      res.json(policy);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/communication-policies', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { insertCommunicationPolicySchema } = await import('@shared/schema');
+      const parsed = insertCommunicationPolicySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const policy = await storage.createCommunicationPolicy(parsed.data);
+      res.status(201).json(policy);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/communication-policies/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const updated = await storage.updateCommunicationPolicy(id, req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/communication-policies/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      await storage.deleteCommunicationPolicy(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Manual test dispatch — useful for verifying policies fire correctly
+  app.post('/api/communication-policies/test-dispatch', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { triggerType, severity = 'all', extraVars = {} } = req.body ?? {};
+      if (!triggerType) return res.status(400).json({ error: 'triggerType required' });
+      const { dispatchPoliciesForEvent } = await import('./services/sippy/index');
+      const result = await dispatchPoliciesForEvent({ triggerType, severity, extraVars });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return httpServer;
 }
 

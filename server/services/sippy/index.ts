@@ -112,6 +112,17 @@ export {
   getCdrsByPrefix,
 } from './sippy-cdr.service';
 
+// ── Communication Policies Engine ────────────────────────────────────────────
+export * as commPolicy from './sippy-comm-policy.service';
+export {
+  dispatchPoliciesForEvent,
+  dispatchPoliciesForChangeEvents,
+  listPolicies,
+  createPolicy,
+  updatePolicy,
+  deletePolicy,
+} from './sippy-comm-policy.service';
+
 // ── Executive reports (Layer 5A) ─────────────────────────────────────────────
 export * as executiveReport from './sippy-executive-report.service';
 export {

@@ -160,6 +160,16 @@ export async function detectAndRecordChanges(
 
   const changeEvents = await storage.bulkCreateTariffChangeEvents(insertRows);
 
+  // Fire-and-forget: dispatch communication policies for each change event.
+  // Non-blocking — economics transaction is always primary.
+  if (changeEvents.length > 0) {
+    import('./sippy-comm-policy.service').then(({ dispatchPoliciesForChangeEvents }) => {
+      dispatchPoliciesForChangeEvents(changeEvents).catch(err => {
+        console.error('[tariff-versioning] comm-policy dispatch failed:', err.message);
+      });
+    }).catch(() => {/* ignore import error */});
+  }
+
   return {
     version,
     added:        added.length,
