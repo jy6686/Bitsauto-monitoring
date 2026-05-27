@@ -71,6 +71,9 @@ import {
   type AccountConfig,
   companies, companyContacts, companyBankAccounts, clientIpRequests, accountConfigs,
   consoleIncidents, incidentLifecycleEvents,
+  commercialNotifications, commercialNotificationRecipients,
+  type CommercialNotification, type InsertCommercialNotification,
+  type CommercialNotificationRecipient, type InsertCommercialNotificationRecipient,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -332,6 +335,16 @@ export interface IStorage {
   getDataRetentionPolicies(): Promise<DataRetentionPolicy[]>;
   updateDataRetentionPolicy(dataType: string, updates: Partial<DataRetentionPolicy>): Promise<void>;
   seedDefaultRetentionPolicies(): Promise<void>;
+
+  // ── Commercial Notifications ─────────────────────────────────────────────────
+  listCommercialNotifications(): Promise<CommercialNotification[]>;
+  getCommercialNotification(id: number): Promise<CommercialNotification | null>;
+  createCommercialNotification(data: InsertCommercialNotification): Promise<CommercialNotification>;
+  updateCommercialNotification(id: number, updates: Partial<CommercialNotification>): Promise<CommercialNotification>;
+  deleteCommercialNotification(id: number): Promise<void>;
+  getCommercialNotificationRecipients(notificationId: number): Promise<CommercialNotificationRecipient[]>;
+  bulkInsertCommercialNotificationRecipients(rows: InsertCommercialNotificationRecipient[]): Promise<void>;
+  updateCommercialNotificationRecipient(id: number, updates: Partial<CommercialNotificationRecipient>): Promise<void>;
 
   // ── Account Management — Companies ─────────────────────────────────────────
   getCompanies(): Promise<Company[]>;
@@ -2083,7 +2096,49 @@ export class DatabaseStorage implements IStorage {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     await db.delete(concurrentSnapshots).where(lt(concurrentSnapshots.ts, cutoff));
   }
+
+  // ── Commercial Notifications ─────────────────────────────────────────────────
+  async listCommercialNotifications(): Promise<CommercialNotification[]> {
+    return db.select().from(commercialNotifications).orderBy(desc(commercialNotifications.createdAt));
+  }
+
+  async getCommercialNotification(id: number): Promise<CommercialNotification | null> {
+    const [row] = await db.select().from(commercialNotifications).where(eq(commercialNotifications.id, id));
+    return row ?? null;
+  }
+
+  async createCommercialNotification(data: InsertCommercialNotification): Promise<CommercialNotification> {
+    const [row] = await db.insert(commercialNotifications).values(data).returning();
+    return row;
+  }
+
+  async updateCommercialNotification(id: number, updates: Partial<CommercialNotification>): Promise<CommercialNotification> {
+    const [row] = await db.update(commercialNotifications).set(updates).where(eq(commercialNotifications.id, id)).returning();
+    return row;
+  }
+
+  async deleteCommercialNotification(id: number): Promise<void> {
+    await db.delete(commercialNotificationRecipients).where(eq(commercialNotificationRecipients.notificationId, id));
+    await db.delete(commercialNotifications).where(eq(commercialNotifications.id, id));
+  }
+
+  async getCommercialNotificationRecipients(notificationId: number): Promise<CommercialNotificationRecipient[]> {
+    return db.select().from(commercialNotificationRecipients)
+      .where(eq(commercialNotificationRecipients.notificationId, notificationId))
+      .orderBy(commercialNotificationRecipients.id);
+  }
+
+  async bulkInsertCommercialNotificationRecipients(rows: InsertCommercialNotificationRecipient[]): Promise<void> {
+    if (!rows.length) return;
+    await db.insert(commercialNotificationRecipients).values(rows);
+  }
+
+  async updateCommercialNotificationRecipient(id: number, updates: Partial<CommercialNotificationRecipient>): Promise<void> {
+    await db.update(commercialNotificationRecipients).set(updates).where(eq(commercialNotificationRecipients.id, id));
+  }
 }
+
+// ── Note: DatabaseStorage class ends above ────────────────────────────────────
 
 function computeNextDueAt(frequency: string, cronHour?: number): Date {
   const now = new Date();

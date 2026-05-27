@@ -1919,3 +1919,45 @@ export const platformFeatureFlags = pgTable("platform_feature_flags", {
 });
 export type PlatformFeatureFlag    = typeof platformFeatureFlags.$inferSelect;
 export type InsertPlatformFeatureFlag = typeof platformFeatureFlags.$inferInsert;
+
+// ── Commercial Notifications — tariff change and operational announcements ─────
+// Standalone module: compose → audience → dispatch → audit.
+// Types: interval_change | rate_change | surcharge_added | qos_advisory |
+//        maintenance_notice | fraud_advisory | routing_advisory
+export const commercialNotifications = pgTable("commercial_notifications", {
+  id:            serial("id").primaryKey(),
+  type:          varchar("type",          { length: 64  }).notNull(),
+  destination:   varchar("destination",   { length: 128 }),
+  prefix:        varchar("prefix",        { length: 32  }),
+  oldValue:      varchar("old_value",     { length: 128 }),
+  newValue:      varchar("new_value",     { length: 128 }),
+  effectiveDate: varchar("effective_date",{ length: 32  }),
+  subject:       varchar("subject",       { length: 512 }).notNull(),
+  body:          text("body").notNull(),
+  audienceType:  varchar("audience_type", { length: 64  }).notNull().default('all_clients'),
+  // 'all_clients' | 'manual' | 'internal_team' | 'vendors'
+  createdBy:     varchar("created_by",    { length: 128 }),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+  status:        varchar("status",        { length: 32  }).notNull().default('draft'),
+  // 'draft' | 'dispatched' | 'partial'
+  sentCount:     integer("sent_count").default(0),
+  failedCount:   integer("failed_count").default(0),
+  dispatchedAt:  timestamp("dispatched_at"),
+});
+export type CommercialNotification       = typeof commercialNotifications.$inferSelect;
+export type InsertCommercialNotification = typeof commercialNotifications.$inferInsert;
+export const insertCommercialNotificationSchema = createInsertSchema(commercialNotifications).omit({ id: true, createdAt: true });
+
+export const commercialNotificationRecipients = pgTable("commercial_notification_recipients", {
+  id:             serial("id").primaryKey(),
+  notificationId: integer("notification_id").notNull(),
+  companyId:      integer("company_id"),
+  email:          varchar("email",          { length: 256 }).notNull(),
+  recipientName:  varchar("recipient_name", { length: 256 }),
+  deliveryStatus: varchar("delivery_status",{ length: 32  }).notNull().default('pending'),
+  // 'pending' | 'sent' | 'failed' | 'skipped'
+  sentAt:         timestamp("sent_at"),
+  failedReason:   varchar("failed_reason",  { length: 512 }),
+});
+export type CommercialNotificationRecipient       = typeof commercialNotificationRecipients.$inferSelect;
+export type InsertCommercialNotificationRecipient = typeof commercialNotificationRecipients.$inferInsert;

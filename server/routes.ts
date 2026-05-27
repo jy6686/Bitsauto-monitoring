@@ -26091,6 +26091,174 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   );
 
+  // ── Commercial Notifications ──────────────────────────────────────────────────
+  // GET /api/commercial-notifications — list all (admin)
+  app.get('/api/commercial-notifications', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const rows = await storage.listCommercialNotifications();
+      res.json({ notifications: rows });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/commercial-notifications/:id — get one with recipients
+  app.get('/api/commercial-notifications/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const notif = await storage.getCommercialNotification(id);
+      if (!notif) return res.status(404).json({ error: 'Not found' });
+      const recipients = await storage.getCommercialNotificationRecipients(id);
+      res.json({ notification: notif, recipients });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/commercial-notifications — create draft
+  app.post('/api/commercial-notifications', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const user = (req as any).user;
+      const data = {
+        ...req.body,
+        createdBy: user?.name ?? user?.username ?? 'admin',
+        status: 'draft',
+      };
+      const notif = await storage.createCommercialNotification(data);
+      res.status(201).json({ notification: notif });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PUT /api/commercial-notifications/:id — update draft
+  app.put('/api/commercial-notifications/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const notif = await storage.getCommercialNotification(id);
+      if (!notif) return res.status(404).json({ error: 'Not found' });
+      if (notif.status === 'dispatched') return res.status(400).json({ error: 'Cannot edit a dispatched notification' });
+      const updated = await storage.updateCommercialNotification(id, req.body);
+      res.json({ notification: updated });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/commercial-notifications/:id — delete draft
+  app.delete('/api/commercial-notifications/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const notif = await storage.getCommercialNotification(id);
+      if (!notif) return res.status(404).json({ error: 'Not found' });
+      if (notif.status === 'dispatched') return res.status(400).json({ error: 'Cannot delete a dispatched notification' });
+      await storage.deleteCommercialNotification(id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/commercial-notifications/audience/companies — resolve recipient pool
+  // ?type=all_clients|vendors  →  returns companies with invoiceEmail set
+  app.get('/api/commercial-notifications/audience/companies', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const all = await storage.getCompanies();
+      const withEmail = all.filter((c: any) => c.invoiceEmail?.trim());
+      res.json({ companies: withEmail, total: withEmail.length, withoutEmail: all.length - withEmail.length });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/commercial-notifications/:id/dispatch — send and record
+  app.post('/api/commercial-notifications/:id/dispatch', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const notif = await storage.getCommercialNotification(id);
+      if (!notif) return res.status(404).json({ error: 'Not found' });
+      if (notif.status === 'dispatched') return res.status(400).json({ error: 'Already dispatched' });
+
+      // Resolve recipients
+      const { recipientOverrides } = req.body ?? {};
+      let pool: { companyId?: number; email: string; name: string }[] = [];
+
+      if (Array.isArray(recipientOverrides) && recipientOverrides.length > 0) {
+        pool = recipientOverrides;
+      } else {
+        const companies = await storage.getCompanies();
+        for (const c of companies as any[]) {
+          if (c.invoiceEmail?.trim()) {
+            pool.push({ companyId: c.id, email: c.invoiceEmail.trim(), name: c.name });
+          }
+        }
+      }
+
+      if (pool.length === 0) {
+        return res.status(400).json({ error: 'No recipients with email addresses found' });
+      }
+
+      // Store recipient rows
+      const recipientRows = pool.map(p => ({
+        notificationId: id,
+        companyId: p.companyId ?? null,
+        email: p.email,
+        recipientName: p.name,
+        deliveryStatus: 'pending' as const,
+      }));
+      await storage.bulkInsertCommercialNotificationRecipients(recipientRows);
+
+      // Fetch inserted rows to get their IDs
+      const storedRecipients = await storage.getCommercialNotificationRecipients(id);
+
+      // Send emails
+      let sent = 0, failed = 0;
+      const html = (body: string) => `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#0f0f0f;color:#e0e0e0;padding:24px">
+<div style="max-width:600px;margin:0 auto;background:#1a1a2e;border-radius:12px;overflow:hidden">
+  <div style="background:#4f46e5;padding:20px 24px">
+    <h1 style="margin:0;font-size:18px;color:#fff">&#128225; Bitsauto &mdash; Commercial Notice</h1>
+  </div>
+  <div style="padding:24px;white-space:pre-wrap;line-height:1.7;font-size:14px">${body.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+  <div style="padding:12px 24px;background:#111;font-size:11px;color:#666">
+    Sent via Bitsauto Operations Platform &bull; ${new Date().toUTCString()}
+  </div>
+</div></body></html>`;
+
+      for (const recipient of storedRecipients) {
+        const personalBody = (notif.body ?? '')
+          .replace(/\{\{client_name\}\}/gi, recipient.recipientName ?? recipient.email)
+          .replace(/\{\{destination\}\}/gi, notif.destination ?? '')
+          .replace(/\{\{old_interval\}\}/gi, notif.oldValue ?? '')
+          .replace(/\{\{new_interval\}\}/gi, notif.newValue ?? '')
+          .replace(/\{\{effective_date\}\}/gi, notif.effectiveDate ?? '');
+
+        const personalSubject = (notif.subject ?? '')
+          .replace(/\{\{destination\}\}/gi, notif.destination ?? '')
+          .replace(/\{\{effective_date\}\}/gi, notif.effectiveDate ?? '');
+
+        const result = await emailSvc.sendDirectEmail({
+          to: recipient.email,
+          subject: personalSubject,
+          html: html(personalBody),
+        });
+
+        if (result.ok) {
+          sent++;
+          await storage.updateCommercialNotificationRecipient(recipient.id, {
+            deliveryStatus: 'sent',
+            sentAt: new Date(),
+          });
+        } else {
+          failed++;
+          await storage.updateCommercialNotificationRecipient(recipient.id, {
+            deliveryStatus: 'failed',
+            failedReason: result.error ?? 'unknown',
+          });
+        }
+        await new Promise(r => setTimeout(r, 120));
+      }
+
+      const finalStatus = failed === 0 ? 'dispatched' : sent === 0 ? 'draft' : 'partial';
+      const updated = await storage.updateCommercialNotification(id, {
+        status: finalStatus,
+        sentCount: sent,
+        failedCount: failed,
+        dispatchedAt: sent > 0 ? new Date() : undefined,
+      });
+
+      console.log(`[commercial-notif] Dispatch #${id} "${notif.subject}": ${sent} sent, ${failed} failed`);
+      res.json({ notification: updated, sent, failed, total: storedRecipients.length });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   return httpServer;
 }
 

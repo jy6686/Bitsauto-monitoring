@@ -83,6 +83,7 @@ import ChatPage from "@/pages/chat";
 import FirewallPage from "@/pages/firewall";
 import VpnConfigPage from "@/pages/vpn-config";
 import EmailCentrePage from "@/pages/email-centre";
+import CommercialNotificationsPage from "@/pages/commercial-notifications";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
@@ -394,6 +395,9 @@ function Router() {
       </Route>
       <Route path="/email-centre">
         {() => <ProtectedRoute component={EmailCentrePage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/commercial-notifications">
+        {() => <ProtectedRoute component={CommercialNotificationsPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/notification-centre">
         {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}

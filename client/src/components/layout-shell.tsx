@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList, Brain, FileSpreadsheet, BrainCircuit } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList, Brain, FileSpreadsheet, BrainCircuit, Megaphone } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -283,6 +283,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/team",                 label: "Team & KAM",         icon: Users,            roles: ['admin']                                           },
       { href: "/api-keys",             label: "API Keys",           icon: Key,              roles: ['admin']                                           },
       { href: "/vpn-config",           label: "VPN Config",         icon: Lock,             roles: ['admin']                                           },
+      { href: "/commercial-notifications", label: "Commercial Notices", icon: Megaphone,        roles: ['admin']                                           },
       { href: "/email-centre",         label: "Notifications",      icon: Mail,             roles: ['admin'],              hasSubmenu: 'notifications' },
       { href: "/notification-centre",  label: "Notification Centre",icon: Bell,             roles: ['admin','management']                              },
       { href: "/whatsapp-alerts",      label: "WhatsApp Alerts",    icon: MessageSquare,    roles: ['admin','management']                              },
@@ -731,7 +732,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const isToolsActive       = location.startsWith('/tools');
   const isRoutingMgrActive  = location.startsWith('/routing-manager');
   const isTestActive        = location.startsWith('/test-call') || location.startsWith('/test-campaigns');
-  const isNotifActive       = location.startsWith('/notification-centre') || location.startsWith('/email-centre') || location.startsWith('/whatsapp-alerts');
+  const isNotifActive       = location.startsWith('/notification-centre') || location.startsWith('/email-centre') || location.startsWith('/whatsapp-alerts') || location.startsWith('/commercial-notifications');
   const isCompanyActive     = location.startsWith('/company');
   const isClientActive      = location.startsWith('/client');
 
