@@ -85,6 +85,8 @@ import {
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
   dailyMinutesReports,
   type DailyMinutesReport, type InsertDailyMinutesReport,
+  clientRevenueReconciliations,
+  type ClientRevenueReconciliation, type InsertClientRevenueReconciliation,
   communicationPolicies,
   type CommunicationPolicy, type InsertCommunicationPolicy,
   reportJobs,
@@ -367,6 +369,12 @@ export interface IStorage {
   listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string }): Promise<DailyMinutesReport[]>;
   getDMRReport(id: number): Promise<DailyMinutesReport | null>;
   bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]>;
+
+  // ── Client Revenue Reconciliation ─────────────────────────────────────────
+  listClientReconciliations(opts: { billingPeriod?: string; clientAccountId?: string; status?: string; severity?: string; latestVersionOnly?: boolean }): Promise<ClientRevenueReconciliation[]>;
+  getClientReconciliation(id: number): Promise<ClientRevenueReconciliation | null>;
+  createClientReconciliation(data: InsertClientRevenueReconciliation): Promise<ClientRevenueReconciliation>;
+  updateClientReconciliation(id: number, updates: Partial<ClientRevenueReconciliation>): Promise<ClientRevenueReconciliation>;
 
   // ── Communication Policies Engine ─────────────────────────────────────────
   listCommunicationPolicies(opts: { enabled?: boolean; triggerType?: string }): Promise<CommunicationPolicy[]>;
@@ -2290,6 +2298,49 @@ export class DatabaseStorage implements IStorage {
   async bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]> {
     if (rows.length === 0) return [];
     return db.insert(dailyMinutesReports).values(rows).returning();
+  }
+
+  // ── Client Revenue Reconciliation ────────────────────────────────────────────
+  async listClientReconciliations(opts: { billingPeriod?: string; clientAccountId?: string; status?: string; severity?: string; latestVersionOnly?: boolean } = {}): Promise<ClientRevenueReconciliation[]> {
+    const conditions = [];
+    if (opts.billingPeriod)   conditions.push(eq(clientRevenueReconciliations.billingPeriod, opts.billingPeriod));
+    if (opts.status)          conditions.push(eq(clientRevenueReconciliations.status, opts.status));
+    if (opts.severity)        conditions.push(eq(clientRevenueReconciliations.severity, opts.severity));
+    if (opts.clientAccountId) {
+      conditions.push(
+        sql`(${clientRevenueReconciliations.clientAccountId} = ${opts.clientAccountId} OR ${clientRevenueReconciliations.clientName} = ${opts.clientAccountId})`
+      );
+    }
+    const q = db.select().from(clientRevenueReconciliations);
+    const filtered = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    const rows = await filtered.orderBy(desc(clientRevenueReconciliations.createdAt));
+    if (!opts.latestVersionOnly) return rows;
+
+    // Keep only latest version per billing_period + client identity
+    const latestMap = new Map<string, ClientRevenueReconciliation>();
+    for (const row of rows) {
+      const key = `${row.billingPeriod}::${row.clientAccountId ?? ''}::${row.clientName}`;
+      const existing = latestMap.get(key);
+      if (!existing || row.version > existing.version) latestMap.set(key, row);
+    }
+    return Array.from(latestMap.values()).sort((a, b) =>
+      a.clientName.localeCompare(b.clientName)
+    );
+  }
+
+  async getClientReconciliation(id: number): Promise<ClientRevenueReconciliation | null> {
+    const [row] = await db.select().from(clientRevenueReconciliations).where(eq(clientRevenueReconciliations.id, id));
+    return row ?? null;
+  }
+
+  async createClientReconciliation(data: InsertClientRevenueReconciliation): Promise<ClientRevenueReconciliation> {
+    const [row] = await db.insert(clientRevenueReconciliations).values(data).returning();
+    return row;
+  }
+
+  async updateClientReconciliation(id: number, updates: Partial<ClientRevenueReconciliation>): Promise<ClientRevenueReconciliation> {
+    const [row] = await db.update(clientRevenueReconciliations).set(updates).where(eq(clientRevenueReconciliations.id, id)).returning();
+    return row;
   }
 
   // ── Communication Policies Engine ────────────────────────────────────────────

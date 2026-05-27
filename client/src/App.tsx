@@ -93,6 +93,7 @@ import InvoicesPage from "@/pages/invoices";
 import CarrierReconciliationPage from "@/pages/carrier-reconciliation";
 import CommunicationPoliciesPage from "@/pages/communication-policies";
 import DMRPage from "@/pages/dmr";
+import ClientReconciliationPage from "@/pages/client-reconciliation";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
@@ -434,6 +435,9 @@ function Router() {
       </Route>
       <Route path="/dmr">
         {() => <ProtectedRoute component={DMRPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/client-reconciliation">
+        {() => <ProtectedRoute component={ClientReconciliationPage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/notification-centre">
         {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}

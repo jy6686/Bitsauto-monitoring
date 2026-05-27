@@ -26928,6 +26928,101 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Client Revenue Reconciliation Engine ──────────────────────────────────────
+  // GET  /api/client-reconciliation              — list records (filter: period, status, latestOnly)
+  // GET  /api/client-reconciliation/summary      — summary stats for KPI cards
+  // POST /api/client-reconciliation/import       — import client billing data + run comparison
+  // POST /api/client-reconciliation/:id/recalculate — recalculate (creates new version)
+  // PATCH /api/client-reconciliation/:id         — update status/notes
+
+  app.get('/api/client-reconciliation', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const opts: any = {};
+      if (req.query.period)     opts.billingPeriod    = String(req.query.period);
+      if (req.query.status)     opts.status           = String(req.query.status);
+      if (req.query.severity)   opts.severity         = String(req.query.severity);
+      if (req.query.client)     opts.clientAccountId  = String(req.query.client);
+      if (req.query.latestOnly) opts.latestVersionOnly = req.query.latestOnly === 'true';
+      const rows = await storage.listClientReconciliations(opts);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/client-reconciliation/summary', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const period = req.query.period ? String(req.query.period) : undefined;
+      const { getReconciliationSummary } = await import('./services/sippy/index');
+      const summary = await getReconciliationSummary(period);
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/client-reconciliation/import', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { billingPeriod, clientName, clientAccountId, durationMinutes, amountUsd, calls, notes, source } = req.body ?? {};
+      if (!billingPeriod) return res.status(400).json({ error: 'billingPeriod required (YYYY-MM)' });
+      if (!clientName)    return res.status(400).json({ error: 'clientName required' });
+      if (durationMinutes == null || amountUsd == null) return res.status(400).json({ error: 'durationMinutes and amountUsd required' });
+
+      const { importAndReconcile } = await import('./services/sippy/index');
+      const result = await importAndReconcile(
+        {
+          billingPeriod,
+          clientName,
+          clientAccountId,
+          durationMinutes: Number(durationMinutes),
+          amountUsd:       Number(amountUsd),
+          calls:           calls != null ? Number(calls) : undefined,
+          notes,
+          source: source ?? 'manual',
+        },
+        (req as any).user?.username,
+      );
+      res.json(result);
+    } catch (err: any) {
+      console.error('[client-recon] import error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/client-reconciliation/:id/recalculate', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { recalculateReconciliation } = await import('./services/sippy/index');
+      const result = await recalculateReconciliation(id, (req as any).user?.username);
+      res.json(result);
+    } catch (err: any) {
+      console.error('[client-recon] recalculate error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/client-reconciliation/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const allowed = ['status', 'notes', 'reviewedBy', 'reviewedAt', 'reconciledAt'];
+      const updates: any = {};
+      for (const k of allowed) {
+        if (k in req.body) updates[k] = req.body[k];
+      }
+      if (updates.status === 'approved' || updates.status === 'reconciled') {
+        updates.reconciledAt = new Date();
+        updates.reviewedBy   = (req as any).user?.username ?? 'operator';
+        updates.reviewedAt   = new Date();
+      }
+      const result = await storage.updateClientReconciliation(id, updates);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return httpServer;
 }
 

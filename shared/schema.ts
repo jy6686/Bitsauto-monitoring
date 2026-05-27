@@ -1977,6 +1977,54 @@ export type DailyMinutesReport       = typeof dailyMinutesReports.$inferSelect;
 export type InsertDailyMinutesReport = typeof dailyMinutesReports.$inferInsert;
 export const insertDailyMinutesReportSchema = createInsertSchema(dailyMinutesReports).omit({ id: true, generatedAt: true });
 
+// ── Client Revenue Reconciliation — bilateral telecom finance truth ────────────
+// Compares client-submitted billing data against BitsAuto invoice + DMR.
+// Append-only version pattern: recalculate creates v2, v3… preserving history.
+// status: 'pending' | 'in_review' | 'reconciled' | 'disputed' | 'approved'
+// severity: 'clean' | 'low' | 'medium' | 'high' | 'critical'
+// discrepancy_type: 'exact_match' | 'duration_drift' | 'amount_drift' | 'both_drift' | 'no_client_data' | 'no_bitsauto_data'
+export const clientRevenueReconciliations = pgTable("client_revenue_reconciliations", {
+  id:                    serial("id").primaryKey(),
+  billingPeriod:         varchar("billing_period", { length: 7 }).notNull(),   // YYYY-MM
+  version:               integer("version").notNull().default(1),
+  parentId:              integer("parent_id"),
+
+  clientAccountId:       varchar("client_account_id", { length: 64 }),
+  clientName:            varchar("client_name",       { length: 256 }).notNull(),
+
+  clientDurationSec:     real("client_duration_sec"),
+  clientAmountUsd:       real("client_amount_usd"),
+  clientCalls:           integer("client_calls"),
+
+  bitsautoDurationSec:   real("bitsauto_duration_sec"),
+  bitsautoAmountUsd:     real("bitsauto_amount_usd"),
+  bitsautoCalls:         integer("bitsauto_calls"),
+
+  dmrDurationSec:        real("dmr_duration_sec"),
+  dmrAmountUsd:          real("dmr_amount_usd"),
+
+  deltaDurationSec:      real("delta_duration_sec"),
+  deltaAmountUsd:        real("delta_amount_usd"),
+  deltaPct:              real("delta_pct"),
+
+  discrepancyType:       varchar("discrepancy_type", { length: 32 }).notNull().default('no_client_data'),
+  severity:              varchar("severity",          { length: 16 }).notNull().default('clean'),
+  status:                varchar("status",            { length: 32 }).notNull().default('pending'),
+
+  invoiceId:             integer("invoice_id"),
+  source:                varchar("source", { length: 32 }).notNull().default('manual'),
+  rawImport:             jsonb("raw_import"),
+  notes:                 text("notes"),
+
+  reviewedBy:            varchar("reviewed_by", { length: 128 }),
+  reviewedAt:            timestamp("reviewed_at"),
+  reconciledAt:          timestamp("reconciled_at"),
+  createdAt:             timestamp("created_at").defaultNow().notNull(),
+});
+export type ClientRevenueReconciliation       = typeof clientRevenueReconciliations.$inferSelect;
+export type InsertClientRevenueReconciliation = typeof clientRevenueReconciliations.$inferInsert;
+export const insertClientRevenueReconciliationSchema = createInsertSchema(clientRevenueReconciliations).omit({ id: true, createdAt: true });
+
 export const communicationPolicies = pgTable("communication_policies", {
   id:               serial("id").primaryKey(),
   triggerType:      varchar("trigger_type",    { length: 64  }).notNull(),

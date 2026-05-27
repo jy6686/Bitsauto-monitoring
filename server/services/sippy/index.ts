@@ -120,6 +120,14 @@ export {
   getDMRTrend,
 } from './sippy-dmr.service';
 
+// ── Client Revenue Reconciliation Engine ─────────────────────────────────────
+export * as clientRecon from './sippy-client-recon.service';
+export {
+  importAndReconcile,
+  recalculateReconciliation,
+  getReconciliationSummary,
+} from './sippy-client-recon.service';
+
 // ── Communication Policies Engine ────────────────────────────────────────────
 export * as commPolicy from './sippy-comm-policy.service';
 export {
