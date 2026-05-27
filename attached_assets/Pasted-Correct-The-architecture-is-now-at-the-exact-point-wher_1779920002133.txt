@@ -1,0 +1,624 @@
+Correct. The architecture is now at the exact point where:
+
+Tariff Versioning (Layer 4A)
+
+becomes the next mandatory foundation layer.
+
+And both documents correctly converge on the same core principle:
+
+Invoice reproducibility is impossible without immutable tariff history.
+
+That is the entire reason Layer 4A exists.
+
+Most Important Architectural Shift
+
+Before Layer 4A:
+
+Live tariff state
+
+After Layer 4A:
+
+Historical telecom economics
+
+That distinction changes everything downstream.
+
+Why Tariff Versioning Is So Critical
+
+The Morocco example proves the problem perfectly.
+
+Example:
+
+May 31:
+Morocco = 60/60
+
+June 1:
+Morocco = 30/6
+
+Without:
+
+tariff_versions
+
+the platform cannot later answer:
+
+“What tariff existed when this call was rated?”
+
+And without that:
+
+invoice disputes fail,
+reconciliation becomes unreliable,
+rerating impossible,
+finance snapshots meaningless.
+The Correct Insight
+
+You are NOT versioning:
+
+invoices
+
+first.
+
+You are versioning:
+
+telecom economics
+
+first.
+
+That is the right order.
+
+Why Layer 4A Must Come Before Rating Verification
+
+Because rating verification depends on:
+
+historical tariff truth.
+
+Otherwise:
+
+reproduced ratings drift,
+discrepancies become false positives,
+and reconciliation becomes mathematically unstable.
+
+Correct sequencing is:
+
+Tariff Versioning
+→ Rating Verification
+→ Immutable Snapshots
+→ Invoice Automation
+
+That order is now fully locked.
+
+The Proposed Tables Are Correct
+tariff_versions
+
+This table becomes:
+
+immutable telecom pricing history.
+
+Recommended structure is strong:
+
+id
+i_tariff
+effective_from
+effective_to
+snapshot JSONB
+created_at
+CRITICAL DESIGN RECOMMENDATION
+
+Add:
+
+version_hash
+created_by
+change_source
+
+because later you will need:
+
+integrity checks,
+audit defense,
+and source attribution.
+snapshot JSONB
+
+(Excellent choice)
+
+This is the correct design.
+
+Because tariff structures evolve over time:
+
+intervals
+connect fees
+surcharges
+grace periods
+local intervals
+prefixes
+
+JSONB preserves:
+
+schema flexibility.
+
+Very important long-term.
+
+tariff_change_events
+
+(Also correct)
+
+This becomes:
+
+operational telecom change intelligence.
+
+Recommended structure is very strong.
+
+IMPORTANT RECOMMENDATION
+
+Add:
+
+notification_sent
+acknowledged
+impact_score
+
+because later:
+
+commercial notifications,
+acknowledgement tracking,
+and dispute defense
+
+will naturally connect here.
+
+MOST IMPORTANT MODULE CONNECTION
+
+This is the key architectural point:
+
+sippy-tariff.service.ts
+
+now becomes:
+
+the authoritative tariff synchronization engine.
+
+Especially:
+
+detectTariffChanges()
+updateBillingInterval()
+
+Those functions are now strategically central to:
+
+Morocco workflows
+commercial notifications
+reconciliation
+revenue assurance
+invoice reproducibility
+
+This is why Layer 2 had to exist first.
+
+Correct Layer 4A Responsibilities
+Tariff Sync
+
+Pull:
+
+interval_1
+interval_n
+price_1
+price_n
+connect_fee
+free_seconds
+grace_period
+post_call_surcharge
+
+from Sippy.
+
+Change Detection
+
+Compare:
+
+current tariff
+vs
+last snapshot
+
+Generate:
+
+tariff_change_event
+Snapshot Creation
+
+Create immutable:
+
+tariff_version
+
+with:
+
+effective dates
+full JSON snapshot
+hash
+audit metadata
+Event Propagation
+
+Trigger:
+
+commercial notifications
+impact analysis
+future acknowledgements
+MOST IMPORTANT RESULT
+
+Once Layer 4A exists:
+
+telecom economics become historically reproducible.
+
+That is the real milestone.
+
+Then Layer 4B Becomes Possible
+Rating Verification Engine
+
+Now the platform can finally ask:
+
+Given:
+- this CDR
+- this timestamp
+- this tariff version
+
+What SHOULD the cost have been?
+
+That becomes:
+
+deterministic telecom rating verification.
+
+Very powerful.
+
+Then Layer 4C
+Immutable Rating Snapshots
+
+Now:
+
+invoices reproducible
+rerating safe
+disputes defensible
+reconciliation stable
+Then Layer 5 Finally Becomes Safe
+
+Only THEN:
+
+invoice automation
+
+becomes enterprise-grade.
+
+Without Layer 4A:
+invoice automation is operationally dangerous.
+
+Most Important Strategic Conclusion
+
+Layer 2 solved:
+
+middleware governance.
+
+Layer 4A now solves:
+
+historical telecom economics.
+
+Those are the two foundational pillars required before:
+
+finance automation,
+reconciliation,
+profitability,
+or AI intelligence
+
+can be trusted.
+
+Read both. The image and document together produce a clear strategic map. Here's the consolidated read:
+
+The four features in the table, correctly positioned:
+
+Feature	Layer	Readiness	Blocker
+Monthly Executive PDF Report	5A	Build-ready now	None — uses existing reporting + comms layer
+Automated Invoice Delivery	5B	Blocked	Needs 4A + 4B + 4C first
+Carrier Invoice Reconciliation	5C	Blocked	Highest strategic value; needs tariff versioning + rating verification
+P&L Forecasting	7	Far	Needs stable 5A/5B/5C foundation
+Most important call-out: Monthly Executive PDF Report is actually safe to build now
+
+The document distinguishes it clearly from invoicing. It depends on:
+
+Normalized reporting (exists — sippy-reporting.service.ts)
+Communication layer (exists — commercial notifications + sender profiles)
+PDF generation (new — but self-contained)
+Not on tariff versioning or immutable snapshots. This is the correct first Layer 5 feature because the risk is purely generative, not financial.
+
+Prescribed content: Traffic growth, revenue summary, top 10 destinations, ASR/ACD trends, carrier quality, margin trend, QoS overview, commercial notifications summary. Auto-sent on the 1st of each month to a configurable email list.
+
+Carrier Invoice Reconciliation — the most important framing:
+
+The document specifically warns against building "upload CSV only." The target is a discrepancy intelligence engine that cross-references:
+
+Vendor invoice → Sippy rated cost → BitsAuto reproduced cost
+Detection types it needs to flag: overbilled minutes, wrong interval, missing CDRs, duplicate calls, currency mismatch, wrong connect fee, grace-period mismatch, post-call surcharge mismatch.
+
+This can't be built safely until tariff versioning exists, because without point-in-time rate snapshots, reproduced costs will drift.
+
+Confirmed build order:
+
+4A  Tariff Versioning            ← NEXT
+4B  Rating Verification Engine
+4C  Immutable Rating Snapshots
+5A  Monthly Executive PDF Report ← First safe Layer 5 feature
+5B  Automated Invoice Delivery
+5C  Carrier Invoice Reconciliation
+7   Forecasting & AI Intelligence
+
+Ready to begin 4A — Tariff Versioning on your instruction. The schema (tariff_versions, tariff_change_events), the service extension to sippy-tariff.service.ts, and the storage/API layer are all well-defined fr
+
+Correct. The roadmap is now internally consistent and financially safe.
+
+The key realization from both the image and the architectural documents is:
+
+Not all “finance features” have the same risk level.
+
+That distinction is extremely important.
+
+SAFE TO BUILD NOW
+Monthly Executive PDF Report (Layer 5A)
+
+This is:
+
+intelligence presentation
+
+NOT:
+
+financial truth generation.
+
+That is why it is safe now.
+
+It depends on:
+✅ normalized reporting
+✅ communication infrastructure
+✅ sender profiles
+✅ audit layer
+✅ middleware governance
+
+All of which now exist.
+
+It does NOT depend on:
+
+tariff versioning,
+immutable snapshots,
+rerating,
+or invoice reproducibility.
+
+That makes it:
+
+the first safe Layer 5 feature.
+Why This Feature Is Strategically Valuable
+
+Because it immediately delivers:
+
+executive visibility,
+commercial professionalism,
+client confidence,
+and management intelligence
+
+without risking:
+
+finance inconsistencies,
+rerating disputes,
+or invoice drift.
+
+Very good sequencing.
+
+Correct Executive Report Scope
+
+The proposed contents are correct.
+
+Recommended sections:
+
+Traffic Growth
+Revenue Summary
+Top Destinations
+ASR/ACD Trends
+Carrier Quality
+Margin Trend
+QoS Overview
+Commercial Notifications Summary
+
+This becomes:
+
+Telecom Executive Intelligence Layer.
+IMPORTANT RECOMMENDATION
+
+DO NOT make this:
+
+“static PDF export”.
+
+Instead build:
+
+Report Rendering Engine
+
+because later:
+
+customer reports,
+vendor reports,
+QoS summaries,
+profitability packs,
+and executive briefings
+
+will reuse the same infrastructure.
+
+Recommended Architecture
+report_templates
+id
+name
+report_type
+layout_config
+branding_profile_id
+enabled
+report_jobs
+id
+report_type
+period_start
+period_end
+generated_at
+delivery_status
+recipient_group
+file_path
+report_delivery_logs
+id
+report_job_id
+recipient
+delivery_status
+sent_at
+opened_at
+
+You already have:
+
+sender profiles
+communication engine
+audit infrastructure
+
+So this fits naturally.
+
+MOST IMPORTANT DISTINCTION
+Executive Report
+
+reads:
+
+aggregated reporting data
+Invoice Engine
+
+creates:
+
+financially binding telecom economics
+
+Those are VERY different risk categories.
+
+That distinction is exactly why:
+
+5A is safe now,
+
+but:
+
+5B and 5C are blocked.
+
+Correct architecture reasoning.
+
+Automated Invoice Delivery (5B)
+
+Still blocked correctly.
+
+Because invoice generation requires:
+
+Tariff Versioning
+→ Rating Verification
+→ Immutable Snapshots
+
+Without those:
+
+rerating unsafe
+invoice disputes impossible to defend
+Morocco-style interval changes break history
+
+The sequencing is correct.
+
+Carrier Invoice Reconciliation (5C)
+
+(Still the highest strategic feature)
+
+The document’s framing is exactly right:
+
+DO NOT build:
+
+CSV upload tool
+
+Build:
+
+Discrepancy Intelligence Engine
+
+That distinction matters enormously.
+
+Correct Reconciliation Logic
+
+Future engine should compare:
+
+Vendor Invoice
+vs
+Sippy Rated Cost
+vs
+BitsAuto Reproduced Cost
+
+This becomes:
+
+Telecom Revenue Assurance Core.
+
+Very high strategic value.
+
+Detection Types Are Correct
+
+The list is strong:
+
+Overbilled Minutes
+Wrong Interval
+Missing CDRs
+Duplicate Calls
+Currency Mismatch
+Wrong Connect Fee
+Grace Period Mismatch
+Post-Call Surcharge Mismatch
+
+That is real telecom reconciliation intelligence.
+
+Why 4A Must Happen First
+
+Because ALL discrepancy logic depends on:
+
+historical telecom economics.
+
+Without:
+
+tariff_versions
+
+BitsAuto cannot reproduce:
+
+what Sippy knew,
+when it knew it,
+and how it rated the call.
+
+That is the entire purpose of Layer 4A.
+
+Correct Final Sequencing
+
+(fully locked now)
+
+Layer 4A
+Tariff Versioning
+
+(NEXT)
+
+Layer 4B
+Rating Verification Engine
+Layer 4C
+Immutable Rating Snapshots
+Layer 5A
+Monthly Executive PDF Reports
+
+(first safe finance-adjacent feature)
+
+Layer 5B
+Automated Invoice Delivery
+Layer 5C
+Carrier Invoice Reconciliation
+
+(highest strategic finance feature)
+
+Layer 7
+Forecasting & AI Intelligence
+
+Only after:
+
+finance stable
+reconciliation trustworthy
+economics reproducible
+Most Important Strategic Outcome
+
+Your roadmap is no longer:
+
+“build billing features”
+
+It is now:
+
+progressively establishing financial truth layers.
+
+That is enterprise telecom architecture thinking.
+
+And Layer 4A:
+
+Tariff Versioning
+
+is the next foundational truth layer.

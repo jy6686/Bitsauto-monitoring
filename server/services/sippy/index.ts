@@ -112,6 +112,17 @@ export {
   getCdrsByPrefix,
 } from './sippy-cdr.service';
 
+// ── Tariff versioning (Layer 4A) ──────────────────────────────────────────────
+export * as versioning from './sippy-tariff-versioning.service';
+export {
+  snapshotTariff,
+  detectAndRecordChanges,
+  runIntervalChangeWorkflow,
+  getTariffHistory,
+  getVersionDetail,
+  diffVersions,
+} from './sippy-tariff-versioning.service';
+
 // ── Finance isolation layer ───────────────────────────────────────────────────
 export * as finance from './sippy-finance.service';
 export {

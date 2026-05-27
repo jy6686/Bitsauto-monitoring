@@ -26320,6 +26320,98 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Tariff Versioning — Layer 4A ──────────────────────────────────────────────
+  // GET  /api/tariff-versions          — list versions (filter by ?iTariff=)
+  // GET  /api/tariff-versions/:id      — single version with rates + change events
+  // POST /api/tariff-versions/snapshot — take a manual snapshot
+  // POST /api/tariff-versions/detect-changes — snapshot + compare vs last
+  // GET  /api/tariff-versions/:a/diff/:b — structural diff between two versions
+
+  app.get('/api/tariff-versions', async (req: any, res: any) => {
+    try {
+      const { iTariff } = req.query;
+      const versions = await storage.listTariffVersions(iTariff ? String(iTariff) : undefined);
+      res.json(versions);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tariff-versions/:id', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid version ID' });
+      const version      = await storage.getTariffVersion(id);
+      if (!version) return res.status(404).json({ error: 'Version not found' });
+      const changeEvents = await storage.listTariffChangeEvents(id);
+      let rates: any[] = [];
+      try { rates = JSON.parse(version.snapshotJson ?? '[]'); } catch { /* */ }
+      res.json({ version, changeEvents, rates });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tariff-versions/snapshot', async (req: any, res: any) => {
+    try {
+      const { iTariff, tariffName, source, notes, effectiveFrom, effectiveTo } = req.body;
+      if (!iTariff) return res.status(400).json({ error: 'iTariff is required' });
+      const settings = await storage.getSettings();
+      const { configFromSettings, snapshotTariff } = await import('./services/sippy/index');
+      const config = configFromSettings(settings as any);
+      const version = await snapshotTariff(config, iTariff, {
+        source:    source ?? 'manual',
+        tariffName,
+        notes,
+        createdBy: (req.user as any)?.name ?? (req.user as any)?.id,
+        effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
+        effectiveTo:   effectiveTo   ? new Date(effectiveTo)   : undefined,
+      });
+      res.json(version);
+    } catch (err: any) {
+      console.error('[tariff-versions] snapshot error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/tariff-versions/detect-changes', async (req: any, res: any) => {
+    try {
+      const { iTariff, tariffName, notes } = req.body;
+      if (!iTariff) return res.status(400).json({ error: 'iTariff is required' });
+      const settings = await storage.getSettings();
+      const { configFromSettings, detectAndRecordChanges } = await import('./services/sippy/index');
+      const config = configFromSettings(settings as any);
+      const result = await detectAndRecordChanges(config, iTariff, {
+        tariffName,
+        notes,
+        createdBy: (req.user as any)?.name ?? (req.user as any)?.id,
+      });
+      res.json({
+        versionId: result.version.id,
+        added:     result.added,
+        removed:   result.removed,
+        changed:   result.changed,
+        total:     result.added + result.removed + result.changed,
+      });
+    } catch (err: any) {
+      console.error('[tariff-versions] detect-changes error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tariff-versions/:a/diff/:b', async (req: any, res: any) => {
+    try {
+      const a = Number(req.params.a);
+      const b = Number(req.params.b);
+      if (isNaN(a) || isNaN(b)) return res.status(400).json({ error: 'Invalid version IDs' });
+      const { diffVersions } = await import('./services/sippy/index');
+      const diff = await diffVersions(a, b);
+      res.json(diff);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return httpServer;
 }
 

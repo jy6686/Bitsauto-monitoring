@@ -76,6 +76,9 @@ import {
   type CommercialNotificationRecipient, type InsertCommercialNotificationRecipient,
   smtpSenderProfiles,
   type SmtpSenderProfile, type InsertSmtpSenderProfile,
+  tariffVersions, tariffChangeEvents,
+  type TariffVersion, type InsertTariffVersion,
+  type TariffChangeEvent, type InsertTariffChangeEvent,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -344,6 +347,14 @@ export interface IStorage {
   createSmtpSenderProfile(data: InsertSmtpSenderProfile): Promise<SmtpSenderProfile>;
   updateSmtpSenderProfile(id: number, updates: Partial<SmtpSenderProfile>): Promise<SmtpSenderProfile>;
   deleteSmtpSenderProfile(id: number): Promise<void>;
+
+  // ── Tariff Versioning (Layer 4A) ───────────────────────────────────────────
+  createTariffVersion(data: InsertTariffVersion): Promise<TariffVersion>;
+  getTariffVersion(id: number): Promise<TariffVersion | null>;
+  listTariffVersions(iTariff?: string): Promise<TariffVersion[]>;
+  getLatestTariffVersion(iTariff: string): Promise<TariffVersion | null>;
+  listTariffChangeEvents(tariffVersionId: number): Promise<TariffChangeEvent[]>;
+  bulkCreateTariffChangeEvents(rows: InsertTariffChangeEvent[]): Promise<TariffChangeEvent[]>;
 
   // ── Commercial Notifications ─────────────────────────────────────────────────
   listCommercialNotifications(): Promise<CommercialNotification[]>;
@@ -2171,6 +2182,45 @@ export class DatabaseStorage implements IStorage {
 
   async updateCommercialNotificationRecipient(id: number, updates: Partial<CommercialNotificationRecipient>): Promise<void> {
     await db.update(commercialNotificationRecipients).set(updates).where(eq(commercialNotificationRecipients.id, id));
+  }
+
+  // ── Tariff Versioning (Layer 4A) ─────────────────────────────────────────────
+  async createTariffVersion(data: InsertTariffVersion): Promise<TariffVersion> {
+    const [row] = await db.insert(tariffVersions).values(data).returning();
+    return row;
+  }
+
+  async getTariffVersion(id: number): Promise<TariffVersion | null> {
+    const [row] = await db.select().from(tariffVersions).where(eq(tariffVersions.id, id));
+    return row ?? null;
+  }
+
+  async listTariffVersions(iTariff?: string): Promise<TariffVersion[]> {
+    if (iTariff) {
+      return db.select().from(tariffVersions)
+        .where(eq(tariffVersions.iTariff, iTariff))
+        .orderBy(desc(tariffVersions.createdAt));
+    }
+    return db.select().from(tariffVersions).orderBy(desc(tariffVersions.createdAt));
+  }
+
+  async getLatestTariffVersion(iTariff: string): Promise<TariffVersion | null> {
+    const [row] = await db.select().from(tariffVersions)
+      .where(eq(tariffVersions.iTariff, iTariff))
+      .orderBy(desc(tariffVersions.createdAt))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async listTariffChangeEvents(tariffVersionId: number): Promise<TariffChangeEvent[]> {
+    return db.select().from(tariffChangeEvents)
+      .where(eq(tariffChangeEvents.tariffVersionId, tariffVersionId))
+      .orderBy(tariffChangeEvents.prefix);
+  }
+
+  async bulkCreateTariffChangeEvents(rows: InsertTariffChangeEvent[]): Promise<TariffChangeEvent[]> {
+    if (!rows.length) return [];
+    return db.insert(tariffChangeEvents).values(rows).returning();
   }
 }
 

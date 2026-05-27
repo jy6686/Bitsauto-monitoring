@@ -35,6 +35,14 @@ NEVER: Route → server/sippy.ts directly (existing routes grandfathered, new ro
 - CDR service: syncCdrs() always tries XML-RPC first, falls back to portal scraping
 - server/sippy.ts (16,712 lines, 350 exports) remains the low-level execution layer
 
+## Layer 4A — Tariff Versioning (COMPLETE)
+- Tables: `tariff_versions`, `tariff_change_events` (migration: `migrations/004_tariff_versioning.sql`)
+- Service: `sippy-tariff-versioning.service.ts` — snapshotTariff(), detectAndRecordChanges(), runIntervalChangeWorkflow(), getTariffHistory(), getVersionDetail(), diffVersions()
+- Storage: createTariffVersion(), getTariffVersion(), listTariffVersions(), getLatestTariffVersion(), listTariffChangeEvents(), bulkCreateTariffChangeEvents()
+- API: GET/POST /api/tariff-versions, POST /api/tariff-versions/snapshot, POST /api/tariff-versions/detect-changes, GET /api/tariff-versions/:a/diff/:b
+- UI: /tariff-versions page with tariff selector, snapshot/detect-changes buttons, version list, detail dialog (rates + change events tabs)
+- Sidebar: "Tariff Versions" entry under admin/management section
+
 ## Why
 Prerequisite for tariff versioning, invoice automation, reconciliation, and AI analytics.
 Without clean service boundaries, all those layers become fragile and duplicated.

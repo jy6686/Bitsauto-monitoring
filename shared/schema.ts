@@ -1986,3 +1986,56 @@ export const smtpSenderProfiles = pgTable("smtp_sender_profiles", {
 export type SmtpSenderProfile       = typeof smtpSenderProfiles.$inferSelect;
 export type InsertSmtpSenderProfile = typeof smtpSenderProfiles.$inferInsert;
 export const insertSmtpSenderProfileSchema = createInsertSchema(smtpSenderProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ── Tariff Versioning — Layer 4A ──────────────────────────────────────────────
+// Immutable point-in-time snapshots of Sippy tariff states.
+// Required for: invoice reproducibility, interval change history,
+//   rating verification, carrier reconciliation, Morocco workflows.
+//
+// Design: Once a snapshot row is written, snapshotJson is never mutated.
+// source: 'manual' | 'auto_snapshot' | 'morocco_workflow' | 'pre_change' | 'post_change'
+export const tariffVersions = pgTable("tariff_versions", {
+  id:            serial("id").primaryKey(),
+  iTariff:       varchar("i_tariff",     { length: 64  }).notNull(),
+  tariffName:    varchar("tariff_name",  { length: 256 }),
+  source:        varchar("source",       { length: 32  }).notNull().default('manual'),
+  snapshotJson:  text("snapshot_json").notNull(),
+  rateCount:     integer("rate_count").default(0),
+  effectiveFrom: timestamp("effective_from"),
+  effectiveTo:   timestamp("effective_to"),
+  notes:         text("notes"),
+  createdBy:     varchar("created_by",   { length: 128 }),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+});
+export type TariffVersion       = typeof tariffVersions.$inferSelect;
+export type InsertTariffVersion = typeof tariffVersions.$inferInsert;
+export const insertTariffVersionSchema = createInsertSchema(tariffVersions).omit({ id: true, createdAt: true });
+
+// Individual field-level change events belonging to a tariff version snapshot.
+// changeType: 'added' | 'removed' | 'interval_changed' | 'rate_changed' | 'surcharge_changed' | 'modified'
+export const tariffChangeEvents = pgTable("tariff_change_events", {
+  id:              serial("id").primaryKey(),
+  tariffVersionId: integer("tariff_version_id").notNull(),
+  iTariff:         varchar("i_tariff",      { length: 64  }).notNull(),
+  prefix:          varchar("prefix",        { length: 32  }),
+  destination:     varchar("destination",   { length: 256 }),
+  changeType:      varchar("change_type",   { length: 32  }).notNull(),
+  oldInterval1:    integer("old_interval_1"),
+  newInterval1:    integer("new_interval_1"),
+  oldIntervalN:    integer("old_interval_n"),
+  newIntervalN:    integer("new_interval_n"),
+  oldPrice1:       real("old_price_1"),
+  newPrice1:       real("new_price_1"),
+  oldPriceN:       real("old_price_n"),
+  newPriceN:       real("new_price_n"),
+  oldConnectFee:   real("old_connect_fee"),
+  newConnectFee:   real("new_connect_fee"),
+  oldGracePeriod:  integer("old_grace_period"),
+  newGracePeriod:  integer("new_grace_period"),
+  oldSurcharge:    real("old_surcharge"),
+  newSurcharge:    real("new_surcharge"),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+});
+export type TariffChangeEvent       = typeof tariffChangeEvents.$inferSelect;
+export type InsertTariffChangeEvent = typeof tariffChangeEvents.$inferInsert;
+export const insertTariffChangeEventSchema = createInsertSchema(tariffChangeEvents).omit({ id: true, createdAt: true });
