@@ -887,7 +887,7 @@ export default function DashboardPage() {
             <p className="text-muted-foreground text-sm mt-1">
               {user?.email ?? user?.firstName}
               {myAccountsData?.kamName && <span className="ml-2 text-xs text-violet-400">· KAM: {myAccountsData.kamName}</span>}
-              {anyPortalActive && secsAgo < 60 && <span className="ml-2 text-muted-foreground/60">· refreshed {secsAgo}s ago</span>}
+              {anyPortalActive && <span className="ml-2 text-muted-foreground/60">· refreshed {secsAgo < 60 ? `${secsAgo}s` : `${Math.floor(secsAgo / 60)}m ${secsAgo % 60}s`} ago</span>}
             </p>
             {/* Assignment badges */}
             {assignedLabels.length > 0 && (
@@ -1518,8 +1518,8 @@ export default function DashboardPage() {
                 ? sippySession.username
                 : anyPortalActive ? 'connected' : 'not connected'}
             </span>
-            {anyPortalActive && secsAgo < 60 && (
-              <span className="ml-2 text-muted-foreground/60">· refreshed {secsAgo}s ago</span>
+            {anyPortalActive && (
+              <span className="ml-2 text-muted-foreground/60">· refreshed {secsAgo < 60 ? `${secsAgo}s` : `${Math.floor(secsAgo / 60)}m ${secsAgo % 60}s`} ago</span>
             )}
           </p>
         </div>
