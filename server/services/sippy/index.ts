@@ -112,6 +112,18 @@ export {
   getCdrsByPrefix,
 } from './sippy-cdr.service';
 
+// ── Rating verification (Layer 4B) ───────────────────────────────────────────
+export * as ratingVerification from './sippy-rating-verification.service';
+export {
+  resolveTariffVersion,
+  resolveRate,
+  reproduceCost,
+  classifyDiscrepancy,
+  verifyCdr,
+  verifyBatch,
+  getDiscrepancySummary,
+} from './sippy-rating-verification.service';
+
 // ── Tariff versioning (Layer 4A) ──────────────────────────────────────────────
 export * as versioning from './sippy-tariff-versioning.service';
 export {

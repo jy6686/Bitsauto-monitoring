@@ -86,6 +86,7 @@ import EmailCentrePage from "@/pages/email-centre";
 import CommercialNotificationsPage from "@/pages/commercial-notifications";
 import SenderProfilesPage from "@/pages/sender-profiles";
 import TariffVersionsPage from "@/pages/tariff-versions";
+import RatingVerificationPage from "@/pages/rating-verification";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
@@ -406,6 +407,9 @@ function Router() {
       </Route>
       <Route path="/tariff-versions">
         {() => <ProtectedRoute component={TariffVersionsPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/rating-verification">
+        {() => <ProtectedRoute component={RatingVerificationPage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/notification-centre">
         {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}

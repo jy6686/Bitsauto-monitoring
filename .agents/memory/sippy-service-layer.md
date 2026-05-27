@@ -35,6 +35,23 @@ NEVER: Route → server/sippy.ts directly (existing routes grandfathered, new ro
 - CDR service: syncCdrs() always tries XML-RPC first, falls back to portal scraping
 - server/sippy.ts (16,712 lines, 350 exports) remains the low-level execution layer
 
+## Layer 4B — Rating Verification Engine (COMPLETE)
+- Table: `rating_verifications` (migration: `migrations/005_rating_verification.sql`)
+- Also adds 4A enhancements: version_hash + change_source on tariff_versions; notification_sent + acknowledged + impact_score on tariff_change_events
+- Service: `sippy-rating-verification.service.ts`
+  - resolveTariffVersion(iTariff, connectTime) — point-in-time tariff lookup using created_at <= connectTime
+  - resolveRate(callee, snapshotJson) — longest-prefix match against rate list
+  - reproduceCost(durationSecs, rate) — standard Sippy billing formula with grace, free_seconds, interval1/n, surcharge
+  - classifyDiscrepancy() — 9 types: exact_match, overbilled, underbilled, interval_mismatch, connect_fee_mismatch, grace_period_mismatch, surcharge_mismatch, missing_rate, unrated
+  - verifyCdr(input) — full pipeline: resolve → match → reproduce → compare → persist
+  - verifyBatch(cdrs, opts) — chunked parallel (concurrency=5), returns summary
+  - getDiscrepancySummary(opts) — aggregated stats by type + severity
+- CRITICAL: This service is read-only. It NEVER modifies Sippy ratings — only reproduces and validates.
+- Storage: createRatingVerification(), getRatingVerification(), listRatingVerifications(), updateRatingVerificationStatus()
+- API: GET /api/rating-verifications (with filters), GET /api/rating-verifications/summary, GET /api/rating-verifications/:id, POST /api/rating-verifications/run-batch, PATCH /api/rating-verifications/:id/status
+- Batch source: globalThis.__sippyCdrCache (the live CDR cache populated by refreshCdrCache)
+- UI: /rating-verification — summary cards, match-rate progress bar, batch result card, filterable verification table, detail dialog with rate snapshot
+
 ## Layer 4A — Tariff Versioning (COMPLETE)
 - Tables: `tariff_versions`, `tariff_change_events` (migration: `migrations/004_tariff_versioning.sql`)
 - Service: `sippy-tariff-versioning.service.ts` — snapshotTariff(), detectAndRecordChanges(), runIntervalChangeWorkflow(), getTariffHistory(), getVersionDetail(), diffVersions()

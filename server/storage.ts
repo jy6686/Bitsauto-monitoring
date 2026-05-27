@@ -79,6 +79,8 @@ import {
   tariffVersions, tariffChangeEvents,
   type TariffVersion, type InsertTariffVersion,
   type TariffChangeEvent, type InsertTariffChangeEvent,
+  ratingVerifications,
+  type RatingVerification, type InsertRatingVerification,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -347,6 +349,19 @@ export interface IStorage {
   createSmtpSenderProfile(data: InsertSmtpSenderProfile): Promise<SmtpSenderProfile>;
   updateSmtpSenderProfile(id: number, updates: Partial<SmtpSenderProfile>): Promise<SmtpSenderProfile>;
   deleteSmtpSenderProfile(id: number): Promise<void>;
+
+  // ── Rating Verification (Layer 4B) ────────────────────────────────────────
+  createRatingVerification(data: InsertRatingVerification): Promise<RatingVerification>;
+  getRatingVerification(id: number): Promise<RatingVerification | null>;
+  listRatingVerifications(opts?: {
+    iTariff?: string;
+    discrepancyType?: string;
+    severity?: string;
+    verificationStatus?: string;
+    since?: Date;
+    limit?: number;
+  }): Promise<RatingVerification[]>;
+  updateRatingVerificationStatus(id: number, status: string, notes?: string): Promise<RatingVerification>;
 
   // ── Tariff Versioning (Layer 4A) ───────────────────────────────────────────
   createTariffVersion(data: InsertTariffVersion): Promise<TariffVersion>;
@@ -2182,6 +2197,52 @@ export class DatabaseStorage implements IStorage {
 
   async updateCommercialNotificationRecipient(id: number, updates: Partial<CommercialNotificationRecipient>): Promise<void> {
     await db.update(commercialNotificationRecipients).set(updates).where(eq(commercialNotificationRecipients.id, id));
+  }
+
+  // ── Rating Verification (Layer 4B) ───────────────────────────────────────────
+  async createRatingVerification(data: InsertRatingVerification): Promise<RatingVerification> {
+    const [row] = await db.insert(ratingVerifications).values(data).returning();
+    return row;
+  }
+
+  async getRatingVerification(id: number): Promise<RatingVerification | null> {
+    const [row] = await db.select().from(ratingVerifications).where(eq(ratingVerifications.id, id));
+    return row ?? null;
+  }
+
+  async listRatingVerifications(opts: {
+    iTariff?: string;
+    discrepancyType?: string;
+    severity?: string;
+    verificationStatus?: string;
+    since?: Date;
+    limit?: number;
+  } = {}): Promise<RatingVerification[]> {
+    const conditions = [];
+    if (opts.iTariff)            conditions.push(eq(ratingVerifications.iTariff, opts.iTariff));
+    if (opts.discrepancyType)    conditions.push(eq(ratingVerifications.discrepancyType, opts.discrepancyType));
+    if (opts.severity)           conditions.push(eq(ratingVerifications.severity, opts.severity));
+    if (opts.verificationStatus) conditions.push(eq(ratingVerifications.verificationStatus, opts.verificationStatus));
+    if (opts.since)              conditions.push(gte(ratingVerifications.createdAt, opts.since));
+
+    const q = db.select().from(ratingVerifications);
+    const filtered = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    return filtered
+      .orderBy(desc(ratingVerifications.createdAt))
+      .limit(opts.limit ?? 500);
+  }
+
+  async updateRatingVerificationStatus(id: number, status: string, notes?: string): Promise<RatingVerification> {
+    const updates: Partial<RatingVerification> = {
+      verificationStatus: status,
+      verifiedAt: new Date(),
+    };
+    if (notes) updates.notes = notes;
+    const [row] = await db.update(ratingVerifications)
+      .set(updates)
+      .where(eq(ratingVerifications.id, id))
+      .returning();
+    return row;
   }
 
   // ── Tariff Versioning (Layer 4A) ─────────────────────────────────────────────

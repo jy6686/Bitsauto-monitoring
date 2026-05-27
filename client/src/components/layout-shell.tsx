@@ -284,6 +284,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/api-keys",             label: "API Keys",           icon: Key,              roles: ['admin']                                           },
       { href: "/vpn-config",           label: "VPN Config",         icon: Lock,             roles: ['admin']                                           },
       { href: "/tariff-versions",          label: "Tariff Versions",    icon: GitBranch,        roles: ['admin','management']                              },
+      { href: "/rating-verification",      label: "Rating Verification", icon: ShieldCheck,      roles: ['admin','management']                              },
       { href: "/commercial-notifications", label: "Commercial Notices", icon: Megaphone,        roles: ['admin']                                           },
       { href: "/sender-profiles",          label: "Sender Profiles",    icon: Mail,             roles: ['admin']                                           },
       { href: "/email-centre",         label: "Notifications",      icon: Mail,             roles: ['admin'],              hasSubmenu: 'notifications' },

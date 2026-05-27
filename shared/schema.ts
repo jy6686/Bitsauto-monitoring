@@ -2039,3 +2039,42 @@ export const tariffChangeEvents = pgTable("tariff_change_events", {
 export type TariffChangeEvent       = typeof tariffChangeEvents.$inferSelect;
 export type InsertTariffChangeEvent = typeof tariffChangeEvents.$inferInsert;
 export const insertTariffChangeEventSchema = createInsertSchema(tariffChangeEvents).omit({ id: true, createdAt: true });
+
+// ── Rating Verification — Layer 4B ────────────────────────────────────────────
+// Deterministic telecom rating reproduction and comparison.
+// Per-CDR record: historical tariff resolved → cost reproduced → delta classified.
+//
+// discrepancyType:
+//   exact_match | overbilled | underbilled | interval_mismatch |
+//   connect_fee_mismatch | grace_period_mismatch | surcharge_mismatch |
+//   missing_rate | unrated
+//
+// severity: none | minor | major | critical
+// verificationSource: auto | manual | ai
+// verificationStatus: pending | verified | disputed | flagged
+export const ratingVerifications = pgTable("rating_verifications", {
+  id:                 serial("id").primaryKey(),
+  cdrCallId:          varchar("cdr_call_id",     { length: 128 }),
+  cdrStartTime:       varchar("cdr_start_time",  { length: 64  }),
+  prefix:             varchar("prefix",           { length: 32  }),
+  destination:        varchar("destination",      { length: 256 }),
+  iTariff:            varchar("i_tariff",         { length: 64  }),
+  tariffVersionId:    integer("tariff_version_id"),
+  durationSecs:       integer("duration_secs"),
+  billedSecs:         integer("billed_secs"),
+  sippyActualCost:    real("sippy_actual_cost"),
+  reproducedCost:     real("reproduced_cost"),
+  deltaAmount:        real("delta_amount"),
+  deltaPct:           real("delta_pct"),
+  discrepancyType:    varchar("discrepancy_type",    { length: 64  }).notNull().default('unrated'),
+  verificationStatus: varchar("verification_status", { length: 32  }).notNull().default('pending'),
+  severity:           varchar("severity",            { length: 16  }).notNull().default('none'),
+  verificationSource: varchar("verification_source", { length: 32  }).notNull().default('auto'),
+  verifiedAt:         timestamp("verified_at"),
+  notes:              text("notes"),
+  rateSnapshot:       text("rate_snapshot"),
+  createdAt:          timestamp("created_at").defaultNow().notNull(),
+});
+export type RatingVerification       = typeof ratingVerifications.$inferSelect;
+export type InsertRatingVerification = typeof ratingVerifications.$inferInsert;
+export const insertRatingVerificationSchema = createInsertSchema(ratingVerifications).omit({ id: true, createdAt: true });

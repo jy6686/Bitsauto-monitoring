@@ -26412,6 +26412,105 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Rating Verification (Layer 4B) ────────────────────────────────────────
+  // GET  /api/rating-verifications            — list with filters
+  // GET  /api/rating-verifications/summary    — aggregated discrepancy stats
+  // GET  /api/rating-verifications/:id        — single record detail
+  // POST /api/rating-verifications/run-batch  — verify a batch of recent CDRs
+  // PATCH /api/rating-verifications/:id/status — update status (verified/disputed/flagged)
+
+  app.get('/api/rating-verifications/summary', async (req: any, res: any) => {
+    try {
+      const { getDiscrepancySummary } = await import('./services/sippy/index');
+      const iTariff = req.query.iTariff as string | undefined;
+      const since   = req.query.since ? new Date(req.query.since as string) : undefined;
+      const summary = await getDiscrepancySummary({ iTariff, since });
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/rating-verifications', async (req: any, res: any) => {
+    try {
+      const opts: any = {};
+      if (req.query.iTariff)            opts.iTariff            = req.query.iTariff;
+      if (req.query.discrepancyType)    opts.discrepancyType    = req.query.discrepancyType;
+      if (req.query.severity)           opts.severity           = req.query.severity;
+      if (req.query.verificationStatus) opts.verificationStatus = req.query.verificationStatus;
+      if (req.query.since)              opts.since              = new Date(req.query.since as string);
+      if (req.query.limit)              opts.limit              = Number(req.query.limit);
+      const rows = await storage.listRatingVerifications(opts);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/rating-verifications/:id', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const row = await storage.getRatingVerification(id);
+      if (!row) return res.status(404).json({ error: 'Not found' });
+      res.json(row);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/rating-verifications/run-batch', async (req: any, res: any) => {
+    try {
+      const { iTariff, limit = 100 } = req.body ?? {};
+
+      // Pull recent CDRs from storage cache
+      const { verifyCdr, verifyBatch } = await import('./services/sippy/index');
+
+      // Get recent CDRs from the in-memory cache or DB
+      const rawCdrs: any[] = (globalThis as any).__sippyCdrCache ?? [];
+      let workList = iTariff
+        ? rawCdrs.filter((c: any) => String(c.iTariff ?? c.i_account ?? '') === String(iTariff))
+        : rawCdrs;
+      workList = workList.slice(0, limit);
+
+      if (workList.length === 0) {
+        return res.json({
+          total: 0, verified: 0, discrepancies: 0, missing: 0,
+          unrated: 0, totalDelta: 0, byType: {}, bySeverity: {}, durationMs: 0,
+          message: 'No CDRs in cache. Fetch live calls or load CDRs first.',
+        });
+      }
+
+      const inputs = workList.map((c: any) => ({
+        callId:          c.callId ?? c.i_cdr,
+        startTime:       c.startTime ?? c.connect_time,
+        callee:          c.callee ?? c.cld ?? '',
+        durationSecs:    c.totalDuration ?? c.duration ?? c.billed_duration ?? 0,
+        sippyActualCost: parseFloat(c.cost ?? c.charged_amount ?? '0') || 0,
+        iTariff:         String(iTariff ?? c.iTariff ?? c.i_account ?? ''),
+      }));
+
+      const result = await verifyBatch(inputs, { concurrency: 5 });
+      res.json(result);
+    } catch (err: any) {
+      console.error('[rating-verification] batch error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/rating-verifications/:id/status', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { status, notes } = req.body ?? {};
+      if (!status) return res.status(400).json({ error: 'status required' });
+      const updated = await storage.updateRatingVerificationStatus(id, status, notes);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return httpServer;
 }
 
