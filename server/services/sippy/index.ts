@@ -112,6 +112,14 @@ export {
   getCdrsByPrefix,
 } from './sippy-cdr.service';
 
+// ── DMR Engine ───────────────────────────────────────────────────────────────
+export * as dmr from './sippy-dmr.service';
+export {
+  generateDMR,
+  recalculateDMR,
+  getDMRTrend,
+} from './sippy-dmr.service';
+
 // ── Communication Policies Engine ────────────────────────────────────────────
 export * as commPolicy from './sippy-comm-policy.service';
 export {

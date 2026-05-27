@@ -1924,6 +1924,59 @@ export type InsertPlatformFeatureFlag = typeof platformFeatureFlags.$inferInsert
 // Standalone module: compose → audience → dispatch → audit.
 // Types: interval_change | rate_change | surcharge_added | qos_advisory |
 //        maintenance_notice | fraud_advisory | routing_advisory
+// ── Daily Minutes Report — telecom operational economics ───────────────────────
+// Append-only. Recalculation creates a new version row (parent_dmr_id → previous).
+// Never mutate historical economics silently.
+// source: 'daily_summary' | 'client_cdr' | 'vendor_cdr' | 'manual'
+// discrepancy_type: 'exact_match' | 'duration_drift' | 'amount_drift' | 'tariff_mismatch' | 'missing_cdr' | 'duplicate_cdr'
+// verification_status: 'pending' | 'verified' | 'drifted' | 'critical'
+export const dailyMinutesReports = pgTable("daily_minutes_reports", {
+  id:                serial("id").primaryKey(),
+  reportDate:        date("report_date").notNull(),
+  dmrVersion:        integer("dmr_version").notNull().default(1),
+  parentDmrId:       integer("parent_dmr_id"),
+
+  accountId:         varchar("account_id",   { length: 64 }),
+  accountName:       varchar("account_name", { length: 256 }),
+  vendorId:          varchar("vendor_id",    { length: 64 }),
+  vendorName:        varchar("vendor_name",  { length: 256 }),
+  destination:       varchar("destination",  { length: 256 }),
+  prefix:            varchar("prefix",       { length: 32 }),
+
+  sippyDuration:     real("sippy_duration"),
+  sippyAmount:       real("sippy_amount"),
+  sippyCalls:        integer("sippy_calls"),
+
+  platformDuration:  real("platform_duration"),
+  platformAmount:    real("platform_amount"),
+  platformCalls:     integer("platform_calls"),
+
+  buyAmount:         real("buy_amount"),
+  sellAmount:        real("sell_amount"),
+  marginAmount:      real("margin_amount"),
+  marginPct:         real("margin_pct"),
+
+  driftDuration:     real("drift_duration"),
+  driftAmount:       real("drift_amount"),
+
+  totalCalls:        integer("total_calls"),
+  asr:               real("asr"),
+  acd:               real("acd"),
+  pdd:               real("pdd"),
+
+  tariffVersionId:   integer("tariff_version_id"),
+  discrepancyType:   varchar("discrepancy_type",  { length: 32 }).notNull().default('exact_match'),
+  verificationStatus:varchar("verification_status",{ length: 32 }).notNull().default('pending'),
+  source:            varchar("source",            { length: 32 }).notNull().default('daily_summary'),
+  notes:             text("notes"),
+
+  recalculatedAt:    timestamp("recalculated_at"),
+  generatedAt:       timestamp("generated_at").defaultNow().notNull(),
+});
+export type DailyMinutesReport       = typeof dailyMinutesReports.$inferSelect;
+export type InsertDailyMinutesReport = typeof dailyMinutesReports.$inferInsert;
+export const insertDailyMinutesReportSchema = createInsertSchema(dailyMinutesReports).omit({ id: true, generatedAt: true });
+
 export const communicationPolicies = pgTable("communication_policies", {
   id:               serial("id").primaryKey(),
   triggerType:      varchar("trigger_type",    { length: 64  }).notNull(),

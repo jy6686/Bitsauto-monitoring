@@ -288,6 +288,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/rating-snapshots",         label: "Rating Snapshots",    icon: Lock,             roles: ['admin','management']                              },
       { href: "/executive-reports",        label: "Executive Reports",   icon: BarChart3,        roles: ['admin','management']                              },
       { href: "/invoices",                 label: "Invoices",            icon: FileText,         roles: ['admin','management']                              },
+      { href: "/dmr",                       label: "Daily Minutes Report",   icon: Activity,       roles: ['admin','management']                          },
       { href: "/carrier-reconciliation",   label: "Carrier Reconciliation", icon: ArrowRightLeft, roles: ['admin','management']                            },
       { href: "/communication-policies",   label: "Comm. Policies",         icon: Workflow,       roles: ['admin']                                           },
       { href: "/commercial-notifications", label: "Commercial Notices", icon: Megaphone,        roles: ['admin']                                           },

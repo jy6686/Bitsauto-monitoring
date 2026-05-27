@@ -83,6 +83,8 @@ import {
   type RatingVerification, type InsertRatingVerification,
   invoiceCdrSnapshots,
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
+  dailyMinutesReports,
+  type DailyMinutesReport, type InsertDailyMinutesReport,
   communicationPolicies,
   type CommunicationPolicy, type InsertCommunicationPolicy,
   reportJobs,
@@ -360,6 +362,11 @@ export interface IStorage {
   createSmtpSenderProfile(data: InsertSmtpSenderProfile): Promise<SmtpSenderProfile>;
   updateSmtpSenderProfile(id: number, updates: Partial<SmtpSenderProfile>): Promise<SmtpSenderProfile>;
   deleteSmtpSenderProfile(id: number): Promise<void>;
+
+  // ── Daily Minutes Report (DMR) ─────────────────────────────────────────────
+  listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string }): Promise<DailyMinutesReport[]>;
+  getDMRReport(id: number): Promise<DailyMinutesReport | null>;
+  bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]>;
 
   // ── Communication Policies Engine ─────────────────────────────────────────
   listCommunicationPolicies(opts: { enabled?: boolean; triggerType?: string }): Promise<CommunicationPolicy[]>;
@@ -2247,6 +2254,42 @@ export class DatabaseStorage implements IStorage {
 
   async updateCommercialNotificationRecipient(id: number, updates: Partial<CommercialNotificationRecipient>): Promise<void> {
     await db.update(commercialNotificationRecipients).set(updates).where(eq(commercialNotificationRecipients.id, id));
+  }
+
+  // ── Daily Minutes Report (DMR) ────────────────────────────────────────────────
+  async listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string } = {}): Promise<DailyMinutesReport[]> {
+    const conditions = [];
+    if (opts.reportDate) conditions.push(eq(dailyMinutesReports.reportDate, opts.reportDate));
+    if (opts.fromDate)   conditions.push(sql`${dailyMinutesReports.reportDate} >= ${opts.fromDate}`);
+    if (opts.toDate)     conditions.push(sql`${dailyMinutesReports.reportDate} <= ${opts.toDate}`);
+    if (opts.status)     conditions.push(eq(dailyMinutesReports.verificationStatus, opts.status));
+
+    const q = db.select().from(dailyMinutesReports);
+    const filtered = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    const rows = await filtered.orderBy(desc(dailyMinutesReports.generatedAt));
+
+    if (!opts.latestVersionOnly) return rows;
+
+    // Keep only the latest version per report_date + account_id/vendor_id combination
+    const latestMap = new Map<string, DailyMinutesReport>();
+    for (const row of rows) {
+      const key = `${row.reportDate}::${row.accountId ?? ''}::${row.vendorId ?? ''}::${row.accountName ?? ''}`;
+      const existing = latestMap.get(key);
+      if (!existing || row.dmrVersion > existing.dmrVersion) {
+        latestMap.set(key, row);
+      }
+    }
+    return Array.from(latestMap.values()).sort((a, b) => a.reportDate.localeCompare(b.reportDate));
+  }
+
+  async getDMRReport(id: number): Promise<DailyMinutesReport | null> {
+    const [row] = await db.select().from(dailyMinutesReports).where(eq(dailyMinutesReports.id, id));
+    return row ?? null;
+  }
+
+  async bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]> {
+    if (rows.length === 0) return [];
+    return db.insert(dailyMinutesReports).values(rows).returning();
   }
 
   // ── Communication Policies Engine ────────────────────────────────────────────
