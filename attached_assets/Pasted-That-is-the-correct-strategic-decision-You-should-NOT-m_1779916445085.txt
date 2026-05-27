@@ -1,0 +1,205 @@
+That is the correct strategic decision.
+
+You should NOT modify Sippy core behavior directly.
+
+Sippy should remain:
+
+stable telecom switching/rating infrastructure
+
+while BitsAuto becomes:
+
+orchestration, intelligence, automation, and governance layer.
+
+That separation is extremely important operationally.
+
+Correct Architecture Philosophy
+Sippy
+
+Handles:
+
+SIP switching
+routing
+live rating
+tariff application
+carrier operations
+BitsAuto
+
+Controls:
+
+automation
+UI
+approvals
+notifications
+reconciliation
+analytics
+finance workflows
+client communication
+AI intelligence
+QuickBooks sync
+governance
+
+That means:
+
+all operator-facing workflows happen inside BitsAuto.
+
+Perfect direction.
+
+VERY IMPORTANT IMPLEMENTATION RULE
+
+You should:
+
+READ from Sippy
+
+but NEVER:
+
+customize Sippy business logic directly.
+
+Meaning:
+
+Sippy APIs/XML-RPC
+    ↓
+BitsAuto Sync Layer
+    ↓
+BitsAuto Intelligence Layer
+
+NOT:
+
+Modify Sippy internals
+
+This keeps:
+
+upgrades safe,
+supportability intact,
+and vendor compatibility stable.
+Morocco Example Under Correct Architecture
+Vendor changes interval
+Morocco:
+60/60 → 30/6
+Sippy
+
+already:
+
+applies rating
+changes interval behavior
+generates correct CDR economics
+BitsAuto
+
+does:
+
+detect tariff delta
+version history
+notify clients
+update dashboards
+estimate impact
+reconcile invoices
+audit changes
+
+WITHOUT modifying Sippy.
+
+That is enterprise-safe architecture.
+
+Correct Strategic Layering
+Sippy
+(telecom execution layer)
+
+BitsAuto
+(revenue operations layer)
+
+This is exactly how large telecom operators separate systems.
+
+IMPORTANT BENEFIT
+
+Because BitsAuto becomes:
+
+overlay orchestration platform
+
+you can later support:
+
+multiple Sippy clusters
+multiple softswitches
+hybrid telecom environments
+
+without rewriting finance logic.
+
+Very important future advantage.
+
+Your Commercial Notifications Module
+
+is now perfectly aligned with this strategy.
+
+Because:
+
+notifications originate from BitsAuto,
+not Sippy,
+but are informed by Sippy tariff changes.
+
+That is ideal.
+
+Recommended Final Commercial Notification Flow
+Sippy Tariff Change
+    ↓
+BitsAuto Sync Detects Change
+    ↓
+Commercial Notification Event Created
+    ↓
+Affected Clients Calculated
+    ↓
+Operator Reviews Notification
+    ↓
+Bulk Email Dispatch
+    ↓
+Audit Trail Stored
+
+No Sippy modification required.
+
+HIGHLY RECOMMENDED NEXT STEP
+
+You should eventually create:
+
+Sippy Abstraction Layer
+
+Example services:
+
+sippy-rate-sync.service.ts
+sippy-cdr-sync.service.ts
+sippy-client-sync.service.ts
+sippy-routing-sync.service.ts
+
+ALL Sippy communication goes through these services.
+
+This becomes:
+
+controlled middleware architecture.
+
+Very important for long-term scalability.
+
+MOST IMPORTANT LONG-TERM ADVANTAGE
+
+If BitsAuto owns:
+
+workflow,
+finance,
+approvals,
+notifications,
+reconciliation,
+analytics,
+AI intelligence,
+
+then:
+
+Sippy becomes replaceable infrastructure later.
+
+That is strategically very powerful.
+
+FINAL STRATEGIC POSITIONING
+
+Your platform architecture is now converging toward:
+
+Telecom Revenue Operations OS
+
+where:
+
+Sippy executes telecom operations
+BitsAuto governs business operations
+
+That is a very strong enterprise architecture direction.
