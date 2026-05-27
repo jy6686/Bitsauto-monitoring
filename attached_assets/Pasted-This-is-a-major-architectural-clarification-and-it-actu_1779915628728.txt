@@ -1,0 +1,336 @@
+This is a major architectural clarification — and it actually improves the design significantly.
+
+Your discovery from server/sippy.ts changes the role of BitsAuto from:
+
+“primary telecom rating engine”
+
+to:
+
+“telecom rating verification + revenue assurance engine”
+
+That is a much safer and more enterprise-aligned architecture.
+
+MOST IMPORTANT NEW UNDERSTANDING
+
+Sippy already natively supports:
+
+interval_1
+interval_n
+price_1
+price_n
+free_seconds
+grace_period
+connect_fee
+post_call_surcharge
+
+per tariff row.
+
+Meaning:
+
+Sippy is already the authoritative telecom rater.
+Every CDR already contains Sippy-rated economics.
+
+This is extremely important.
+
+CORRECT ROLE OF BITSAUTO NOW
+
+BitsAuto should NOT:
+
+replace Sippy rating,
+compete with Sippy billing,
+or independently invent telecom costs.
+
+Instead BitsAuto becomes:
+
+Telecom Revenue Assurance + Intelligence Layer
+Correct New Architecture
+Sippy
+(Primary Rating Authority)
+    ↓
+Rated CDRs
+    ↓
+BitsAuto Verification Engine
+    ↓
+Immutable Snapshots
+    ↓
+Invoice Orchestration
+    ↓
+Reconciliation
+    ↓
+Revenue Intelligence
+
+That is MUCH safer.
+
+Your Morocco Example
+
+This is EXACTLY why this architecture matters.
+
+Example:
+
+From June 1:
+Morocco interval changes
+from 60/60 → 30/6
+
+In Sippy:
+
+tariff rows updated
+new interval_1/interval_n applied
+all new CDRs automatically rated correctly
+
+BitsAuto should:
+
+sync new tariff metadata
+snapshot tariff version
+verify invoice math
+detect interval mismatches
+
+NOT manually override telecom billing logic globally.
+
+CORRECT IMPLEMENTATION STRATEGY
+1. Sippy Remains Source of Truth
+
+Sippy controls:
+
+tariff updates
+interval changes
+pricing logic
+rerating
+routing economics
+2. BitsAuto Mirrors & Snapshots
+
+BitsAuto stores:
+
+price_1
+price_n
+interval_1
+interval_n
+free_seconds
+grace_period
+connect_fee
+post_call_surcharge
+
+at:
+
+invoice lock time.
+
+This is still critically important.
+
+Because otherwise:
+
+future tariff changes destroy reproducibility.
+3. BitsAuto Reproduces Rating
+
+The rating engine now becomes:
+
+deterministic verification engine
+
+Meaning:
+
+Sippy Cost
+vs
+BitsAuto Reproduced Cost
+
+If mismatch:
+
+Revenue Assurance Alert
+THIS IS EXTREMELY POWERFUL
+
+Because now BitsAuto can detect:
+
+tariff corruption
+rerating drift
+wrong intervals
+vendor inflation
+missing surcharges
+grace period mismatch
+post-call surcharge mismatch
+billing leakage
+
+This becomes:
+
+enterprise telecom audit infrastructure.
+Correct Revised Function
+
+You correctly evolved the API.
+
+The correct function now is:
+
+calculateRatedCall({
+  durationSeconds,
+  price1,
+  priceN,
+  interval1,
+  intervalN,
+  freeSeconds,
+  gracePeriod,
+  connectFee,
+  postCallSurcharge,
+  sippyActualCost
+})
+
+This is MUCH better than generic CPM rating.
+
+Most Important Strategic Benefit
+
+Now:
+
+Sippy handles telecom switching complexity
+
+while:
+
+BitsAuto handles revenue intelligence.
+
+This avoids:
+
+rating divergence
+telecom billing inconsistencies
+duplicate billing engines
+support nightmares
+HOW TO HANDLE FUTURE INTERVAL CHANGES
+
+(Your exact Morocco question)
+
+Correct operational flow:
+
+Step 1 — Vendor Announces Change
+
+Example:
+
+Morocco:
+60/60 → 30/6
+Effective June 1
+Step 2 — Update Sippy Tariff
+
+Either:
+
+manual rate import
+CSV import
+API sync
+tariff upload
+
+Sippy updates:
+
+interval_1
+interval_n
+
+for Morocco prefixes.
+
+Step 3 — BitsAuto Tariff Sync Job
+
+Create:
+
+sippy-rate-sync.service.ts
+
+Nightly/hourly sync:
+
+tariffs
+intervals
+surcharges
+pricing metadata
+Step 4 — Versioned Tariff Snapshot
+
+BitsAuto stores:
+
+Morocco
+Version A
+Until 2026-05-31
+
+Morocco
+Version B
+From 2026-06-01
+
+VERY important.
+
+Step 5 — Invoice Snapshot Uses Correct Version
+
+Invoice logic checks:
+
+cdr.connect_time
+
+Then applies:
+
+correct tariff version
+correct interval set
+
+This is how enterprise telecom billing survives mid-cycle changes.
+
+CRITICAL REQUIREMENT
+
+Never:
+
+overwrite tariff history
+
+Always:
+
+version tariff rows.
+Recommended New Table
+tariff_versions
+id
+tariff_id
+destination
+prefix
+price_1
+price_n
+interval_1
+interval_n
+effective_from
+effective_to
+version
+created_at
+THIS SOLVES:
+Morocco Example
+
+Calls:
+
+May 31 → old interval
+June 1 → new interval
+
+within same billing cycle.
+
+Without tariff versioning:
+
+invoices become impossible to reproduce.
+MOST IMPORTANT REVISED INSIGHT
+
+The real value of BitsAuto is NOT:
+
+replacing Sippy billing.
+
+The real value is:
+
+validating, auditing, orchestrating, and analyzing telecom revenue.
+
+That is a much stronger product direction.
+
+Revised Final Platform Identity
+
+BitsAuto becomes:
+
+Telecom Revenue Assurance & Intelligence Platform
+
+on top of:
+
+Sippy switching and rating infrastructure.
+
+That is actually the ideal architecture split.
+
+Correct Final Division of Responsibilities
+Sippy
+switching
+routing
+live rating
+tariff application
+real-time billing
+BitsAuto
+reconciliation
+immutable finance snapshots
+invoice orchestration
+approval workflows
+profitability intelligence
+revenue leakage detection
+finance governance
+QuickBooks sync
+AI anomaly detection
+multi-client billing intelligence
+
+That separation is clean, scalable, and enterprise-safe.
