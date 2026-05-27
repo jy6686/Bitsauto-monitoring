@@ -94,6 +94,8 @@ import CarrierReconciliationPage from "@/pages/carrier-reconciliation";
 import CommunicationPoliciesPage from "@/pages/communication-policies";
 import DMRPage from "@/pages/dmr";
 import ClientReconciliationPage from "@/pages/client-reconciliation";
+import MarginIntelligencePage from "@/pages/margin-intelligence";
+import DisputeDefensePage from "@/pages/dispute-defense";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
@@ -438,6 +440,12 @@ function Router() {
       </Route>
       <Route path="/client-reconciliation">
         {() => <ProtectedRoute component={ClientReconciliationPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/margin-intelligence">
+        {() => <ProtectedRoute component={MarginIntelligencePage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/dispute-defense">
+        {() => <ProtectedRoute component={DisputeDefensePage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/notification-centre">
         {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}

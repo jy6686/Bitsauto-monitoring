@@ -44,6 +44,10 @@ type Recipient = {
   deliveryStatus: string;
   sentAt?: string;
   failedReason?: string;
+  trackingToken?: string;
+  openedAt?: string | null;
+  acknowledgedAt?: string | null;
+  openCount?: number;
 };
 
 // ── Notification type definitions ──────────────────────────────────────────────
@@ -531,19 +535,41 @@ function RecipientLog({ notifId, onClose }: { notifId: number; onClose: () => vo
       <div className="space-y-1 max-h-[400px] overflow-y-auto pr-1">
         {recipients.length === 0 && <div className="text-white/40 text-sm text-center py-8">No recipient records yet.</div>}
         {recipients.map(r => (
-          <div key={r.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2 text-sm" data-testid={`recipient-row-${r.id}`}>
-            <div>
-              <div className="text-white font-medium">{r.recipientName ?? r.email}</div>
-              <div className="text-white/40 text-xs">{r.email}</div>
+          <div key={r.id} className="bg-white/5 rounded-lg px-3 py-2 text-sm" data-testid={`recipient-row-${r.id}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-white font-medium">{r.recipientName ?? r.email}</div>
+                <div className="text-white/40 text-xs">{r.email}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                {r.deliveryStatus === 'sent'    && <CheckCircle className="w-4 h-4 text-emerald-400" />}
+                {r.deliveryStatus === 'failed'  && <AlertCircle className="w-4 h-4 text-red-400" title={r.failedReason ?? ''} />}
+                {r.deliveryStatus === 'pending' && <Clock className="w-4 h-4 text-white/30" />}
+                <span className={`text-xs capitalize ${r.deliveryStatus === 'sent' ? 'text-emerald-400' : r.deliveryStatus === 'failed' ? 'text-red-400' : 'text-white/40'}`}>
+                  {r.deliveryStatus}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              {r.deliveryStatus === 'sent'    && <CheckCircle className="w-4 h-4 text-emerald-400" />}
-              {r.deliveryStatus === 'failed'  && <AlertCircle className="w-4 h-4 text-red-400" title={r.failedReason ?? ''} />}
-              {r.deliveryStatus === 'pending' && <Clock className="w-4 h-4 text-white/30" />}
-              <span className={`text-xs capitalize ${r.deliveryStatus === 'sent' ? 'text-emerald-400' : r.deliveryStatus === 'failed' ? 'text-red-400' : 'text-white/40'}`}>
-                {r.deliveryStatus}
-              </span>
-            </div>
+            {(r.openedAt || r.acknowledgedAt || (r.openCount != null && r.openCount > 0)) && (
+              <div className="flex items-center gap-3 mt-1.5 pt-1.5 border-t border-white/5 text-xs">
+                {r.openedAt ? (
+                  <span className="flex items-center gap-1 text-sky-400" title={`First opened: ${new Date(r.openedAt).toLocaleString()}`}>
+                    <Eye className="w-3 h-3" />
+                    Opened {r.openCount != null && r.openCount > 1 ? `× ${r.openCount}` : ''}
+                  </span>
+                ) : (
+                  <span className="text-white/20 flex items-center gap-1"><Eye className="w-3 h-3" />Not opened</span>
+                )}
+                {r.acknowledgedAt ? (
+                  <span className="flex items-center gap-1 text-purple-400" title={`Acknowledged: ${new Date(r.acknowledgedAt).toLocaleString()}`}>
+                    <Shield className="w-3 h-3" />
+                    Acknowledged
+                  </span>
+                ) : (
+                  <span className="text-white/20 flex items-center gap-1"><Shield className="w-3 h-3" />Unacknowledged</span>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>

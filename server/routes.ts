@@ -26928,6 +26928,149 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Margin Intelligence Engine ─────────────────────────────────────────────────
+  // GET  /api/margin/clients?date=    — ranked client margins
+  // GET  /api/margin/vendors?date=    — ranked vendor costs
+  // GET  /api/margin/aggregate?date=  — aggregate P&L row
+  // GET  /api/margin/trend            — 30-day trend
+  // POST /api/margin/materialize      — compute + store margin analytics for a date
+  // GET  /api/margin/alerts           — active margin alerts
+  // PATCH /api/margin/alerts/:id      — acknowledge alert
+
+  app.get('/api/margin/clients', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
+      const { getTopClients } = await import('./services/sippy/index');
+      const rows = await getTopClients(date, Number(req.query.limit ?? 50));
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/margin/vendors', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
+      const { getTopVendors } = await import('./services/sippy/index');
+      const rows = await getTopVendors(date, Number(req.query.limit ?? 50));
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/margin/aggregate', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
+      const rows = await storage.getMarginAnalytics({ date, dimensionType: 'aggregate' });
+      res.json(rows[0] ?? null);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/margin/trend', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const from = String(req.query.from ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
+      const to   = String(req.query.to   ?? new Date().toISOString().slice(0, 10));
+      const dim  = String(req.query.dimension ?? 'aggregate') as any;
+      const name = req.query.name ? String(req.query.name) : undefined;
+      const { getMarginTrend } = await import('./services/sippy/index');
+      const trend = await getMarginTrend(from, to, dim, name);
+      res.json(trend);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/margin/materialize', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const dateStr = String(req.body?.date ?? new Date().toISOString().slice(0, 10));
+      const { materializeMargin } = await import('./services/sippy/index');
+      const result = await materializeMargin(new Date(dateStr + 'T00:00:00Z'));
+      res.json(result);
+    } catch (err: any) {
+      console.error('[margin] materialize error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/margin/alerts', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const opts: any = {};
+      if (req.query.unacknowledged === 'true') opts.unacknowledged = true;
+      if (req.query.date)     opts.date     = String(req.query.date);
+      if (req.query.severity) opts.severity = String(req.query.severity);
+      const alerts = await storage.listMarginAlerts(opts);
+      res.json(alerts);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.patch('/api/margin/alerts/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const updates: any = {};
+      if ('acknowledged' in req.body) {
+        updates.acknowledged = req.body.acknowledged;
+        if (req.body.acknowledged) {
+          updates.acknowledgedAt = new Date();
+          updates.acknowledgedBy = (req as any).user?.username ?? 'operator';
+        }
+      }
+      const result = await storage.updateMarginAlert(id, updates);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // ── Dispute Defense Engine ─────────────────────────────────────────────────────
+  // POST /api/dispute-defense/generate { clientName, billingPeriod }
+
+  app.post('/api/dispute-defense/generate', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { clientName, billingPeriod } = req.body ?? {};
+      if (!clientName)    return res.status(400).json({ error: 'clientName required' });
+      if (!billingPeriod) return res.status(400).json({ error: 'billingPeriod required (YYYY-MM)' });
+      const { assembleDisputePackage } = await import('./services/sippy/index');
+      const pkg = await assembleDisputePackage(clientName, billingPeriod);
+      res.json(pkg);
+    } catch (err: any) {
+      console.error('[dispute-defense] assemble error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Acknowledgement Tracking ───────────────────────────────────────────────────
+  // GET  /t/:token           — 1x1 pixel tracker; records opened_at on first load
+  // POST /api/notifications/acknowledge/:token — records acknowledged_at
+
+  app.get('/t/:token', async (req: any, res: any) => {
+    const token = String(req.params.token ?? '');
+    // Fire-and-forget tracking update
+    if (token) {
+      storage.findRecipientByToken(token).then(async (recip: any) => {
+        if (!recip) return;
+        const updates: any = { openCount: (recip.openCount ?? 0) + 1 };
+        if (!recip.openedAt) updates.openedAt = new Date();
+        await storage.updateRecipientByToken(token, updates);
+      }).catch(() => {});
+    }
+    // Return 1x1 transparent GIF
+    const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    res.setHeader('Content-Type', 'image/gif');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.send(gif);
+  });
+
+  app.post('/api/notifications/acknowledge/:token', async (req: any, res: any) => {
+    try {
+      const token = String(req.params.token ?? '');
+      if (!token) return res.status(400).json({ error: 'Token required' });
+      const recip = await storage.findRecipientByToken(token);
+      if (!recip) return res.status(404).json({ error: 'Token not found' });
+      if (!(recip as any).acknowledgedAt) {
+        await storage.updateRecipientByToken(token, { acknowledgedAt: new Date() } as any);
+      }
+      res.json({ acknowledged: true, acknowledgedAt: (recip as any).acknowledgedAt ?? new Date() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Client Revenue Reconciliation Engine ──────────────────────────────────────
   // GET  /api/client-reconciliation              — list records (filter: period, status, latestOnly)
   // GET  /api/client-reconciliation/summary      — summary stats for KPI cards

@@ -85,6 +85,10 @@ import {
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
   dailyMinutesReports,
   type DailyMinutesReport, type InsertDailyMinutesReport,
+  marginAnalyticsDaily,
+  type MarginAnalyticsDaily, type InsertMarginAnalyticsDaily,
+  marginAlerts,
+  type MarginAlert, type InsertMarginAlert,
   clientRevenueReconciliations,
   type ClientRevenueReconciliation, type InsertClientRevenueReconciliation,
   communicationPolicies,
@@ -369,6 +373,18 @@ export interface IStorage {
   listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string }): Promise<DailyMinutesReport[]>;
   getDMRReport(id: number): Promise<DailyMinutesReport | null>;
   bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]>;
+
+  // ── Margin Intelligence ────────────────────────────────────────────────────
+  deleteMarginAnalyticsForDate(date: string): Promise<void>;
+  bulkInsertMarginAnalytics(rows: InsertMarginAnalyticsDaily[]): Promise<MarginAnalyticsDaily[]>;
+  getMarginAnalytics(opts: { date?: string; fromDate?: string; toDate?: string; dimensionType?: string; dimensionName?: string }): Promise<MarginAnalyticsDaily[]>;
+  bulkInsertMarginAlerts(alerts: InsertMarginAlert[]): Promise<MarginAlert[]>;
+  listMarginAlerts(opts: { unacknowledged?: boolean; date?: string; severity?: string }): Promise<MarginAlert[]>;
+  updateMarginAlert(id: number, updates: Partial<MarginAlert>): Promise<MarginAlert>;
+
+  // ── Acknowledgement Tracking ───────────────────────────────────────────────
+  findRecipientByToken(token: string): Promise<CommercialNotificationRecipient | null>;
+  updateRecipientByToken(token: string, updates: Partial<CommercialNotificationRecipient>): Promise<void>;
 
   // ── Client Revenue Reconciliation ─────────────────────────────────────────
   listClientReconciliations(opts: { billingPeriod?: string; clientAccountId?: string; status?: string; severity?: string; latestVersionOnly?: boolean }): Promise<ClientRevenueReconciliation[]>;
@@ -2298,6 +2314,59 @@ export class DatabaseStorage implements IStorage {
   async bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]> {
     if (rows.length === 0) return [];
     return db.insert(dailyMinutesReports).values(rows).returning();
+  }
+
+  // ── Margin Intelligence ────────────────────────────────────────────────────────
+  async deleteMarginAnalyticsForDate(date: string): Promise<void> {
+    await db.delete(marginAnalyticsDaily).where(eq(marginAnalyticsDaily.date, date));
+  }
+
+  async bulkInsertMarginAnalytics(rows: InsertMarginAnalyticsDaily[]): Promise<MarginAnalyticsDaily[]> {
+    if (rows.length === 0) return [];
+    return db.insert(marginAnalyticsDaily).values(rows).returning();
+  }
+
+  async getMarginAnalytics(opts: { date?: string; fromDate?: string; toDate?: string; dimensionType?: string; dimensionName?: string } = {}): Promise<MarginAnalyticsDaily[]> {
+    const conditions = [];
+    if (opts.date)          conditions.push(eq(marginAnalyticsDaily.date, opts.date));
+    if (opts.fromDate)      conditions.push(sql`${marginAnalyticsDaily.date} >= ${opts.fromDate}`);
+    if (opts.toDate)        conditions.push(sql`${marginAnalyticsDaily.date} <= ${opts.toDate}`);
+    if (opts.dimensionType) conditions.push(eq(marginAnalyticsDaily.dimensionType, opts.dimensionType));
+    if (opts.dimensionName) conditions.push(eq(marginAnalyticsDaily.dimensionName, opts.dimensionName));
+    const q = db.select().from(marginAnalyticsDaily);
+    return conditions.length > 0 ? q.where(and(...conditions)) : q;
+  }
+
+  async bulkInsertMarginAlerts(alerts: InsertMarginAlert[]): Promise<MarginAlert[]> {
+    if (alerts.length === 0) return [];
+    return db.insert(marginAlerts).values(alerts).returning();
+  }
+
+  async listMarginAlerts(opts: { unacknowledged?: boolean; date?: string; severity?: string } = {}): Promise<MarginAlert[]> {
+    const conditions = [];
+    if (opts.unacknowledged) conditions.push(eq(marginAlerts.acknowledged, false));
+    if (opts.date)           conditions.push(eq(marginAlerts.date, opts.date));
+    if (opts.severity)       conditions.push(eq(marginAlerts.severity, opts.severity));
+    const q = db.select().from(marginAlerts);
+    const filtered = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    return filtered.orderBy(desc(marginAlerts.triggeredAt));
+  }
+
+  async updateMarginAlert(id: number, updates: Partial<MarginAlert>): Promise<MarginAlert> {
+    const [row] = await db.update(marginAlerts).set(updates).where(eq(marginAlerts.id, id)).returning();
+    return row;
+  }
+
+  // ── Acknowledgement Tracking ───────────────────────────────────────────────────
+  async findRecipientByToken(token: string): Promise<CommercialNotificationRecipient | null> {
+    const [row] = await db.select().from(commercialNotificationRecipients)
+      .where(eq(commercialNotificationRecipients.trackingToken, token));
+    return row ?? null;
+  }
+
+  async updateRecipientByToken(token: string, updates: Partial<CommercialNotificationRecipient>): Promise<void> {
+    await db.update(commercialNotificationRecipients).set(updates)
+      .where(eq(commercialNotificationRecipients.trackingToken, token));
   }
 
   // ── Client Revenue Reconciliation ────────────────────────────────────────────

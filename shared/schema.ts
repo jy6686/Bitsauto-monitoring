@@ -1977,6 +1977,58 @@ export type DailyMinutesReport       = typeof dailyMinutesReports.$inferSelect;
 export type InsertDailyMinutesReport = typeof dailyMinutesReports.$inferInsert;
 export const insertDailyMinutesReportSchema = createInsertSchema(dailyMinutesReports).omit({ id: true, generatedAt: true });
 
+// ── Margin Intelligence — telecom commercial profitability analytics ───────────
+// Materialized from DMR + reconciliation data. Pre-computed for fast querying.
+// dimension_type: 'client' | 'vendor' | 'aggregate'
+// source: 'dmr' | 'recon' | 'computed'
+export const marginAnalyticsDaily = pgTable("margin_analytics_daily", {
+  id:             serial("id").primaryKey(),
+  date:           date("date").notNull(),
+  dimensionType:  varchar("dimension_type", { length: 16 }).notNull(),
+  dimensionId:    varchar("dimension_id",   { length: 64 }),
+  dimensionName:  varchar("dimension_name", { length: 256 }).notNull(),
+
+  revenueUsd:     real("revenue_usd"),
+  costUsd:        real("cost_usd"),
+  marginUsd:      real("margin_usd"),
+  marginPct:      real("margin_pct"),
+
+  durationSec:    real("duration_sec"),
+  calls:          integer("calls"),
+  asr:            real("asr"),
+  acd:            real("acd"),
+
+  source:         varchar("source", { length: 32 }).notNull().default('dmr'),
+  computedAt:     timestamp("computed_at").defaultNow().notNull(),
+});
+export type MarginAnalyticsDaily       = typeof marginAnalyticsDaily.$inferSelect;
+export type InsertMarginAnalyticsDaily = typeof marginAnalyticsDaily.$inferInsert;
+
+// Margin alerts — threshold breaches detected during materialization
+// alert_type: 'negative_margin' | 'margin_drop' | 'threshold_breach' | 'vendor_cost_spike'
+export const marginAlerts = pgTable("margin_alerts", {
+  id:              serial("id").primaryKey(),
+  alertType:       varchar("alert_type",     { length: 32 }).notNull(),
+  dimensionType:   varchar("dimension_type", { length: 16 }).notNull(),
+  dimensionName:   varchar("dimension_name", { length: 256 }).notNull(),
+  date:            date("date").notNull(),
+
+  thresholdPct:    real("threshold_pct"),
+  actualPct:       real("actual_pct"),
+  deltaPct:        real("delta_pct"),
+  amountUsd:       real("amount_usd"),
+
+  severity:        varchar("severity", { length: 16 }).notNull().default('medium'),
+  message:         text("message"),
+
+  acknowledged:    boolean("acknowledged").notNull().default(false),
+  acknowledgedBy:  varchar("acknowledged_by", { length: 128 }),
+  acknowledgedAt:  timestamp("acknowledged_at"),
+  triggeredAt:     timestamp("triggered_at").defaultNow().notNull(),
+});
+export type MarginAlert       = typeof marginAlerts.$inferSelect;
+export type InsertMarginAlert = typeof marginAlerts.$inferInsert;
+
 // ── Client Revenue Reconciliation — bilateral telecom finance truth ────────────
 // Compares client-submitted billing data against BitsAuto invoice + DMR.
 // Append-only version pattern: recalculate creates v2, v3… preserving history.
@@ -2086,6 +2138,11 @@ export const commercialNotificationRecipients = pgTable("commercial_notification
   // 'pending' | 'sent' | 'failed' | 'skipped'
   sentAt:         timestamp("sent_at"),
   failedReason:   varchar("failed_reason",  { length: 512 }),
+  // ── Acknowledgement tracking (migration 012) ──────────────────────────────
+  trackingToken:  varchar("tracking_token", { length: 64 }),
+  openedAt:       timestamp("opened_at"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  openCount:      integer("open_count").notNull().default(0),
 });
 export type CommercialNotificationRecipient       = typeof commercialNotificationRecipients.$inferSelect;
 export type InsertCommercialNotificationRecipient = typeof commercialNotificationRecipients.$inferInsert;

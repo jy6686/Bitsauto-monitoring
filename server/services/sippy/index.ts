@@ -120,6 +120,19 @@ export {
   getDMRTrend,
 } from './sippy-dmr.service';
 
+// ── Margin Intelligence Engine ────────────────────────────────────────────────
+export * as margin from './sippy-margin.service';
+export {
+  materializeMargin,
+  getMarginTrend,
+  getTopClients,
+  getTopVendors,
+} from './sippy-margin.service';
+
+// ── Dispute Defense Engine ────────────────────────────────────────────────────
+export * as disputeDefense from './sippy-dispute-defense.service';
+export { assembleDisputePackage } from './sippy-dispute-defense.service';
+
 // ── Client Revenue Reconciliation Engine ─────────────────────────────────────
 export * as clientRecon from './sippy-client-recon.service';
 export {
