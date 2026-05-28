@@ -2960,3 +2960,50 @@ export const clientIdentityMap = pgTable("client_identity_map", {
 export type ClientIdentity       = typeof clientIdentityMap.$inferSelect;
 export type InsertClientIdentity = typeof clientIdentityMap.$inferInsert;
 export const insertClientIdentitySchema = createInsertSchema(clientIdentityMap).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ── Workspace Navigation Architecture ────────────────────────────────────────
+// Composition layer: maps existing routes into grouped tab workspaces.
+// Routes stay intact; only the exposure model changes.
+// FREEZE: Do not add new standalone pages — use workspace tabs instead.
+
+export const workspaceDefinitions = pgTable("workspace_definitions", {
+  id:          serial("id").primaryKey(),
+  slug:        text("slug").unique().notNull(),
+  label:       text("label").notNull(),
+  description: text("description"),
+  portalSlug:  text("portal_slug"),
+  domainId:    text("domain_id"),
+  icon:        text("icon"),
+  sortOrder:   integer("sort_order").default(0),
+  isActive:    boolean("is_active").notNull().default(true),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+
+export const workspaceTabs = pgTable("workspace_tabs", {
+  id:              serial("id").primaryKey(),
+  workspaceId:     integer("workspace_id").notNull(),
+  slug:            text("slug").notNull(),
+  label:           text("label").notNull(),
+  icon:            text("icon"),
+  sortOrder:       integer("sort_order").default(0),
+  isVisible:       boolean("is_visible").notNull().default(true),
+  visibilityRoles: text("visibility_roles").array(),
+});
+
+export const workspaceTabItems = pgTable("workspace_tab_items", {
+  id:              serial("id").primaryKey(),
+  tabId:           integer("tab_id").notNull(),
+  route:           text("route").notNull(),
+  label:           text("label"),
+  icon:            text("icon"),
+  sortOrder:       integer("sort_order").default(0),
+  isContextual:    boolean("is_contextual").notNull().default(false),
+  isHidden:        boolean("is_hidden").notNull().default(false),
+  visibilityRoles: text("visibility_roles").array(),
+});
+
+export type WorkspaceDefinition   = typeof workspaceDefinitions.$inferSelect;
+export type WorkspaceTab          = typeof workspaceTabs.$inferSelect;
+export type WorkspaceTabItem      = typeof workspaceTabItems.$inferSelect;
+export type WorkspaceTabWithItems = WorkspaceTab & { items: WorkspaceTabItem[] };
+export type WorkspaceWithTabs     = WorkspaceDefinition & { tabs: WorkspaceTabWithItems[] };

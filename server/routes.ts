@@ -1,6 +1,7 @@
 
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import * as net from "net";
 import * as https from "https";
 import { createHash, randomBytes } from "crypto";
@@ -685,6 +686,11 @@ export async function registerRoutes(
     console.warn('[auth] Replit OIDC setup skipped (non-fatal):', err?.message ?? err);
   }
   registerAuthRoutes(app);
+
+  // ── Workspace seed (auto-runs once if DB is empty) ─────────────────────────
+  seedWorkspacesIfEmpty().catch(err =>
+    console.warn('[workspace-seed] Non-fatal seed error:', err?.message ?? err)
+  );
 
   // ── Security Middleware ────────────────────────────────────────────────────
   app.use('/api', sessionActivityMiddleware);
@@ -1445,6 +1451,97 @@ export async function registerRoutes(
     try { await storage.reorderFavorites(userId, orderedIds); res.json({ ok: true }); }
     catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+
+  // ── Workspace Navigation API ───────────────────────────────────────────────
+
+  app.get('/api/workspaces', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      res.json(await storage.listWorkspaces());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/workspaces/by-route', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    const route = req.query.route as string | undefined;
+    if (!route) return res.status(400).json({ error: 'route query param required' });
+    try {
+      const ws = await storage.getWorkspaceForRoute(route);
+      if (!ws) return res.status(404).json({ error: 'No workspace for route' });
+      res.json(ws);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/workspaces/:slug', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const ws = await storage.getWorkspace(req.params.slug);
+      if (!ws) return res.status(404).json({ error: 'Workspace not found' });
+      res.json(ws);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/workspaces/:slug',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const ws = await storage.upsertWorkspaceDefinition({ slug: req.params.slug, ...req.body });
+        res.json(ws);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+
+  app.put('/api/workspaces/tabs/:tabId',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const tab = await storage.updateWorkspaceTab(parseInt(req.params.tabId), req.body);
+        res.json(tab);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+
+  app.put('/api/workspaces/tabs/:tabId/items/:itemId/move',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { newTabId, sortOrder } = req.body;
+        if (!newTabId) return res.status(400).json({ error: 'newTabId required' });
+        const item = await storage.moveWorkspaceTabItem(
+          parseInt(req.params.itemId),
+          newTabId,
+          sortOrder
+        );
+        res.json(item);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+
+  app.post('/api/workspaces/:slug/tabs/reorder',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const ws = await storage.getWorkspace(req.params.slug);
+        if (!ws) return res.status(404).json({ error: 'Workspace not found' });
+        await storage.reorderWorkspaceTabs(ws.id, req.body.orderedIds);
+        res.json({ ok: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
 
   app.put('/api/portal/:slug/modules',
     (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),

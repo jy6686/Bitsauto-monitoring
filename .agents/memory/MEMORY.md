@@ -9,3 +9,4 @@
 - [Security Sprint 1 implementation](security-sprint-1.md) — MFA (TOTP via Node crypto, no otplib), session governance, IP restrictions; otplib v13 is ESM-only and needs a crypto plugin — implement TOTP directly instead.
 - [Client Identity Layer](client-identity-layer.md) — client_identity_map table + resolveClientIdentity() is the canonical identity source; routes deep in routes.ts need full server restart (not just HMR) to activate; seed from Sippy via POST /api/identity/seed.
 - [Top Navigation Rule](top-nav-rule.md) — ALL new pages go into DOMAINS[] in app-nav-shell.tsx; NEVER sidebar. Sidebar is contextual-only by design.
+- [Workspace Navigation Architecture](workspace-nav-architecture.md) — WorkspaceShell tab-bar system; Phase 1+2 complete; 20 finance routes wrapped across 3 workspaces; db:push blocked by constraint prompt — use direct SQL for new tables.

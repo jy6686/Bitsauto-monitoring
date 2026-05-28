@@ -133,6 +133,9 @@ import {
   type PortalDefinition, type InsertPortalModuleAssignment,
   type PortalModuleAssignment, type PortalModuleWithMeta, type PortalSection,
   type NavigationModule, type UserFavorite,
+  workspaceDefinitions, workspaceTabs, workspaceTabItems,
+  type WorkspaceDefinition, type WorkspaceTab, type WorkspaceTabItem,
+  type WorkspaceTabWithItems, type WorkspaceWithTabs,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -275,6 +278,18 @@ export interface IStorage {
   reorderPortalSections(portalSlug: string, orderedIds: number[]): Promise<void>;
   updatePortalModuleAssignmentById(id: number, data: { section?: string; displayOrder?: number; displayLabel?: string; adapter?: string; visibility?: string; isPinned?: boolean }): Promise<PortalModuleAssignment>;
   reorderPortalModuleAssignments(portalId: string, sectionKey: string, orderedIds: number[]): Promise<void>;
+
+  // Workspace Navigation Architecture
+  getWorkspace(slug: string): Promise<WorkspaceWithTabs | null>;
+  getWorkspaceForRoute(route: string): Promise<WorkspaceWithTabs | null>;
+  listWorkspaces(): Promise<WorkspaceDefinition[]>;
+  countWorkspaces(): Promise<number>;
+  upsertWorkspaceDefinition(data: Omit<WorkspaceDefinition, 'id' | 'createdAt'>): Promise<WorkspaceDefinition>;
+  insertWorkspaceTab(data: Omit<WorkspaceTab, 'id'>): Promise<WorkspaceTab>;
+  insertWorkspaceTabItem(data: Omit<WorkspaceTabItem, 'id'>): Promise<WorkspaceTabItem>;
+  updateWorkspaceTab(id: number, data: Partial<Pick<WorkspaceTab, 'label' | 'icon' | 'sortOrder' | 'isVisible' | 'visibilityRoles'>>): Promise<WorkspaceTab>;
+  moveWorkspaceTabItem(itemId: number, newTabId: number, sortOrder?: number): Promise<WorkspaceTabItem>;
+  reorderWorkspaceTabs(workspaceId: number, orderedIds: number[]): Promise<void>;
 
   // User Favorites
   getFavorites(userId: string): Promise<UserFavorite[]>;
@@ -3390,9 +3405,109 @@ export class DatabaseStorage implements IStorage {
       riskTier: 'standard',
     };
   }
+
+  // ── Workspace Navigation Architecture ──────────────────────────────────────
+
+  async getWorkspace(slug: string): Promise<WorkspaceWithTabs | null> {
+    const [workspace] = await db.select().from(workspaceDefinitions)
+      .where(eq(workspaceDefinitions.slug, slug));
+    if (!workspace) return null;
+
+    const tabs = await db.select().from(workspaceTabs)
+      .where(eq(workspaceTabs.workspaceId, workspace.id))
+      .orderBy(asc(workspaceTabs.sortOrder));
+
+    const tabsWithItems: WorkspaceTabWithItems[] = await Promise.all(
+      tabs.map(async tab => {
+        const items = await db.select().from(workspaceTabItems)
+          .where(eq(workspaceTabItems.tabId, tab.id))
+          .orderBy(asc(workspaceTabItems.sortOrder));
+        return { ...tab, items };
+      })
+    );
+
+    return { ...workspace, tabs: tabsWithItems };
+  }
+
+  async getWorkspaceForRoute(route: string): Promise<WorkspaceWithTabs | null> {
+    const [item] = await db.select().from(workspaceTabItems)
+      .where(eq(workspaceTabItems.route, route));
+    if (!item) return null;
+
+    const [tab] = await db.select().from(workspaceTabs)
+      .where(eq(workspaceTabs.id, item.tabId));
+    if (!tab) return null;
+
+    const [ws] = await db.select().from(workspaceDefinitions)
+      .where(eq(workspaceDefinitions.id, tab.workspaceId));
+    if (!ws) return null;
+
+    return this.getWorkspace(ws.slug);
+  }
+
+  async listWorkspaces(): Promise<WorkspaceDefinition[]> {
+    return db.select().from(workspaceDefinitions)
+      .orderBy(asc(workspaceDefinitions.sortOrder));
+  }
+
+  async countWorkspaces(): Promise<number> {
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(workspaceDefinitions);
+    return count;
+  }
+
+  async upsertWorkspaceDefinition(data: Omit<WorkspaceDefinition, 'id' | 'createdAt'>): Promise<WorkspaceDefinition> {
+    const [row] = await db.insert(workspaceDefinitions)
+      .values(data)
+      .onConflictDoUpdate({
+        target: workspaceDefinitions.slug,
+        set: { ...data },
+      })
+      .returning();
+    return row;
+  }
+
+  async insertWorkspaceTab(data: Omit<WorkspaceTab, 'id'>): Promise<WorkspaceTab> {
+    const [row] = await db.insert(workspaceTabs).values(data).returning();
+    return row;
+  }
+
+  async insertWorkspaceTabItem(data: Omit<WorkspaceTabItem, 'id'>): Promise<WorkspaceTabItem> {
+    const [row] = await db.insert(workspaceTabItems).values(data).returning();
+    return row;
+  }
+
+  async updateWorkspaceTab(id: number, data: Partial<Pick<WorkspaceTab, 'label' | 'icon' | 'sortOrder' | 'isVisible' | 'visibilityRoles'>>): Promise<WorkspaceTab> {
+    const [row] = await db.update(workspaceTabs)
+      .set(data)
+      .where(eq(workspaceTabs.id, id))
+      .returning();
+    return row;
+  }
+
+  async moveWorkspaceTabItem(itemId: number, newTabId: number, sortOrder?: number): Promise<WorkspaceTabItem> {
+    const updateData: Record<string, any> = { tabId: newTabId };
+    if (sortOrder !== undefined) updateData.sortOrder = sortOrder;
+    const [row] = await db.update(workspaceTabItems)
+      .set(updateData)
+      .where(eq(workspaceTabItems.id, itemId))
+      .returning();
+    return row;
+  }
+
+  async reorderWorkspaceTabs(workspaceId: number, orderedIds: number[]): Promise<void> {
+    await Promise.all(
+      orderedIds.map((id, index) =>
+        db.update(workspaceTabs)
+          .set({ sortOrder: index })
+          .where(and(eq(workspaceTabs.id, id), eq(workspaceTabs.workspaceId, workspaceId)))
+      )
+    );
+  }
 }
 
-// ── Note: DatabaseStorage class ends above ────────────────────────────────────
+// ── Standalone helpers ─────────────────────────────────────────────────────────
 
 function computeNextDueAt(frequency: string, cronHour?: number): Date {
   const now = new Date();
@@ -3417,6 +3532,5 @@ function computeNextDueAt(frequency: string, cronHour?: number): Date {
     }
   }
 }
-
 
 export const storage = new DatabaseStorage();

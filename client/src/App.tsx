@@ -175,6 +175,49 @@ import LiveTrafficPage from "@/pages/live-traffic";
 import NotificationCentrePage from "@/pages/notification-centre";
 import BillingPage from "@/pages/billing";
 import WorkspaceHomePage from "@/pages/workspace-home";
+import { WorkspaceShell } from "@/components/workspace-shell";
+
+// ── Workspace composition helper ─────────────────────────────────────────────
+// Creates a stable module-level component that wraps an existing page in a
+// WorkspaceShell tab bar. Call at module level only — never inside a component.
+function withWorkspace(slug: string, Component: React.ComponentType<any>) {
+  function Wrapped() {
+    return (
+      <WorkspaceShell workspaceSlug={slug}>
+        <Component />
+      </WorkspaceShell>
+    );
+  }
+  Wrapped.displayName = `${slug}:${Component.displayName ?? Component.name ?? 'Page'}`;
+  return Wrapped;
+}
+
+// ── Phase 2: Finance Consolidation ───────────────────────────────────────────
+// billing-ops workspace
+const BillingWS          = withWorkspace('billing-ops', BillingPage);
+const InvoicesWS         = withWorkspace('billing-ops', InvoicesPage);
+const InvoiceJobsWS      = withWorkspace('billing-ops', InvoiceJobsPage);
+const InvoiceTemplatesWS = withWorkspace('billing-ops', InvoiceTemplatesPage);
+const CreditNotesWS      = withWorkspace('billing-ops', CreditNotesPage);
+const CreditControlWS    = withWorkspace('billing-ops', CreditControlPage);
+const ProductsWS         = withWorkspace('billing-ops', ProductsPage);
+const RateCardsWS        = withWorkspace('billing-ops', RateCardsPage);
+const TariffVersionsWS   = withWorkspace('billing-ops', TariffVersionsPage);
+
+// revenue-assurance workspace
+const DmrWS             = withWorkspace('revenue-assurance', DMRPage);
+const ClientReconWS     = withWorkspace('revenue-assurance', ClientReconciliationPage);
+const CarrierReconWS    = withWorkspace('revenue-assurance', CarrierReconciliationPage);
+const AiAssuranceWS     = withWorkspace('revenue-assurance', AiAssurancePage);
+const MarginIntelWS     = withWorkspace('revenue-assurance', MarginIntelligencePage);
+const TrafficForecastWS = withWorkspace('revenue-assurance', TrafficForecastPage);
+const RevenueHeatmapWS  = withWorkspace('revenue-assurance', RevenueHeatmapPage);
+
+// dispute-governance workspace
+const BillingDisputesWS  = withWorkspace('dispute-governance', BillingDisputesPage);
+const DisputeCasesWS     = withWorkspace('dispute-governance', DisputeCasesPage);
+const DisputeDefenseWS   = withWorkspace('dispute-governance', DisputeDefensePage);
+const CommercialNotifsWS = withWorkspace('dispute-governance', CommercialNotificationsPage);
 
 // Pages accessible to each role
 const ROLE_PATHS: Record<Role, string[]> = {
@@ -334,13 +377,13 @@ function Router() {
         {() => <ProtectedRoute component={TrafficMapPage} requiredRoles={['admin','management']} viewerAssignment="traffic_map" mgmtFeature="traffic_map" />}
       </Route>
       <Route path="/revenue-heatmap">
-        {() => <ProtectedRoute component={RevenueHeatmapPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={RevenueHeatmapWS} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/codec-analytics">
         {() => <ProtectedRoute component={CodecAnalyticsPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/traffic-forecast">
-        {() => <ProtectedRoute component={TrafficForecastPage} requiredRoles={['admin','management']} />}
+        {() => <ProtectedRoute component={TrafficForecastWS} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/audit-log">
         {() => <ProtectedRoute component={AuditLogPage} requiredRoles={['admin','management','destination_manager','routing_admin']} />}
@@ -373,7 +416,7 @@ function Router() {
         {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}
       </Route>
       <Route path="/rate-cards">
-        {() => <ProtectedRoute component={RateCardsPage} requiredRoles={['admin','management']} mgmtFeature="rate_cards" />}
+        {() => <ProtectedRoute component={RateCardsWS} requiredRoles={['admin','management']} mgmtFeature="rate_cards" />}
       </Route>
       <Route path="/analytics">
         {() => <ProtectedRoute component={AnalyticsPage} requiredRoles={['admin','management']} mgmtFeature="analytics" />}
@@ -409,7 +452,7 @@ function Router() {
         {() => <ProtectedRoute component={AccountNamesPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/products">
-        {() => <ProtectedRoute component={ProductsPage} requiredRoles={['admin','management']} mgmtFeature="products" />}
+        {() => <ProtectedRoute component={ProductsWS} requiredRoles={['admin','management']} mgmtFeature="products" />}
       </Route>
 
       <Route path="/qos-heatmap">
@@ -419,7 +462,7 @@ function Router() {
         {() => <ProtectedRoute component={SlaBreachesPage} requiredRoles={['admin','management']} mgmtFeature="sla_breaches" />}
       </Route>
       <Route path="/billing-disputes">
-        {() => <ProtectedRoute component={BillingDisputesPage} requiredRoles={['admin','management']} mgmtFeature="billing_disputes" />}
+        {() => <ProtectedRoute component={BillingDisputesWS} requiredRoles={['admin','management']} mgmtFeature="billing_disputes" />}
       </Route>
       <Route path="/test-campaigns">
         {() => <ProtectedRoute component={TestCampaignsPage} requiredRoles={['admin','management']} mgmtFeature="test_campaigns" />}
@@ -437,13 +480,13 @@ function Router() {
         {() => <ProtectedRoute component={EmailCentrePage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/commercial-notifications">
-        {() => <ProtectedRoute component={CommercialNotificationsPage} requiredRoles={['admin']} />}
+        {() => <ProtectedRoute component={CommercialNotifsWS} requiredRoles={['admin']} />}
       </Route>
       <Route path="/sender-profiles">
         {() => <ProtectedRoute component={SenderProfilesPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/tariff-versions">
-        {() => <ProtectedRoute component={TariffVersionsPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={TariffVersionsWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/rating-verification">
         {() => <ProtectedRoute component={RatingVerificationPage} requiredRoles={['admin', 'management']} />}
@@ -455,28 +498,28 @@ function Router() {
         {() => <ProtectedRoute component={ExecutiveReportsPage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/invoices">
-        {() => <ProtectedRoute component={InvoicesPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={InvoicesWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/carrier-reconciliation">
-        {() => <ProtectedRoute component={CarrierReconciliationPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={CarrierReconWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/communication-policies">
         {() => <ProtectedRoute component={CommunicationPoliciesPage} requiredRoles={['admin']} />}
       </Route>
       <Route path="/dmr">
-        {() => <ProtectedRoute component={DMRPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={DmrWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/client-reconciliation">
-        {() => <ProtectedRoute component={ClientReconciliationPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={ClientReconWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/margin-intelligence">
-        {() => <ProtectedRoute component={MarginIntelligencePage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={MarginIntelWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/dispute-defense">
-        {() => <ProtectedRoute component={DisputeDefensePage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={DisputeDefenseWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/ai-assurance">
-        {() => <ProtectedRoute component={AiAssurancePage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={AiAssuranceWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/client-identity">
         {() => <ProtectedRoute component={ClientIdentityPage} requiredRoles={['admin', 'management']} />}
@@ -494,25 +537,25 @@ function Router() {
       <Route path="/portal/credit-notes" component={PortalCreditNotesPage} />
       <Route path="/portal/reconciliation" component={PortalReconciliationPage} />
       <Route path="/invoice-jobs">
-        {() => <ProtectedRoute component={InvoiceJobsPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={InvoiceJobsWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/invoice-templates">
-        {() => <ProtectedRoute component={InvoiceTemplatesPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={InvoiceTemplatesWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/dispute-cases">
-        {() => <ProtectedRoute component={DisputeCasesPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={DisputeCasesWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/credit-notes">
-        {() => <ProtectedRoute component={CreditNotesPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={CreditNotesWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/credit-control">
-        {() => <ProtectedRoute component={CreditControlPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={CreditControlWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/notification-centre">
         {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/billing">
-        {() => <ProtectedRoute component={BillingPage} requiredRoles={['admin', 'management']} />}
+        {() => <ProtectedRoute component={BillingWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/routing-manager">
         {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management', 'routing_admin']} mgmtFeature="routing_manager" />}
