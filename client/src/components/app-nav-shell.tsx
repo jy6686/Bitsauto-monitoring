@@ -244,21 +244,37 @@ const DOMAINS: Domain[] = [
   {
     id: 'finance', label: 'Finance & Billing', icon: Banknote, color: 'text-emerald-400',
     groups: [
-      { label: 'Billing',        desc: 'Invoices, payments, products and rate cards', icon: Wallet, items: [
-        { href: '/billing',          label: 'Billing',       desc: 'Payments & invoices',         icon: Wallet },
-        { href: '/billing-disputes', label: 'Disputes',      desc: 'Billing dispute resolution',  icon: ClipboardList },
-        { href: '/products',         label: 'Products',      desc: 'Product catalogue',           icon: Package },
-        { href: '/rate-cards',       label: 'Rate Cards',    desc: 'Rate decks & pricing',        icon: FileSpreadsheet },
+      { label: 'Cockpit & Identity', desc: 'Finance cockpit dashboard and client identity map', icon: LayoutDashboard, items: [
+        { href: '/finance-cockpit', label: 'Finance Cockpit',    desc: 'Unified finance workspace',   icon: LayoutDashboard },
+        { href: '/client-identity', label: 'Client Identity Map', desc: 'Canonical client identities', icon: Users },
       ]},
-      { label: 'Cost & Revenue', desc: 'Route cost optimisation, revenue and balances', icon: TrendingDown, items: [
+      { label: 'Billing',        desc: 'Invoices, payments, products and rate cards', icon: Wallet, items: [
+        { href: '/billing',            label: 'Billing',            desc: 'Payments & invoices',         icon: Wallet },
+        { href: '/invoices',           label: 'Invoices',           desc: 'Invoice management',          icon: FileText },
+        { href: '/invoice-jobs',       label: 'Invoice Queue',      desc: 'Scheduled invoice jobs',      icon: ClipboardList },
+        { href: '/invoice-templates',  label: 'Invoice Templates',  desc: 'Reusable invoice templates',  icon: FileSpreadsheet },
+        { href: '/credit-notes',       label: 'Credit Notes',       desc: 'Credit note issuance',        icon: History },
+        { href: '/credit-control',     label: 'Credit Control',     desc: 'Credit risk management',      icon: Banknote },
+        { href: '/billing-disputes',   label: 'Disputes',           desc: 'Billing dispute resolution',  icon: Shield },
+        { href: '/products',           label: 'Products',           desc: 'Product catalogue',           icon: Package },
+        { href: '/rate-cards',         label: 'Rate Cards',         desc: 'Rate decks & pricing',        icon: FileSpreadsheet },
+      ]},
+      { label: 'Revenue Assurance', desc: 'DMR, reconciliation, AI assurance and margin intelligence', icon: Brain, items: [
+        { href: '/dmr',                    label: 'Daily Minutes Report', desc: 'Usage reconciliation',       icon: Activity },
+        { href: '/client-reconciliation',  label: 'Client Reconciliation', desc: 'Client-side recon',        icon: ArrowRightLeft },
+        { href: '/carrier-reconciliation', label: 'Carrier Reconciliation', desc: 'Carrier-side recon',      icon: ArrowRightLeft },
+        { href: '/ai-assurance',           label: 'AI Assurance',         desc: 'AI-driven revenue checks',   icon: BrainCircuit },
+        { href: '/margin-intelligence',    label: 'Margin Intelligence',  desc: 'Cost vs revenue margins',    icon: TrendingDown },
+        { href: '/dispute-cases',          label: 'Dispute Cases',        desc: 'Active dispute tracker',     icon: ClipboardList },
+        { href: '/dispute-defense',        label: 'Dispute Defense',      desc: 'Evidence & defense toolkit', icon: ShieldAlert },
+        { href: '/partner-profiles',       label: 'Partner Portal',       desc: 'Partner & reseller billing', icon: Star },
+      ]},
+      { label: 'Cost & Analytics', desc: 'Route cost optimisation, revenue heatmap and reports', icon: TrendingDown, items: [
         { href: '/cost-optimisation', label: 'Cost Optimisation', desc: 'Route cost engine',          icon: TrendingDown },
         { href: '/revenue-heatmap',   label: 'Revenue Heatmap',   desc: 'Revenue visualisation',      icon: MapIcon },
         { href: '/balance',           label: 'Balance Monitor',   desc: 'Vendor account balances',    icon: Wallet },
-      ]},
-      { label: 'Reports',        desc: 'Finance reports, CDR billing and margin analytics', icon: BarChart2, items: [
-        { href: '/reports',  label: 'Finance Reports',  desc: 'Revenue & cost reports',      icon: BarChart2 },
-        { href: '/cdrs',     label: 'CDR Billing',      desc: 'CDR billing export',          icon: History },
-        { href: '/asr-acd',  label: 'Margin Analytics', desc: 'Cost vs revenue margins',     icon: BarChart3 },
+        { href: '/reports',           label: 'Finance Reports',   desc: 'Revenue & cost reports',     icon: BarChart2 },
+        { href: '/cdrs',              label: 'CDR Billing',       desc: 'CDR billing export',         icon: History },
       ]},
     ],
   },

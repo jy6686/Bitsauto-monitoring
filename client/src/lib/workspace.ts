@@ -29,6 +29,8 @@ const ROUTE_DOMAIN_MAP: [string, WorkspaceDomain][] = [
   ['/settings',                   'platform'],
   ['/team',                       'platform'],
   // ── Finance & Billing ─────────────────────────────────────────────────────
+  ['/finance-cockpit',            'finance'],
+  ['/client-identity',            'finance'],
   ['/billing-disputes',           'finance'],
   ['/billing',                    'finance'],
   ['/rate-cards',                 'finance'],

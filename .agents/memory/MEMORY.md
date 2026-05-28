@@ -8,3 +8,4 @@
 - [NOC Sprint architecture](noc-sprint-architecture.md) — noc_incidents/events/assignments are network-level (route/carrier); existing incidents table is account-level (ACCOUNT_HEALTH/FAS_SPIKE). Keep separate. Security Sprint 1 (MFA/TOTP/portal-aware policy) intentionally deferred until NOC ops flows stabilize.
 - [Security Sprint 1 implementation](security-sprint-1.md) — MFA (TOTP via Node crypto, no otplib), session governance, IP restrictions; otplib v13 is ESM-only and needs a crypto plugin — implement TOTP directly instead.
 - [Client Identity Layer](client-identity-layer.md) — client_identity_map table + resolveClientIdentity() is the canonical identity source; routes deep in routes.ts need full server restart (not just HMR) to activate; seed from Sippy via POST /api/identity/seed.
+- [Top Navigation Rule](top-nav-rule.md) — ALL new pages go into DOMAINS[] in app-nav-shell.tsx; NEVER sidebar. Sidebar is contextual-only by design.
