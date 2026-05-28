@@ -19,7 +19,8 @@ import { useTheme } from "@/hooks/use-theme";
 import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
 import { useChatDrawer } from "@/context/chat-drawer-context";
-import { WorkspaceSwitcherPill } from "@/components/portal-sidebar";
+import { WorkspaceSwitcherPill, PortalTopNav } from "@/components/portal-sidebar";
+import { usePortal } from "@/context/portal-context";
 
 function openCommandBar() {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
@@ -519,6 +520,7 @@ export function AppNavShell() {
 
   const { isOpen: chatOpen, toggle: toggleChat } = useChatDrawer();
 
+  const { isPortalMode } = usePortal();
   const meta          = inferMeta(location);
   const activeDomain  = DOMAINS.find(d => d.id === meta.domain);
   const isDashboard   = location === '/';
@@ -637,78 +639,82 @@ export function AppNavShell() {
         {/* ── Divider ── */}
         <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
 
-        {/* ── Centre: domain workspace tabs ── */}
-        <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
-          {visibleDomains.map(domain => {
-            const isActive = meta.domain === domain.id;
-            const isOpen   = openDomain === domain.id;
-            return (
-              <div
-                key={domain.id}
-                ref={el => { if (el) tabRefs.current.set(domain.id, el); }}
-                role="menuitem"
-                className={cn(
-                  "relative flex items-center h-[36px] rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
-                  isActive || isOpen
-                    ? "text-foreground bg-white/[0.08]"
-                    : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]"
-                )}
-                onMouseEnter={() => { cancelClose(); setOpen(domain.id); }}
-                onMouseLeave={scheduleClose}
-              >
-                {/* Active underline */}
-                {isActive && (
-                  <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-gradient-to-r from-violet-400 to-indigo-500 pointer-events-none" />
-                )}
-                {/* Label → workspace home */}
-                <Link
-                  href={`/workspace/${domain.id}`}
-                  data-testid={`nav-domain-${domain.id}`}
-                  onClick={() => setOpen(null)}
-                  className="flex items-center gap-1.5 pl-2.5 pr-1 h-full"
-                  aria-label={`${domain.label} workspace`}
-                >
-                  {(() => {
-                    const urgency = domainUrgencyScore(domain.id);
-                    return (
-                      <span className="relative flex-shrink-0 inline-flex">
-                        <domain.icon className={cn("w-3.5 h-3.5", isActive ? domain.color : '')} />
-                        {urgency >= 60 && (
-                          <span className="absolute -top-[3px] -right-[3px] flex h-[6px] w-[6px] pointer-events-none" aria-hidden="true">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-70" />
-                            <span className="relative inline-flex rounded-full h-[6px] w-[6px] bg-rose-500" />
-                          </span>
-                        )}
-                        {urgency >= 30 && urgency < 60 && (
-                          <span className="absolute -top-[3px] -right-[3px] h-[5px] w-[5px] rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />
-                        )}
-                      </span>
-                    );
-                  })()}
-                  <span className="hidden lg:inline">{domain.label}</span>
-                </Link>
-                {/* Chevron → toggle mega panel */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); setOpen(openDomain === domain.id ? null : domain.id); }}
-                  aria-haspopup="true"
-                  aria-expanded={isOpen}
-                  aria-label={`${domain.label} modules`}
+        {/* ── Centre: portal section tabs (Level 2) OR standard domain tabs ── */}
+        {isPortalMode ? (
+          <PortalTopNav />
+        ) : (
+          <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
+            {visibleDomains.map(domain => {
+              const isActive = meta.domain === domain.id;
+              const isOpen   = openDomain === domain.id;
+              return (
+                <div
+                  key={domain.id}
+                  ref={el => { if (el) tabRefs.current.set(domain.id, el); }}
+                  role="menuitem"
                   className={cn(
-                    "flex items-center justify-center pr-2 pl-0.5 h-full transition-all duration-150",
-                    isOpen ? "opacity-100" : "opacity-40 hover:opacity-80"
+                    "relative flex items-center h-[36px] rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
+                    isActive || isOpen
+                      ? "text-foreground bg-white/[0.08]"
+                      : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]"
                   )}
+                  onMouseEnter={() => { cancelClose(); setOpen(domain.id); }}
+                  onMouseLeave={scheduleClose}
                 >
-                  <ChevronDown className={cn("w-2.5 h-2.5 transition-transform duration-150", isOpen && "rotate-180")} />
-                </button>
-              </div>
-            );
-          })}
-        </nav>
+                  {/* Active underline */}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-gradient-to-r from-violet-400 to-indigo-500 pointer-events-none" />
+                  )}
+                  {/* Label → workspace home */}
+                  <Link
+                    href={`/workspace/${domain.id}`}
+                    data-testid={`nav-domain-${domain.id}`}
+                    onClick={() => setOpen(null)}
+                    className="flex items-center gap-1.5 pl-2.5 pr-1 h-full"
+                    aria-label={`${domain.label} workspace`}
+                  >
+                    {(() => {
+                      const urgency = domainUrgencyScore(domain.id);
+                      return (
+                        <span className="relative flex-shrink-0 inline-flex">
+                          <domain.icon className={cn("w-3.5 h-3.5", isActive ? domain.color : '')} />
+                          {urgency >= 60 && (
+                            <span className="absolute -top-[3px] -right-[3px] flex h-[6px] w-[6px] pointer-events-none" aria-hidden="true">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-70" />
+                              <span className="relative inline-flex rounded-full h-[6px] w-[6px] bg-rose-500" />
+                            </span>
+                          )}
+                          {urgency >= 30 && urgency < 60 && (
+                            <span className="absolute -top-[3px] -right-[3px] h-[5px] w-[5px] rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />
+                          )}
+                        </span>
+                      );
+                    })()}
+                    <span className="hidden lg:inline">{domain.label}</span>
+                  </Link>
+                  {/* Chevron → toggle mega panel */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setOpen(openDomain === domain.id ? null : domain.id); }}
+                    aria-haspopup="true"
+                    aria-expanded={isOpen}
+                    aria-label={`${domain.label} modules`}
+                    className={cn(
+                      "flex items-center justify-center pr-2 pl-0.5 h-full transition-all duration-150",
+                      isOpen ? "opacity-100" : "opacity-40 hover:opacity-80"
+                    )}
+                  >
+                    <ChevronDown className={cn("w-2.5 h-2.5 transition-transform duration-150", isOpen && "rotate-180")} />
+                  </button>
+                </div>
+              );
+            })}
+          </nav>
+        )}
 
         {/* ── Right zone: global utilities ── */}
         <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-          {/* Breadcrumb — only on wide screens */}
-          {activeDomain && (
+          {/* Breadcrumb — only on wide screens, only in standard mode */}
+          {!isPortalMode && activeDomain && (
             <div className="hidden xl:flex items-center gap-1 text-[10px] text-muted-foreground/40 mr-2">
               <span className={cn("font-semibold", activeDomain.color)}>{activeDomain.label}</span>
               <ChevronRight className="w-3 h-3" />
@@ -716,67 +722,69 @@ export function AppNavShell() {
             </div>
           )}
 
-          {/* Nav config toggle */}
-          <div className="relative" ref={navConfigRef}>
-            <button
-              onClick={() => setShowNavConfig(v => !v)}
-              data-testid="nav-config-toggle"
-              title="Customise navigation sections"
-              className={cn(
-                "p-1.5 rounded-lg transition-colors",
-                showNavConfig
-                  ? "bg-white/[0.07] text-foreground/80"
-                  : "text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06]"
-              )}
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-            </button>
-            {showNavConfig && (
-              <div
-                className="absolute right-0 top-full mt-1.5 z-[200] py-2 rounded-xl"
-                style={{
-                  background: 'hsl(var(--background)/0.98)',
-                  backdropFilter: 'blur(20px)',
-                  WebkitBackdropFilter: 'blur(20px)',
-                  border: '1px solid rgba(255,255,255,0.07)',
-                  boxShadow: '0 16px 48px rgba(0,0,0,0.45)',
-                  minWidth: 230,
-                }}
-              >
-                <div className="px-3.5 pb-2 mb-1 border-b border-white/[0.06]">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">Top Nav Sections</p>
-                  <p className="text-[10px] text-muted-foreground/30 mt-0.5">Toggle sections on or off</p>
-                </div>
-                {DOMAINS.map(d => {
-                  const on = !hiddenDomains.has(d.id);
-                  return (
-                    <button
-                      key={d.id}
-                      onClick={() => toggleDomainVisibility(d.id)}
-                      data-testid={`nav-toggle-domain-${d.id}`}
-                      className="w-full flex items-center gap-2.5 px-3.5 py-1.5 hover:bg-white/[0.05] transition-colors text-left"
-                    >
-                      <d.icon className={cn("w-3.5 h-3.5 flex-shrink-0 transition-colors", on ? d.color : 'text-muted-foreground/20')} />
-                      <span className={cn("text-[12px] font-medium flex-1 transition-colors", on ? 'text-foreground' : 'text-muted-foreground/30')}>{d.label}</span>
-                      <div className={cn("w-8 h-4 rounded-full transition-colors duration-200 relative flex-shrink-0", on ? "bg-indigo-500" : "bg-white/[0.1]")}>
-                        <div className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all duration-200", on ? "left-[18px]" : "left-0.5")} />
-                      </div>
-                    </button>
-                  );
-                })}
-                {hiddenDomains.size > 0 && (
-                  <div className="px-3.5 pt-2 mt-1 border-t border-white/[0.06]">
-                    <button
-                      onClick={() => setHiddenDomains(new Set())}
-                      className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
-                    >
-                      Show all sections
-                    </button>
-                  </div>
+          {/* Nav config toggle — only in standard mode */}
+          {!isPortalMode && (
+            <div className="relative" ref={navConfigRef}>
+              <button
+                onClick={() => setShowNavConfig(v => !v)}
+                data-testid="nav-config-toggle"
+                title="Customise navigation sections"
+                className={cn(
+                  "p-1.5 rounded-lg transition-colors",
+                  showNavConfig
+                    ? "bg-white/[0.07] text-foreground/80"
+                    : "text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06]"
                 )}
-              </div>
-            )}
-          </div>
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+              {showNavConfig && (
+                <div
+                  className="absolute right-0 top-full mt-1.5 z-[200] py-2 rounded-xl"
+                  style={{
+                    background: 'hsl(var(--background)/0.98)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255,255,255,0.07)',
+                    boxShadow: '0 16px 48px rgba(0,0,0,0.45)',
+                    minWidth: 230,
+                  }}
+                >
+                  <div className="px-3.5 pb-2 mb-1 border-b border-white/[0.06]">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">Top Nav Sections</p>
+                    <p className="text-[10px] text-muted-foreground/30 mt-0.5">Toggle sections on or off</p>
+                  </div>
+                  {DOMAINS.map(d => {
+                    const on = !hiddenDomains.has(d.id);
+                    return (
+                      <button
+                        key={d.id}
+                        onClick={() => toggleDomainVisibility(d.id)}
+                        data-testid={`nav-toggle-domain-${d.id}`}
+                        className="w-full flex items-center gap-2.5 px-3.5 py-1.5 hover:bg-white/[0.05] transition-colors text-left"
+                      >
+                        <d.icon className={cn("w-3.5 h-3.5 flex-shrink-0 transition-colors", on ? d.color : 'text-muted-foreground/20')} />
+                        <span className={cn("text-[12px] font-medium flex-1 transition-colors", on ? 'text-foreground' : 'text-muted-foreground/30')}>{d.label}</span>
+                        <div className={cn("w-8 h-4 rounded-full transition-colors duration-200 relative flex-shrink-0", on ? "bg-indigo-500" : "bg-white/[0.1]")}>
+                          <div className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all duration-200", on ? "left-[18px]" : "left-0.5")} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {hiddenDomains.size > 0 && (
+                    <div className="px-3.5 pt-2 mt-1 border-t border-white/[0.06]">
+                      <button
+                        onClick={() => setHiddenDomains(new Set())}
+                        className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+                      >
+                        Show all sections
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ⌘K search chip */}
           <button

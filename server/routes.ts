@@ -1285,6 +1285,17 @@ export async function registerRoutes(
     }
   });
 
+  app.get('/api/portal/sections/:slug', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const sections = await storage.getPortalSections(req.params.slug);
+      res.json(sections);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.put('/api/portal/:slug/modules',
     (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
     async (req: any, res: any) => {

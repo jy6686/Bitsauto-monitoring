@@ -2728,3 +2728,17 @@ export interface PortalModuleWithMeta extends PortalModuleAssignment {
   isSystem:   boolean;
   isMovable:  boolean;
 }
+
+// ── Portal Sections (DB-driven Level 2 domain navigation tabs) ────────────────
+export const portalSections = pgTable("portal_sections", {
+  id:         serial("id").primaryKey(),
+  portalId:   text("portal_id").notNull().references(() => portalDefinitions.slug, { onDelete: "cascade" }),
+  sectionKey: text("section_key").notNull(),
+  title:      text("title").notNull(),
+  icon:       text("icon").notNull().default("circle"),
+  sortOrder:  integer("sort_order").notNull().default(0),
+  isActive:   boolean("is_active").notNull().default(true),
+});
+
+export type PortalSection       = typeof portalSections.$inferSelect;
+export type InsertPortalSection = typeof portalSections.$inferInsert;

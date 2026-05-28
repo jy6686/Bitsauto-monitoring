@@ -124,9 +124,9 @@ import {
   type InvoiceLineItem, type InsertInvoiceLineItem,
   carrierReconciliations,
   type CarrierReconciliation, type InsertCarrierReconciliation,
-  portalDefinitions, navigationModules, portalModuleAssignments,
+  portalDefinitions, navigationModules, portalModuleAssignments, portalSections,
   type PortalDefinition, type InsertPortalModuleAssignment,
-  type PortalModuleAssignment, type PortalModuleWithMeta,
+  type PortalModuleAssignment, type PortalModuleWithMeta, type PortalSection,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -248,6 +248,7 @@ export interface IStorage {
   // Portal Governance
   getPortalDefinitions(): Promise<PortalDefinition[]>;
   getPortalModules(portalSlug: string): Promise<PortalModuleWithMeta[]>;
+  getPortalSections(portalSlug: string): Promise<PortalSection[]>;
   upsertPortalModuleAssignment(data: Partial<InsertPortalModuleAssignment> & { portalId: string; moduleId: number }): Promise<PortalModuleAssignment>;
   removePortalModuleAssignment(portalId: string, moduleId: number): Promise<void>;
   resetPortalToDefaults(portalSlug: string): Promise<void>;
@@ -3053,6 +3054,15 @@ export class DatabaseStorage implements IStorage {
         eq(portalModuleAssignments.portalId, portalId),
         eq(portalModuleAssignments.moduleId, moduleId),
       ));
+  }
+
+  async getPortalSections(portalSlug: string): Promise<PortalSection[]> {
+    return db.select().from(portalSections)
+      .where(and(
+        eq(portalSections.portalId, portalSlug),
+        eq(portalSections.isActive, true),
+      ))
+      .orderBy(asc(portalSections.sortOrder));
   }
 
   async resetPortalToDefaults(portalSlug: string): Promise<void> {
