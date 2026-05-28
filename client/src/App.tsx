@@ -41,6 +41,8 @@ class GlobalErrorBoundary extends Component<{ children: ReactNode }, { error: Er
 import { ThemeProvider } from "@/hooks/use-theme";
 import { TimezoneProvider } from "@/context/timezone-context";
 import { OrgScopeProvider } from "@/context/org-scope-context";
+import { PortalProvider } from "@/context/portal-context";
+import KamDashboardPage from "@/pages/kam-dashboard";
 import ApiKeysPage from "@/pages/api-keys";
 import TestCallPage from "@/pages/test-call";
 import LcrAnalyserPage from "@/pages/lcr-analyser";
@@ -634,6 +636,10 @@ function Router() {
         {() => <ProtectedRoute component={WorkspaceHomePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
       </Route>
 
+      <Route path="/kam-dashboard">
+        {() => <ProtectedRoute component={KamDashboardPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+
       <Route component={NotFound} />
     </Switch>
   );
@@ -646,10 +652,12 @@ function App() {
         <TimezoneProvider>
           <QueryClientProvider client={queryClient}>
             <OrgScopeProvider>
-              <TooltipProvider>
-                <Toaster />
-                <Router />
-              </TooltipProvider>
+              <PortalProvider>
+                <TooltipProvider>
+                  <Toaster />
+                  <Router />
+                </TooltipProvider>
+              </PortalProvider>
             </OrgScopeProvider>
           </QueryClientProvider>
         </TimezoneProvider>

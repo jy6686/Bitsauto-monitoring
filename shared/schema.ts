@@ -2664,3 +2664,67 @@ export const carrierReconciliations = pgTable("carrier_reconciliations", {
 export type CarrierReconciliation       = typeof carrierReconciliations.$inferSelect;
 export type InsertCarrierReconciliation = typeof carrierReconciliations.$inferInsert;
 export const insertCarrierReconciliationSchema = createInsertSchema(carrierReconciliations).omit({ id: true, createdAt: true });
+
+// ── Portal Governance Framework ───────────────────────────────────────────────
+
+export const portalDefinitions = pgTable("portal_definitions", {
+  id:           serial("id").primaryKey(),
+  slug:         text("slug").unique().notNull(),
+  name:         text("name").notNull(),
+  icon:         text("icon").notNull().default("layout-dashboard"),
+  theme:        text("theme").notNull().default("neutral"),
+  layoutType:   text("layout_type").notNull().default("sidebar-sections"),
+  defaultRoute: text("default_route").notNull().default("/"),
+  allowedRoles: text("allowed_roles").array().notNull().default([]),
+  isActive:     boolean("is_active").notNull().default(true),
+  sortOrder:    integer("sort_order").notNull().default(0),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+});
+export type PortalDefinition       = typeof portalDefinitions.$inferSelect;
+export type InsertPortalDefinition = typeof portalDefinitions.$inferInsert;
+
+export const navigationModules = pgTable("navigation_modules", {
+  id:             serial("id").primaryKey(),
+  moduleKey:      text("module_key").unique().notNull(),
+  title:          text("title").notNull(),
+  icon:           text("icon").notNull().default("circle"),
+  route:          text("route").notNull(),
+  engine:         text("engine"),
+  adapterSupport: text("adapter_support").array().notNull().default([]),
+  category:       text("category").notNull().default("general"),
+  defaultPortal:  text("default_portal"),
+  isMovable:      boolean("is_movable").notNull().default(true),
+  isSystem:       boolean("is_system").notNull().default(false),
+  sortOrder:      integer("sort_order").notNull().default(0),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+export type NavigationModule       = typeof navigationModules.$inferSelect;
+export type InsertNavigationModule = typeof navigationModules.$inferInsert;
+
+export const portalModuleAssignments = pgTable("portal_module_assignments", {
+  id:           serial("id").primaryKey(),
+  portalId:     text("portal_id").notNull(),
+  moduleId:     integer("module_id").notNull(),
+  section:      text("section").notNull().default("main"),
+  displayOrder: integer("display_order").notNull().default(0),
+  displayLabel: text("display_label"),
+  adapter:      text("adapter"),
+  visibility:   text("visibility").notNull().default("full"),
+  isHome:       boolean("is_home").notNull().default(false),
+  isPinned:     boolean("is_pinned").notNull().default(false),
+  updatedAt:    timestamp("updated_at").defaultNow().notNull(),
+  updatedBy:    text("updated_by"),
+});
+export type PortalModuleAssignment       = typeof portalModuleAssignments.$inferSelect;
+export type InsertPortalModuleAssignment = typeof portalModuleAssignments.$inferInsert;
+
+// Enriched type returned by getPortalModules
+export interface PortalModuleWithMeta extends PortalModuleAssignment {
+  moduleKey:  string;
+  title:      string;
+  icon:       string;
+  route:      string;
+  engine:     string | null;
+  isSystem:   boolean;
+  isMovable:  boolean;
+}

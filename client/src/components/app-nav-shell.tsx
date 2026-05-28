@@ -19,6 +19,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
 import { useChatDrawer } from "@/context/chat-drawer-context";
+import { WorkspaceSwitcherPill } from "@/components/portal-sidebar";
 
 function openCommandBar() {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
@@ -806,6 +807,9 @@ export function AppNavShell() {
               </span>
             )}
           </Link>
+
+          {/* Portal workspace switcher */}
+          <WorkspaceSwitcherPill />
 
           {/* Theme toggle */}
           <button

@@ -1248,6 +1248,81 @@ export async function registerRoutes(
     res.json({ enabledFeatures });
   });
 
+  // ── Portal Governance Framework ───────────────────────────────────────────
+  app.get('/api/portal/definitions', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const defs = await storage.getPortalDefinitions();
+      res.json(defs);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/portal/modules/:slug', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const modules = await storage.getPortalModules(req.params.slug);
+      res.json(modules);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Alias so the frontend can use /api/portal/modules?portal=slug style too
+  app.get('/api/portal/modules', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    const slug = (req.query.portal ?? req.query.slug) as string | undefined;
+    if (!slug) return res.status(400).json({ error: 'portal param required' });
+    try {
+      const modules = await storage.getPortalModules(slug);
+      res.json(modules);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put('/api/portal/:slug/modules',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res: any) => {
+      const { slug } = req.params;
+      const userId   = req.user?.claims?.sub;
+      const { moduleId, section, displayOrder, displayLabel, adapter, visibility, isHome, isPinned } = req.body;
+      if (!moduleId) return res.status(400).json({ error: 'moduleId required' });
+      try {
+        const assignment = await storage.upsertPortalModuleAssignment({
+          portalId: slug, moduleId,
+          ...(section       !== undefined && { section }),
+          ...(displayOrder  !== undefined && { displayOrder }),
+          ...(displayLabel  !== undefined && { displayLabel }),
+          ...(adapter       !== undefined && { adapter }),
+          ...(visibility    !== undefined && { visibility }),
+          ...(isHome        !== undefined && { isHome }),
+          ...(isPinned      !== undefined && { isPinned }),
+          updatedBy: userId,
+        });
+        res.json(assignment);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+
+  app.delete('/api/portal/:slug/modules/:moduleId',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        await storage.removePortalModuleAssignment(req.params.slug, parseInt(req.params.moduleId));
+        res.json({ success: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
+
   // ── Sidebar Visibility Config ─────────────────────────────────────────────
   // GET — any authenticated user can read (sidebar needs it to filter items)
   app.get('/api/settings/sidebar-visibility', async (req: any, res) => {

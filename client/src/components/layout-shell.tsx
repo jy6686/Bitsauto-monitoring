@@ -18,6 +18,8 @@ import { ChatDrawer } from "@/components/chat-drawer";
 import { useOrgScope } from "@/context/org-scope-context";
 import { inferWorkspace, WORKSPACE_SIDEBAR_GROUPS, WORKSPACE_LABELS, WORKSPACE_TEXT_COLOR, WORKSPACE_DOT_BG } from "@/lib/workspace";
 import type { WorkspaceDomain } from "@/lib/workspace";
+import { usePortal } from "@/context/portal-context";
+import { PortalSidebar, WorkspaceSwitcherPill } from "@/components/portal-sidebar";
 
 interface Kam { id: number; name: string; active: boolean; }
 
@@ -627,6 +629,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const search      = useSearch();
   const { user, logout, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { isPortalMode } = usePortal();
   useOrgScope();
 
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -1622,68 +1625,96 @@ export function LayoutShell({ children }: LayoutShellProps) {
         sidebarCls,
         collapsed ? "w-[64px]" : "w-[240px]"
       )}>
-        {/* Header — collapse toggle only (Logo is in the top bar) */}
-        <div className={cn(
-          "border-b border-white/[0.05] flex items-center flex-shrink-0 transition-all duration-300",
-          collapsed ? "p-3 justify-center" : "px-3 py-2 justify-end"
-        )}>
-          {collapsed ? (
-            <button onClick={() => setCollapsed(false)} title="Expand sidebar" data-testid="sidebar-expand-btn"
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
-              <PanelLeftOpen className="h-4 w-4" />
-            </button>
-          ) : (
-            <button onClick={() => setCollapsed(true)} title="Collapse sidebar" data-testid="sidebar-collapse-btn"
-              className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06] transition-colors">
-              <PanelLeftClose className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-
-        {/* Collapsed icon strip — workspace-contextual shortcuts only */}
-        {collapsed && (
-          <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5 [&::-webkit-scrollbar]:hidden">
-            {/* Workspace dot indicator */}
-            <div className="flex justify-center mb-2">
-              <span className={cn("h-1.5 w-1.5 rounded-full", WORKSPACE_DOT_BG[activeWorkspace] ?? 'bg-slate-400')} />
+        {/* ── Portal mode: replace sidebar with PortalSidebar ─────────────── */}
+        {isPortalMode ? (
+          <>
+            {/* Collapse toggle in portal mode */}
+            <div className={cn(
+              "border-b border-white/[0.05] flex items-center flex-shrink-0",
+              collapsed ? "p-3 justify-center" : "px-3 py-2 justify-end"
+            )}>
+              {collapsed ? (
+                <button onClick={() => setCollapsed(false)} title="Expand" data-testid="sidebar-expand-btn"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
+                  <PanelLeftOpen className="h-4 w-4" />
+                </button>
+              ) : (
+                <button onClick={() => setCollapsed(true)} title="Collapse" data-testid="sidebar-collapse-btn"
+                  className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06] transition-colors">
+                  <PanelLeftClose className="h-4 w-4" />
+                </button>
+              )}
             </div>
-            {railItems.map(item => {
-              const active = item.href === '/' ? location === '/' : location.startsWith(item.href.split('?')[0]);
-              return (
-                <Link key={item.href} href={item.href} title={item.label}
-                  className={cn(
-                    "relative flex items-center justify-center w-full p-2.5 rounded-lg transition-all duration-150",
-                    active ? "bg-white/[0.08] text-foreground" : "text-muted-foreground/55 hover:text-foreground hover:bg-white/[0.05]"
-                  )}>
-                  {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] rounded-r-full bg-gradient-to-b from-violet-400 to-indigo-500" />}
-                  <item.icon className="h-[15px] w-[15px]" />
-                </Link>
-              );
-            })}
-            {/* Divider + expand hint */}
-            <div className="pt-2 flex justify-center">
-              <button
-                onClick={() => setCollapsed(false)}
-                title="Expand for all tools"
-                className="p-2 rounded-lg text-muted-foreground/30 hover:text-muted-foreground/70 hover:bg-white/[0.05] transition-colors"
-              >
-                <PanelLeftOpen className="h-3.5 w-3.5" />
-              </button>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <PortalSidebar collapsed={collapsed} />
             </div>
-          </nav>
-        )}
+          </>
+        ) : (
+          <>
+            {/* Header — collapse toggle only (Logo is in the top bar) */}
+            <div className={cn(
+              "border-b border-white/[0.05] flex items-center flex-shrink-0 transition-all duration-300",
+              collapsed ? "p-3 justify-center" : "px-3 py-2 justify-end"
+            )}>
+              {collapsed ? (
+                <button onClick={() => setCollapsed(false)} title="Expand sidebar" data-testid="sidebar-expand-btn"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors">
+                  <PanelLeftOpen className="h-4 w-4" />
+                </button>
+              ) : (
+                <button onClick={() => setCollapsed(true)} title="Collapse sidebar" data-testid="sidebar-collapse-btn"
+                  className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-foreground hover:bg-white/[0.06] transition-colors">
+                  <PanelLeftClose className="h-4 w-4" />
+                </button>
+              )}
+            </div>
 
-        {/* Expanded nav */}
-        {!collapsed && (
-          <div className="flex flex-col flex-1 min-h-0 pt-3">
-            <NavContent />
-          </div>
-        )}
+            {/* Collapsed icon strip — workspace-contextual shortcuts only */}
+            {collapsed && (
+              <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5 [&::-webkit-scrollbar]:hidden">
+                {/* Workspace dot indicator */}
+                <div className="flex justify-center mb-2">
+                  <span className={cn("h-1.5 w-1.5 rounded-full", WORKSPACE_DOT_BG[activeWorkspace] ?? 'bg-slate-400')} />
+                </div>
+                {railItems.map(item => {
+                  const active = item.href === '/' ? location === '/' : location.startsWith(item.href.split('?')[0]);
+                  return (
+                    <Link key={item.href} href={item.href} title={item.label}
+                      className={cn(
+                        "relative flex items-center justify-center w-full p-2.5 rounded-lg transition-all duration-150",
+                        active ? "bg-white/[0.08] text-foreground" : "text-muted-foreground/55 hover:text-foreground hover:bg-white/[0.05]"
+                      )}>
+                      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[60%] rounded-r-full bg-gradient-to-b from-violet-400 to-indigo-500" />}
+                      <item.icon className="h-[15px] w-[15px]" />
+                    </Link>
+                  );
+                })}
+                {/* Divider + expand hint */}
+                <div className="pt-2 flex justify-center">
+                  <button
+                    onClick={() => setCollapsed(false)}
+                    title="Expand for all tools"
+                    className="p-2 rounded-lg text-muted-foreground/30 hover:text-muted-foreground/70 hover:bg-white/[0.05] transition-colors"
+                  >
+                    <PanelLeftOpen className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </nav>
+            )}
 
-        {/* Sippy health */}
-        <div className={cn("border-t border-white/[0.05] flex-shrink-0", collapsed ? "px-2 py-1.5" : "px-3 py-1.5")}>
-          <SippyHealthBadge collapsed={collapsed} />
-        </div>
+            {/* Expanded nav */}
+            {!collapsed && (
+              <div className="flex flex-col flex-1 min-h-0 pt-3">
+                <NavContent />
+              </div>
+            )}
+
+            {/* Sippy health */}
+            <div className={cn("border-t border-white/[0.05] flex-shrink-0", collapsed ? "px-2 py-1.5" : "px-3 py-1.5")}>
+              <SippyHealthBadge collapsed={collapsed} />
+            </div>
+          </>
+        )}
       </aside>
 
       {/* ── Mobile ──────────────────────────────────────────────────────────── */}

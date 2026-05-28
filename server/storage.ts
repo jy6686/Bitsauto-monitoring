@@ -124,6 +124,9 @@ import {
   type InvoiceLineItem, type InsertInvoiceLineItem,
   carrierReconciliations,
   type CarrierReconciliation, type InsertCarrierReconciliation,
+  portalDefinitions, navigationModules, portalModuleAssignments,
+  type PortalDefinition, type InsertPortalModuleAssignment,
+  type PortalModuleAssignment, type PortalModuleWithMeta,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -241,6 +244,13 @@ export interface IStorage {
   setSippySnapshot(key: string, data: any): Promise<void>;
   recordSippyChangeEvents(events: InsertSippyChangeEvent[]): Promise<void>;
   listSippyChangeEvents(opts?: { category?: string; limit?: number }): Promise<SippyChangeEvent[]>;
+
+  // Portal Governance
+  getPortalDefinitions(): Promise<PortalDefinition[]>;
+  getPortalModules(portalSlug: string): Promise<PortalModuleWithMeta[]>;
+  upsertPortalModuleAssignment(data: Partial<InsertPortalModuleAssignment> & { portalId: string; moduleId: number }): Promise<PortalModuleAssignment>;
+  removePortalModuleAssignment(portalId: string, moduleId: number): Promise<void>;
+  resetPortalToDefaults(portalSlug: string): Promise<void>;
 
   // Watcher Recipients
   getWatcherRecipients(): Promise<WatcherRecipient[]>;
@@ -2985,6 +2995,71 @@ export class DatabaseStorage implements IStorage {
   async bulkCreateTariffChangeEvents(rows: InsertTariffChangeEvent[]): Promise<TariffChangeEvent[]> {
     if (!rows.length) return [];
     return db.insert(tariffChangeEvents).values(rows).returning();
+  }
+
+  // ── Portal Governance ──────────────────────────────────────────────────────
+
+  async getPortalDefinitions(): Promise<PortalDefinition[]> {
+    return db.select().from(portalDefinitions)
+      .where(eq(portalDefinitions.isActive, true))
+      .orderBy(asc(portalDefinitions.sortOrder));
+  }
+
+  async getPortalModules(portalSlug: string): Promise<PortalModuleWithMeta[]> {
+    const rows = await db
+      .select({
+        id:           portalModuleAssignments.id,
+        portalId:     portalModuleAssignments.portalId,
+        moduleId:     portalModuleAssignments.moduleId,
+        section:      portalModuleAssignments.section,
+        displayOrder: portalModuleAssignments.displayOrder,
+        displayLabel: portalModuleAssignments.displayLabel,
+        adapter:      portalModuleAssignments.adapter,
+        visibility:   portalModuleAssignments.visibility,
+        isHome:       portalModuleAssignments.isHome,
+        isPinned:     portalModuleAssignments.isPinned,
+        updatedAt:    portalModuleAssignments.updatedAt,
+        updatedBy:    portalModuleAssignments.updatedBy,
+        moduleKey:    navigationModules.moduleKey,
+        title:        navigationModules.title,
+        icon:         navigationModules.icon,
+        route:        navigationModules.route,
+        engine:       navigationModules.engine,
+        isSystem:     navigationModules.isSystem,
+        isMovable:    navigationModules.isMovable,
+      })
+      .from(portalModuleAssignments)
+      .innerJoin(navigationModules, eq(portalModuleAssignments.moduleId, navigationModules.id))
+      .where(eq(portalModuleAssignments.portalId, portalSlug))
+      .orderBy(asc(portalModuleAssignments.section), asc(portalModuleAssignments.displayOrder));
+    return rows as PortalModuleWithMeta[];
+  }
+
+  async upsertPortalModuleAssignment(data: Partial<InsertPortalModuleAssignment> & { portalId: string; moduleId: number }): Promise<PortalModuleAssignment> {
+    const [row] = await db
+      .insert(portalModuleAssignments)
+      .values({ ...data, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [portalModuleAssignments.portalId, portalModuleAssignments.moduleId],
+        set: { ...data, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  async removePortalModuleAssignment(portalId: string, moduleId: number): Promise<void> {
+    await db.delete(portalModuleAssignments)
+      .where(and(
+        eq(portalModuleAssignments.portalId, portalId),
+        eq(portalModuleAssignments.moduleId, moduleId),
+      ));
+  }
+
+  async resetPortalToDefaults(portalSlug: string): Promise<void> {
+    // For now, resetting is a no-op — the seed data is the default
+    // A full reset would re-run the seed SQL for this portal slug
+    await db.delete(portalModuleAssignments)
+      .where(eq(portalModuleAssignments.portalId, portalSlug));
   }
 }
 
