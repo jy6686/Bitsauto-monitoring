@@ -2925,3 +2925,29 @@ export const ipRestrictions = pgTable("ip_restrictions", {
   createdBy:   varchar("created_by",   { length: 255 }),
 });
 export type IpRestriction = typeof ipRestrictions.$inferSelect;
+
+// ── Client Identity Map ───────────────────────────────────────────────────────
+// Canonical identity resolution layer for all finance/governance systems.
+// Every invoice, DMR row, dispute, reconciliation entry, and AI alert
+// should resolve through resolveClientIdentity() rather than raw field lookups.
+export const clientIdentityMap = pgTable("client_identity_map", {
+  id:               serial("id").primaryKey(),
+  iAccount:         integer("i_account").unique(),           // Sippy i_account (canonical key)
+  sippyUsername:    varchar("sippy_username",  { length: 255 }),  // Sippy account username
+  billingName:      varchar("billing_name",    { length: 255 }),  // legal/invoice name
+  displayName:      varchar("display_name",    { length: 255 }),  // UI label
+  crmName:          varchar("crm_name",        { length: 255 }),  // CRM / commercial name
+  portalName:       varchar("portal_name",     { length: 255 }),  // client-portal branding
+  externalRef:      varchar("external_ref",    { length: 255 }),  // ERP / CRM ID
+  accountManagerId: varchar("account_manager_id", { length: 255 }), // KAM user ID
+  financeOwnerId:   varchar("finance_owner_id",   { length: 255 }), // finance escalation user
+  riskTier:         varchar("risk_tier", { length: 20 }).default('standard'), // low | standard | elevated | critical
+  notes:            text("notes"),
+  active:           boolean("active").notNull().default(true),
+  lastSyncedAt:     timestamp("last_synced_at"),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+  updatedAt:        timestamp("updated_at").defaultNow().notNull(),
+});
+export type ClientIdentity       = typeof clientIdentityMap.$inferSelect;
+export type InsertClientIdentity = typeof clientIdentityMap.$inferInsert;
+export const insertClientIdentitySchema = createInsertSchema(clientIdentityMap).omit({ id: true, createdAt: true, updatedAt: true });

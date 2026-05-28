@@ -113,6 +113,8 @@ import InvoiceTemplatesPage from "@/pages/invoice-templates";
 import DisputeCasesPage from "@/pages/dispute-cases";
 import CreditNotesPage from "@/pages/credit-notes";
 import CreditControlPage from "@/pages/credit-control";
+import ClientIdentityPage from "@/pages/client-identity";
+import FinanceCockpitPage from "@/pages/finance-cockpit";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
@@ -474,6 +476,12 @@ function Router() {
       </Route>
       <Route path="/ai-assurance">
         {() => <ProtectedRoute component={AiAssurancePage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/client-identity">
+        {() => <ProtectedRoute component={ClientIdentityPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance-cockpit">
+        {() => <ProtectedRoute component={FinanceCockpitPage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/partner-profiles">
         {() => <ProtectedRoute component={PartnerProfilesPage} requiredRoles={['admin', 'management']} />}

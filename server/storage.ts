@@ -87,6 +87,8 @@ import {
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
   dailyMinutesReports,
   type DailyMinutesReport, type InsertDailyMinutesReport,
+  clientIdentityMap,
+  type ClientIdentity, type InsertClientIdentity,
   partnerProfiles,
   type PartnerProfile, type InsertPartnerProfile,
   aiRevenueAlerts,
@@ -435,6 +437,15 @@ export interface IStorage {
   listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string }): Promise<DailyMinutesReport[]>;
   getDMRReport(id: number): Promise<DailyMinutesReport | null>;
   bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]>;
+
+  // ── Client Identity Map ────────────────────────────────────────────────────
+  listClientIdentities(opts?: { activeOnly?: boolean; search?: string }): Promise<ClientIdentity[]>;
+  getClientIdentityByAccount(iAccount: number): Promise<ClientIdentity | null>;
+  getClientIdentityById(id: number): Promise<ClientIdentity | null>;
+  upsertClientIdentity(data: InsertClientIdentity): Promise<ClientIdentity>;
+  updateClientIdentity(id: number, updates: Partial<InsertClientIdentity>): Promise<ClientIdentity>;
+  deleteClientIdentity(id: number): Promise<void>;
+  resolveClientIdentity(iAccount: number | null | undefined, fallbackUsername?: string): Promise<{ displayName: string; billingName: string; iAccount: number | null; sippyUsername: string | null; riskTier: string }>;
 
   // ── Partner Operations Portal ──────────────────────────────────────────────
   createPartnerProfile(data: Omit<InsertPartnerProfile, 'accessCodeHash' | 'accessCodePrefix'> & { accessCodeHash: string; accessCodePrefix: string }): Promise<PartnerProfile>;
@@ -3253,6 +3264,87 @@ export class DatabaseStorage implements IStorage {
           .where(and(eq(userFavorites.id, id), eq(userFavorites.userId, userId)))
       )
     );
+  }
+
+  // ── Client Identity Map ────────────────────────────────────────────────────
+  async listClientIdentities(opts: { activeOnly?: boolean; search?: string } = {}): Promise<ClientIdentity[]> {
+    const rows = await db.select().from(clientIdentityMap).orderBy(asc(clientIdentityMap.billingName));
+    let result = rows;
+    if (opts.activeOnly) result = result.filter(r => r.active);
+    if (opts.search) {
+      const q = opts.search.toLowerCase();
+      result = result.filter(r =>
+        r.billingName?.toLowerCase().includes(q) ||
+        r.displayName?.toLowerCase().includes(q) ||
+        r.sippyUsername?.toLowerCase().includes(q) ||
+        r.crmName?.toLowerCase().includes(q) ||
+        String(r.iAccount ?? '').includes(q)
+      );
+    }
+    return result;
+  }
+
+  async getClientIdentityByAccount(iAccount: number): Promise<ClientIdentity | null> {
+    const [row] = await db.select().from(clientIdentityMap)
+      .where(eq(clientIdentityMap.iAccount, iAccount));
+    return row ?? null;
+  }
+
+  async getClientIdentityById(id: number): Promise<ClientIdentity | null> {
+    const [row] = await db.select().from(clientIdentityMap)
+      .where(eq(clientIdentityMap.id, id));
+    return row ?? null;
+  }
+
+  async upsertClientIdentity(data: InsertClientIdentity): Promise<ClientIdentity> {
+    if (data.iAccount != null) {
+      const existing = await this.getClientIdentityByAccount(data.iAccount);
+      if (existing) {
+        return this.updateClientIdentity(existing.id, data);
+      }
+    }
+    const [row] = await db.insert(clientIdentityMap)
+      .values({ ...data, updatedAt: new Date() })
+      .returning();
+    return row;
+  }
+
+  async updateClientIdentity(id: number, updates: Partial<InsertClientIdentity>): Promise<ClientIdentity> {
+    const [row] = await db.update(clientIdentityMap)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(clientIdentityMap.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteClientIdentity(id: number): Promise<void> {
+    await db.delete(clientIdentityMap).where(eq(clientIdentityMap.id, id));
+  }
+
+  async resolveClientIdentity(
+    iAccount: number | null | undefined,
+    fallbackUsername?: string
+  ): Promise<{ displayName: string; billingName: string; iAccount: number | null; sippyUsername: string | null; riskTier: string }> {
+    if (iAccount != null) {
+      const identity = await this.getClientIdentityByAccount(iAccount);
+      if (identity) {
+        return {
+          displayName: identity.displayName ?? identity.billingName ?? identity.sippyUsername ?? `Account ${iAccount}`,
+          billingName: identity.billingName ?? identity.displayName ?? identity.sippyUsername ?? `Account ${iAccount}`,
+          iAccount,
+          sippyUsername: identity.sippyUsername,
+          riskTier: identity.riskTier ?? 'standard',
+        };
+      }
+    }
+    const username = fallbackUsername ?? (iAccount != null ? `Account ${iAccount}` : 'Unknown');
+    return {
+      displayName: username,
+      billingName: username,
+      iAccount: iAccount ?? null,
+      sippyUsername: fallbackUsername ?? null,
+      riskTier: 'standard',
+    };
   }
 }
 

@@ -27137,6 +27137,89 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Client Identity Map ──────────────────────────────────────────────────
+  // GET    /api/identity              — list all identities (search, activeOnly)
+  // GET    /api/identity/resolve/:id  — resolve a single i_account → identity
+  // POST   /api/identity              — upsert (create or update by i_account)
+  // PATCH  /api/identity/:id          — update specific fields
+  // DELETE /api/identity/:id          — delete
+  // POST   /api/identity/seed         — pull all Sippy accounts & upsert
+
+  app.get('/api/identity', async (req: any, res: any) => {
+    try {
+      const { search, activeOnly } = req.query;
+      const rows = await storage.listClientIdentities({
+        search: search as string | undefined,
+        activeOnly: activeOnly === 'true',
+      });
+      res.json({ identities: rows });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/identity/resolve/:iAccount', async (req: any, res: any) => {
+    try {
+      const iAccount = parseInt(req.params.iAccount, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ error: 'Invalid i_account' });
+      const identity = await storage.resolveClientIdentity(iAccount);
+      res.json(identity);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/identity', async (req: any, res: any) => {
+    try {
+      const { insertClientIdentitySchema } = await import('@shared/schema');
+      const data = insertClientIdentitySchema.parse(req.body);
+      const row = await storage.upsertClientIdentity(data);
+      res.json(row);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.patch('/api/identity/:id', async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const row = await storage.updateClientIdentity(id, req.body);
+      res.json(row);
+    } catch (e: any) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.delete('/api/identity/:id', async (req: any, res: any) => {
+    try {
+      await storage.deleteClientIdentity(parseInt(req.params.id, 10));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/identity/seed', async (req: any, res: any) => {
+    try {
+      const settings = await storage.getSettings();
+      const portalUrl = sippyPortalUrl(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
+      let accounts: any[] = [];
+      for (const { username, password } of credPairs) {
+        const result = await sippy.listSippyAccounts(username, password, { limit: 2000 }, portalUrl);
+        if (result.accounts?.length) { accounts = result.accounts; break; }
+      }
+      if (!accounts.length && accountNameCache.size > 0) {
+        accounts = Array.from(accountNameCache.entries()).map(([id, username]) => ({
+          iAccount: parseInt(id, 10), username,
+        }));
+      }
+      let seeded = 0;
+      for (const acct of accounts) {
+        if (!acct.iAccount) continue;
+        await storage.upsertClientIdentity({
+          iAccount: acct.iAccount,
+          sippyUsername: acct.username ?? null,
+          billingName: acct.username ?? null,
+          displayName: acct.username ?? null,
+          lastSyncedAt: new Date(),
+        });
+        seeded++;
+      }
+      res.json({ ok: true, seeded });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Layer 5B — Invoices ───────────────────────────────────────────────────
   // GET  /api/invoices                   — list invoices (filter: status, iTariff)
   // GET  /api/invoices/:id               — single invoice with htmlContent

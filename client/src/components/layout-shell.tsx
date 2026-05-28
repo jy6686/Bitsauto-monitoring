@@ -276,6 +276,8 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     label: 'Finance & Billing',
     roles: ['admin','management'],
     items: [
+      { href: "/finance-cockpit",        label: "Finance Cockpit",        icon: BarChart3,         roles: ['admin','management'], isNew: true              },
+      { href: "/client-identity",        label: "Client Identity Map",    icon: Users,             roles: ['admin','management'], isNew: true              },
       { href: "/billing",                label: "Billing",                icon: Wallet,           roles: ['admin','management']                           },
       { href: "/billing-disputes",       label: "Billing Disputes",       icon: FileText,         roles: ['admin','management']                           },
       { href: "/invoices",               label: "Invoices",               icon: ReceiptText,      roles: ['admin','management']                           },
@@ -385,6 +387,8 @@ const WORKSPACE_RAIL: Record<string, NavItem[]> = {
     { href: '/security-ops',     label: 'Security Ops',    icon: Shield,        roles: ADM_MGT, isNew: true   },
   ],
   'finance': [
+    { href: '/finance-cockpit',      label: 'Finance Cockpit',  icon: BarChart3,     roles: ADM_MGT, isNew: true  },
+    { href: '/client-identity',      label: 'Client Identity',  icon: Users,         roles: ADM_MGT, isNew: true  },
     { href: '/billing',              label: 'Billing',          icon: Wallet,        roles: ADM_MGT              },
     { href: '/invoices',             label: 'Invoices',         icon: ReceiptText,   roles: ADM_MGT              },
     { href: '/dispute-cases',        label: 'Disputes',         icon: Shield,        roles: ADM_MGT              },
