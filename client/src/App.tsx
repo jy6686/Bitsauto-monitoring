@@ -96,6 +96,8 @@ import DMRPage from "@/pages/dmr";
 import ClientReconciliationPage from "@/pages/client-reconciliation";
 import MarginIntelligencePage from "@/pages/margin-intelligence";
 import DisputeDefensePage from "@/pages/dispute-defense";
+import InvoiceJobsPage from "@/pages/invoice-jobs";
+import DisputeCasesPage from "@/pages/dispute-cases";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
@@ -446,6 +448,12 @@ function Router() {
       </Route>
       <Route path="/dispute-defense">
         {() => <ProtectedRoute component={DisputeDefensePage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/invoice-jobs">
+        {() => <ProtectedRoute component={InvoiceJobsPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/dispute-cases">
+        {() => <ProtectedRoute component={DisputeCasesPage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/notification-centre">
         {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}

@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList, Brain, FileSpreadsheet, BrainCircuit, Megaphone } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList, Brain, FileSpreadsheet, BrainCircuit, Megaphone, SendHorizonal } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -288,11 +288,13 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/rating-snapshots",         label: "Rating Snapshots",    icon: Lock,             roles: ['admin','management']                              },
       { href: "/executive-reports",        label: "Executive Reports",   icon: BarChart3,        roles: ['admin','management']                              },
       { href: "/invoices",                 label: "Invoices",            icon: FileText,         roles: ['admin','management']                              },
+      { href: "/invoice-jobs",             label: "Invoice Queue",       icon: SendHorizonal,    roles: ['admin','management']                              },
       { href: "/margin-intelligence",        label: "Margin Intelligence",     icon: TrendingUp,     roles: ['admin','management']                      },
       { href: "/dmr",                        label: "Daily Minutes Report",    icon: Activity,       roles: ['admin','management']                      },
       { href: "/client-reconciliation",    label: "Client Reconciliation",   icon: Users,          roles: ['admin','management']                          },
       { href: "/carrier-reconciliation",   label: "Carrier Reconciliation",  icon: ArrowRightLeft, roles: ['admin','management']                          },
-      { href: "/dispute-defense",          label: "Dispute Defense",          icon: Shield,         roles: ['admin','management']                          },
+      { href: "/dispute-cases",            label: "Dispute Cases",       icon: Shield,           roles: ['admin','management']                              },
+      { href: "/dispute-defense",          label: "Dispute Defense",          icon: ShieldCheck,    roles: ['admin','management']                          },
       { href: "/communication-policies",   label: "Comm. Policies",         icon: Workflow,       roles: ['admin']                                           },
       { href: "/commercial-notifications", label: "Commercial Notices", icon: Megaphone,        roles: ['admin']                                           },
       { href: "/sender-profiles",          label: "Sender Profiles",    icon: Mail,             roles: ['admin']                                           },

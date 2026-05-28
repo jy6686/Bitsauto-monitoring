@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json, uniqueIndex, bigint, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json, jsonb, uniqueIndex, bigint, index, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1976,6 +1976,76 @@ export const dailyMinutesReports = pgTable("daily_minutes_reports", {
 export type DailyMinutesReport       = typeof dailyMinutesReports.$inferSelect;
 export type InsertDailyMinutesReport = typeof dailyMinutesReports.$inferInsert;
 export const insertDailyMinutesReportSchema = createInsertSchema(dailyMinutesReports).omit({ id: true, generatedAt: true });
+
+// ── Invoice Delivery Automation — finance workflow governance ─────────────────
+// invoice_jobs orchestrates the full lifecycle: draft → review → approve → send
+// status: PENDING | GENERATED | REVIEW | APPROVED | SENT | FAILED | RETRYING | CANCELLED
+export const invoiceJobs = pgTable("invoice_jobs", {
+  id:            serial("id").primaryKey(),
+  clientId:      varchar("client_id",      { length: 128 }),
+  clientName:    varchar("client_name",    { length: 256 }).notNull(),
+  billingPeriod: varchar("billing_period", { length: 7   }).notNull(),   // YYYY-MM
+  invoiceId:     integer("invoice_id"),
+  status:        varchar("status",         { length: 32  }).notNull().default('PENDING'),
+  scheduledAt:   timestamp("scheduled_at"),
+  generatedAt:   timestamp("generated_at"),
+  approvedAt:    timestamp("approved_at"),
+  approvedBy:    varchar("approved_by",    { length: 128 }),
+  sentAt:        timestamp("sent_at"),
+  failedAt:      timestamp("failed_at"),
+  retryCount:    integer("retry_count").notNull().default(0),
+  lastError:     text("last_error"),
+  notes:         text("notes"),
+  createdBy:     varchar("created_by",     { length: 128 }),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+});
+export type InvoiceJob       = typeof invoiceJobs.$inferSelect;
+export type InsertInvoiceJob = typeof invoiceJobs.$inferInsert;
+
+// ── Formal Dispute Workflow — governed dispute lifecycle ──────────────────────
+// dispute_type: billing_dispute | rate_dispute | qos_dispute | routing_dispute | reconciliation_dispute
+// status: OPEN | INVESTIGATING | CUSTOMER_PENDING | RESOLVED | CREDIT_ISSUED | REJECTED | CLOSED
+export const disputeCases = pgTable("dispute_cases", {
+  id:               serial("id").primaryKey(),
+  referenceId:      varchar("reference_id",   { length: 32  }).notNull().unique(), // DSP-YYYY-NNN
+  disputeType:      varchar("dispute_type",   { length: 32  }).notNull(),
+  clientId:         varchar("client_id",      { length: 128 }),
+  clientName:       varchar("client_name",    { length: 256 }).notNull(),
+  billingPeriod:    varchar("billing_period", { length: 7   }),
+  invoiceId:        integer("invoice_id"),
+  reconciliationId: integer("reconciliation_id"),
+  assignedTo:       varchar("assigned_to",    { length: 128 }),
+  severity:         varchar("severity",       { length: 16  }).notNull().default('medium'),
+  status:           varchar("status",         { length: 32  }).notNull().default('OPEN'),
+  disputedAmount:   real("disputed_amount"),
+  resolvedAmount:   real("resolved_amount"),
+  description:      text("description"),
+  internalNotes:    text("internal_notes"),
+  slaHours:         integer("sla_hours").notNull().default(72),
+  slaDueAt:         timestamp("sla_due_at"),
+  openedAt:         timestamp("opened_at").defaultNow().notNull(),
+  resolvedAt:       timestamp("resolved_at"),
+  closedAt:         timestamp("closed_at"),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+  updatedAt:        timestamp("updated_at").defaultNow().notNull(),
+});
+export type DisputeCase       = typeof disputeCases.$inferSelect;
+export type InsertDisputeCase = typeof disputeCases.$inferInsert;
+
+// Dispute case timeline events — immutable audit trail of all case activity
+// event_type: status_change | note | assignment | escalation
+export const disputeCaseEvents = pgTable("dispute_case_events", {
+  id:         serial("id").primaryKey(),
+  caseId:     integer("case_id").notNull(),
+  eventType:  varchar("event_type",  { length: 32  }).notNull(),
+  fromStatus: varchar("from_status", { length: 32  }),
+  toStatus:   varchar("to_status",   { length: 32  }),
+  message:    text("message"),
+  actorName:  varchar("actor_name",  { length: 128 }),
+  createdAt:  timestamp("created_at").defaultNow().notNull(),
+});
+export type DisputeCaseEvent       = typeof disputeCaseEvents.$inferSelect;
+export type InsertDisputeCaseEvent = typeof disputeCaseEvents.$inferInsert;
 
 // ── Margin Intelligence — telecom commercial profitability analytics ───────────
 // Materialized from DMR + reconciliation data. Pre-computed for fast querying.

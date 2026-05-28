@@ -85,6 +85,12 @@ import {
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
   dailyMinutesReports,
   type DailyMinutesReport, type InsertDailyMinutesReport,
+  invoiceJobs,
+  type InvoiceJob, type InsertInvoiceJob,
+  disputeCases,
+  type DisputeCase, type InsertDisputeCase,
+  disputeCaseEvents,
+  type DisputeCaseEvent, type InsertDisputeCaseEvent,
   marginAnalyticsDaily,
   type MarginAnalyticsDaily, type InsertMarginAnalyticsDaily,
   marginAlerts,
@@ -373,6 +379,20 @@ export interface IStorage {
   listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string }): Promise<DailyMinutesReport[]>;
   getDMRReport(id: number): Promise<DailyMinutesReport | null>;
   bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]>;
+
+  // ── Invoice Delivery Automation ────────────────────────────────────────────
+  createInvoiceJob(data: InsertInvoiceJob): Promise<InvoiceJob>;
+  getInvoiceJob(id: number): Promise<InvoiceJob | null>;
+  listInvoiceJobs(opts?: { status?: string; clientName?: string; billingPeriod?: string }): Promise<InvoiceJob[]>;
+  updateInvoiceJob(id: number, updates: Partial<InvoiceJob>): Promise<InvoiceJob>;
+
+  // ── Formal Dispute Workflow ────────────────────────────────────────────────
+  createDisputeCase(data: InsertDisputeCase): Promise<DisputeCase>;
+  getDisputeCase(id: number): Promise<DisputeCase | null>;
+  listDisputeCases(opts?: { status?: string; clientName?: string; severity?: string; year?: string }): Promise<DisputeCase[]>;
+  updateDisputeCase(id: number, updates: Partial<DisputeCase>): Promise<DisputeCase>;
+  addDisputeCaseEvent(data: InsertDisputeCaseEvent): Promise<DisputeCaseEvent>;
+  listDisputeCaseEvents(caseId: number): Promise<DisputeCaseEvent[]>;
 
   // ── Margin Intelligence ────────────────────────────────────────────────────
   deleteMarginAnalyticsForDate(date: string): Promise<void>;
@@ -2314,6 +2334,70 @@ export class DatabaseStorage implements IStorage {
   async bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]> {
     if (rows.length === 0) return [];
     return db.insert(dailyMinutesReports).values(rows).returning();
+  }
+
+  // ── Invoice Delivery Automation ────────────────────────────────────────────────
+  async createInvoiceJob(data: InsertInvoiceJob): Promise<InvoiceJob> {
+    const [row] = await db.insert(invoiceJobs).values(data).returning();
+    return row;
+  }
+
+  async getInvoiceJob(id: number): Promise<InvoiceJob | null> {
+    const [row] = await db.select().from(invoiceJobs).where(eq(invoiceJobs.id, id));
+    return row ?? null;
+  }
+
+  async listInvoiceJobs(opts: { status?: string; clientName?: string; billingPeriod?: string } = {}): Promise<InvoiceJob[]> {
+    const conditions = [];
+    if (opts.status)        conditions.push(eq(invoiceJobs.status, opts.status));
+    if (opts.clientName)    conditions.push(eq(invoiceJobs.clientName, opts.clientName));
+    if (opts.billingPeriod) conditions.push(eq(invoiceJobs.billingPeriod, opts.billingPeriod));
+    const q = db.select().from(invoiceJobs);
+    const result = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    return result.orderBy(desc(invoiceJobs.createdAt));
+  }
+
+  async updateInvoiceJob(id: number, updates: Partial<InvoiceJob>): Promise<InvoiceJob> {
+    const [row] = await db.update(invoiceJobs).set(updates as any).where(eq(invoiceJobs.id, id)).returning();
+    return row;
+  }
+
+  // ── Formal Dispute Workflow ────────────────────────────────────────────────────
+  async createDisputeCase(data: InsertDisputeCase): Promise<DisputeCase> {
+    const [row] = await db.insert(disputeCases).values(data).returning();
+    return row;
+  }
+
+  async getDisputeCase(id: number): Promise<DisputeCase | null> {
+    const [row] = await db.select().from(disputeCases).where(eq(disputeCases.id, id));
+    return row ?? null;
+  }
+
+  async listDisputeCases(opts: { status?: string; clientName?: string; severity?: string; year?: string } = {}): Promise<DisputeCase[]> {
+    const conditions = [];
+    if (opts.status)     conditions.push(eq(disputeCases.status, opts.status));
+    if (opts.clientName) conditions.push(eq(disputeCases.clientName, opts.clientName));
+    if (opts.severity)   conditions.push(eq(disputeCases.severity, opts.severity));
+    if (opts.year)       conditions.push(sql`EXTRACT(YEAR FROM ${disputeCases.createdAt}) = ${parseInt(opts.year)}`);
+    const q = db.select().from(disputeCases);
+    const result = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    return result.orderBy(desc(disputeCases.openedAt));
+  }
+
+  async updateDisputeCase(id: number, updates: Partial<DisputeCase>): Promise<DisputeCase> {
+    const [row] = await db.update(disputeCases).set(updates as any).where(eq(disputeCases.id, id)).returning();
+    return row;
+  }
+
+  async addDisputeCaseEvent(data: InsertDisputeCaseEvent): Promise<DisputeCaseEvent> {
+    const [row] = await db.insert(disputeCaseEvents).values(data).returning();
+    return row;
+  }
+
+  async listDisputeCaseEvents(caseId: number): Promise<DisputeCaseEvent[]> {
+    return db.select().from(disputeCaseEvents)
+      .where(eq(disputeCaseEvents.caseId, caseId))
+      .orderBy(disputeCaseEvents.createdAt);
   }
 
   // ── Margin Intelligence ────────────────────────────────────────────────────────

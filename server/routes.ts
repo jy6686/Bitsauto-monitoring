@@ -27166,6 +27166,230 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Invoice Delivery Automation ────────────────────────────────────────────────
+  // GET  /api/invoice-jobs                 — list jobs (filter: status, clientName, billingPeriod)
+  // POST /api/invoice-jobs                 — create new job
+  // GET  /api/invoice-jobs/:id             — get job detail
+  // PATCH /api/invoice-jobs/:id/review     — move PENDING/GENERATED → REVIEW
+  // PATCH /api/invoice-jobs/:id/approve    — approve + trigger SMTP dispatch
+  // PATCH /api/invoice-jobs/:id/reject     — reject back to REVIEW with reason
+  // PATCH /api/invoice-jobs/:id/retry      — retry FAILED job
+  // PATCH /api/invoice-jobs/:id/cancel     — cancel job
+  // POST /api/invoice-jobs/detect-cycles   — auto-detect closed billing periods
+
+  app.get('/api/invoice-jobs', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const opts: any = {};
+      if (req.query.status)        opts.status        = String(req.query.status);
+      if (req.query.clientName)    opts.clientName    = String(req.query.clientName);
+      if (req.query.billingPeriod) opts.billingPeriod = String(req.query.billingPeriod);
+      const jobs = await storage.listInvoiceJobs(opts);
+      res.json(jobs);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/invoice-jobs', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { clientName, billingPeriod, notes } = req.body ?? {};
+      if (!clientName)    return res.status(400).json({ error: 'clientName required' });
+      if (!billingPeriod) return res.status(400).json({ error: 'billingPeriod required (YYYY-MM)' });
+      const { createInvoiceJob } = await import('./services/sippy/index');
+      const job = await createInvoiceJob(clientName, billingPeriod, {
+        createdBy: (req as any).user?.username ?? 'operator',
+        notes,
+      });
+      res.status(201).json(job);
+    } catch (err: any) {
+      console.error('[invoice-jobs] create error:', err.message);
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/invoice-jobs/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const job = await storage.getInvoiceJob(id);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      res.json(job);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.patch('/api/invoice-jobs/detect-cycles', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { detectBillingCycles } = await import('./services/sippy/index');
+      const result = await detectBillingCycles();
+      res.json(result);
+    } catch (err: any) {
+      console.error('[invoice-jobs] detect-cycles error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/invoice-jobs/detect-cycles', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { detectBillingCycles } = await import('./services/sippy/index');
+      const result = await detectBillingCycles();
+      res.json(result);
+    } catch (err: any) {
+      console.error('[invoice-jobs] detect-cycles error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/invoice-jobs/:id/review', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { moveToReview } = await import('./services/sippy/index');
+      const job = await moveToReview(id);
+      res.json(job);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/invoice-jobs/:id/approve', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { approveAndDispatch } = await import('./services/sippy/index');
+      const job = await approveAndDispatch(id, (req as any).user?.username ?? 'operator');
+      res.json(job);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/invoice-jobs/:id/reject', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { rejectApproval } = await import('./services/sippy/index');
+      const job = await rejectApproval(id, req.body?.reason ?? 'Rejected');
+      res.json(job);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/invoice-jobs/:id/retry', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { retryInvoiceJob } = await import('./services/sippy/index');
+      const job = await retryInvoiceJob(id);
+      res.json(job);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/invoice-jobs/:id/cancel', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { cancelInvoiceJob } = await import('./services/sippy/index');
+      const job = await cancelInvoiceJob(id, req.body?.reason);
+      res.json(job);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  // ── Formal Dispute Workflow ────────────────────────────────────────────────────
+  // GET  /api/dispute-cases                  — list cases (filter: status, clientName, severity)
+  // POST /api/dispute-cases                  — open new case
+  // GET  /api/dispute-cases/:id              — case detail with timeline events
+  // PATCH /api/dispute-cases/:id/status      — transition status
+  // PATCH /api/dispute-cases/:id/assign      — assign to user
+  // POST  /api/dispute-cases/:id/notes       — add note to timeline
+
+  app.get('/api/dispute-cases', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const opts: any = {};
+      if (req.query.status)     opts.status     = String(req.query.status);
+      if (req.query.clientName) opts.clientName = String(req.query.clientName);
+      if (req.query.severity)   opts.severity   = String(req.query.severity);
+      const cases = await storage.listDisputeCases(opts);
+      res.json(cases);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/dispute-cases', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const {
+        disputeType, clientName, clientId, billingPeriod,
+        invoiceId, reconciliationId, assignedTo, severity,
+        disputedAmount, description, slaHours,
+      } = req.body ?? {};
+      if (!disputeType) return res.status(400).json({ error: 'disputeType required' });
+      if (!clientName)  return res.status(400).json({ error: 'clientName required' });
+      const { openDisputeCase } = await import('./services/sippy/index');
+      const cas = await openDisputeCase({
+        disputeType,
+        clientName,
+        clientId,
+        billingPeriod: billingPeriod || undefined,
+        invoiceId:        invoiceId        ? Number(invoiceId)        : undefined,
+        reconciliationId: reconciliationId ? Number(reconciliationId) : undefined,
+        assignedTo:       assignedTo       || undefined,
+        severity:         severity         || 'medium',
+        disputedAmount:   disputedAmount   != null ? Number(disputedAmount) : undefined,
+        description:      description      || undefined,
+        slaHours:         slaHours         ? Number(slaHours) : undefined,
+        actorName:        (req as any).user?.username ?? 'operator',
+      });
+      res.status(201).json(cas);
+    } catch (err: any) {
+      console.error('[dispute-cases] open error:', err.message);
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/dispute-cases/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { getCaseDetail } = await import('./services/sippy/index');
+      const detail = await getCaseDetail(id);
+      res.json(detail);
+    } catch (err: any) {
+      if (err.message.includes('not found')) return res.status(404).json({ error: err.message });
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/dispute-cases/:id/status', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { toStatus, message, resolvedAmount } = req.body ?? {};
+      if (!toStatus) return res.status(400).json({ error: 'toStatus required' });
+      const { transitionDisputeStatus } = await import('./services/sippy/index');
+      const cas = await transitionDisputeStatus(id, toStatus, {
+        actorName:      (req as any).user?.username ?? 'operator',
+        message,
+        resolvedAmount: resolvedAmount != null ? Number(resolvedAmount) : undefined,
+      });
+      res.json(cas);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/dispute-cases/:id/assign', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { assignedTo } = req.body ?? {};
+      if (!assignedTo) return res.status(400).json({ error: 'assignedTo required' });
+      const { assignDisputeCase } = await import('./services/sippy/index');
+      const cas = await assignDisputeCase(id, assignedTo, (req as any).user?.username ?? 'operator');
+      res.json(cas);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.post('/api/dispute-cases/:id/notes', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { message, isInternal } = req.body ?? {};
+      if (!message) return res.status(400).json({ error: 'message required' });
+      const { addDisputeNote } = await import('./services/sippy/index');
+      const event = await addDisputeNote(id, message, (req as any).user?.username ?? 'operator', isInternal === true);
+      res.status(201).json(event);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
   return httpServer;
 }
 

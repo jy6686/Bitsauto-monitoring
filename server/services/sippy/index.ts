@@ -120,6 +120,27 @@ export {
   getDMRTrend,
 } from './sippy-dmr.service';
 
+// ── Invoice Delivery Automation ───────────────────────────────────────────────
+export {
+  createInvoiceJob,
+  linkInvoiceAndGenerate,
+  moveToReview,
+  approveAndDispatch,
+  retryJob as retryInvoiceJob,
+  cancelJob as cancelInvoiceJob,
+  rejectApproval,
+  detectBillingCycles,
+} from './sippy-invoice-scheduler.service';
+
+// ── Formal Dispute Workflow ───────────────────────────────────────────────────
+export {
+  openCase as openDisputeCase,
+  transitionStatus as transitionDisputeStatus,
+  assignCase as assignDisputeCase,
+  addNote as addDisputeNote,
+  getCaseDetail,
+} from './sippy-dispute-cases.service';
+
 // ── Margin Intelligence Engine ────────────────────────────────────────────────
 export * as margin from './sippy-margin.service';
 export {
