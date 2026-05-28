@@ -16574,6 +16574,96 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/kam/portfolio — KAM accounts joined with accountState for the authenticated KAM user
+  // Returns per-account health, CDR stats, live call count, and activity signals in one payload.
+  app.get('/api/kam/portfolio', async (req: any, res: any) => {
+    try {
+      const userId = req.user?.id ?? req.user?.claims?.sub;
+      const allKams = await storage.getKams();
+      const matchedKam = allKams.find(k => k.userId === userId);
+      let kamAccts: any[] = [];
+      if (matchedKam) {
+        kamAccts = await storage.getKamAccounts(matchedKam.id);
+      } else if (req.user?.role === 'admin' || req.user?.role === 'management') {
+        kamAccts = await storage.getKamAccounts();
+      }
+
+      // Fetch account state for all managed accounts
+      const { db } = await import('./db.js');
+      const { accountState: accountStateTable } = await import('../shared/schema.js');
+      const { inArray } = await import('drizzle-orm');
+      const accountIds = kamAccts.map(a => String(a.accountId));
+      const states = accountIds.length > 0
+        ? await db.select().from(accountStateTable).where(inArray(accountStateTable.accountId, accountIds))
+        : [];
+      const stateMap = new Map(states.map(s => [s.accountId, s]));
+
+      // CDR stats per account from in-memory cache (last 24h)
+      const now = Date.now();
+      const h24 = 24 * 60 * 60 * 1000;
+      const liveCalls = (liveCallsCache as any).calls ?? [];
+
+      const portfolio = kamAccts.map(ka => {
+        const aid = String(ka.accountId);
+        const state = stateMap.get(aid);
+
+        // 24h CDR stats from cache
+        const acctCdrs = [...cdrCache.values()].filter((c: any) => {
+          const ts = c.setupTime ? new Date(c.setupTime).getTime()
+                   : c.startTime ? new Date(c.startTime).getTime() : 0;
+          return String(c.iAccount ?? c.accountId ?? '') === aid && (now - ts) < h24;
+        });
+        const totalCalls = acctCdrs.length;
+        const connected  = acctCdrs.filter((c: any) => Number(c.billSecs ?? c.duration ?? 0) > 0);
+        const asr = totalCalls > 0 ? Math.round(connected.length / totalCalls * 100) : null;
+        const totalMinutes = connected.reduce((s: number, c: any) => s + (Number(c.billSecs ?? c.duration ?? 0) / 60), 0);
+        const avgDuration  = connected.length > 0 ? Math.round(totalMinutes / connected.length * 60) : null;
+        const revenue      = acctCdrs.reduce((s: number, c: any) => s + Number(c.cost ?? 0), 0);
+
+        // Live call count
+        const liveCount = liveCalls.filter((c: any) =>
+          String(c.accountId ?? '') === aid ||
+          (ka.clientName && c.clientName?.toLowerCase() === ka.clientName.toLowerCase())
+        ).length;
+
+        return {
+          accountId:   aid,
+          clientName:  ka.clientName ?? `Account ${aid}`,
+          kamId:       ka.kamId,
+          // Health signals
+          healthScore:      state?.healthScore       ?? null,
+          fraudRisk:        state?.fraudRisk         ?? null,
+          anomalyScore:     state?.anomalyScore      ?? null,
+          qualityScore:     state?.qualityScore      ?? null,
+          riskIndex:        state?.riskIndex         ?? null,
+          state:            state?.state             ?? 'unknown',
+          trendDirection:   state?.trendDirection    ?? 'stable',
+          scoreDelta24h:    state?.scoreDelta24h      ?? 0,
+          balanceTrend:     state?.balanceTrend      ?? 'stable',
+          reasons:          state?.reasons            ?? [],
+          recommendation:   state?.recommendation    ?? null,
+          activeIncidentCount: state?.activeIncidentCount ?? 0,
+          exposureRiskLevel: state?.exposureRiskLevel ?? 'low',
+          // Traffic stats
+          liveCallCount: liveCount,
+          calls24h:      totalCalls,
+          asr24h:        asr,
+          minutes24h:    Math.round(totalMinutes),
+          avgDuration24h: avgDuration,
+          revenue24h:    parseFloat(revenue.toFixed(4)),
+          // Meta
+          updatedAt: state?.updatedAt ?? null,
+        };
+      });
+
+      // Sort: at-risk first, then watch, then healthy
+      const ORDER: Record<string, number> = { 'at_risk': 0, 'degraded': 1, 'watch': 2, 'healthy': 3, 'unknown': 4 };
+      portfolio.sort((a, b) => (ORDER[a.state] ?? 4) - (ORDER[b.state] ?? 4));
+
+      res.json({ portfolio, kamId: matchedKam?.id ?? null, kamName: matchedKam?.name ?? null });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // Traffic Alerts history
   app.get('/api/traffic-alerts', async (_req, res) => {
     try {
