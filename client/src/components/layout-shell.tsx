@@ -763,6 +763,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   }, [activeWorkspace]);
 
   useEffect(() => { try { localStorage.setItem(SIDEBAR_KEY, String(collapsed)); } catch { /* */ } }, [collapsed]);
+  useEffect(() => { if (isPortalMode) setCollapsed(true); }, [isPortalMode]);
   useEffect(() => { try { localStorage.setItem(GROUPS_LS_KEY, JSON.stringify(groupsExpanded)); } catch { /* */ } }, [groupsExpanded]);
   useEffect(() => { try { localStorage.setItem(GROUPS_ORDER_KEY, JSON.stringify(groupOrder)); } catch { /* */ } }, [groupOrder]);
 

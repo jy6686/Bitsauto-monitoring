@@ -18,6 +18,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
+import type { WorkspaceDefinition } from "@shared/schema";
 import { useChatDrawer } from "@/context/chat-drawer-context";
 import { PortalTopNav } from "@/components/portal-sidebar";
 import { usePortal } from "@/context/portal-context";
@@ -578,7 +579,37 @@ export function AppNavShell() {
 
   const { isOpen: chatOpen, toggle: toggleChat } = useChatDrawer();
 
-  const { isPortalMode, allowedPortals, activePortal: activePortalSlug, setPortal, exitPortalMode } = usePortal();
+  const { isPortalMode, allowedPortals, activePortal: activePortalSlug, setPortal, exitPortalMode, portalConfig } = usePortal();
+
+  // ── Workspace data for portal-mode second row ────────────────────────────────
+  const { data: allWorkspaces = [] } = useQuery<WorkspaceDefinition[]>({
+    queryKey: ['/api/workspaces'],
+    staleTime: 5 * 60_000,
+    enabled: !!user && isPortalMode,
+  });
+  const portalWorkspaces = (allWorkspaces as WorkspaceDefinition[])
+    .filter(w => w.portalSlug === activePortalSlug && w.isActive)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+  const WORKSPACE_DEFAULT_ROUTE: Record<string, string> = {
+    'billing-ops':        '/billing',
+    'revenue-assurance':  '/dmr',
+    'dispute-governance': '/billing-disputes',
+    'noc-ops':            '/noc-dashboard',
+    'analytics-hub':      '/analytics',
+  };
+  const WORKSPACE_ROUTES: Record<string, string[]> = {
+    'billing-ops':        ['/billing', '/invoices', '/invoice-jobs', '/invoice-templates', '/credit-notes', '/credit-control', '/products', '/rate-cards', '/tariff-versions'],
+    'revenue-assurance':  ['/dmr', '/client-reconciliation', '/carrier-reconciliation', '/ai-assurance', '/margin-intelligence', '/traffic-forecast', '/revenue-heatmap'],
+    'dispute-governance': ['/billing-disputes', '/dispute-cases', '/dispute-defense', '/commercial-notifications'],
+    'noc-ops':            ['/calls', '/live-traffic', '/noc-dashboard', '/noc-incidents', '/alerts', '/server-monitoring', '/noc-command', '/sip-trace'],
+    'analytics-hub':      ['/analytics', '/traffic-forecast', '/asr-acd', '/qos-heatmap', '/codec-analytics', '/revenue-heatmap', '/reports', '/executive-reports', '/cdrs'],
+  };
+  function isWsActive(wsSlug: string): boolean {
+    return (WORKSPACE_ROUTES[wsSlug] ?? []).some(r =>
+      location === r || location.startsWith(r + '/') || location.startsWith(r + '?')
+    );
+  }
   const meta          = inferMeta(location);
   const activeDomain  = DOMAINS.find(d => d.id === meta.domain);
   const isDashboard   = location === '/';
@@ -697,66 +728,45 @@ export function AppNavShell() {
         {/* ── Divider ── */}
         <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
 
-        {/* ── LEVEL 1: Portal Workspace Bar ─────────────────────────────────── */}
+        {/* ── PRIMARY NAVIGATION: Portal tabs (always first) ───────────────── */}
         {allowedPortals.length > 0 && (
-          <div className="flex items-center gap-0.5 flex-shrink-0" role="group" aria-label="Portal workspaces">
+          <nav className="flex items-center gap-0.5 flex-shrink-0" role="group" aria-label="Portal navigation">
             {allowedPortals.map(portal => {
               const isActive = portal.slug === activePortalSlug;
-              const theme    = portal.theme ?? "neutral";
+              const t        = portal.theme ?? "neutral";
               return (
                 <button
                   key={portal.slug}
                   onClick={() => {
-                    if (isActive) {
-                      exitPortalMode();
-                    } else {
-                      setPortal(portal.slug as any);
-                      // Navigate to the portal's dashboard route
-                      const target = (portal as any).defaultRoute ?? '/';
-                      navigate(target);
-                    }
+                    if (isActive) exitPortalMode();
+                    else { setPortal(portal.slug as any); navigate((portal as any).defaultRoute ?? '/'); }
                   }}
                   data-testid={`nav-portal-${portal.slug}`}
-                  title={isActive ? `Exit ${portal.name} workspace` : `Switch to ${portal.name} workspace`}
+                  title={isActive ? `Exit ${portal.name}` : `Enter ${portal.name}`}
                   className={cn(
-                    "relative flex items-center gap-1.5 h-[30px] px-3 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all duration-150 whitespace-nowrap flex-shrink-0",
+                    "relative flex items-center gap-1.5 h-[36px] px-3 rounded-lg text-[12px] font-bold uppercase tracking-wide transition-all duration-150 whitespace-nowrap flex-shrink-0",
                     isActive
-                      ? PORTAL_BTN_ACTIVE[theme] ?? PORTAL_BTN_ACTIVE.neutral
-                      : cn("text-muted-foreground/45 transition-colors", PORTAL_BTN_IDLE[theme] ?? PORTAL_BTN_IDLE.neutral)
+                      ? PORTAL_BTN_ACTIVE[t] ?? PORTAL_BTN_ACTIVE.neutral
+                      : cn("text-muted-foreground/70 hover:text-foreground", PORTAL_BTN_IDLE[t] ?? PORTAL_BTN_IDLE.neutral)
                   )}
                 >
                   {isActive && (
-                    <span className={cn(
-                      "absolute bottom-0 left-1.5 right-1.5 h-[2px] rounded-full pointer-events-none",
-                      PORTAL_UNDERLINE[theme] ?? PORTAL_UNDERLINE.neutral
-                    )} />
+                    <span className={cn("absolute bottom-0 left-2 right-2 h-[2px] rounded-full pointer-events-none", PORTAL_UNDERLINE[t] ?? PORTAL_UNDERLINE.neutral)} />
                   )}
                   <span>{portal.name}</span>
                 </button>
               );
             })}
-            {isPortalMode && (
-              <button
-                onClick={() => exitPortalMode()}
-                data-testid="nav-exit-portal"
-                title="Return to full platform view"
-                className="flex items-center gap-1 h-[24px] px-2 rounded-md text-[10px] text-muted-foreground/30 hover:text-muted-foreground hover:bg-white/[0.05] transition-colors ml-0.5"
-              >
-                ← All
-              </button>
-            )}
-          </div>
+          </nav>
         )}
 
-        {/* Divider between portal bar and domain tabs */}
+        {/* Divider */}
         {allowedPortals.length > 0 && (
           <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
         )}
 
-        {/* ── LEVEL 2: Domain/Section tabs ───────────────────────────────────── */}
-        {isPortalMode ? (
-          <PortalTopNav />
-        ) : (
+        {/* ── SECONDARY (full-platform fallback only): Domain mega-menu tabs ─ */}
+        {!isPortalMode && (
           <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
             {visibleDomains.map(domain => {
               const isActive = meta.domain === domain.id;
@@ -775,11 +785,9 @@ export function AppNavShell() {
                   onMouseEnter={() => { cancelClose(); setOpen(domain.id); }}
                   onMouseLeave={scheduleClose}
                 >
-                  {/* Active underline */}
                   {isActive && (
                     <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-gradient-to-r from-violet-400 to-indigo-500 pointer-events-none" />
                   )}
-                  {/* Label → workspace home */}
                   <Link
                     href={`/workspace/${domain.id}`}
                     data-testid={`nav-domain-${domain.id}`}
@@ -806,7 +814,6 @@ export function AppNavShell() {
                     })()}
                     <span className="hidden lg:inline">{domain.label}</span>
                   </Link>
-                  {/* Chevron → toggle mega panel */}
                   <button
                     onClick={(e) => { e.stopPropagation(); setOpen(openDomain === domain.id ? null : domain.id); }}
                     aria-haspopup="true"
@@ -823,6 +830,18 @@ export function AppNavShell() {
               );
             })}
           </nav>
+        )}
+
+        {/* In portal mode: push right zone to end + exit button */}
+        {isPortalMode && <div className="flex-1" />}
+        {isPortalMode && (
+          <button
+            onClick={() => exitPortalMode()}
+            data-testid="nav-exit-portal"
+            className="flex items-center gap-1 h-[24px] px-2 rounded-md text-[10px] text-muted-foreground/30 hover:text-muted-foreground hover:bg-white/[0.05] transition-colors flex-shrink-0"
+          >
+            ← Full Platform
+          </button>
         )}
 
         {/* ── Favorites strip — sits between centre nav and right zone ── */}
@@ -971,6 +990,45 @@ export function AppNavShell() {
           </button>
         </div>
       </div>
+
+      {/* ── ROW 2: Workspace navigation — visible when portal is active ──── */}
+      {isPortalMode && portalWorkspaces.length > 0 && (
+        <div
+          className="flex items-center h-[36px] px-6 gap-0.5 border-b"
+          style={{
+            background:           'hsl(var(--background)/0.88)',
+            backdropFilter:       'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            borderColor:          'rgba(255,255,255,0.05)',
+          }}
+        >
+          {portalWorkspaces.map(ws => {
+            const active = isWsActive(ws.slug);
+            const t      = portalConfig?.theme ?? 'neutral';
+            return (
+              <Link
+                key={ws.slug}
+                href={WORKSPACE_DEFAULT_ROUTE[ws.slug] ?? '/'}
+                data-testid={`nav-workspace-${ws.slug}`}
+                className={cn(
+                  "relative flex items-center h-[34px] px-3 rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
+                  active
+                    ? "text-foreground bg-white/[0.07]"
+                    : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]"
+                )}
+              >
+                {active && (
+                  <span className={cn(
+                    "absolute bottom-0 left-2 right-2 h-[2px] rounded-full pointer-events-none",
+                    PORTAL_UNDERLINE[t] ?? PORTAL_UNDERLINE.neutral
+                  )} />
+                )}
+                {ws.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Cascade menu — positioned below the hovered tab ── */}
       {openDomain && (() => {
