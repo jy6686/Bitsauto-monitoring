@@ -127,6 +127,7 @@ import {
   portalDefinitions, navigationModules, portalModuleAssignments, portalSections,
   type PortalDefinition, type InsertPortalModuleAssignment,
   type PortalModuleAssignment, type PortalModuleWithMeta, type PortalSection,
+  type NavigationModule,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -252,6 +253,15 @@ export interface IStorage {
   upsertPortalModuleAssignment(data: Partial<InsertPortalModuleAssignment> & { portalId: string; moduleId: number }): Promise<PortalModuleAssignment>;
   removePortalModuleAssignment(portalId: string, moduleId: number): Promise<void>;
   resetPortalToDefaults(portalSlug: string): Promise<void>;
+  // Governance Console
+  getAllNavigationModules(): Promise<NavigationModule[]>;
+  updatePortalDefinition(slug: string, data: { name?: string; icon?: string; theme?: string; isActive?: boolean; sortOrder?: number; defaultRoute?: string }): Promise<PortalDefinition>;
+  createPortalSection(data: { portalId: string; sectionKey: string; title: string; icon?: string; sortOrder?: number }): Promise<PortalSection>;
+  updatePortalSection(id: number, data: { title?: string; icon?: string; sortOrder?: number; isActive?: boolean }): Promise<PortalSection>;
+  deletePortalSection(id: number): Promise<void>;
+  reorderPortalSections(portalSlug: string, orderedIds: number[]): Promise<void>;
+  updatePortalModuleAssignmentById(id: number, data: { section?: string; displayOrder?: number; displayLabel?: string; adapter?: string; visibility?: string; isPinned?: boolean }): Promise<PortalModuleAssignment>;
+  reorderPortalModuleAssignments(portalId: string, sectionKey: string, orderedIds: number[]): Promise<void>;
 
   // Watcher Recipients
   getWatcherRecipients(): Promise<WatcherRecipient[]>;
@@ -3066,10 +3076,76 @@ export class DatabaseStorage implements IStorage {
   }
 
   async resetPortalToDefaults(portalSlug: string): Promise<void> {
-    // For now, resetting is a no-op — the seed data is the default
-    // A full reset would re-run the seed SQL for this portal slug
     await db.delete(portalModuleAssignments)
       .where(eq(portalModuleAssignments.portalId, portalSlug));
+  }
+
+  async getAllNavigationModules(): Promise<NavigationModule[]> {
+    return db.select().from(navigationModules).orderBy(asc(navigationModules.sortOrder), asc(navigationModules.title));
+  }
+
+  async updatePortalDefinition(slug: string, data: { name?: string; icon?: string; theme?: string; isActive?: boolean; sortOrder?: number; defaultRoute?: string }): Promise<PortalDefinition> {
+    const [row] = await db.update(portalDefinitions)
+      .set(data)
+      .where(eq(portalDefinitions.slug, slug))
+      .returning();
+    return row;
+  }
+
+  async createPortalSection(data: { portalId: string; sectionKey: string; title: string; icon?: string; sortOrder?: number }): Promise<PortalSection> {
+    const [row] = await db.insert(portalSections).values({
+      portalId:   data.portalId,
+      sectionKey: data.sectionKey,
+      title:      data.title,
+      icon:       data.icon ?? 'circle',
+      sortOrder:  data.sortOrder ?? 99,
+      isActive:   true,
+    }).returning();
+    return row;
+  }
+
+  async updatePortalSection(id: number, data: { title?: string; icon?: string; sortOrder?: number; isActive?: boolean }): Promise<PortalSection> {
+    const [row] = await db.update(portalSections)
+      .set(data)
+      .where(eq(portalSections.id, id))
+      .returning();
+    return row;
+  }
+
+  async deletePortalSection(id: number): Promise<void> {
+    await db.delete(portalSections).where(eq(portalSections.id, id));
+  }
+
+  async reorderPortalSections(portalSlug: string, orderedIds: number[]): Promise<void> {
+    await Promise.all(
+      orderedIds.map((id, idx) =>
+        db.update(portalSections)
+          .set({ sortOrder: idx })
+          .where(and(eq(portalSections.id, id), eq(portalSections.portalId, portalSlug)))
+      )
+    );
+  }
+
+  async updatePortalModuleAssignmentById(id: number, data: { section?: string; displayOrder?: number; displayLabel?: string; adapter?: string; visibility?: string; isPinned?: boolean }): Promise<PortalModuleAssignment> {
+    const [row] = await db.update(portalModuleAssignments)
+      .set(data)
+      .where(eq(portalModuleAssignments.id, id))
+      .returning();
+    return row;
+  }
+
+  async reorderPortalModuleAssignments(portalId: string, sectionKey: string, orderedIds: number[]): Promise<void> {
+    await Promise.all(
+      orderedIds.map((id, idx) =>
+        db.update(portalModuleAssignments)
+          .set({ displayOrder: idx })
+          .where(and(
+            eq(portalModuleAssignments.id, id),
+            eq(portalModuleAssignments.portalId, portalId),
+            eq(portalModuleAssignments.section, sectionKey),
+          ))
+      )
+    );
   }
 }
 

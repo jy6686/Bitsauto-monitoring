@@ -1296,6 +1296,116 @@ export async function registerRoutes(
     }
   });
 
+  // ── Portal Governance Console API ─────────────────────────────────────────────
+  app.get('/api/governance/modules', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    try { res.json(await storage.getAllNavigationModules()); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.put('/api/governance/portals/:slug',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const updated = await storage.updatePortalDefinition(req.params.slug, req.body);
+        res.json(updated);
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
+
+  app.post('/api/governance/sections',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      const { portalId, title, icon, sortOrder } = req.body;
+      if (!portalId || !title) return res.status(400).json({ error: 'portalId and title required' });
+      const sectionKey = title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_+|_+$)/g, '');
+      try {
+        const section = await storage.createPortalSection({ portalId, sectionKey, title, icon, sortOrder });
+        res.json(section);
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
+
+  app.put('/api/governance/sections/:id',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const updated = await storage.updatePortalSection(parseInt(req.params.id), req.body);
+        res.json(updated);
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
+
+  app.delete('/api/governance/sections/:id',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        await storage.deletePortalSection(parseInt(req.params.id));
+        res.json({ ok: true });
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
+
+  app.post('/api/governance/sections/reorder',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      const { portalSlug, orderedIds } = req.body;
+      if (!portalSlug || !Array.isArray(orderedIds)) return res.status(400).json({ error: 'portalSlug and orderedIds required' });
+      try {
+        await storage.reorderPortalSections(portalSlug, orderedIds);
+        res.json({ ok: true });
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
+
+  app.post('/api/governance/assignments',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      const { portalId, moduleId, section, displayOrder, displayLabel, adapter, visibility } = req.body;
+      if (!portalId || !moduleId) return res.status(400).json({ error: 'portalId and moduleId required' });
+      try {
+        const assignment = await storage.upsertPortalModuleAssignment({
+          portalId, moduleId, section: section ?? 'main',
+          displayOrder: displayOrder ?? 99, displayLabel, adapter, visibility: visibility ?? 'full',
+        });
+        res.json(assignment);
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
+
+  app.put('/api/governance/assignments/:id',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const updated = await storage.updatePortalModuleAssignmentById(parseInt(req.params.id), req.body);
+        res.json(updated);
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
+
+  app.delete('/api/governance/assignments/:id',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { portalId, moduleId } = req.body;
+        await storage.removePortalModuleAssignment(portalId, moduleId);
+        res.json({ ok: true });
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
+
+  app.post('/api/governance/assignments/reorder',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      const { portalId, sectionKey, orderedIds } = req.body;
+      if (!portalId || !sectionKey || !Array.isArray(orderedIds)) return res.status(400).json({ error: 'portalId, sectionKey and orderedIds required' });
+      try {
+        await storage.reorderPortalModuleAssignments(portalId, sectionKey, orderedIds);
+        res.json({ ok: true });
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
+
   app.put('/api/portal/:slug/modules',
     (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
     async (req: any, res: any) => {

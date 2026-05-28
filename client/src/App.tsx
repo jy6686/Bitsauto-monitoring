@@ -148,6 +148,7 @@ import CallRecordingsPage from "@/pages/call-recordings";
 import PortalViewPage from "@/pages/portal-view";
 import SelfHealPage from "@/pages/self-heal";
 import SidebarSettingsPage from "@/pages/sidebar-settings";
+import NavigationGovernancePage from "@/pages/navigation-governance";
 import CompanyListPage from "@/pages/company-list";
 import CompanyCreatePage from "@/pages/company-create";
 import CompanyOnboardingPage from "@/pages/company-onboarding";
@@ -608,6 +609,9 @@ function Router() {
       </Route>
       <Route path="/sidebar-settings">
         {() => <ProtectedRoute component={SidebarSettingsPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/navigation-governance">
+        {() => <ProtectedRoute component={NavigationGovernancePage} requiredRoles={['admin']} />}
       </Route>
 
       <Route path="/company/list">
