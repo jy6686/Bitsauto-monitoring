@@ -133,11 +133,13 @@ export async function generateDMR(
     .map(r => r.id);
 
   // ── Pull Sippy P&L for target date ───────────────────────────────────────
+  // Fallback order for portal auth: adminWebPassword → portalPassword → apiAdminPassword
+  // For ssp-root portal login, adminWebPassword is the correct credential.
   let pnlRow: { calls: number; durationSec: number; revenue: number; cost: number; profit: number; margin: number } | null = null;
   try {
     const report = await sippy.scrapeProfitLossReport(
       config.username, config.password,
-      '', '',
+      config.username, config.adminWebPassword ?? '', // retry with adminWebPassword if primary fails
       dayStart(targetDate),
       dayEnd(targetDate),
     );
@@ -164,13 +166,18 @@ export async function generateDMR(
   try {
     const perAccount = await sippy.getSippyPerAccountStats(
       config.username, config.password,
-      1440, // 24-hour window
-      '', '',
+      1440,
+      config.username, config.adminWebPassword ?? '', // fallback with adminWebPassword
       dayStart(targetDate),
       dayEnd(targetDate),
+      undefined, undefined,
+      config.adminWebPassword, // pass explicitly for getAdminPortalSession
     );
     clients = (perAccount.clients ?? []);
     vendors = (perAccount.vendors ?? []);
+    if (!perAccount.ok) {
+      errors.push(`Per-account stats: ${perAccount.error ?? 'returned no data'}`);
+    }
   } catch (err: any) {
     errors.push(`Per-account stats error: ${err.message}`);
   }

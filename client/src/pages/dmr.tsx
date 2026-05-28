@@ -139,9 +139,11 @@ export default function DMRPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/dmr"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dmr/trend"] });
+      const errSuffix = data.errors?.length > 0 ? ` · ${data.errors[0]}` : '';
       toast({
         title: `DMR Generated — v${data.version}`,
-        description: `${data.rowsInserted} rows: ${data.matched} matched, ${data.drifted} drifted, ${data.critical} critical`,
+        description: `${data.rowsInserted} rows: ${data.matched} matched, ${data.drifted} drifted, ${data.critical} critical${errSuffix}`,
+        variant: data.rowsInserted === 0 ? 'destructive' : 'default',
       });
     },
     onError: (err: any) => toast({ title: "Generation failed", description: err.message, variant: "destructive" }),

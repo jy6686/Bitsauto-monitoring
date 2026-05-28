@@ -145,6 +145,154 @@ export async function runSafeMigrations(): Promise<void> {
         ON entity_presence_registry (dim, entity_name)
     `);
 
+    // ── Portal Governance Framework (added 2026-05-28) ───────────────────────
+    // portal_definitions — portal registry with theme engine fields
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS portal_definitions (
+        id               SERIAL PRIMARY KEY,
+        slug             TEXT NOT NULL UNIQUE,
+        name             TEXT NOT NULL,
+        icon             TEXT NOT NULL DEFAULT 'layout-dashboard',
+        theme            TEXT NOT NULL DEFAULT 'neutral',
+        layout_type      TEXT NOT NULL DEFAULT 'sidebar-sections',
+        default_route    TEXT NOT NULL DEFAULT '/',
+        allowed_roles    TEXT[] NOT NULL DEFAULT '{}',
+        is_active        BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order       INTEGER NOT NULL DEFAULT 0,
+        primary_color    TEXT NOT NULL DEFAULT 'purple',
+        accent_color     TEXT NOT NULL DEFAULT 'indigo',
+        background_style TEXT NOT NULL DEFAULT 'flat',
+        density          TEXT NOT NULL DEFAULT 'comfortable',
+        nav_style        TEXT NOT NULL DEFAULT 'glass',
+        font_scale       TEXT NOT NULL DEFAULT 'normal',
+        created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    // Add theme columns if table already existed without them
+    await client.query(`ALTER TABLE portal_definitions ADD COLUMN IF NOT EXISTS primary_color    TEXT NOT NULL DEFAULT 'purple'`);
+    await client.query(`ALTER TABLE portal_definitions ADD COLUMN IF NOT EXISTS accent_color     TEXT NOT NULL DEFAULT 'indigo'`);
+    await client.query(`ALTER TABLE portal_definitions ADD COLUMN IF NOT EXISTS background_style TEXT NOT NULL DEFAULT 'flat'`);
+    await client.query(`ALTER TABLE portal_definitions ADD COLUMN IF NOT EXISTS density          TEXT NOT NULL DEFAULT 'comfortable'`);
+    await client.query(`ALTER TABLE portal_definitions ADD COLUMN IF NOT EXISTS nav_style        TEXT NOT NULL DEFAULT 'glass'`);
+    await client.query(`ALTER TABLE portal_definitions ADD COLUMN IF NOT EXISTS font_scale       TEXT NOT NULL DEFAULT 'normal'`);
+
+    // Seed default portals
+    await client.query(`
+      INSERT INTO portal_definitions (slug, name, icon, theme, default_route, allowed_roles, is_active, sort_order, primary_color, accent_color)
+      VALUES
+        ('noc',       'NOC Dashboard',    'monitor',           'slate',   '/calls',               '{super_admin,admin,management,noc_operator}', TRUE, 1, 'slate',  'cyan'),
+        ('analytics', 'Analytics',        'bar-chart-3',       'indigo',  '/analytics',           '{super_admin,admin,management}',              TRUE, 2, 'indigo', 'purple'),
+        ('finance',   'Finance & Billing','wallet',            'emerald', '/billing',             '{super_admin,admin,management}',              TRUE, 3, 'emerald','green'),
+        ('ops',       'Operations',       'git-branch',        'blue',    '/routing-manager',     '{super_admin,admin,management}',              TRUE, 4, 'blue',   'cyan'),
+        ('security',  'Security',         'shield-alert',      'neutral', '/fraud',               '{super_admin,admin}',                         TRUE, 5, 'neutral','slate'),
+        ('platform',  'Platform',         'settings',          'neutral', '/settings',            '{super_admin,admin}',                         TRUE, 6, 'neutral','slate')
+      ON CONFLICT (slug) DO NOTHING
+    `);
+
+    // navigation_modules — module registry
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS navigation_modules (
+        id              SERIAL PRIMARY KEY,
+        module_key      TEXT NOT NULL UNIQUE,
+        title           TEXT NOT NULL,
+        icon            TEXT NOT NULL DEFAULT 'circle',
+        route           TEXT NOT NULL,
+        engine          TEXT,
+        adapter_support TEXT[] NOT NULL DEFAULT '{}',
+        category        TEXT NOT NULL DEFAULT 'general',
+        default_portal  TEXT,
+        is_movable      BOOLEAN NOT NULL DEFAULT TRUE,
+        is_system       BOOLEAN NOT NULL DEFAULT FALSE,
+        sort_order      INTEGER NOT NULL DEFAULT 0,
+        created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // Seed core navigation modules
+    await client.query(`
+      INSERT INTO navigation_modules (module_key, title, icon, route, category, default_portal, is_system, sort_order)
+      VALUES
+        ('live_calls',       'Live Calls',        'activity',      '/calls',            'live',      'noc',       TRUE,  1),
+        ('bitseye',          'BitsEye 2',         'eye',           '/bitseye2',         'live',      'noc',       TRUE,  2),
+        ('alerts',           'Alerts',            'zap',           '/alerts',           'live',      'noc',       FALSE, 3),
+        ('analytics',        'Analytics',         'bar-chart-3',   '/analytics',        'analytics', 'analytics', FALSE, 1),
+        ('asr_acd',          'ASR / ACD',         'activity',      '/asr-acd',          'analytics', 'analytics', FALSE, 2),
+        ('cdrs',             'CDR Viewer',        'file-text',     '/cdrs',             'analytics', 'analytics', FALSE, 3),
+        ('routing_manager',  'Routing Manager',   'git-branch',    '/routing-manager',  'operations','ops',       FALSE, 1),
+        ('vendors',          'Vendors',           'users',         '/vendors',          'operations','ops',       FALSE, 2),
+        ('billing',          'Billing',           'wallet',        '/billing',          'finance',   'finance',   FALSE, 1),
+        ('rate_cards',       'Rate Cards',        'file-text',     '/rate-cards',       'finance',   'finance',   FALSE, 2),
+        ('dmr',              'Daily Minutes',     'activity',      '/dmr',              'finance',   'finance',   FALSE, 3),
+        ('fraud',            'Fraud Engine',      'shield-alert',  '/fraud',            'security',  'security',  FALSE, 1),
+        ('settings',         'Platform Settings', 'settings',      '/settings',         'platform',  'platform',  TRUE,  1),
+        ('team',             'Team & KAM',        'users',         '/team',             'platform',  'platform',  FALSE, 2)
+      ON CONFLICT (module_key) DO NOTHING
+    `);
+
+    // portal_module_assignments — portal ↔ module mappings with adapter metadata
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS portal_module_assignments (
+        id                SERIAL PRIMARY KEY,
+        portal_id         TEXT NOT NULL,
+        module_id         INTEGER NOT NULL,
+        section           TEXT NOT NULL DEFAULT 'main',
+        display_order     INTEGER NOT NULL DEFAULT 0,
+        display_label     TEXT,
+        adapter           TEXT,
+        visibility        TEXT NOT NULL DEFAULT 'full',
+        is_home           BOOLEAN NOT NULL DEFAULT FALSE,
+        is_pinned         BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_by        TEXT,
+        adapter_type      TEXT,
+        widget_profile    TEXT NOT NULL DEFAULT 'standard',
+        access_scope      TEXT NOT NULL DEFAULT 'global',
+        realtime_enabled  BOOLEAN NOT NULL DEFAULT FALSE,
+        density_mode      TEXT NOT NULL DEFAULT 'standard',
+        default_time_range TEXT NOT NULL DEFAULT '24h'
+      )
+    `);
+    // Add adapter metadata columns if table already existed without them
+    await client.query(`ALTER TABLE portal_module_assignments ADD COLUMN IF NOT EXISTS adapter_type       TEXT`);
+    await client.query(`ALTER TABLE portal_module_assignments ADD COLUMN IF NOT EXISTS widget_profile     TEXT NOT NULL DEFAULT 'standard'`);
+    await client.query(`ALTER TABLE portal_module_assignments ADD COLUMN IF NOT EXISTS access_scope       TEXT NOT NULL DEFAULT 'global'`);
+    await client.query(`ALTER TABLE portal_module_assignments ADD COLUMN IF NOT EXISTS realtime_enabled   BOOLEAN NOT NULL DEFAULT FALSE`);
+    await client.query(`ALTER TABLE portal_module_assignments ADD COLUMN IF NOT EXISTS density_mode       TEXT NOT NULL DEFAULT 'standard'`);
+    await client.query(`ALTER TABLE portal_module_assignments ADD COLUMN IF NOT EXISTS default_time_range TEXT NOT NULL DEFAULT '24h'`);
+
+    // portal_sections — DB-driven section tabs per portal
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS portal_sections (
+        id          SERIAL PRIMARY KEY,
+        portal_id   TEXT NOT NULL REFERENCES portal_definitions(slug) ON DELETE CASCADE,
+        section_key TEXT NOT NULL,
+        title       TEXT NOT NULL,
+        icon        TEXT NOT NULL DEFAULT 'circle',
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // user_favorites — pinned strip bookmarks
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_favorites (
+        id         SERIAL PRIMARY KEY,
+        user_id    TEXT NOT NULL,
+        module_key TEXT NOT NULL,
+        portal_key TEXT,
+        label      TEXT,
+        icon       TEXT NOT NULL DEFAULT 'circle',
+        route      TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS user_favorites_user_module_uidx
+        ON user_favorites (user_id, module_key)
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
