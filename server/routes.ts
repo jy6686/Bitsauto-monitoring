@@ -27390,6 +27390,220 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (err: any) { res.status(400).json({ error: err.message }); }
   });
 
+  // ── Multi-Template Invoice Rendering ─────────────────────────────────────────
+  // GET  /api/invoice-templates               — list templates
+  // POST /api/invoice-templates               — create template
+  // PATCH /api/invoice-templates/:id          — update template
+  // DELETE /api/invoice-templates/:id         — delete template
+  // GET  /api/branding-profiles               — list branding profiles
+  // POST /api/branding-profiles               — create profile
+  // PATCH /api/branding-profiles/:id          — update profile
+  // DELETE /api/branding-profiles/:id         — delete profile
+
+  app.get('/api/invoice-templates', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { clientName, isDefault, templateType } = req.query;
+      const rows = await storage.listInvoiceTemplates({
+        clientName:   clientName as string | undefined,
+        isDefault:    isDefault === 'true' ? true : isDefault === 'false' ? false : undefined,
+        templateType: templateType as string | undefined,
+      });
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/invoice-templates', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const row = await storage.createInvoiceTemplate({
+        ...req.body,
+        clientName: req.body.clientName || null,
+      });
+      res.status(201).json(row);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/invoice-templates/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const row = await storage.updateInvoiceTemplate(id, { ...req.body, updatedAt: new Date() });
+      res.json(row);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.delete('/api/invoice-templates/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      await storage.deleteInvoiceTemplate(id);
+      res.json({ ok: true });
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.get('/api/branding-profiles', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { clientName, isGlobal } = req.query;
+      const rows = await storage.listBrandingProfiles({
+        clientName: clientName as string | undefined,
+        isGlobal:   isGlobal === 'true',
+      });
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/branding-profiles', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const row = await storage.createBrandingProfile({
+        ...req.body,
+        clientName: req.body.clientName || null,
+      });
+      res.status(201).json(row);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/branding-profiles/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const row = await storage.updateBrandingProfile(id, { ...req.body, updatedAt: new Date() });
+      res.json(row);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.delete('/api/branding-profiles/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      await storage.deleteBrandingProfile(id);
+      res.json({ ok: true });
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  // ── Credit Notes & Settlement Engine ─────────────────────────────────────────
+  // GET  /api/credit-notes                    — list notes (filter: status, clientName)
+  // POST /api/credit-notes                    — create new credit note (→ DRAFT)
+  // PATCH /api/credit-notes/:id/approve       — DRAFT → APPROVED
+  // PATCH /api/credit-notes/:id/apply         — APPROVED → APPLIED
+  // PATCH /api/credit-notes/:id/void          — DRAFT|APPROVED → VOID
+
+  app.get('/api/credit-notes', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { status, clientName, year } = req.query;
+      const rows = await storage.listCreditNotes({
+        status:     status as string | undefined,
+        clientName: clientName as string | undefined,
+        year:       year as string | undefined,
+      });
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/credit-notes', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { createCreditNote } = await import('./services/sippy/index');
+      const note = await createCreditNote({
+        ...req.body,
+        createdBy: (req as any).user?.username ?? 'operator',
+      });
+      res.status(201).json(note);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/credit-notes/:id/approve', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { approveCreditNote } = await import('./services/sippy/index');
+      const note = await approveCreditNote(id, (req as any).user?.username ?? 'operator');
+      res.json(note);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/credit-notes/:id/apply', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { appliedAmountUsd } = req.body ?? {};
+      const { applyCreditNote } = await import('./services/sippy/index');
+      const note = await applyCreditNote(id, parseFloat(appliedAmountUsd));
+      res.json(note);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/credit-notes/:id/void', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { reason } = req.body ?? {};
+      const { voidCreditNote } = await import('./services/sippy/index');
+      const note = await voidCreditNote(id, reason ?? 'Voided by operator');
+      res.json(note);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  // ── Collections & Credit Control ─────────────────────────────────────────────
+  // GET  /api/credit-control/rules             — list all rules
+  // POST /api/credit-control/rules             — upsert rule (client or global)
+  // GET  /api/credit-control/events            — list collection events
+  // POST /api/credit-control/events            — log a manual collection event
+  // PATCH /api/credit-control/events/:id/resolve — mark event as resolved
+  // POST /api/credit-control/sweep             — run automated threshold sweep
+
+  app.get('/api/credit-control/rules', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const rows = await storage.listCreditControlRules();
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/credit-control/rules', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { upsertCreditControlRule } = await import('./services/sippy/index');
+      const clientName = req.body.clientName || null;
+      const rule = await upsertCreditControlRule(clientName, req.body);
+      res.status(201).json(rule);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.get('/api/credit-control/events', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { clientName, eventType } = req.query;
+      const rows = await storage.listCollectionEvents({
+        clientName: clientName as string | undefined,
+        eventType:  eventType as string | undefined,
+      });
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/credit-control/events', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { logCollectionEvent } = await import('./services/sippy/index');
+      const event = await logCollectionEvent(req.body.clientName, req.body.eventType, {
+        ...req.body,
+        actorName: (req as any).user?.username ?? 'operator',
+      });
+      res.status(201).json(event);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/credit-control/events/:id/resolve', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const event = await storage.updateCollectionEvent(id, { resolvedAt: new Date() });
+      res.json(event);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.post('/api/credit-control/sweep', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { runCreditSweep } = await import('./services/sippy/index');
+      const result = await runCreditSweep((req as any).user?.username ?? 'system');
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   return httpServer;
 }
 

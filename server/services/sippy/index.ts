@@ -120,6 +120,34 @@ export {
   getDMRTrend,
 } from './sippy-dmr.service';
 
+// ── Multi-Template Invoice Rendering ─────────────────────────────────────────
+export {
+  resolveTemplate,
+  resolveBrandingProfile,
+  renderFilename,
+  renderSubjectLine,
+  renderInvoiceHtml,
+  ensureDefaultTemplate,
+} from './sippy-invoice-templates.service';
+
+// ── Credit Notes & Settlement Engine ─────────────────────────────────────────
+export {
+  createCreditNote,
+  approveCreditNote,
+  applyCreditNote,
+  voidCreditNote,
+  getClientCreditSummary,
+} from './sippy-credit-notes.service';
+
+// ── Collections & Credit Control ─────────────────────────────────────────────
+export {
+  upsertRule as upsertCreditControlRule,
+  evaluateClient as evaluateCreditClient,
+  logEvent as logCollectionEvent,
+  runSweep as runCreditSweep,
+  getClientStatus as getCreditClientStatus,
+} from './sippy-credit-control.service';
+
 // ── Invoice Delivery Automation ───────────────────────────────────────────────
 export {
   createInvoiceJob,

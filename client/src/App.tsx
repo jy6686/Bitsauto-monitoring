@@ -97,7 +97,10 @@ import ClientReconciliationPage from "@/pages/client-reconciliation";
 import MarginIntelligencePage from "@/pages/margin-intelligence";
 import DisputeDefensePage from "@/pages/dispute-defense";
 import InvoiceJobsPage from "@/pages/invoice-jobs";
+import InvoiceTemplatesPage from "@/pages/invoice-templates";
 import DisputeCasesPage from "@/pages/dispute-cases";
+import CreditNotesPage from "@/pages/credit-notes";
+import CreditControlPage from "@/pages/credit-control";
 import RoutingManagerPage from "@/pages/routing-manager";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
@@ -452,8 +455,17 @@ function Router() {
       <Route path="/invoice-jobs">
         {() => <ProtectedRoute component={InvoiceJobsPage} requiredRoles={['admin', 'management']} />}
       </Route>
+      <Route path="/invoice-templates">
+        {() => <ProtectedRoute component={InvoiceTemplatesPage} requiredRoles={['admin', 'management']} />}
+      </Route>
       <Route path="/dispute-cases">
         {() => <ProtectedRoute component={DisputeCasesPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/credit-notes">
+        {() => <ProtectedRoute component={CreditNotesPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/credit-control">
+        {() => <ProtectedRoute component={CreditControlPage} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/notification-centre">
         {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}

@@ -1977,6 +1977,128 @@ export type DailyMinutesReport       = typeof dailyMinutesReports.$inferSelect;
 export type InsertDailyMinutesReport = typeof dailyMinutesReports.$inferInsert;
 export const insertDailyMinutesReportSchema = createInsertSchema(dailyMinutesReports).omit({ id: true, generatedAt: true });
 
+// ── Multi-Template Invoice Rendering ─────────────────────────────────────────
+// invoice_templates: per-client or global rendering rules for invoice delivery
+// template_type: standard | prefix_breakdown | destination_summary | summary_only | white_label
+// detail_level: full | summary | minimal
+export const invoiceTemplates = pgTable("invoice_templates", {
+  id:                     serial("id").primaryKey(),
+  templateName:           varchar("template_name",            { length: 256 }).notNull(),
+  templateType:           varchar("template_type",            { length: 32  }).notNull().default('standard'),
+  detailLevel:            varchar("detail_level",             { length: 32  }).notNull().default('full'),
+  clientName:             varchar("client_name",              { length: 256 }),  // null = global/default
+  showPrefixBreakdown:    boolean("show_prefix_breakdown").notNull().default(false),
+  showDestinationSummary: boolean("show_destination_summary").notNull().default(false),
+  showCallLevelDetails:   boolean("show_call_level_details").notNull().default(false),
+  headerOverride:         text("header_override"),
+  footerOverride:         text("footer_override"),
+  filenamePattern:        varchar("filename_pattern",         { length: 256 }),  // e.g. INV_{PERIOD}_{CLIENT}
+  subjectLinePattern:     varchar("subject_line_pattern",     { length: 512 }),
+  attachPdfEnabled:       boolean("attach_pdf_enabled").notNull().default(true),
+  isDefault:              boolean("is_default").notNull().default(false),
+  brandingProfileId:      integer("branding_profile_id"),
+  createdAt:              timestamp("created_at").defaultNow().notNull(),
+  updatedAt:              timestamp("updated_at").defaultNow().notNull(),
+});
+export type InvoiceTemplate       = typeof invoiceTemplates.$inferSelect;
+export type InsertInvoiceTemplate = typeof invoiceTemplates.$inferInsert;
+
+// client_branding_profiles: per-client branding for invoice rendering
+// Used by invoice_templates to customize logo, colors, banking info, payment terms
+export const clientBrandingProfiles = pgTable("client_branding_profiles", {
+  id:                  serial("id").primaryKey(),
+  clientName:          varchar("client_name",        { length: 256 }),  // null = global default
+  companyName:         varchar("company_name",       { length: 256 }),
+  logoUrl:             text("logo_url"),
+  primaryColor:        varchar("primary_color",      { length: 7  }),   // hex #RRGGBB
+  secondaryColor:      varchar("secondary_color",    { length: 7  }),
+  bankingDetails:      text("banking_details"),   // free-text banking info block
+  bankName:            varchar("bank_name",          { length: 256 }),
+  accountNumber:       varchar("account_number",     { length: 128 }),
+  iban:                varchar("iban",               { length: 64  }),
+  swift:               varchar("swift",              { length: 16  }),
+  paymentTermsDays:    integer("payment_terms_days").notNull().default(30),
+  paymentInstructions: text("payment_instructions"),
+  invoiceFooterText:   text("invoice_footer_text"),
+  taxId:               varchar("tax_id",             { length: 64  }),
+  addressLine1:        varchar("address_line1",      { length: 256 }),
+  addressLine2:        varchar("address_line2",      { length: 256 }),
+  city:                varchar("city",               { length: 128 }),
+  country:             varchar("country",            { length: 64  }),
+  createdAt:           timestamp("created_at").defaultNow().notNull(),
+  updatedAt:           timestamp("updated_at").defaultNow().notNull(),
+});
+export type ClientBrandingProfile       = typeof clientBrandingProfiles.$inferSelect;
+export type InsertClientBrandingProfile = typeof clientBrandingProfiles.$inferInsert;
+
+// ── Credit Notes & Settlement Engine ─────────────────────────────────────────
+// credit_type: partial_credit | full_credit | adjustment | write_off | carry_forward
+// status: DRAFT → APPROVED → APPLIED | VOID
+export const creditNotes = pgTable("credit_notes", {
+  id:               serial("id").primaryKey(),
+  referenceId:      varchar("reference_id",    { length: 32  }).notNull().unique(),  // CRN-YYYY-NNN
+  creditType:       varchar("credit_type",     { length: 32  }).notNull(),
+  clientName:       varchar("client_name",     { length: 256 }).notNull(),
+  clientId:         varchar("client_id",       { length: 128 }),
+  invoiceId:        integer("invoice_id"),
+  disputeCaseId:    integer("dispute_case_id"),
+  billingPeriod:    varchar("billing_period",  { length: 7   }),
+  amountUsd:        real("amount_usd").notNull(),
+  appliedAmountUsd: real("applied_amount_usd"),
+  reason:           varchar("reason",          { length: 512 }).notNull(),
+  description:      text("description"),
+  status:           varchar("status",          { length: 32  }).notNull().default('DRAFT'),
+  approvedBy:       varchar("approved_by",     { length: 128 }),
+  approvedAt:       timestamp("approved_at"),
+  appliedAt:        timestamp("applied_at"),
+  voidedAt:         timestamp("voided_at"),
+  voidedReason:     text("voided_reason"),
+  createdBy:        varchar("created_by",      { length: 128 }),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+  updatedAt:        timestamp("updated_at").defaultNow().notNull(),
+});
+export type CreditNote       = typeof creditNotes.$inferSelect;
+export type InsertCreditNote = typeof creditNotes.$inferInsert;
+
+// ── Collections & Credit Control ─────────────────────────────────────────────
+// credit_control_rules: per-client or global threshold configuration
+export const creditControlRules = pgTable("credit_control_rules", {
+  id:                    serial("id").primaryKey(),
+  clientName:            varchar("client_name",         { length: 256 }),  // null = global
+  clientId:              varchar("client_id",           { length: 128 }),
+  isGlobal:              boolean("is_global").notNull().default(false),
+  warningThresholdUsd:   real("warning_threshold_usd"),   // outstanding balance threshold for warning
+  suspendThresholdUsd:   real("suspend_threshold_usd"),   // outstanding balance threshold for suspension
+  gracePeriodDays:       integer("grace_period_days").notNull().default(3),
+  autoSuspend:           boolean("auto_suspend").notNull().default(false),
+  notifyOnWarning:       boolean("notify_on_warning").notNull().default(true),
+  creditLimitUsd:        real("credit_limit_usd"),
+  riskScore:             integer("risk_score"),           // 0-100
+  notes:                 text("notes"),
+  createdAt:             timestamp("created_at").defaultNow().notNull(),
+  updatedAt:             timestamp("updated_at").defaultNow().notNull(),
+});
+export type CreditControlRule       = typeof creditControlRules.$inferSelect;
+export type InsertCreditControlRule = typeof creditControlRules.$inferInsert;
+
+// collection_events: immutable timeline of all credit control and collection actions
+// event_type: warning | suspension | grace_start | grace_end | recovery | write_off | threshold_set | reinstated
+export const collectionEvents = pgTable("collection_events", {
+  id:                    serial("id").primaryKey(),
+  clientName:            varchar("client_name",         { length: 256 }).notNull(),
+  clientId:              varchar("client_id",           { length: 128 }),
+  eventType:             varchar("event_type",          { length: 32  }).notNull(),
+  outstandingAmountUsd:  real("outstanding_amount_usd"),
+  thresholdBreached:     varchar("threshold_breached",  { length: 32  }),  // warning | suspend
+  actionTaken:           text("action_taken"),
+  resolvedAt:            timestamp("resolved_at"),
+  actorName:             varchar("actor_name",          { length: 128 }),
+  notes:                 text("notes"),
+  createdAt:             timestamp("created_at").defaultNow().notNull(),
+});
+export type CollectionEvent       = typeof collectionEvents.$inferSelect;
+export type InsertCollectionEvent = typeof collectionEvents.$inferInsert;
+
 // ── Invoice Delivery Automation — finance workflow governance ─────────────────
 // invoice_jobs orchestrates the full lifecycle: draft → review → approve → send
 // status: PENDING | GENERATED | REVIEW | APPROVED | SENT | FAILED | RETRYING | CANCELLED

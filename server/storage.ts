@@ -85,6 +85,16 @@ import {
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
   dailyMinutesReports,
   type DailyMinutesReport, type InsertDailyMinutesReport,
+  invoiceTemplates,
+  type InvoiceTemplate, type InsertInvoiceTemplate,
+  clientBrandingProfiles,
+  type ClientBrandingProfile, type InsertClientBrandingProfile,
+  creditNotes,
+  type CreditNote, type InsertCreditNote,
+  creditControlRules,
+  type CreditControlRule, type InsertCreditControlRule,
+  collectionEvents,
+  type CollectionEvent, type InsertCollectionEvent,
   invoiceJobs,
   type InvoiceJob, type InsertInvoiceJob,
   disputeCases,
@@ -379,6 +389,36 @@ export interface IStorage {
   listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string }): Promise<DailyMinutesReport[]>;
   getDMRReport(id: number): Promise<DailyMinutesReport | null>;
   bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]>;
+
+  // ── Multi-Template Invoice Rendering ──────────────────────────────────────
+  createInvoiceTemplate(data: InsertInvoiceTemplate): Promise<InvoiceTemplate>;
+  getInvoiceTemplate(id: number): Promise<InvoiceTemplate | null>;
+  listInvoiceTemplates(opts?: { clientName?: string; isDefault?: boolean; templateType?: string }): Promise<InvoiceTemplate[]>;
+  updateInvoiceTemplate(id: number, updates: Partial<InvoiceTemplate>): Promise<InvoiceTemplate>;
+  deleteInvoiceTemplate(id: number): Promise<void>;
+
+  // ── Client Branding Profiles ───────────────────────────────────────────────
+  createBrandingProfile(data: InsertClientBrandingProfile): Promise<ClientBrandingProfile>;
+  getBrandingProfile(id: number): Promise<ClientBrandingProfile | null>;
+  listBrandingProfiles(opts?: { clientName?: string; isGlobal?: boolean }): Promise<ClientBrandingProfile[]>;
+  updateBrandingProfile(id: number, updates: Partial<ClientBrandingProfile>): Promise<ClientBrandingProfile>;
+  deleteBrandingProfile(id: number): Promise<void>;
+
+  // ── Credit Notes & Settlement Engine ──────────────────────────────────────
+  createCreditNote(data: InsertCreditNote): Promise<CreditNote>;
+  getCreditNote(id: number): Promise<CreditNote | null>;
+  listCreditNotes(opts?: { status?: string; clientName?: string; year?: string }): Promise<CreditNote[]>;
+  updateCreditNote(id: number, updates: Partial<CreditNote>): Promise<CreditNote>;
+
+  // ── Collections & Credit Control ───────────────────────────────────────────
+  createCreditControlRule(data: InsertCreditControlRule): Promise<CreditControlRule>;
+  getCreditControlRuleByClient(clientName: string): Promise<CreditControlRule | null>;
+  getGlobalCreditControlRule(): Promise<CreditControlRule | null>;
+  listCreditControlRules(opts?: { isGlobal?: boolean }): Promise<CreditControlRule[]>;
+  updateCreditControlRule(id: number, updates: Partial<CreditControlRule>): Promise<CreditControlRule>;
+  createCollectionEvent(data: InsertCollectionEvent): Promise<CollectionEvent>;
+  listCollectionEvents(opts?: { clientName?: string; eventType?: string; limit?: number }): Promise<CollectionEvent[]>;
+  updateCollectionEvent(id: number, updates: Partial<CollectionEvent>): Promise<CollectionEvent>;
 
   // ── Invoice Delivery Automation ────────────────────────────────────────────
   createInvoiceJob(data: InsertInvoiceJob): Promise<InvoiceJob>;
@@ -2334,6 +2374,118 @@ export class DatabaseStorage implements IStorage {
   async bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]> {
     if (rows.length === 0) return [];
     return db.insert(dailyMinutesReports).values(rows).returning();
+  }
+
+  // ── Multi-Template Invoice Rendering ─────────────────────────────────────────────
+  async createInvoiceTemplate(data: InsertInvoiceTemplate): Promise<InvoiceTemplate> {
+    const [row] = await db.insert(invoiceTemplates).values(data).returning();
+    return row;
+  }
+  async getInvoiceTemplate(id: number): Promise<InvoiceTemplate | null> {
+    const [row] = await db.select().from(invoiceTemplates).where(eq(invoiceTemplates.id, id));
+    return row ?? null;
+  }
+  async listInvoiceTemplates(opts: { clientName?: string; isDefault?: boolean; templateType?: string } = {}): Promise<InvoiceTemplate[]> {
+    const conditions = [];
+    if (opts.clientName !== undefined) conditions.push(opts.clientName ? eq(invoiceTemplates.clientName, opts.clientName) : sql`${invoiceTemplates.clientName} IS NULL`);
+    if (opts.isDefault !== undefined) conditions.push(eq(invoiceTemplates.isDefault, opts.isDefault));
+    if (opts.templateType) conditions.push(eq(invoiceTemplates.templateType, opts.templateType));
+    const q = db.select().from(invoiceTemplates);
+    return (conditions.length > 0 ? q.where(and(...conditions)) : q).orderBy(desc(invoiceTemplates.isDefault), invoiceTemplates.templateName);
+  }
+  async updateInvoiceTemplate(id: number, updates: Partial<InvoiceTemplate>): Promise<InvoiceTemplate> {
+    const [row] = await db.update(invoiceTemplates).set(updates as any).where(eq(invoiceTemplates.id, id)).returning();
+    return row;
+  }
+  async deleteInvoiceTemplate(id: number): Promise<void> {
+    await db.delete(invoiceTemplates).where(eq(invoiceTemplates.id, id));
+  }
+
+  // ── Client Branding Profiles ──────────────────────────────────────────────────────
+  async createBrandingProfile(data: InsertClientBrandingProfile): Promise<ClientBrandingProfile> {
+    const [row] = await db.insert(clientBrandingProfiles).values(data).returning();
+    return row;
+  }
+  async getBrandingProfile(id: number): Promise<ClientBrandingProfile | null> {
+    const [row] = await db.select().from(clientBrandingProfiles).where(eq(clientBrandingProfiles.id, id));
+    return row ?? null;
+  }
+  async listBrandingProfiles(opts: { clientName?: string; isGlobal?: boolean } = {}): Promise<ClientBrandingProfile[]> {
+    const conditions = [];
+    if (opts.clientName !== undefined) conditions.push(opts.clientName ? eq(clientBrandingProfiles.clientName, opts.clientName) : sql`${clientBrandingProfiles.clientName} IS NULL`);
+    if (opts.isGlobal) conditions.push(sql`${clientBrandingProfiles.clientName} IS NULL`);
+    const q = db.select().from(clientBrandingProfiles);
+    return (conditions.length > 0 ? q.where(and(...conditions)) : q).orderBy(clientBrandingProfiles.clientName);
+  }
+  async updateBrandingProfile(id: number, updates: Partial<ClientBrandingProfile>): Promise<ClientBrandingProfile> {
+    const [row] = await db.update(clientBrandingProfiles).set(updates as any).where(eq(clientBrandingProfiles.id, id)).returning();
+    return row;
+  }
+  async deleteBrandingProfile(id: number): Promise<void> {
+    await db.delete(clientBrandingProfiles).where(eq(clientBrandingProfiles.id, id));
+  }
+
+  // ── Credit Notes & Settlement Engine ─────────────────────────────────────────────
+  async createCreditNote(data: InsertCreditNote): Promise<CreditNote> {
+    const [row] = await db.insert(creditNotes).values(data).returning();
+    return row;
+  }
+  async getCreditNote(id: number): Promise<CreditNote | null> {
+    const [row] = await db.select().from(creditNotes).where(eq(creditNotes.id, id));
+    return row ?? null;
+  }
+  async listCreditNotes(opts: { status?: string; clientName?: string; year?: string } = {}): Promise<CreditNote[]> {
+    const conditions = [];
+    if (opts.status)     conditions.push(eq(creditNotes.status, opts.status));
+    if (opts.clientName) conditions.push(eq(creditNotes.clientName, opts.clientName));
+    if (opts.year)       conditions.push(sql`EXTRACT(YEAR FROM ${creditNotes.createdAt}) = ${parseInt(opts.year)}`);
+    const q = db.select().from(creditNotes);
+    return (conditions.length > 0 ? q.where(and(...conditions)) : q).orderBy(desc(creditNotes.createdAt));
+  }
+  async updateCreditNote(id: number, updates: Partial<CreditNote>): Promise<CreditNote> {
+    const [row] = await db.update(creditNotes).set(updates as any).where(eq(creditNotes.id, id)).returning();
+    return row;
+  }
+
+  // ── Collections & Credit Control ──────────────────────────────────────────────────
+  async createCreditControlRule(data: InsertCreditControlRule): Promise<CreditControlRule> {
+    const [row] = await db.insert(creditControlRules).values(data).returning();
+    return row;
+  }
+  async getCreditControlRuleByClient(clientName: string): Promise<CreditControlRule | null> {
+    const [row] = await db.select().from(creditControlRules)
+      .where(and(eq(creditControlRules.clientName, clientName), eq(creditControlRules.isGlobal, false)));
+    return row ?? null;
+  }
+  async getGlobalCreditControlRule(): Promise<CreditControlRule | null> {
+    const [row] = await db.select().from(creditControlRules).where(eq(creditControlRules.isGlobal, true));
+    return row ?? null;
+  }
+  async listCreditControlRules(opts: { isGlobal?: boolean } = {}): Promise<CreditControlRule[]> {
+    const q = db.select().from(creditControlRules);
+    if (opts.isGlobal !== undefined) return q.where(eq(creditControlRules.isGlobal, opts.isGlobal)).orderBy(creditControlRules.clientName);
+    return q.orderBy(desc(creditControlRules.isGlobal), creditControlRules.clientName);
+  }
+  async updateCreditControlRule(id: number, updates: Partial<CreditControlRule>): Promise<CreditControlRule> {
+    const [row] = await db.update(creditControlRules).set(updates as any).where(eq(creditControlRules.id, id)).returning();
+    return row;
+  }
+  async createCollectionEvent(data: InsertCollectionEvent): Promise<CollectionEvent> {
+    const [row] = await db.insert(collectionEvents).values(data).returning();
+    return row;
+  }
+  async listCollectionEvents(opts: { clientName?: string; eventType?: string; limit?: number } = {}): Promise<CollectionEvent[]> {
+    const conditions = [];
+    if (opts.clientName) conditions.push(eq(collectionEvents.clientName, opts.clientName));
+    if (opts.eventType)  conditions.push(eq(collectionEvents.eventType, opts.eventType));
+    const q = db.select().from(collectionEvents);
+    const result = conditions.length > 0 ? q.where(and(...conditions)) : q;
+    const ordered = result.orderBy(desc(collectionEvents.createdAt));
+    return opts.limit ? ordered.limit(opts.limit) : ordered;
+  }
+  async updateCollectionEvent(id: number, updates: Partial<CollectionEvent>): Promise<CollectionEvent> {
+    const [row] = await db.update(collectionEvents).set(updates as any).where(eq(collectionEvents.id, id)).returning();
+    return row;
   }
 
   // ── Invoice Delivery Automation ────────────────────────────────────────────────
