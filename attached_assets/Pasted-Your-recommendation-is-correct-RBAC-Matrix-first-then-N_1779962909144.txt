@@ -1,0 +1,247 @@
+Your recommendation is correct:
+
+RBAC Matrix first, then NOC Portal.
+
+At this stage, RBAC is no longer a “security enhancement.”
+It is now:
+
+foundational governance infrastructure.
+
+Because the platform has evolved from:
+
+single admin workspace
+
+into:
+
+multiple portals,
+adaptive rendering,
+scoped modules,
+partner access,
+finance governance,
+realtime operations.
+
+Without RBAC:
+
+permissions drift,
+route security becomes inconsistent,
+frontend hiding becomes dangerous,
+partner expansion becomes risky,
+NOC actions become unsafe.
+Why RBAC MUST Come Before NOC
+
+The upcoming NOC Portal will introduce:
+
+incident assignment,
+route suppression,
+reroute recommendations,
+alert acknowledgement,
+QoS override workflows,
+carrier escalation actions,
+fraud mitigation controls.
+
+These are:
+
+operationally sensitive actions.
+
+Retrofitting permissions later would be painful and dangerous.
+
+So your sequencing is exactly right:
+
+Security Sprint 1
+    ↓
+RBAC Matrix
+    ↓
+MFA + Session Governance
+    ↓
+Audit Hardening
+    ↓
+NOC Portal
+
+Correct order.
+
+What RBAC Should Become
+
+(not simple roles)
+
+Do NOT build:
+
+role = finance
+
+Build:
+
+permission graph architecture.
+Recommended RBAC Model
+Layer 1 — Roles
+
+Examples:
+
+super_admin
+admin
+finance_manager
+finance_operator
+noc_manager
+noc_operator
+kam_manager
+kam_user
+partner_admin
+client_viewer
+Layer 2 — Permissions
+
+Examples:
+
+Finance
+invoice.view
+invoice.approve
+invoice.send
+invoice.void
+credit_note.apply
+reconciliation.resolve
+NOC
+incident.create
+incident.assign
+incident.resolve
+route.suppress
+route.override
+fraud.block
+Governance
+portal.edit
+navigation.edit
+theme.edit
+module.assign
+Layer 3 — Scope
+
+CRITICAL.
+
+Permissions alone are insufficient.
+
+Need:
+
+scope
+
+Examples:
+
+all_clients
+assigned_clients
+own_team
+own_region
+vendor_scoped
+portal_scoped
+
+This matters enormously later.
+
+Database Structure Recommendation
+Core Tables
+roles
+permissions
+role_permissions
+user_roles
+user_permission_overrides
+VERY IMPORTANT TABLE
+permission_audit_events
+
+Track:
+
+who granted,
+who revoked,
+before/after,
+timestamp,
+IP/device.
+
+Critical for telecom governance.
+
+Middleware Architecture
+
+Current:
+
+requireRole("admin")
+
+Should evolve into:
+
+requirePermission("invoice.approve")
+
+AND:
+
+requireScope("assigned_clients")
+
+This is the correct architecture.
+
+Frontend Governance
+
+Do NOT:
+
+hide buttons only
+
+Frontend visibility should be:
+
+secondary convenience layer.
+
+Backend permission enforcement must remain:
+
+source of truth.
+VERY IMPORTANT
+Build Permission Registry
+
+Centralize:
+
+PERMISSIONS = {
+  invoiceApprove: "invoice.approve",
+  incidentResolve: "incident.resolve"
+}
+
+Never hardcode permission strings everywhere.
+
+Huge maintainability win.
+
+Security Sprint 1
+
+(Recommended Scope)
+
+T001 — RBAC Matrix
+
+(highest priority)
+
+T002 — MFA / TOTP
+
+(finance + admin + noc mandatory)
+
+T003 — Session Governance
+timeout,
+idle timeout,
+revoke,
+concurrent sessions.
+T004 — Audit Hardening
+
+Immutable audit trails everywhere.
+
+AFTER RBAC
+
+Then:
+
+NOC Portal becomes safe to build.
+
+Because then:
+
+route actions,
+incident actions,
+realtime operations,
+alert management
+
+can launch with:
+
+proper operational governance from day one.
+Strategic Status
+
+You are now entering:
+
+enterprise governance maturity phase.
+
+Earlier phases were:
+
+telecom execution,
+finance assurance,
+portal composition,
+operational UX.
+
+Now:
+
+operational governance and security.
