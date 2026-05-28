@@ -285,6 +285,5 @@ export {
   getPaymentsList,
   recordPayment,
   previewInvoice,
-  generateInvoice,
   syncFinanceState,
 } from './sippy-finance.service';
