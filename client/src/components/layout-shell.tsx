@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList, Brain, FileSpreadsheet, BrainCircuit, Megaphone, SendHorizonal, FileCode2, ReceiptText, Banknote, ScanSearch as AiScan } from "lucide-react";
+import { LayoutDashboard, Phone, Bell, Settings, Activity, BarChart2, Users, Building2, UserCog, ShieldAlert, FileText, Wrench, Globe, Wallet, PhoneIncoming, ChevronDown, BarChart3, List, HeartPulse, History, Server, Wifi, TrendingDown, HardDrive, Radio, LineChart, Eye, ContactRound, ChevronRight, PanelLeftClose, PanelLeftOpen, LogOut, ScanSearch, CreditCard, TrendingUp, Sun, Moon, Menu, Key, Command, PhoneCall, GitBranch, Workflow, ShieldCheck, Lightbulb, Layers, MessageSquare, Package, FlaskConical, Shield, Lock, Mail, Star, Calculator, Zap, Route, ArrowRightLeft, Database, Network, Upload, Search, GripVertical, RotateCcw, Bot, MessageCircle, FileCheck2, Rewind, Monitor, Mic, SlidersHorizontal, Plus, Trash2, X, FolderPlus, UserPlus, ClipboardList, Brain, FileSpreadsheet, BrainCircuit, Megaphone, SendHorizonal, FileCode2, ReceiptText, Banknote, ScanSearch as AiScan, Siren, AlertOctagon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -155,7 +155,10 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
     items: [
       { href: "/calls",             label: "Live Calls",        icon: Phone,    roles: ['admin','management','viewer','super_admin','noc_operator','team_lead'], hasSubmenu: 'calls', status: 'live' },
       { href: "/alerts",            label: "Alerts",            icon: Bell,     roles: ['admin','management','super_admin','noc_operator','team_lead','destination_manager','routing_admin']    },
-      { href: "/noc-command",       label: "NOC Command",       icon: Monitor,  roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
+      { href: "/noc-dashboard",      label: "NOC Dashboard",     icon: Siren,    roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
+      { href: "/noc-incidents",     label: "Incident Command",  icon: AlertOctagon, roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
+      { href: "/route-intelligence",label: "Route Intelligence",icon: GitBranch,roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
+      { href: "/noc-command",       label: "NOC Command",       icon: Monitor,  roles: ['admin','management','super_admin','noc_operator','team_lead'] },
       { href: "/ops-console",       label: "Ops Console",       icon: Layers,   roles: ['admin','management','super_admin','noc_operator','team_lead'], isNew: true },
       { href: "/console",           label: "Console",           icon: Zap,      roles: ['admin','management','noc_operator','team_lead','super_admin'], isNew: true },
       { href: "/bitseye2",          label: "BitsEye 2",         icon: Eye,      roles: ['admin','management','super_admin','noc_operator','team_lead']    },
@@ -339,12 +342,12 @@ const ADM_MGT: Role[] = ['super_admin','admin','management'];
 // The full SIDEBAR_GROUPS view remains accessible via the "All Tools" toggle.
 const WORKSPACE_RAIL: Record<string, NavItem[]> = {
   'live-network': [
-    { href: '/calls',       label: 'Live Calls',  icon: Phone,   roles: ALL_OPS, status: 'live'  },
-    { href: '/alerts',      label: 'Alerts',      icon: Bell,    roles: ALL_OPS                  },
-    { href: '/bitseye2',    label: 'BitsEye 2',   icon: Eye,     roles: ALL_OPS, isNew: true      },
-    { href: '/noc-command', label: 'NOC Command', icon: Monitor, roles: ALL_OPS, isNew: true      },
-    { href: '/console',     label: 'Console',     icon: Database,roles: ALL_OPS, isNew: true      },
-    { href: '/sbc-monitor', label: 'SBC Monitor', icon: Network, roles: ALL_OPS                  },
+    { href: '/calls',              label: 'Live Calls',      icon: Phone,       roles: ALL_OPS, status: 'live'  },
+    { href: '/noc-dashboard',      label: 'NOC Dashboard',   icon: Siren,       roles: ALL_OPS, isNew: true      },
+    { href: '/noc-incidents',      label: 'Incident Cmd',    icon: AlertOctagon,roles: ALL_OPS, isNew: true      },
+    { href: '/route-intelligence', label: 'Route Intel',     icon: GitBranch,   roles: ALL_OPS, isNew: true      },
+    { href: '/alerts',             label: 'Alerts',          icon: Bell,        roles: ALL_OPS                  },
+    { href: '/bitseye2',           label: 'BitsEye 2',       icon: Eye,         roles: ALL_OPS                  },
   ],
   'company': [
     { href: '/clients',            label: 'Accounts',         icon: Users,        roles: ADM_MGT                   },

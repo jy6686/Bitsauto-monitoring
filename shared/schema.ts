@@ -2821,3 +2821,68 @@ export const rbacPermissionAuditEvents = pgTable("rbac_permission_audit_events",
   createdAt:    timestamp("created_at").defaultNow().notNull(),
 });
 export type RbacPermissionAuditEvent = typeof rbacPermissionAuditEvents.$inferSelect;
+
+// ── NOC Incident Command Center ───────────────────────────────────────────────
+// Network-level incidents (route degradation, carrier outage, etc.)
+// Distinct from account-level `incidents` table (ACCOUNT_HEALTH / FAS_SPIKE).
+
+export const NOC_INCIDENT_TYPES = [
+  'route_degradation', 'carrier_outage', 'fraud_alert',
+  'quality_issue', 'traffic_drop', 'routing_failure', 'manual',
+] as const;
+
+export const NOC_INCIDENT_STATUSES = [
+  'open', 'investigating', 'mitigated', 'resolved', 'postmortem',
+] as const;
+
+export const nocIncidents = pgTable("noc_incidents", {
+  id:              serial("id").primaryKey(),
+  title:           varchar("title",           { length: 255 }).notNull(),
+  type:            varchar("type",            { length: 32  }).notNull().default('manual'),
+  severity:        varchar("severity",        { length: 20  }).notNull().default('medium'),
+  status:          varchar("status",          { length: 20  }).notNull().default('open'),
+  entityType:      varchar("entity_type",     { length: 32  }),
+  entityId:        varchar("entity_id",       { length: 128 }),
+  entityName:      varchar("entity_name",     { length: 255 }),
+  description:     text("description"),
+  suggestedAction: text("suggested_action"),
+  assigneeId:      varchar("assignee_id",     { length: 255 }),
+  assigneeName:    varchar("assignee_name",   { length: 255 }),
+  source:          varchar("source",          { length: 64  }).notNull().default('manual'),
+  tags:            text("tags").array().notNull().default([]),
+  openedAt:        timestamp("opened_at").defaultNow().notNull(),
+  acknowledgedAt:  timestamp("acknowledged_at"),
+  mitigatedAt:     timestamp("mitigated_at"),
+  resolvedAt:      timestamp("resolved_at"),
+  updatedAt:       timestamp("updated_at").defaultNow().notNull(),
+});
+export type NocIncident       = typeof nocIncidents.$inferSelect;
+export type InsertNocIncident = typeof nocIncidents.$inferInsert;
+export const insertNocIncidentSchema = createInsertSchema(nocIncidents).omit({ id: true, openedAt: true, updatedAt: true });
+
+export const nocIncidentEvents = pgTable("noc_incident_events", {
+  id:         serial("id").primaryKey(),
+  incidentId: integer("incident_id").notNull(),
+  eventType:  varchar("event_type",   { length: 32  }).notNull(),
+  fromStatus: varchar("from_status",  { length: 20  }),
+  toStatus:   varchar("to_status",    { length: 20  }),
+  actorId:    varchar("actor_id",     { length: 255 }),
+  actorName:  varchar("actor_name",   { length: 255 }).notNull().default('system'),
+  note:       text("note"),
+  metadata:   json("metadata").$type<Record<string, unknown>>(),
+  createdAt:  timestamp("created_at").defaultNow().notNull(),
+});
+export type NocIncidentEvent       = typeof nocIncidentEvents.$inferSelect;
+export type InsertNocIncidentEvent = typeof nocIncidentEvents.$inferInsert;
+
+export const nocIncidentAssignments = pgTable("noc_incident_assignments", {
+  id:         serial("id").primaryKey(),
+  incidentId: integer("incident_id").notNull(),
+  userId:     varchar("user_id",    { length: 255 }).notNull(),
+  userName:   varchar("user_name",  { length: 255 }).notNull(),
+  assignedBy: varchar("assigned_by",{ length: 255 }),
+  assignedAt: timestamp("assigned_at").defaultNow().notNull(),
+  isActive:   boolean("is_active").notNull().default(true),
+});
+export type NocIncidentAssignment       = typeof nocIncidentAssignments.$inferSelect;
+export type InsertNocIncidentAssignment = typeof nocIncidentAssignments.$inferInsert;

@@ -48,9 +48,9 @@ import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
 import { initSyntheticScheduler, computeInitialNextRunAt } from "./synthetic-scheduler";
 import { initCarrierScoringEngine, recomputeCarrierScores, setCdrProvider } from "./carrier-scoring-engine";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments } from "@shared/schema";
 import { db } from "./db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode, searchDialCodes } from "./dial-lookup";
 import { readFileSync } from "fs";
@@ -28406,6 +28406,140 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const result = await runCreditSweep((req as any).user?.username ?? 'system');
       res.json(result);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // ── NOC Incident Command Center ─────────────────────────────────────────────
+  const NOC_ROLES: Role[] = ['admin', 'management', 'super_admin', 'noc_operator', 'team_lead'];
+
+  // GET /api/noc/incidents — list with optional ?status=&severity=&type= filters
+  app.get('/api/noc/incidents', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (req: any, res: any) => {
+    try {
+      const { status: statusFilter, severity: sevFilter, type: typeFilter } = req.query as Record<string, string | undefined>;
+      const conditions: any[] = [];
+      if (statusFilter)   conditions.push(eq(nocIncidents.status,   statusFilter));
+      if (sevFilter)      conditions.push(eq(nocIncidents.severity, sevFilter));
+      if (typeFilter)     conditions.push(eq(nocIncidents.type,     typeFilter));
+      const rows = conditions.length
+        ? await db.select().from(nocIncidents).where(and(...conditions)).orderBy(desc(nocIncidents.openedAt))
+        : await db.select().from(nocIncidents).orderBy(desc(nocIncidents.openedAt));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/noc/incidents — create a new NOC incident
+  app.post('/api/noc/incidents', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (req: any, res: any) => {
+    try {
+      const { title, type = 'manual', severity = 'medium', entityType, entityId, entityName, description, suggestedAction, source = 'manual' } = req.body;
+      if (!title) return res.status(400).json({ error: 'title is required' });
+      const [inc] = await db.insert(nocIncidents).values({
+        title, type, severity, entityType, entityId, entityName, description, suggestedAction, source,
+      }).returning();
+      await db.insert(nocIncidentEvents).values({
+        incidentId: inc.id, eventType: 'opened', toStatus: 'open',
+        actorName: (req as any).user?.username ?? 'operator',
+        note: `Incident opened: ${title}`,
+      });
+      res.status(201).json(inc);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/noc/incidents/:id/status — lifecycle transition
+  app.patch('/api/noc/incidents/:id/status', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { status: newStatus, note } = req.body as { status: string; note?: string };
+      const validStatuses = ['open', 'investigating', 'mitigated', 'resolved', 'postmortem'];
+      if (!validStatuses.includes(newStatus)) return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+      const [existing] = await db.select().from(nocIncidents).where(eq(nocIncidents.id, id));
+      if (!existing) return res.status(404).json({ error: 'Incident not found' });
+      const now = new Date();
+      const patch: Record<string, unknown> = { status: newStatus, updatedAt: now };
+      if (newStatus === 'investigating' && !existing.acknowledgedAt) patch.acknowledgedAt = now;
+      if (newStatus === 'mitigated' && !existing.mitigatedAt)        patch.mitigatedAt = now;
+      if (newStatus === 'resolved'   && !existing.resolvedAt)        patch.resolvedAt = now;
+      const [updated] = await db.update(nocIncidents).set(patch).where(eq(nocIncidents.id, id)).returning();
+      await db.insert(nocIncidentEvents).values({
+        incidentId: id, eventType: 'status_changed',
+        fromStatus: existing.status, toStatus: newStatus,
+        actorName: (req as any).user?.username ?? 'operator',
+        note: note ?? `Status changed to ${newStatus}`,
+      });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/noc/incidents/:id/events — append-only timeline
+  app.get('/api/noc/incidents/:id/events', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const events = await db.select().from(nocIncidentEvents)
+        .where(eq(nocIncidentEvents.incidentId, id))
+        .orderBy(desc(nocIncidentEvents.createdAt));
+      const inc = await db.select().from(nocIncidents).where(eq(nocIncidents.id, id));
+      if (!inc.length) return res.status(404).json({ error: 'Incident not found' });
+      res.json({ incident: inc[0], events });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/noc/incidents/:id — update fields (title, description, severity, etc.)
+  app.patch('/api/noc/incidents/:id', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { title, description, severity, suggestedAction, assigneeId, assigneeName } = req.body;
+      const patch: Record<string, unknown> = { updatedAt: new Date() };
+      if (title !== undefined)           patch.title = title;
+      if (description !== undefined)     patch.description = description;
+      if (severity !== undefined)        patch.severity = severity;
+      if (suggestedAction !== undefined) patch.suggestedAction = suggestedAction;
+      if (assigneeId !== undefined)      patch.assigneeId = assigneeId;
+      if (assigneeName !== undefined)    patch.assigneeName = assigneeName;
+      const [updated] = await db.update(nocIncidents).set(patch).where(eq(nocIncidents.id, id)).returning();
+      if (!updated) return res.status(404).json({ error: 'Incident not found' });
+      await db.insert(nocIncidentEvents).values({
+        incidentId: id, eventType: 'note_added',
+        actorName: (req as any).user?.username ?? 'operator',
+        note: 'Incident fields updated',
+      });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/noc/incidents/:id/assign — assign incident to user
+  app.post('/api/noc/incidents/:id/assign', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { userId, userName, assignedBy } = req.body as { userId: string; userName: string; assignedBy?: string };
+      if (!userId || !userName) return res.status(400).json({ error: 'userId and userName are required' });
+      await db.update(nocIncidentAssignments).set({ isActive: false }).where(eq(nocIncidentAssignments.incidentId, id));
+      const [assignment] = await db.insert(nocIncidentAssignments).values({ incidentId: id, userId, userName, assignedBy }).returning();
+      await db.update(nocIncidents).set({ assigneeId: userId, assigneeName: userName, updatedAt: new Date() }).where(eq(nocIncidents.id, id));
+      await db.insert(nocIncidentEvents).values({
+        incidentId: id, eventType: 'assigned',
+        actorName: assignedBy ?? (req as any).user?.username ?? 'operator',
+        note: `Assigned to ${userName}`,
+      });
+      res.status(201).json(assignment);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/noc/incidents/:id/note — add a note to the timeline
+  app.post('/api/noc/incidents/:id/note', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { note } = req.body as { note: string };
+      if (!note?.trim()) return res.status(400).json({ error: 'note is required' });
+      const [event] = await db.insert(nocIncidentEvents).values({
+        incidentId: id, eventType: 'note_added',
+        actorName: (req as any).user?.username ?? 'operator', note,
+      }).returning();
+      await db.update(nocIncidents).set({ updatedAt: new Date() }).where(eq(nocIncidents.id, id));
+      res.status(201).json(event);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   return httpServer;

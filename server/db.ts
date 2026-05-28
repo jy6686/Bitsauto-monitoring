@@ -293,6 +293,60 @@ export async function runSafeMigrations(): Promise<void> {
         ON user_favorites (user_id, module_key)
     `);
 
+    // ── NOC Incident Command Center tables (added 2026-05-28) ─────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS noc_incidents (
+        id               SERIAL PRIMARY KEY,
+        title            VARCHAR(255) NOT NULL,
+        type             VARCHAR(32)  NOT NULL DEFAULT 'manual',
+        severity         VARCHAR(20)  NOT NULL DEFAULT 'medium',
+        status           VARCHAR(20)  NOT NULL DEFAULT 'open',
+        entity_type      VARCHAR(32),
+        entity_id        VARCHAR(128),
+        entity_name      VARCHAR(255),
+        description      TEXT,
+        suggested_action TEXT,
+        assignee_id      VARCHAR(255),
+        assignee_name    VARCHAR(255),
+        source           VARCHAR(64)  NOT NULL DEFAULT 'manual',
+        tags             TEXT[]       NOT NULL DEFAULT '{}',
+        opened_at        TIMESTAMP    NOT NULL DEFAULT NOW(),
+        acknowledged_at  TIMESTAMP,
+        mitigated_at     TIMESTAMP,
+        resolved_at      TIMESTAMP,
+        updated_at       TIMESTAMP    NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS noc_incident_events (
+        id          SERIAL PRIMARY KEY,
+        incident_id INTEGER     NOT NULL,
+        event_type  VARCHAR(32) NOT NULL,
+        from_status VARCHAR(20),
+        to_status   VARCHAR(20),
+        actor_id    VARCHAR(255),
+        actor_name  VARCHAR(255) NOT NULL DEFAULT 'system',
+        note        TEXT,
+        metadata    JSONB,
+        created_at  TIMESTAMP   NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS noc_incident_events_incident_idx
+        ON noc_incident_events (incident_id, created_at DESC)
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS noc_incident_assignments (
+        id          SERIAL PRIMARY KEY,
+        incident_id INTEGER      NOT NULL,
+        user_id     VARCHAR(255) NOT NULL,
+        user_name   VARCHAR(255) NOT NULL,
+        assigned_by VARCHAR(255),
+        assigned_at TIMESTAMP    NOT NULL DEFAULT NOW(),
+        is_active   BOOLEAN      NOT NULL DEFAULT TRUE
+      )
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

@@ -5,3 +5,4 @@
 - [Sippy service layer architecture](sippy-service-layer.md) — Layer 2 middleware at server/services/sippy/; all new routes must import from index.ts there, never from server/sippy.ts directly.
 - [Finance governance modules](finance-governance-modules.md) — migrations 015-018 completed; 4 modules fully wired: Invoice Templates, Credit Notes, Credit Control, AI Assurance + Adjustment Ledger.
 - [Portal Governance 3-level nav](portal-governance-nav.md) — migrations 020+021; portal_sections drives Level 2 top tabs; activeSection filters sidebar; query key ["/api/portal/sections", slug] → /api/portal/sections/:slug.
+- [NOC Sprint architecture](noc-sprint-architecture.md) — noc_incidents/events/assignments are network-level (route/carrier); existing incidents table is account-level (ACCOUNT_HEALTH/FAS_SPIKE). Keep separate. Security Sprint 1 (MFA/TOTP/portal-aware policy) intentionally deferred until NOC ops flows stabilize.

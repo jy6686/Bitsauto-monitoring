@@ -142,6 +142,9 @@ import RtpAnalyticsPage from "@/pages/rtp-analytics";
 import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
+import NocDashboardPage from "@/pages/noc-dashboard";
+import NocIncidentsPage from "@/pages/noc-incidents";
+import RouteIntelligencePage from "@/pages/route-intelligence";
 import OpsConsolePage from "@/pages/ops-console";
 import IncidentDetailPage from "@/pages/incident-detail";
 import ConsolePage from "@/pages/console";
@@ -585,6 +588,15 @@ function Router() {
       </Route>
       <Route path="/network-topology">
         {() => <ProtectedRoute component={NetworkTopologyPage} requiredRoles={['admin','management']} mgmtFeature="network_topology" />}
+      </Route>
+      <Route path="/noc-dashboard">
+        {() => <ProtectedRoute component={NocDashboardPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/noc-incidents">
+        {() => <ProtectedRoute component={NocIncidentsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/route-intelligence">
+        {() => <ProtectedRoute component={RouteIntelligencePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
       </Route>
       <Route path="/noc-command">
         {() => <ProtectedRoute component={NocCommandPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="noc_command" />}
