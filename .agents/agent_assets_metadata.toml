@@ -126,3 +126,9 @@ id = "MGsA6xLiod_JECFys2Box"
 uri = "file://generated-docs/Bitsauto_VoIP_Platform_Brief.docx"
 type = "word_document"
 title = "Bitsauto VoIP Platform — CEO/Operator Brief (Word Document)"
+
+[[outputs]]
+id = "LpXJCrcN25wn_D59ZALci"
+uri = "file://BitsAuto_Platform_Report_May2026.md"
+type = "text"
+title = "BitsAuto Platform Report — May 2026"
