@@ -752,10 +752,12 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   // Auto-reset "show all" when the user navigates to a different workspace
   const prevWorkspaceRef = useRef<WorkspaceDomain>(activeWorkspace);
-  if (prevWorkspaceRef.current !== activeWorkspace) {
-    prevWorkspaceRef.current = activeWorkspace;
-    if (showAllGroups) setShowAllGroups(false);
-  }
+  useEffect(() => {
+    if (prevWorkspaceRef.current !== activeWorkspace) {
+      prevWorkspaceRef.current = activeWorkspace;
+      setShowAllGroups(false);
+    }
+  }, [activeWorkspace]);
 
   useEffect(() => { try { localStorage.setItem(SIDEBAR_KEY, String(collapsed)); } catch { /* */ } }, [collapsed]);
   useEffect(() => { try { localStorage.setItem(GROUPS_LS_KEY, JSON.stringify(groupsExpanded)); } catch { /* */ } }, [groupsExpanded]);
@@ -833,7 +835,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   const { data: pendingCountData } = useQuery<{ count: number }>({
     queryKey: ['/api/approvals/pending-count'],
-    enabled: role === 'admin' || role === 'management' || role === 'super_admin' || role === 'team_lead',
+    enabled: role !== 'viewer',
     refetchInterval: 30_000, staleTime: 15_000,
   });
   const pendingApprovalCount = pendingCountData?.count ?? 0;
@@ -869,15 +871,9 @@ export function LayoutShell({ children }: LayoutShellProps) {
     enabled: role !== 'viewer',
   });
 
-  const { data: pendingCountRaw } = useQuery<{ count: number }>({
-    queryKey: ['/api/approvals/pending-count'],
-    staleTime: 15_000, refetchInterval: 30_000,
-    enabled: role !== 'viewer',
-  });
-
   const liveCallCount   = Array.isArray(liveCallsRaw) ? liveCallsRaw.length : (liveCallsRaw?.calls?.length ?? liveCallsRaw?.count ?? 0);
   const activeIncidents = Array.isArray(incidentsRaw) ? incidentsRaw.filter((i: any) => i.status === 'active' || !i.resolvedAt).length : 0;
-  const pendingApprovals = pendingCountRaw?.count ?? 0;
+  const pendingApprovals = pendingApprovalCount;
   const avgAsr = Array.isArray(carrierScoresRaw) && carrierScoresRaw.length > 0
     ? carrierScoresRaw.reduce((s: number, c: any) => s + (c.rollingAsr ?? 0), 0) / carrierScoresRaw.length : null;
   const hasDegradedCarrier = Array.isArray(carrierScoresRaw) && carrierScoresRaw.some((c: any) => (c.stabilityScore ?? 100) < 45);

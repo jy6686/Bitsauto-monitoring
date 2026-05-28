@@ -239,12 +239,11 @@ const QUICK_LINKS = [
 
 export default function NocDashboardPage() {
   const [fullscreen, setFullscreen] = useState(false);
-  const [darkForced, setDarkForced] = useState(true);
 
   useEffect(() => {
     document.documentElement.classList.add('dark');
-    return () => { if (!darkForced) document.documentElement.classList.remove('dark'); };
-  }, [darkForced]);
+    return () => { document.documentElement.classList.remove('dark'); };
+  }, []);
 
   const { data: liveSummary } = useQuery<LiveSummary>({
     queryKey: ["/api/sippy/live-calls"],

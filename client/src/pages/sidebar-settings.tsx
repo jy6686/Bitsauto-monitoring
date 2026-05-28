@@ -46,7 +46,7 @@ export default function SidebarSettingsPage() {
     if (visibilityData && localHidden === null) {
       setLocalHidden(new Set(visibilityData.hiddenItems));
     }
-  }, [visibilityData]);
+  }, [visibilityData, localHidden]);
 
   const hiddenItems: Set<string> = localHidden ?? new Set(visibilityData?.hiddenItems ?? []);
 
