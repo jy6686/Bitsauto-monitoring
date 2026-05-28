@@ -131,6 +131,7 @@ import CarrierIntelligencePage from "@/pages/carrier-intelligence";
 import IntelligencePage from "@/pages/intelligence";
 import IntelligenceValidationPage from "@/pages/intelligence-validation";
 import VendorPrefixIntelligencePage from "@/pages/vendor-prefix-intelligence";
+import RbacMatrixPage from "@/pages/rbac-matrix";
 import LiveTrafficMapPage from "@/pages/live-traffic-map";
 import VendorStabilityTimelinePage from "@/pages/vendor-stability-timeline";
 import VendorRcaPage from "@/pages/vendor-rca";
@@ -644,6 +645,10 @@ function Router() {
 
       <Route path="/kam-dashboard">
         {() => <ProtectedRoute component={KamDashboardPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+
+      <Route path="/rbac">
+        {() => <ProtectedRoute component={RbacMatrixPage} requiredRoles={['admin','super_admin']} />}
       </Route>
 
       <Route component={NotFound} />

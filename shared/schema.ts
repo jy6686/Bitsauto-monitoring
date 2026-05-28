@@ -2771,3 +2771,53 @@ export const userFavorites = pgTable("user_favorites", {
 export type UserFavorite       = typeof userFavorites.$inferSelect;
 export type InsertUserFavorite = typeof userFavorites.$inferInsert;
 export type InsertPortalSection = typeof portalSections.$inferInsert;
+
+// ── RBAC Matrix ────────────────────────────────────────────────────────────────
+export const rbacPermissions = pgTable("rbac_permissions", {
+  id:          serial("id").primaryKey(),
+  key:         varchar("key",         { length: 80  }).notNull().unique(),
+  domain:      varchar("domain",      { length: 40  }).notNull(),
+  label:       varchar("label",       { length: 120 }).notNull(),
+  description: text("description"),
+  riskLevel:   varchar("risk_level",  { length: 20  }).notNull().default('low'),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type RbacPermission = typeof rbacPermissions.$inferSelect;
+
+export const rbacRolePermissions = pgTable("rbac_role_permissions", {
+  id:            serial("id").primaryKey(),
+  role:          varchar("role",           { length: 40 }).notNull(),
+  permissionKey: varchar("permission_key", { length: 80 }).notNull().references(() => rbacPermissions.key, { onDelete: 'cascade' }),
+  granted:       boolean("granted").notNull().default(true),
+  grantedBy:     varchar("granted_by",    { length: 255 }),
+  grantedAt:     timestamp("granted_at").defaultNow().notNull(),
+});
+export type RbacRolePermission = typeof rbacRolePermissions.$inferSelect;
+
+export const rbacUserPermissionOverrides = pgTable("rbac_user_permission_overrides", {
+  id:            serial("id").primaryKey(),
+  userId:        varchar("user_id",        { length: 255 }).notNull(),
+  permissionKey: varchar("permission_key", { length: 80  }).notNull().references(() => rbacPermissions.key, { onDelete: 'cascade' }),
+  granted:       boolean("granted").notNull(),
+  scope:         varchar("scope",          { length: 40  }).default('all'),
+  reason:        text("reason"),
+  grantedBy:     varchar("granted_by",    { length: 255 }).notNull(),
+  grantedAt:     timestamp("granted_at").defaultNow().notNull(),
+  expiresAt:     timestamp("expires_at"),
+});
+export type RbacUserPermissionOverride = typeof rbacUserPermissionOverrides.$inferSelect;
+
+export const rbacPermissionAuditEvents = pgTable("rbac_permission_audit_events", {
+  id:           serial("id").primaryKey(),
+  eventType:    varchar("event_type",     { length: 60  }).notNull(),
+  actorId:      varchar("actor_id",       { length: 255 }).notNull(),
+  targetUserId: varchar("target_user_id", { length: 255 }),
+  targetRole:   varchar("target_role",   { length: 40  }),
+  permissionKey:varchar("permission_key", { length: 80  }),
+  beforeValue:  json("before_value").$type<any>(),
+  afterValue:   json("after_value").$type<any>(),
+  ipAddress:    varchar("ip_address",    { length: 45  }),
+  userAgent:    text("user_agent"),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+});
+export type RbacPermissionAuditEvent = typeof rbacPermissionAuditEvents.$inferSelect;

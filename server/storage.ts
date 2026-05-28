@@ -15,6 +15,8 @@ import {
   concurrentSnapshots,
   portalAccessTokens,
   portalTickets, portalTicketMessages,
+  rbacPermissions, rbacRolePermissions, rbacUserPermissionOverrides, rbacPermissionAuditEvents,
+  type RbacPermission, type RbacRolePermission, type RbacUserPermissionOverride, type RbacPermissionAuditEvent,
   type PortalTicket, type InsertPortalTicket,
   type PortalTicketMessage, type InsertPortalTicketMessage,
   type ConsoleIncident, type IncidentLifecycleEvent,
@@ -169,6 +171,14 @@ export interface IStorage {
   setUserRole(userId: string, role: Role, assignedBy?: string, teamId?: string | null): Promise<void>;
   getAllUsersWithRoles(): Promise<Array<User & { role: Role; teamId: string | null }>>;
   countRoleEntries(): Promise<number>;
+
+  // RBAC Matrix
+  getRbacPermissions(): Promise<RbacPermission[]>;
+  getRbacRolePermissions(role?: string): Promise<RbacRolePermission[]>;
+  setRbacRolePermission(role: string, permissionKey: string, granted: boolean, actorId?: string): Promise<void>;
+  getRbacUserOverrides(userId?: string): Promise<RbacUserPermissionOverride[]>;
+  deleteRbacUserOverride(id: number): Promise<void>;
+  getRbacAuditLog(limit?: number): Promise<RbacPermissionAuditEvent[]>;
 
   // Client & Vendor Profiles
   getClientProfiles(): Promise<ClientProfile[]>;
@@ -988,6 +998,58 @@ export class DatabaseStorage implements IStorage {
   async countRoleEntries(): Promise<number> {
     const [row] = await db.select({ count: sql<number>`count(*)` }).from(userRoles);
     return Number(row?.count ?? 0);
+  }
+
+  // ── RBAC Matrix ────────────────────────────────────────────────────────────
+
+  async getRbacPermissions(): Promise<RbacPermission[]> {
+    return db.select().from(rbacPermissions).orderBy(rbacPermissions.domain, rbacPermissions.key);
+  }
+
+  async getRbacRolePermissions(role?: string): Promise<RbacRolePermission[]> {
+    if (role) {
+      return db.select().from(rbacRolePermissions).where(eq(rbacRolePermissions.role, role));
+    }
+    return db.select().from(rbacRolePermissions);
+  }
+
+  async setRbacRolePermission(role: string, permissionKey: string, granted: boolean, actorId?: string): Promise<void> {
+    const existing = await db.select().from(rbacRolePermissions)
+      .where(and(eq(rbacRolePermissions.role, role), eq(rbacRolePermissions.permissionKey, permissionKey)));
+    const before = existing[0] ?? null;
+    await db.insert(rbacRolePermissions)
+      .values({ role, permissionKey, granted, grantedBy: actorId })
+      .onConflictDoUpdate({
+        target: [rbacRolePermissions.role, rbacRolePermissions.permissionKey],
+        set: { granted, grantedBy: actorId, grantedAt: new Date() },
+      });
+    if (actorId) {
+      await db.insert(rbacPermissionAuditEvents).values({
+        eventType:     granted ? 'permission_granted' : 'permission_revoked',
+        actorId,
+        targetRole:    role,
+        permissionKey,
+        beforeValue:   before ? { granted: before.granted } : null,
+        afterValue:    { granted },
+      });
+    }
+  }
+
+  async getRbacUserOverrides(userId?: string): Promise<RbacUserPermissionOverride[]> {
+    if (userId) {
+      return db.select().from(rbacUserPermissionOverrides).where(eq(rbacUserPermissionOverrides.userId, userId));
+    }
+    return db.select().from(rbacUserPermissionOverrides);
+  }
+
+  async deleteRbacUserOverride(id: number): Promise<void> {
+    await db.delete(rbacUserPermissionOverrides).where(eq(rbacUserPermissionOverrides.id, id));
+  }
+
+  async getRbacAuditLog(limit = 200): Promise<RbacPermissionAuditEvent[]> {
+    return db.select().from(rbacPermissionAuditEvents)
+      .orderBy(desc(rbacPermissionAuditEvents.createdAt))
+      .limit(limit);
   }
 
   async getAllUsersWithRoles(): Promise<Array<User & { role: Role; teamId: string | null }>> {

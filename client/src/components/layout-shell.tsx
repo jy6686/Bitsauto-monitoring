@@ -262,6 +262,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/stir-shaken",          label: "STIR/SHAKEN",    icon: Lock,          roles: ['admin','management']              },
       { href: "/compliance",           label: "Compliance",     icon: FileCheck2,    roles: ['admin','management']              },
       { href: "/audit-log",            label: "Audit Log",      icon: ClipboardList, roles: ['admin','management','destination_manager','routing_admin'], isNew: true },
+      { href: "/rbac",                  label: "Permission Matrix", icon: Lock,          roles: ['admin','super_admin'], isNew: true },
     ],
   },
   // ─── 8. Finance & Billing ────────────────────────────────────────────────────

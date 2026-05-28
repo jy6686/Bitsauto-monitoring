@@ -28,6 +28,7 @@ import { setupChatWebSocket } from "./chat-ws";
 import { broadcastLiveTrafficSnapshot, getLastLiveTrafficSnapshot } from "./live-traffic-ws";
 import type { LiveTrafficRow, LiveTrafficWindow, LiveTrafficSnapshot } from "./live-traffic-ws";
 import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
+import { requirePermission, requireAnyPermission, getCachedUserPermissions, invalidatePermissionCache, logPermissionEvent } from "./rbac";
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
 import { updateAccountState } from "./account-state";
@@ -1618,6 +1619,94 @@ export async function registerRoutes(
     try {
       const stats = await auditStats();
       res.json({ stats });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── RBAC Matrix API ───────────────────────────────────────────────────────
+
+  // GET /api/rbac/permissions — full permission catalogue
+  app.get('/api/rbac/permissions',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'management'], req, res, next),
+    async (_req, res) => {
+      try {
+        const perms = await storage.getRbacPermissions();
+        res.json(perms);
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // GET /api/rbac/role-permissions — all role→permission rows (or ?role=xxx)
+  app.get('/api/rbac/role-permissions',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const role = (req.query.role as string) || undefined;
+        const rows = await storage.getRbacRolePermissions(role);
+        res.json(rows);
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // PUT /api/rbac/role-permissions — toggle a single role→permission grant
+  app.put('/api/rbac/role-permissions',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const { role, permissionKey, granted } = req.body as { role: string; permissionKey: string; granted: boolean };
+        if (!role || !permissionKey || typeof granted !== 'boolean') {
+          return res.status(400).json({ message: 'role, permissionKey, and granted (boolean) are required' });
+        }
+        const actorId = req.user?.claims?.sub ?? 'system';
+        await storage.setRbacRolePermission(role, permissionKey, granted, actorId);
+        invalidatePermissionCache();
+        res.json({ ok: true });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // GET /api/rbac/overrides — user permission overrides (optional ?userId=)
+  app.get('/api/rbac/overrides',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const userId = (req.query.userId as string) || undefined;
+        const rows = await storage.getRbacUserOverrides(userId);
+        res.json(rows);
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // DELETE /api/rbac/overrides/:id
+  app.delete('/api/rbac/overrides/:id',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res) => {
+      try {
+        await storage.deleteRbacUserOverride(Number(req.params.id));
+        invalidatePermissionCache();
+        res.json({ ok: true });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // GET /api/rbac/audit — permission audit trail
+  app.get('/api/rbac/audit',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const limit = req.query.limit ? Number(req.query.limit) : 200;
+        const events = await storage.getRbacAuditLog(limit);
+        res.json(events);
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  // GET /api/rbac/my-permissions — current user's effective permission set
+  app.get('/api/rbac/my-permissions', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const perms = await getCachedUserPermissions(userId);
+      res.json({ permissions: Array.from(perms) });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
