@@ -209,6 +209,7 @@ export function PortalSidebar({ collapsed }: { collapsed?: boolean }) {
 // ── WorkspaceSwitcherPill ─────────────────────────────────────────────────────
 export function WorkspaceSwitcherPill() {
   const { allowedPortals, activePortal, setPortal, portalConfig, exitPortalMode } = usePortal();
+  const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
 
   if (allowedPortals.length === 0) return null;
@@ -245,7 +246,13 @@ export function WorkspaceSwitcherPill() {
               {allowedPortals.map(p => (
                 <button
                   key={p.slug}
-                  onClick={() => { setPortal(p.slug as any); setOpen(false); }}
+                  onClick={() => {
+                    setPortal(p.slug as any);
+                    setOpen(false);
+                    // Navigate to the portal's dashboard route
+                    const target = (p as any).defaultRoute ?? '/';
+                    navigate(target);
+                  }}
                   data-testid={`button-switch-${p.slug}`}
                   className={cn(
                     "w-full flex items-center justify-between px-3 py-2 text-sm transition-colors hover:bg-white/[0.04]",
@@ -281,7 +288,8 @@ export function WorkspaceSwitcherPill() {
 
 // ── PortalTopNav — Level 2 domain section tabs rendered in the top bar ─────────
 export function PortalTopNav() {
-  const { sections, activeSection, setSection, portalConfig } = usePortal();
+  const { sections, activeSection, setSection, portalConfig, modules } = usePortal();
+  const [, navigate] = useLocation();
 
   if (!portalConfig || sections.length === 0) return null;
 
@@ -298,7 +306,14 @@ export function PortalTopNav() {
         return (
           <button
             key={section.sectionKey}
-            onClick={() => setSection(section.sectionKey)}
+            onClick={() => {
+              setSection(section.sectionKey);
+              // Navigate to the home module route for this section
+              const homeModule = modules.find(m => m.section === section.sectionKey && m.isHome);
+              const firstModule = modules.find(m => m.section === section.sectionKey);
+              const target = homeModule?.route ?? firstModule?.route;
+              if (target) navigate(target);
+            }}
             data-testid={`nav-section-${section.sectionKey}`}
             className={cn(
               "relative flex items-center gap-1.5 h-[36px] px-3 rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",

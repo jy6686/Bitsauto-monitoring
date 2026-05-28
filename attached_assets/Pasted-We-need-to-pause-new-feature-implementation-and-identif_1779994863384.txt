@@ -1,0 +1,54 @@
+We need to pause new feature implementation and identify why the Navigation / Portal UX is repeatedly diverging from the requested design direction.
+
+Current issue:
+The implementation continues evolving into a complex governance/accordion/admin-builder interface, while the requested UX is a clean enterprise settings-style navigation manager similar to the attached reference.
+
+Main mismatch:
+We requested:
+
+grouped enterprise cards,
+clean section-based layout,
+compact toggles,
+portal-focused settings UX,
+top-menu governance,
+simple operational experience.
+
+But implementation repeatedly results in:
+
+long accordion governance layouts,
+module-heavy admin tooling,
+sidebar-focused navigation logic,
+complex drag/drop architecture exposed to normal users,
+duplicated navigation concepts.
+
+Please clarify technically and architecturally:
+
+Why is the implementation repeatedly drifting away from the requested UI direction?
+Is there an architectural limitation in the current navigation system causing this?
+Are portal layouts currently too tightly coupled to sidebar-generation logic?
+Is the governance engine over-engineered relative to the desired UX?
+Would it be cleaner to separate:
+Enterprise Workspace Settings UI
+Advanced Governance Console (super-admin only)
+into two completely different pages/components?
+Is the current top-navigation system structurally capable of:
+portal switching,
+portal-specific domain tabs,
+contextual sidebars,
+clean grouped workspace settings,
+without relying on the old sidebar architecture?
+Why are portals still rendering the same dashboards instead of portal-adapted layouts?
+Why is KAM portal missing from the rendered portal switcher despite being planned in the governance layer?
+What exact refactor is required to move from:
+“module registry architecture”
+to:
+“enterprise workspace architecture”?
+Before implementing more UI changes, please provide:
+current architecture limitations,
+coupling problems,
+recommended refactor plan,
+and the cleanest path to achieve the requested enterprise UX.
+
+Important:
+Do NOT implement new UI yet.
+First provide root-cause analysis and architecture correction strategy.

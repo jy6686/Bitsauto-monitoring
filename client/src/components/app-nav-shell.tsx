@@ -492,7 +492,7 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
 }
 
 export function AppNavShell() {
-  const [location]            = useLocation();
+  const [location, navigate]  = useLocation();
   const search                = useSearch();
   const [openDomain, setOpen]             = useState<string | null>(null);
   const [hiddenDomains, setHiddenDomains] = useState<Set<string>>(() => {
@@ -697,7 +697,16 @@ export function AppNavShell() {
               return (
                 <button
                   key={portal.slug}
-                  onClick={() => isActive ? exitPortalMode() : setPortal(portal.slug as any)}
+                  onClick={() => {
+                    if (isActive) {
+                      exitPortalMode();
+                    } else {
+                      setPortal(portal.slug as any);
+                      // Navigate to the portal's dashboard route
+                      const target = (portal as any).defaultRoute ?? '/';
+                      navigate(target);
+                    }
+                  }}
                   data-testid={`nav-portal-${portal.slug}`}
                   title={isActive ? `Exit ${portal.name} workspace` : `Switch to ${portal.name} workspace`}
                   className={cn(
