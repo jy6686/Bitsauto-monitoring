@@ -27390,6 +27390,211 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (err: any) { res.status(400).json({ error: err.message }); }
   });
 
+  // ── Partner Operations Portal ─────────────────────────────────────────────────
+  // Auth: access-code based, stored in req.session.portalClientName (separate from admin auth)
+  // All /api/portal/* routes are scoped to the logged-in partner's clientName only.
+  //
+  // Admin routes (requireRole admin/management):
+  //   GET    /api/partner-profiles             — list all partner profiles
+  //   POST   /api/partner-profiles             — create profile + generate access code
+  //   PATCH  /api/partner-profiles/:id         — update active/display/email
+  //   DELETE /api/partner-profiles/:id         — delete (revokes access)
+  //   POST   /api/partner-profiles/:id/regenerate-code — issue new access code
+  //
+  // Partner portal auth:
+  //   POST   /api/portal/auth/login            — validate access code, set session
+  //   POST   /api/portal/auth/logout           — clear portal session
+  //   GET    /api/portal/auth/session          — get current partner session info
+  //
+  // Partner portal data (scoped to clientName in session):
+  //   GET    /api/portal/summary               — dashboard summary
+  //   GET    /api/portal/invoices              — client's invoices
+  //   GET    /api/portal/disputes              — client's dispute cases
+  //   GET    /api/portal/credit-notes          — client's credit notes
+  //   GET    /api/portal/reconciliation        — client's reconciliation records
+
+  // ── Access code helpers (Node crypto, no bcrypt dep) ─────────────────────────
+  function generateAccessCode(): string {
+    const { randomBytes } = require('crypto');
+    const bytes = randomBytes(18);
+    return bytes.toString('base64url').slice(0, 24);
+  }
+  function hashCode(code: string): string {
+    const { createHmac } = require('crypto');
+    const secret = process.env.SESSION_SECRET ?? 'portal-hash-secret';
+    return createHmac('sha256', secret).update(code).digest('hex');
+  }
+  function verifyCode(code: string, hash: string): boolean {
+    return hashCode(code) === hash;
+  }
+
+  // ── requirePortalAuth middleware ──────────────────────────────────────────────
+  function requirePortalAuth(req: any, res: any, next: any) {
+    if (!(req.session as any).portalClientName) {
+      return res.status(401).json({ error: 'Portal authentication required' });
+    }
+    next();
+  }
+
+  // ── Admin: partner profile management ────────────────────────────────────────
+  app.get('/api/partner-profiles', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const profiles = await storage.listPartnerProfiles();
+      // Never return hash in responses
+      res.json(profiles.map(({ accessCodeHash: _, ...p }) => p));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/partner-profiles', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { clientName, companyDisplayName, contactEmail, logoUrl, welcomeMessage } = req.body ?? {};
+      if (!clientName) return res.status(400).json({ error: 'clientName is required' });
+      const existing = await storage.getPartnerProfileByClientName(clientName);
+      if (existing) return res.status(409).json({ error: 'A profile for this client already exists' });
+      const code   = generateAccessCode();
+      const hash   = hashCode(code);
+      const prefix = code.slice(0, 4);
+      const profile = await storage.createPartnerProfile({
+        clientName, companyDisplayName, contactEmail, logoUrl, welcomeMessage,
+        accessCodeHash: hash, accessCodePrefix: prefix,
+      });
+      const { accessCodeHash: _, ...safeProfile } = profile;
+      res.status(201).json({ profile: safeProfile, accessCode: code });
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/partner-profiles/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { active, companyDisplayName, contactEmail, logoUrl, welcomeMessage } = req.body ?? {};
+      const updated = await storage.updatePartnerProfile(id, { active, companyDisplayName, contactEmail, logoUrl, welcomeMessage } as any);
+      const { accessCodeHash: _, ...safeProfile } = updated;
+      res.json(safeProfile);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.delete('/api/partner-profiles/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      await storage.deletePartnerProfile(id);
+      res.json({ ok: true });
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.post('/api/partner-profiles/:id/regenerate-code', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const code    = generateAccessCode();
+      const hash    = hashCode(code);
+      const prefix  = code.slice(0, 4);
+      const updated = await storage.updatePartnerProfile(id, { accessCodeHash: hash, accessCodePrefix: prefix } as any);
+      const { accessCodeHash: _, ...safeProfile } = updated;
+      res.json({ profile: safeProfile, accessCode: code });
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  // ── Portal auth ───────────────────────────────────────────────────────────────
+  app.post('/api/portal/auth/login', async (req: any, res: any) => {
+    try {
+      const { accessCode } = req.body ?? {};
+      if (!accessCode || typeof accessCode !== 'string') return res.status(400).json({ error: 'Access code required' });
+      // Find by prefix (first 4 chars), then verify hash
+      const prefix      = accessCode.slice(0, 4);
+      const candidates  = await storage.findPartnerByCodePrefix(prefix);
+      const matched     = candidates.find(p => verifyCode(accessCode, p.accessCodeHash));
+      if (!matched) return res.status(401).json({ error: 'Invalid access code' });
+      if (!matched.active) return res.status(403).json({ error: 'Portal access is currently disabled' });
+      // Set portal session (separate from admin session)
+      (req.session as any).portalClientName = matched.clientName;
+      (req.session as any).portalProfileId  = matched.id;
+      await storage.updatePartnerProfile(matched.id, { lastLoginAt: new Date() } as any);
+      res.json({ ok: true, clientName: matched.clientName, companyDisplayName: matched.companyDisplayName });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/portal/auth/logout', async (req: any, res: any) => {
+    (req.session as any).portalClientName = undefined;
+    (req.session as any).portalProfileId  = undefined;
+    res.json({ ok: true });
+  });
+
+  app.get('/api/portal/auth/session', requirePortalAuth, async (req: any, res: any) => {
+    try {
+      const clientName = (req.session as any).portalClientName as string;
+      const profile    = await storage.getPartnerProfileByClientName(clientName);
+      res.json({ clientName, companyDisplayName: profile?.companyDisplayName, logoUrl: profile?.logoUrl });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // ── Portal data endpoints (scoped to portalClientName) ───────────────────────
+  app.get('/api/portal/summary', requirePortalAuth, async (req: any, res: any) => {
+    try {
+      const clientName = (req.session as any).portalClientName as string;
+      const profile    = await storage.getPartnerProfileByClientName(clientName);
+      const [invoices, disputes, creditNotes, recons] = await Promise.all([
+        storage.listInvoices({}).catch(() => []),
+        storage.listDisputeCases({ clientName }).catch(() => []),
+        storage.listCreditNotes({ clientName }).catch(() => []),
+        storage.listClientReconciliations({ clientAccountId: clientName }).catch(() => []),
+      ]);
+      const myInvoices  = (invoices as any[]).filter((i: any) => (i.customerName ?? i.clientName ?? '') === clientName);
+      const totalRevenue = myInvoices.reduce((s: number, i: any) => s + (i.totalAmountUsd ?? 0), 0);
+      const unpaid       = myInvoices.filter((i: any) => ['sent', 'overdue'].includes(i.status)).length;
+      const openDisputes = (disputes as any[]).filter((d: any) => ['OPEN', 'INVESTIGATING', 'CUSTOMER_PENDING'].includes(d.status)).length;
+      const approved     = (creditNotes as any[]).filter((n: any) => n.status === 'APPROVED');
+      const lastRecon    = (recons as any[])[0];
+      res.json({
+        clientName,
+        companyDisplayName: profile?.companyDisplayName,
+        invoices:       { total: myInvoices.length, unpaid, totalAmountUsd: +totalRevenue.toFixed(2) },
+        disputes:       { total: (disputes as any[]).length, open: openDisputes },
+        creditNotes:    { total: (creditNotes as any[]).length, approved: approved.length, totalCreditUsd: +approved.reduce((s: number, n: any) => s + (n.amountUsd ?? 0), 0).toFixed(2) },
+        reconciliation: { lastPeriod: lastRecon?.billingPeriod, status: lastRecon?.status, varianceUsd: lastRecon?.varianceUsd },
+      });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/portal/invoices', requirePortalAuth, async (req: any, res: any) => {
+    try {
+      const clientName = (req.session as any).portalClientName as string;
+      const all = await storage.listInvoices({}).catch(() => []);
+      const mine = (all as any[]).filter((i: any) => (i.customerName ?? i.clientName ?? '') === clientName);
+      res.json(mine);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/portal/disputes', requirePortalAuth, async (req: any, res: any) => {
+    try {
+      const clientName = (req.session as any).portalClientName as string;
+      const disputes   = await storage.listDisputeCases({ clientName }).catch(() => []);
+      // Include timeline events for each dispute
+      const withTimelines = await Promise.all((disputes as any[]).map(async (d: any) => {
+        const events = await storage.listDisputeEvents(d.id).catch(() => []);
+        return { ...d, timeline: events };
+      }));
+      res.json(withTimelines);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/portal/credit-notes', requirePortalAuth, async (req: any, res: any) => {
+    try {
+      const clientName = (req.session as any).portalClientName as string;
+      const notes      = await storage.listCreditNotes({ clientName }).catch(() => []);
+      res.json(notes);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/portal/reconciliation', requirePortalAuth, async (req: any, res: any) => {
+    try {
+      const clientName = (req.session as any).portalClientName as string;
+      const records    = await storage.listClientReconciliations({ clientAccountId: clientName }).catch(() => []);
+      res.json(records);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   // ── AI Revenue Assurance Layer ───────────────────────────────────────────────
   // GET  /api/ai-assurance/alerts             — list anomaly alerts
   // GET  /api/ai-assurance/scans              — list scan run history

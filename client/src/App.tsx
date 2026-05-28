@@ -97,6 +97,13 @@ import ClientReconciliationPage from "@/pages/client-reconciliation";
 import MarginIntelligencePage from "@/pages/margin-intelligence";
 import DisputeDefensePage from "@/pages/dispute-defense";
 import AiAssurancePage from "@/pages/ai-assurance";
+import PartnerProfilesPage from "@/pages/partner-profiles";
+import PortalLoginPage from "@/pages/portal/portal-login";
+import PortalDashboardPage from "@/pages/portal/portal-dashboard";
+import PortalInvoicesPage from "@/pages/portal/portal-invoices";
+import PortalDisputesPage from "@/pages/portal/portal-disputes";
+import PortalCreditNotesPage from "@/pages/portal/portal-credit-notes";
+import PortalReconciliationPage from "@/pages/portal/portal-reconciliation";
 import InvoiceJobsPage from "@/pages/invoice-jobs";
 import InvoiceTemplatesPage from "@/pages/invoice-templates";
 import DisputeCasesPage from "@/pages/dispute-cases";
@@ -456,6 +463,15 @@ function Router() {
       <Route path="/ai-assurance">
         {() => <ProtectedRoute component={AiAssurancePage} requiredRoles={['admin', 'management']} />}
       </Route>
+      <Route path="/partner-profiles">
+        {() => <ProtectedRoute component={PartnerProfilesPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/portal/login" component={PortalLoginPage} />
+      <Route path="/portal/dashboard" component={PortalDashboardPage} />
+      <Route path="/portal/invoices" component={PortalInvoicesPage} />
+      <Route path="/portal/disputes" component={PortalDisputesPage} />
+      <Route path="/portal/credit-notes" component={PortalCreditNotesPage} />
+      <Route path="/portal/reconciliation" component={PortalReconciliationPage} />
       <Route path="/invoice-jobs">
         {() => <ProtectedRoute component={InvoiceJobsPage} requiredRoles={['admin', 'management']} />}
       </Route>

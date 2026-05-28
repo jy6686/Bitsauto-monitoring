@@ -293,6 +293,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/credit-notes",             label: "Credit Notes",        icon: ReceiptText,      roles: ['admin','management']                              },
       { href: "/credit-control",           label: "Credit Control",      icon: Banknote,         roles: ['admin','management']                              },
       { href: "/ai-assurance",               label: "AI Assurance",            icon: BrainCircuit,   roles: ['admin','management']                      },
+      { href: "/partner-profiles",           label: "Partner Portal",          icon: ShieldCheck,    roles: ['admin','management']                      },
       { href: "/margin-intelligence",        label: "Margin Intelligence",     icon: TrendingUp,     roles: ['admin','management']                      },
       { href: "/dmr",                        label: "Daily Minutes Report",    icon: Activity,       roles: ['admin','management']                      },
       { href: "/client-reconciliation",    label: "Client Reconciliation",   icon: Users,          roles: ['admin','management']                          },

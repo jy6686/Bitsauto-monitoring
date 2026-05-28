@@ -1,0 +1,270 @@
+At this point, the platform no longer needs another “core system.”
+
+The next phase should be:
+
+controlled externalization of the governance stack.
+
+Meaning:
+you now start exposing the mature backend safely to clients/partners.
+
+So the highest-value next move is:
+
+Partner Operations Portal
+
+(read-only, client-scoped)
+
+And importantly:
+this should NOT be built as “another frontend.”
+
+It should be built as:
+
+a governed external surface of the existing finance stack.
+Why This Is The Correct Next Step
+
+Because now you already have:
+
+invoices,
+DMR,
+disputes,
+credit notes,
+collections,
+acknowledgements,
+reconciliation,
+AI alerts,
+executive reports,
+communication governance.
+
+But:
+all of it is internal.
+
+The portal converts your governance infrastructure into:
+
+customer-facing operational transparency.
+
+That becomes a huge competitive differentiator.
+
+Recommended Portal Architecture
+Separate Role Boundary
+
+Very important:
+
+Internal Platform
+≠
+Partner Portal
+
+Different:
+
+routes,
+layouts,
+auth,
+scopes,
+permissions,
+menus.
+
+Correct architecture:
+
+same backend,
+different access layer.
+What The Portal SHOULD Expose
+Finance
+
+✅ Safe to expose:
+
+invoices,
+invoice PDFs,
+invoice status,
+payment history,
+credit notes,
+balances.
+DMR & Analytics
+
+✅ Safe:
+
+daily traffic summary,
+ASR/ACD trends,
+top destinations,
+monthly summaries,
+QoS overview.
+
+NOT:
+
+vendor routing,
+buy rates,
+margin internals.
+Disputes
+
+✅ Very valuable:
+
+open dispute,
+upload evidence,
+track status,
+comment thread,
+download defense package excerpts.
+
+Huge operational value.
+
+Notifications
+
+✅ Already infrastructure-ready:
+
+rate change notices,
+acknowledgements,
+maintenance notices,
+QoS advisories.
+
+Portal becomes:
+
+centralized client communication history.
+
+Very strong commercially.
+
+Collections
+
+✅ Read-only:
+
+overdue notices,
+grace periods,
+payment reminders,
+settlement status.
+
+NOT:
+
+internal risk scoring.
+What MUST NEVER Be Exposed
+
+Very important.
+
+NEVER expose:
+
+Sippy,
+routing groups,
+vendors,
+carrier costs,
+margin intelligence,
+reconciliation internals,
+AI governance,
+platform administration.
+
+Your earlier security direction was correct:
+
+client portal = controlled read-only transparency layer.
+Recommended Portal Modules
+Phase 1
+
+(Build now)
+
+Module	Status
+Dashboard	Build
+Invoices	Build
+DMR Summary	Build
+Notifications	Build
+Disputes	Build
+Credit Notes	Build
+
+This is enough for initial rollout.
+
+Phase 2
+Module	Purpose
+Payment Upload	Settlement workflow
+Ticketing	Client operations
+QoS Analytics	Customer intelligence
+Usage Reports	Self-service reporting
+Phase 3
+Module	Purpose
+API Access	Enterprise integrations
+Webhooks	Finance automation
+White-label branding	Reseller model
+Multi-user access	Enterprise accounts
+Most Important UX Rule
+
+The portal should feel:
+
+financial,
+operational,
+and trustworthy.
+
+NOT:
+
+telecom engineering-heavy.
+
+Meaning:
+
+no telecom jargon overload,
+no routing exposure,
+no switch complexity,
+no carrier internals.
+
+Clients care about:
+
+traffic,
+invoices,
+disputes,
+quality,
+money.
+
+That’s it.
+
+Strong Recommendation
+
+Build the portal as:
+
+/portal/*
+
+with:
+
+separate layout,
+separate auth middleware,
+separate sidebar,
+separate scoped API wrapper.
+
+Do NOT reuse admin layout.
+
+Very important.
+
+Best Immediate Build Order
+Sprint 1
+Portal Auth
+Portal Layout
+Dashboard
+Invoices
+Notifications
+Sprint 2
+DMR Summary
+Disputes
+Credit Notes
+Collections View
+Sprint 3
+Uploads
+Ticketing
+Analytics
+Exports
+Most Important Strategic Result
+
+Once the portal exists:
+
+BitsAuto becomes:
+
+externally visible governance infrastructure.
+
+That is a huge leap.
+
+Because clients will now directly experience:
+
+transparency,
+operational trust,
+dispute governance,
+financial traceability,
+communication accountability.
+
+Very strong commercial differentiator.
+
+Final Recommendation
+
+Yes —
+
+the Partner Operations Portal is now the correct next phase.
+
+Not because features are missing,
+but because:
+
+the governance backend is finally mature enough to expose safely.

@@ -2099,6 +2099,26 @@ export const collectionEvents = pgTable("collection_events", {
 export type CollectionEvent       = typeof collectionEvents.$inferSelect;
 export type InsertCollectionEvent = typeof collectionEvents.$inferInsert;
 
+// ── Partner Operations Portal ─────────────────────────────────────────────────
+// partner_profiles: maps hashed access codes to a clientName for read-only portal access
+// active: false immediately revokes access
+export const partnerProfiles = pgTable("partner_profiles", {
+  id:                 serial("id").primaryKey(),
+  clientName:         varchar("client_name",          { length: 256 }).notNull(),
+  companyDisplayName: varchar("company_display_name", { length: 256 }),
+  contactEmail:       varchar("contact_email",        { length: 256 }),
+  accessCodeHash:     varchar("access_code_hash",     { length: 256 }).notNull(),
+  accessCodePrefix:   varchar("access_code_prefix",   { length: 8   }).notNull(),
+  logoUrl:            text("logo_url"),
+  welcomeMessage:     text("welcome_message"),
+  active:             boolean("active").notNull().default(true),
+  lastLoginAt:        timestamp("last_login_at"),
+  createdAt:          timestamp("created_at").defaultNow().notNull(),
+  updatedAt:          timestamp("updated_at").defaultNow().notNull(),
+});
+export type PartnerProfile       = typeof partnerProfiles.$inferSelect;
+export type InsertPartnerProfile = typeof partnerProfiles.$inferInsert;
+
 // ── AI Revenue Assurance Layer ────────────────────────────────────────────────
 // advisory-only anomaly detection — AI suggests, humans approve, platform acts
 // alert_type: margin_collapse | asr_drop | revenue_drop | reconciliation_drift | credit_note_clustering

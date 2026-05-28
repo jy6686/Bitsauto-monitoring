@@ -85,6 +85,8 @@ import {
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
   dailyMinutesReports,
   type DailyMinutesReport, type InsertDailyMinutesReport,
+  partnerProfiles,
+  type PartnerProfile, type InsertPartnerProfile,
   aiRevenueAlerts,
   type AiRevenueAlert, type InsertAiRevenueAlert,
   aiScanRuns,
@@ -395,6 +397,15 @@ export interface IStorage {
   listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string }): Promise<DailyMinutesReport[]>;
   getDMRReport(id: number): Promise<DailyMinutesReport | null>;
   bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]>;
+
+  // ── Partner Operations Portal ──────────────────────────────────────────────
+  createPartnerProfile(data: Omit<InsertPartnerProfile, 'accessCodeHash' | 'accessCodePrefix'> & { accessCodeHash: string; accessCodePrefix: string }): Promise<PartnerProfile>;
+  listPartnerProfiles(): Promise<PartnerProfile[]>;
+  getPartnerProfileById(id: number): Promise<PartnerProfile | null>;
+  getPartnerProfileByClientName(clientName: string): Promise<PartnerProfile | null>;
+  findPartnerByCodePrefix(prefix: string): Promise<PartnerProfile[]>;
+  updatePartnerProfile(id: number, updates: Partial<PartnerProfile>): Promise<PartnerProfile>;
+  deletePartnerProfile(id: number): Promise<void>;
 
   // ── AI Revenue Assurance Layer ─────────────────────────────────────────────
   createAiAlert(data: InsertAiRevenueAlert): Promise<AiRevenueAlert>;
@@ -2390,6 +2401,36 @@ export class DatabaseStorage implements IStorage {
   async bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]> {
     if (rows.length === 0) return [];
     return db.insert(dailyMinutesReports).values(rows).returning();
+  }
+
+  // ── Partner Operations Portal ─────────────────────────────────────────────────────
+  async createPartnerProfile(data: any): Promise<PartnerProfile> {
+    const [row] = await db.insert(partnerProfiles).values(data).returning();
+    return row;
+  }
+  async listPartnerProfiles(): Promise<PartnerProfile[]> {
+    return db.select().from(partnerProfiles).orderBy(desc(partnerProfiles.createdAt));
+  }
+  async getPartnerProfileById(id: number): Promise<PartnerProfile | null> {
+    const [row] = await db.select().from(partnerProfiles).where(eq(partnerProfiles.id, id));
+    return row ?? null;
+  }
+  async getPartnerProfileByClientName(clientName: string): Promise<PartnerProfile | null> {
+    const [row] = await db.select().from(partnerProfiles).where(eq(partnerProfiles.clientName, clientName));
+    return row ?? null;
+  }
+  async findPartnerByCodePrefix(prefix: string): Promise<PartnerProfile[]> {
+    return db.select().from(partnerProfiles).where(
+      and(eq(partnerProfiles.accessCodePrefix, prefix), eq(partnerProfiles.active, true))
+    );
+  }
+  async updatePartnerProfile(id: number, updates: Partial<PartnerProfile>): Promise<PartnerProfile> {
+    const [row] = await db.update(partnerProfiles).set({ ...updates, updatedAt: new Date() } as any)
+      .where(eq(partnerProfiles.id, id)).returning();
+    return row;
+  }
+  async deletePartnerProfile(id: number): Promise<void> {
+    await db.delete(partnerProfiles).where(eq(partnerProfiles.id, id));
   }
 
   // ── AI Revenue Assurance Layer ────────────────────────────────────────────────────
