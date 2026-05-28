@@ -21,6 +21,9 @@ import {
 import {
   Form, FormField, FormItem, FormLabel, FormControl, FormMessage,
 } from "@/components/ui/form";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle2, AlertTriangle, XCircle, Clock, RefreshCw, Search,
@@ -108,12 +111,24 @@ const importSchema = z.object({
 });
 type ImportForm = z.infer<typeof importSchema>;
 
+interface SippyAcct {
+  iAccount: number;
+  username: string;
+  description: string;
+}
+
 export default function ClientReconciliationPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [filter, setFilter] = useState('');
   const [showImport, setShowImport] = useState(false);
+
+  const { data: sippyAccounts = [] } = useQuery<SippyAcct[]>({
+    queryKey: ["/api/sippy/accounts"],
+    queryFn: () => apiRequest("GET", "/api/sippy/accounts").then(r => r.json()).then(d => Array.isArray(d.accounts) ? d.accounts : []),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const form = useForm<ImportForm>({
     resolver: zodResolver(importSchema),
@@ -458,9 +473,33 @@ export default function ClientReconciliationPage() {
               <FormField control={form.control} name="clientName" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Client Name</FormLabel>
-                  <FormControl>
-                    <Input data-testid="input-client-name" placeholder="Acme Telecom Ltd" {...field} />
-                  </FormControl>
+                  {sippyAccounts.length > 0 ? (
+                    <Select
+                      value={field.value}
+                      onValueChange={v => {
+                        field.onChange(v);
+                        const acct = sippyAccounts.find(a => a.username === v);
+                        if (acct) form.setValue('clientAccountId', String(acct.iAccount));
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger data-testid="select-client-name">
+                          <SelectValue placeholder="Select Sippy account…" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {sippyAccounts.map(a => (
+                          <SelectItem key={a.iAccount} value={a.username}>
+                            {a.username}{a.description ? ` — ${a.description}` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <FormControl>
+                      <Input data-testid="input-client-name" placeholder="Acme Telecom Ltd" {...field} />
+                    </FormControl>
+                  )}
                   <FormMessage />
                 </FormItem>
               )} />

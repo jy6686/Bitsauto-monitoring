@@ -266,7 +266,13 @@ export default function InvoicesPage() {
           <div className="space-y-4">
             <div>
               <Label className="text-xs mb-1.5 block">Tariff</Label>
-              <Select value={form.iTariff} onValueChange={v => setForm(f => ({ ...f, iTariff: v }))}>
+              <Select
+                value={form.iTariff}
+                onValueChange={v => {
+                  const t = tariffs.find(x => String(x.iTariff) === v);
+                  setForm(f => ({ ...f, iTariff: v, customerName: t ? t.name : f.customerName }));
+                }}
+              >
                 <SelectTrigger data-testid="select-inv-tariff">
                   <SelectValue placeholder="Select tariff" />
                 </SelectTrigger>
@@ -283,7 +289,7 @@ export default function InvoicesPage() {
                 data-testid="input-customer-name"
                 value={form.customerName}
                 onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))}
-                placeholder="ACME Telecom"
+                placeholder="Auto-filled from tariff, or type manually"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">

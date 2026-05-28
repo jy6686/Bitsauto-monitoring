@@ -114,10 +114,18 @@ export interface DMRGenerateResult {
  * Pulls Sippy P&L + per-account stats, aggregates, compares, classifies, persists.
  * All rows are inserted as a new version (existing rows for the date are NOT deleted).
  */
+export interface CdrFallbackClient {
+  name:          string;
+  durationSec:   number;
+  amount:        number;
+  totalCalls:    number;
+  answeredCalls: number;
+}
+
 export async function generateDMR(
   config: SippyConfig,
   targetDate: Date,
-  opts: { notes?: string } = {},
+  opts: { notes?: string; cdrFallbackClients?: CdrFallbackClient[] } = {},
 ): Promise<DMRGenerateResult> {
   const dateStr = targetDate.toISOString().slice(0, 10);
   const errors:  string[] = [];
@@ -180,6 +188,22 @@ export async function generateDMR(
     }
   } catch (err: any) {
     errors.push(`Per-account stats error: ${err.message}`);
+  }
+
+  // ── CDR cache fallback — when Sippy per-account stats return nothing ──────
+  // Use pre-aggregated CDR entries (passed from route handler) to generate
+  // per-client rows so the DMR has useful data even when Sippy auth fails.
+  if (clients.length === 0 && opts.cdrFallbackClients && opts.cdrFallbackClients.length > 0) {
+    clients = opts.cdrFallbackClients.map(c => ({
+      name:       c.name,
+      durationSec: c.durationSec,
+      amount:     c.amount,
+      totalCalls: c.totalCalls,
+      answeredCalls: c.answeredCalls,
+      asr:        c.totalCalls > 0 ? (c.answeredCalls / c.totalCalls) * 100 : 0,
+      acdSec:     c.answeredCalls > 0 ? c.durationSec / c.answeredCalls : 0,
+    }));
+    errors.push(`Sippy per-account stats unavailable — ${clients.length} client(s) sourced from CDR cache.`);
   }
 
   // ── Build rows ─────────────────────────────────────────────────────────────
