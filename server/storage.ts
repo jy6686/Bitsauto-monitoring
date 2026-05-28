@@ -85,6 +85,12 @@ import {
   type InvoiceCdrSnapshot, type InsertInvoiceCdrSnapshot,
   dailyMinutesReports,
   type DailyMinutesReport, type InsertDailyMinutesReport,
+  aiRevenueAlerts,
+  type AiRevenueAlert, type InsertAiRevenueAlert,
+  aiScanRuns,
+  type AiScanRun, type InsertAiScanRun,
+  adjustmentLedger,
+  type AdjustmentLedgerEntry, type InsertAdjustmentLedgerEntry,
   invoiceTemplates,
   type InvoiceTemplate, type InsertInvoiceTemplate,
   clientBrandingProfiles,
@@ -389,6 +395,16 @@ export interface IStorage {
   listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string }): Promise<DailyMinutesReport[]>;
   getDMRReport(id: number): Promise<DailyMinutesReport | null>;
   bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]>;
+
+  // ── AI Revenue Assurance Layer ─────────────────────────────────────────────
+  createAiAlert(data: InsertAiRevenueAlert): Promise<AiRevenueAlert>;
+  listAiAlerts(opts?: { status?: string; severity?: string; alertType?: string; clientName?: string; limit?: number }): Promise<AiRevenueAlert[]>;
+  updateAiAlert(id: number, updates: Partial<AiRevenueAlert>): Promise<AiRevenueAlert>;
+  createScanRun(data: Partial<InsertAiScanRun>): Promise<AiScanRun>;
+  listScanRuns(limit?: number): Promise<AiScanRun[]>;
+  updateScanRun(id: number, updates: Partial<AiScanRun>): Promise<AiScanRun>;
+  createLedgerEntry(data: InsertAdjustmentLedgerEntry): Promise<AdjustmentLedgerEntry>;
+  listLedgerEntries(opts?: { clientName?: string; referenceType?: string; referenceId?: string; limit?: number }): Promise<AdjustmentLedgerEntry[]>;
 
   // ── Multi-Template Invoice Rendering ──────────────────────────────────────
   createInvoiceTemplate(data: InsertInvoiceTemplate): Promise<InvoiceTemplate>;
@@ -2374,6 +2390,50 @@ export class DatabaseStorage implements IStorage {
   async bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]> {
     if (rows.length === 0) return [];
     return db.insert(dailyMinutesReports).values(rows).returning();
+  }
+
+  // ── AI Revenue Assurance Layer ────────────────────────────────────────────────────
+  async createAiAlert(data: InsertAiRevenueAlert): Promise<AiRevenueAlert> {
+    const [row] = await db.insert(aiRevenueAlerts).values(data).returning();
+    return row;
+  }
+  async listAiAlerts(opts: { status?: string; severity?: string; alertType?: string; clientName?: string; limit?: number } = {}): Promise<AiRevenueAlert[]> {
+    const conditions = [];
+    if (opts.status)     conditions.push(eq(aiRevenueAlerts.status,    opts.status));
+    if (opts.severity)   conditions.push(eq(aiRevenueAlerts.severity,  opts.severity));
+    if (opts.alertType)  conditions.push(eq(aiRevenueAlerts.alertType, opts.alertType));
+    if (opts.clientName) conditions.push(eq(aiRevenueAlerts.clientName, opts.clientName));
+    const q = db.select().from(aiRevenueAlerts);
+    const result = (conditions.length > 0 ? q.where(and(...conditions)) : q).orderBy(desc(aiRevenueAlerts.createdAt));
+    return opts.limit ? result.limit(opts.limit) : result;
+  }
+  async updateAiAlert(id: number, updates: Partial<AiRevenueAlert>): Promise<AiRevenueAlert> {
+    const [row] = await db.update(aiRevenueAlerts).set(updates as any).where(eq(aiRevenueAlerts.id, id)).returning();
+    return row;
+  }
+  async createScanRun(data: Partial<InsertAiScanRun>): Promise<AiScanRun> {
+    const [row] = await db.insert(aiScanRuns).values({ alertsCreated: 0, detectorsRan: 0, status: 'running', ...data }).returning();
+    return row;
+  }
+  async listScanRuns(limit = 50): Promise<AiScanRun[]> {
+    return db.select().from(aiScanRuns).orderBy(desc(aiScanRuns.startedAt)).limit(limit);
+  }
+  async updateScanRun(id: number, updates: Partial<AiScanRun>): Promise<AiScanRun> {
+    const [row] = await db.update(aiScanRuns).set(updates as any).where(eq(aiScanRuns.id, id)).returning();
+    return row;
+  }
+  async createLedgerEntry(data: InsertAdjustmentLedgerEntry): Promise<AdjustmentLedgerEntry> {
+    const [row] = await db.insert(adjustmentLedger).values(data).returning();
+    return row;
+  }
+  async listLedgerEntries(opts: { clientName?: string; referenceType?: string; referenceId?: string; limit?: number } = {}): Promise<AdjustmentLedgerEntry[]> {
+    const conditions = [];
+    if (opts.clientName)    conditions.push(eq(adjustmentLedger.clientName,    opts.clientName));
+    if (opts.referenceType) conditions.push(eq(adjustmentLedger.referenceType, opts.referenceType));
+    if (opts.referenceId)   conditions.push(eq(adjustmentLedger.referenceId,   opts.referenceId));
+    const q = db.select().from(adjustmentLedger);
+    const result = (conditions.length > 0 ? q.where(and(...conditions)) : q).orderBy(desc(adjustmentLedger.createdAt));
+    return opts.limit ? result.limit(opts.limit) : result;
   }
 
   // ── Multi-Template Invoice Rendering ─────────────────────────────────────────────

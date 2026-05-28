@@ -3,3 +3,4 @@
 - [Sippy portal auth chain for /asr_acd.php](sippy-portal-auth-chain.md) — ssp-root needs admin_web_password (not api_admin_password) for portal login; CDR list page vs /asr_acd.php are structurally different data layers; set portal_username=ssp-root + portal_password=admin_web_password to restore native aggregation.
 - [ASR/ACD metric governance](asr-acd-metric-governance.md) — null vs zero for NER/FAS; dual-layer telemetry design; P2-C/D enrichment overlay plan.
 - [Sippy service layer architecture](sippy-service-layer.md) — Layer 2 middleware at server/services/sippy/; all new routes must import from index.ts there, never from server/sippy.ts directly.
+- [Finance governance modules](finance-governance-modules.md) — migrations 015-018 completed; 4 modules fully wired: Invoice Templates, Credit Notes, Credit Control, AI Assurance + Adjustment Ledger.

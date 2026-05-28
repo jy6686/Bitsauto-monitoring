@@ -27390,6 +27390,97 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (err: any) { res.status(400).json({ error: err.message }); }
   });
 
+  // ── AI Revenue Assurance Layer ───────────────────────────────────────────────
+  // GET  /api/ai-assurance/alerts             — list anomaly alerts
+  // GET  /api/ai-assurance/scans              — list scan run history
+  // POST /api/ai-assurance/scan               — trigger a full assurance scan
+  // PATCH /api/ai-assurance/alerts/:id/review  — mark as reviewing
+  // PATCH /api/ai-assurance/alerts/:id/resolve — mark as resolved
+  // PATCH /api/ai-assurance/alerts/:id/dismiss — dismiss with reason
+  // GET  /api/ai-assurance/ledger             — list adjustment ledger entries
+  // POST /api/ai-assurance/ledger             — create ledger entry
+
+  app.get('/api/ai-assurance/alerts', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { status, severity, alertType, clientName } = req.query;
+      const rows = await storage.listAiAlerts({
+        status:     status     as string | undefined,
+        severity:   severity   as string | undefined,
+        alertType:  alertType  as string | undefined,
+        clientName: clientName as string | undefined,
+      });
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/ai-assurance/scans', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const rows = await storage.listScanRuns(50);
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/ai-assurance/scan', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { runFullScan } = await import('./services/sippy/index');
+      const result = await runFullScan((req as any).user?.username ?? 'operator');
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.patch('/api/ai-assurance/alerts/:id/review', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { reviewAlert } = await import('./services/sippy/index');
+      const alert = await reviewAlert(id, (req as any).user?.username ?? 'operator');
+      res.json(alert);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/ai-assurance/alerts/:id/resolve', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { resolveAlert } = await import('./services/sippy/index');
+      const alert = await resolveAlert(id, (req as any).user?.username ?? 'operator');
+      res.json(alert);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.patch('/api/ai-assurance/alerts/:id/dismiss', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { reason } = req.body ?? {};
+      const { dismissAlert } = await import('./services/sippy/index');
+      const alert = await dismissAlert(id, reason ?? 'Dismissed by operator', (req as any).user?.username ?? 'operator');
+      res.json(alert);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  app.get('/api/ai-assurance/ledger', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { clientName, referenceType, referenceId } = req.query;
+      const rows = await storage.listLedgerEntries({
+        clientName:    clientName    as string | undefined,
+        referenceType: referenceType as string | undefined,
+        referenceId:   referenceId   as string | undefined,
+      });
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/ai-assurance/ledger', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const row = await storage.createLedgerEntry({
+        ...req.body,
+        actorName: req.body.actorName ?? (req as any).user?.username ?? 'operator',
+      });
+      res.status(201).json(row);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
   // ── Multi-Template Invoice Rendering ─────────────────────────────────────────
   // GET  /api/invoice-templates               — list templates
   // POST /api/invoice-templates               — create template

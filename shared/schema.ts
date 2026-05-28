@@ -2099,6 +2099,67 @@ export const collectionEvents = pgTable("collection_events", {
 export type CollectionEvent       = typeof collectionEvents.$inferSelect;
 export type InsertCollectionEvent = typeof collectionEvents.$inferInsert;
 
+// ── AI Revenue Assurance Layer ────────────────────────────────────────────────
+// advisory-only anomaly detection — AI suggests, humans approve, platform acts
+// alert_type: margin_collapse | asr_drop | revenue_drop | reconciliation_drift | credit_note_clustering
+// severity: low | medium | high | critical
+// status: OPEN → REVIEWING → RESOLVED | DISMISSED
+export const aiRevenueAlerts = pgTable("ai_revenue_alerts", {
+  id:                serial("id").primaryKey(),
+  alertType:         varchar("alert_type",      { length: 64  }).notNull(),
+  severity:          varchar("severity",         { length: 16  }).notNull().default('medium'),
+  anomalyScore:      integer("anomaly_score").notNull().default(0),
+  clientName:        varchar("client_name",      { length: 256 }),
+  vendorName:        varchar("vendor_name",      { length: 256 }),
+  billingPeriod:     varchar("billing_period",   { length: 7   }),
+  baselineValue:     real("baseline_value"),
+  currentValue:      real("current_value"),
+  deviationPct:      real("deviation_pct"),
+  evidence:          jsonb("evidence"),
+  recommendedAction: text("recommended_action"),
+  status:            varchar("status",           { length: 32  }).notNull().default('OPEN'),
+  reviewedBy:        varchar("reviewed_by",      { length: 128 }),
+  reviewedAt:        timestamp("reviewed_at"),
+  resolvedAt:        timestamp("resolved_at"),
+  dismissedReason:   text("dismissed_reason"),
+  detectedOn:        timestamp("detected_on").defaultNow().notNull(),
+  createdAt:         timestamp("created_at").defaultNow().notNull(),
+});
+export type AiRevenueAlert       = typeof aiRevenueAlerts.$inferSelect;
+export type InsertAiRevenueAlert = typeof aiRevenueAlerts.$inferInsert;
+
+// ai_scan_runs: audit log of every assurance scan execution
+export const aiScanRuns = pgTable("ai_scan_runs", {
+  id:            serial("id").primaryKey(),
+  triggeredBy:   varchar("triggered_by",  { length: 128 }),
+  alertsCreated: integer("alerts_created").notNull().default(0),
+  detectorsRan:  integer("detectors_ran").notNull().default(0),
+  durationMs:    integer("duration_ms"),
+  status:        varchar("status",        { length: 32  }).notNull().default('running'),
+  error:         text("error"),
+  startedAt:     timestamp("started_at").defaultNow().notNull(),
+  completedAt:   timestamp("completed_at"),
+});
+export type AiScanRun       = typeof aiScanRuns.$inferSelect;
+export type InsertAiScanRun = typeof aiScanRuns.$inferInsert;
+
+// adjustment_ledger: double-entry style ledger for all credit/debit adjustments
+// reference_type: credit_note | invoice | dispute | manual | write_off | carry_forward
+export const adjustmentLedger = pgTable("adjustment_ledger", {
+  id:              serial("id").primaryKey(),
+  clientName:      varchar("client_name",    { length: 256 }).notNull(),
+  referenceType:   varchar("reference_type", { length: 32  }).notNull(),
+  referenceId:     varchar("reference_id",   { length: 64  }).notNull(),
+  debitUsd:        real("debit_usd"),
+  creditUsd:       real("credit_usd"),
+  balanceAfterUsd: real("balance_after_usd"),
+  description:     text("description"),
+  actorName:       varchar("actor_name",     { length: 128 }),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+});
+export type AdjustmentLedgerEntry       = typeof adjustmentLedger.$inferSelect;
+export type InsertAdjustmentLedgerEntry = typeof adjustmentLedger.$inferInsert;
+
 // ── Invoice Delivery Automation — finance workflow governance ─────────────────
 // invoice_jobs orchestrates the full lifecycle: draft → review → approve → send
 // status: PENDING | GENERATED | REVIEW | APPROVED | SENT | FAILED | RETRYING | CANCELLED

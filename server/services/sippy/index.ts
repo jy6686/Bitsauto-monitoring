@@ -120,6 +120,19 @@ export {
   getDMRTrend,
 } from './sippy-dmr.service';
 
+// ── AI Revenue Assurance Layer ────────────────────────────────────────────────
+export {
+  runFullScan,
+  detectMarginCollapse,
+  detectASRDrop,
+  detectRevenueDrop,
+  detectReconciliationDrift,
+  detectCreditNoteClustering,
+  reviewAlert,
+  dismissAlert,
+  resolveAlert,
+} from './sippy-ai-assurance.service';
+
 // ── Multi-Template Invoice Rendering ─────────────────────────────────────────
 export {
   resolveTemplate,
