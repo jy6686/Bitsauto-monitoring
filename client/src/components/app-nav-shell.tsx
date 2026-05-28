@@ -19,7 +19,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
 import { useChatDrawer } from "@/context/chat-drawer-context";
-import { WorkspaceSwitcherPill, PortalTopNav } from "@/components/portal-sidebar";
+import { PortalTopNav } from "@/components/portal-sidebar";
 import { usePortal } from "@/context/portal-context";
 import { FavoritesStrip } from "@/components/favorites-strip";
 
@@ -306,6 +306,38 @@ const DOMAINS: Domain[] = [
 ];
 
 const NAV_HIDDEN_KEY = 'voip-nav-hidden-domains';
+
+// ── Portal workspace button colour maps ───────────────────────────────────────
+const PORTAL_BTN_ACTIVE: Record<string, string> = {
+  purple: "bg-purple-500/20 text-purple-200 border border-purple-500/40",
+  blue:   "bg-blue-500/20 text-blue-200 border border-blue-500/40",
+  green:  "bg-emerald-500/20 text-emerald-200 border border-emerald-500/40",
+  indigo: "bg-indigo-500/20 text-indigo-200 border border-indigo-500/40",
+  slate:  "bg-slate-500/20 text-slate-200 border border-slate-500/40",
+  neutral:"bg-violet-500/20 text-violet-200 border border-violet-500/40",
+  amber:  "bg-amber-500/20 text-amber-200 border border-amber-500/40",
+  teal:   "bg-teal-500/20 text-teal-200 border border-teal-500/40",
+};
+const PORTAL_BTN_IDLE: Record<string, string> = {
+  purple: "hover:bg-purple-500/10 hover:text-purple-300 border border-transparent hover:border-purple-500/20",
+  blue:   "hover:bg-blue-500/10 hover:text-blue-300 border border-transparent hover:border-blue-500/20",
+  green:  "hover:bg-emerald-500/10 hover:text-emerald-300 border border-transparent hover:border-emerald-500/20",
+  indigo: "hover:bg-indigo-500/10 hover:text-indigo-300 border border-transparent hover:border-indigo-500/20",
+  slate:  "hover:bg-slate-500/10 hover:text-slate-300 border border-transparent hover:border-slate-500/20",
+  neutral:"hover:bg-violet-500/10 hover:text-violet-300 border border-transparent hover:border-violet-500/20",
+  amber:  "hover:bg-amber-500/10 hover:text-amber-300 border border-transparent hover:border-amber-500/20",
+  teal:   "hover:bg-teal-500/10 hover:text-teal-300 border border-transparent hover:border-teal-500/20",
+};
+const PORTAL_UNDERLINE: Record<string, string> = {
+  purple: "bg-gradient-to-r from-purple-400 to-indigo-500",
+  blue:   "bg-gradient-to-r from-blue-400 to-cyan-500",
+  green:  "bg-gradient-to-r from-emerald-400 to-teal-500",
+  indigo: "bg-gradient-to-r from-indigo-400 to-violet-500",
+  slate:  "bg-gradient-to-r from-slate-400 to-slate-600",
+  neutral:"bg-gradient-to-r from-violet-400 to-indigo-500",
+  amber:  "bg-gradient-to-r from-amber-400 to-orange-500",
+  teal:   "bg-gradient-to-r from-teal-400 to-emerald-500",
+};
 const ROUTE_META: Record<string, { domain: string; label: string }> = {};
 for (const d of DOMAINS) {
   for (const g of d.groups) {
@@ -537,7 +569,7 @@ export function AppNavShell() {
 
   const { isOpen: chatOpen, toggle: toggleChat } = useChatDrawer();
 
-  const { isPortalMode } = usePortal();
+  const { isPortalMode, allowedPortals, activePortal: activePortalSlug, setPortal, exitPortalMode } = usePortal();
   const meta          = inferMeta(location);
   const activeDomain  = DOMAINS.find(d => d.id === meta.domain);
   const isDashboard   = location === '/';
@@ -656,7 +688,54 @@ export function AppNavShell() {
         {/* ── Divider ── */}
         <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
 
-        {/* ── Centre: portal section tabs (Level 2) OR standard domain tabs ── */}
+        {/* ── LEVEL 1: Portal Workspace Bar ─────────────────────────────────── */}
+        {allowedPortals.length > 0 && (
+          <div className="flex items-center gap-0.5 flex-shrink-0" role="group" aria-label="Portal workspaces">
+            {allowedPortals.map(portal => {
+              const isActive = portal.slug === activePortalSlug;
+              const theme    = portal.theme ?? "neutral";
+              return (
+                <button
+                  key={portal.slug}
+                  onClick={() => isActive ? exitPortalMode() : setPortal(portal.slug as any)}
+                  data-testid={`nav-portal-${portal.slug}`}
+                  title={isActive ? `Exit ${portal.name} workspace` : `Switch to ${portal.name} workspace`}
+                  className={cn(
+                    "relative flex items-center gap-1.5 h-[30px] px-3 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-all duration-150 whitespace-nowrap flex-shrink-0",
+                    isActive
+                      ? PORTAL_BTN_ACTIVE[theme] ?? PORTAL_BTN_ACTIVE.neutral
+                      : cn("text-muted-foreground/45 transition-colors", PORTAL_BTN_IDLE[theme] ?? PORTAL_BTN_IDLE.neutral)
+                  )}
+                >
+                  {isActive && (
+                    <span className={cn(
+                      "absolute bottom-0 left-1.5 right-1.5 h-[2px] rounded-full pointer-events-none",
+                      PORTAL_UNDERLINE[theme] ?? PORTAL_UNDERLINE.neutral
+                    )} />
+                  )}
+                  <span>{portal.name}</span>
+                </button>
+              );
+            })}
+            {isPortalMode && (
+              <button
+                onClick={() => exitPortalMode()}
+                data-testid="nav-exit-portal"
+                title="Return to full platform view"
+                className="flex items-center gap-1 h-[24px] px-2 rounded-md text-[10px] text-muted-foreground/30 hover:text-muted-foreground hover:bg-white/[0.05] transition-colors ml-0.5"
+              >
+                ← All
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Divider between portal bar and domain tabs */}
+        {allowedPortals.length > 0 && (
+          <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
+        )}
+
+        {/* ── LEVEL 2: Domain/Section tabs ───────────────────────────────────── */}
         {isPortalMode ? (
           <PortalTopNav />
         ) : (
@@ -837,9 +916,6 @@ export function AppNavShell() {
               </span>
             )}
           </Link>
-
-          {/* Portal workspace switcher */}
-          <WorkspaceSwitcherPill />
 
           {/* Theme toggle */}
           <button
