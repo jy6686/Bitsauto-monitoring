@@ -5,9 +5,9 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { LayoutShell } from "@/components/layout-shell";
 import {
-  DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
+  DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, DragOverlay,
 } from "@dnd-kit/core";
-import type { DragEndEvent } from "@dnd-kit/core";
+import type { DragStartEvent, DragEndEvent } from "@dnd-kit/core";
 import {
   SortableContext, sortableKeyboardCoordinates, useSortable,
   verticalListSortingStrategy, arrayMove,
@@ -21,6 +21,7 @@ import {
   ClipboardList, ReceiptText, Phone, Bell, Monitor, Radio, ShieldAlert,
   Settings, Key, Lock, Banknote, ArrowRightLeft, FileSpreadsheet,
   TrendingDown, BrainCircuit, SlidersHorizontal, HeartPulse, Zap, Wrench,
+  Pin, Sparkles, ChevronRight, Zap as ZapIcon,
 } from "lucide-react";
 import type { PortalDefinition, PortalSection, PortalModuleWithMeta, NavigationModule } from "@shared/schema";
 
@@ -74,10 +75,49 @@ const SECTION_PKEY = "/api/portal/sections";
 const MODULES_PKEY = "/api/portal/modules";
 const PORTAL_PKEY  = "/api/portal/definitions";
 
+// ── Section Presets ────────────────────────────────────────────────────────────
+type PresetConfig = {
+  label: string;
+  desc: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+  patch: Record<string, any>;
+};
+const SECTION_PRESETS: PresetConfig[] = [
+  {
+    label: "KAM Compact",
+    desc: "Compact widget, client scope, 24h default",
+    icon: Users,
+    color: "text-purple-400",
+    patch: { densityMode: "dense", widgetProfile: "compact", accessScope: "client", defaultTimeRange: "24h", realtimeEnabled: false },
+  },
+  {
+    label: "NOC Dense",
+    desc: "Dense density, realtime on, live widget",
+    icon: Monitor,
+    color: "text-blue-400",
+    patch: { densityMode: "dense", widgetProfile: "live", realtimeEnabled: true, defaultTimeRange: "1h" },
+  },
+  {
+    label: "Finance Standard",
+    desc: "Standard layout, billing month, read-only",
+    icon: Wallet,
+    color: "text-emerald-400",
+    patch: { densityMode: "standard", widgetProfile: "standard", defaultTimeRange: "billing_month", visibility: "read_only" },
+  },
+  {
+    label: "Realtime Live",
+    desc: "Live widget, realtime on, 1h window",
+    icon: ZapIcon,
+    color: "text-amber-400",
+    patch: { widgetProfile: "live", realtimeEnabled: true, defaultTimeRange: "1h" },
+  },
+];
+
 // ── Sortable Item Wrapper ──────────────────────────────────────────────────────
 function SortableItem({ id, children }: { id: string | number; children: (handle: React.ReactNode) => React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: String(id) });
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 };
   const handle = (
     <button
       {...attributes}
@@ -103,12 +143,7 @@ type AssignmentDraft = {
 };
 
 function ModuleEditPanel({
-  mod,
-  draft,
-  setDraft,
-  onSave,
-  onCancel,
-  isPending,
+  mod, draft, setDraft, onSave, onCancel, isPending,
 }: {
   mod: PortalModuleWithMeta;
   draft: AssignmentDraft;
@@ -254,6 +289,66 @@ function ModuleEditPanel({
   );
 }
 
+// ── Drag Overlay Card ──────────────────────────────────────────────────────────
+function DragPreviewCard({ mod }: { mod: PortalModuleWithMeta | null }) {
+  if (!mod) return null;
+  return (
+    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-indigo-500/30 bg-[#0e0e14] shadow-xl shadow-black/40 cursor-grabbing backdrop-blur-sm min-w-[200px]">
+      <GripVertical className="h-3.5 w-3.5 text-indigo-400/60 flex-shrink-0" />
+      <Icon k={mod.icon} className="h-3.5 w-3.5 text-indigo-300/70 flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-foreground truncate">{mod.displayLabel ?? mod.title}</p>
+        <p className="text-[10px] text-muted-foreground/40 truncate">{mod.route}</p>
+      </div>
+      {mod.isPinned && <span className="text-[9px] text-violet-400">★</span>}
+    </div>
+  );
+}
+
+// ── Section Presets Panel ──────────────────────────────────────────────────────
+function SectionPresetsPanel({
+  sectionMods,
+  onApply,
+  onClose,
+}: {
+  sectionMods: PortalModuleWithMeta[];
+  onApply: (ids: number[], patch: Record<string, any>) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mx-3 mb-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-3 space-y-2">
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400/80 flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3" /> Apply preset to all {sectionMods.length} module{sectionMods.length !== 1 ? 's' : ''}
+        </p>
+        <button onClick={onClose} className="text-muted-foreground/30 hover:text-muted-foreground transition-colors p-0.5">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {SECTION_PRESETS.map(preset => {
+          const I = preset.icon;
+          return (
+            <button
+              key={preset.label}
+              onClick={() => { onApply(sectionMods.map(m => m.id), preset.patch); onClose(); }}
+              data-testid={`preset-${preset.label.toLowerCase().replace(/\s+/g, '-')}`}
+              className="group flex items-start gap-2 p-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.1] transition-all text-left"
+            >
+              <I className={cn("h-3.5 w-3.5 flex-shrink-0 mt-0.5", preset.color)} />
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold text-foreground/90 leading-tight">{preset.label}</p>
+                <p className="text-[9px] text-muted-foreground/40 mt-0.5 leading-tight">{preset.desc}</p>
+              </div>
+              <ChevronRight className="h-3 w-3 text-muted-foreground/20 group-hover:text-muted-foreground/50 flex-shrink-0 mt-0.5 ml-auto transition-colors" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function NavigationGovernancePage() {
   const { toast } = useToast();
@@ -269,6 +364,10 @@ export default function NavigationGovernancePage() {
   const [addSectionIcon,  setAddSectionIcon]  = useState("circle");
   const [editAssignmentId, setEditAssignmentId] = useState<number | null>(null);
   const [editAssignmentDraft, setEditAssignmentDraft] = useState<AssignmentDraft>({});
+  // P3: drag overlay
+  const [activeDragId, setActiveDragId] = useState<number | null>(null);
+  // P4: section presets open state — stores the section id with presets panel open
+  const [presetsOpenSection, setPresetsOpenSection] = useState<number | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -367,9 +466,23 @@ export default function NavigationGovernancePage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [MODULES_PKEY, selectedPortal] }),
   });
 
+  // P4: batch preset apply — fires a mutation for each module
+  async function applyPreset(ids: number[], patch: Record<string, any>) {
+    let count = 0;
+    for (const id of ids) {
+      try {
+        await apiRequest('PUT', `/api/governance/assignments/${id}`, patch);
+        count++;
+      } catch { /* skip failed */ }
+    }
+    queryClient.invalidateQueries({ queryKey: [MODULES_PKEY, selectedPortal] });
+    toast({ title: `Preset applied`, description: `Updated ${count} module${count !== 1 ? 's' : ''}` });
+  }
+
   // DnD — section reorder
   function handleSectionDragEnd(event: DragEndEvent) {
     const { active, over } = event;
+    setActiveDragId(null);
     if (!over || active.id === over.id) return;
     const ids = sections.map(s => String(s.id));
     const reordered = arrayMove(sections, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)));
@@ -379,10 +492,15 @@ export default function NavigationGovernancePage() {
   // DnD — module reorder within a section
   function handleModuleDragEnd(event: DragEndEvent, sectionKey: string, mods: PortalModuleWithMeta[]) {
     const { active, over } = event;
+    setActiveDragId(null);
     if (!over || active.id === over.id) return;
     const ids = mods.map(m => String(m.id));
     const reordered = arrayMove(mods, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)));
     reorderModulesMut.mutate({ orderedIds: reordered.map(m => m.id), sectionKey });
+  }
+
+  function handleModuleDragStart(event: DragStartEvent) {
+    setActiveDragId(Number(event.active.id));
   }
 
   const assignedModuleIds = new Set(assignedModules.map(m => m.moduleId));
@@ -398,7 +516,20 @@ export default function NavigationGovernancePage() {
     setOpenSectionId(prev => prev === id ? null : id);
     setEditAssignmentId(null);
     setEditSectionId(null);
+    setPresetsOpenSection(null);
   }
+
+  // Quick pin/visibility toggle — saves immediately without opening editor
+  function quickTogglePin(mod: PortalModuleWithMeta) {
+    updateAssignmentMut.mutate({ id: mod.id, data: { isPinned: !mod.isPinned } });
+  }
+  function quickToggleVisibility(mod: PortalModuleWithMeta) {
+    const next = mod.visibility === 'full' ? 'read_only' : 'full';
+    updateAssignmentMut.mutate({ id: mod.id, data: { visibility: next } });
+  }
+
+  // Find active drag module for overlay
+  const activeDragMod = activeDragId !== null ? assignedModules.find(m => m.id === activeDragId) ?? null : null;
 
   return (
     <LayoutShell>
@@ -653,6 +784,9 @@ export default function NavigationGovernancePage() {
                         const isEditingS  = editSectionId === section.id;
                         const sectionMods = getModulesForSection(section.sectionKey);
                         const accentColor = THEME_ACCENT[theme] ?? "text-indigo-400";
+                        const pinnedCount = sectionMods.filter(m => m.isPinned).length;
+                        const realtimeCount = sectionMods.filter(m => (m as any).realtimeEnabled).length;
+                        const isPresetsOpen = presetsOpenSection === section.id;
 
                         return (
                           <SortableItem key={section.id} id={section.id}>
@@ -663,8 +797,12 @@ export default function NavigationGovernancePage() {
                                   ? "border-white/[0.10] bg-white/[0.04] shadow-sm"
                                   : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.035] hover:border-white/[0.09]"
                               )}>
-                                {/* ── Section Header ── */}
-                                <div className="flex items-center gap-2 px-4 py-3">
+
+                                {/* ── P1: Sticky Section Header ── */}
+                                <div className={cn(
+                                  "flex items-center gap-2 px-4 py-3 rounded-t-2xl transition-all",
+                                  isOpen && "sticky top-0 z-10 bg-[#0e0e14]/95 backdrop-blur-sm border-b border-white/[0.06] rounded-t-2xl"
+                                )}>
                                   <span className="opacity-40 hover:opacity-70 transition-opacity">{handle}</span>
 
                                   {/* Expand/collapse toggle */}
@@ -687,23 +825,53 @@ export default function NavigationGovernancePage() {
                                         {section.title}
                                       </p>
                                     </div>
-                                    {/* Module count badge */}
-                                    <span className={cn(
-                                      "text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 transition-colors",
-                                      isOpen
-                                        ? cn(THEME_ACCENT_BG[theme] ?? "bg-indigo-500/10 text-indigo-300")
-                                        : "bg-white/[0.05] text-muted-foreground/50"
-                                    )}>
-                                      {sectionMods.length}/{sectionMods.length} visible
-                                    </span>
+                                    {/* P5: usage signals in badge */}
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                      <span className={cn(
+                                        "text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 transition-colors",
+                                        isOpen
+                                          ? cn(THEME_ACCENT_BG[theme] ?? "bg-indigo-500/10 text-indigo-300")
+                                          : "bg-white/[0.05] text-muted-foreground/50"
+                                      )}>
+                                        {sectionMods.length} mod{sectionMods.length !== 1 ? 's' : ''}
+                                      </span>
+                                      {pinnedCount > 0 && (
+                                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 flex-shrink-0">
+                                          ★{pinnedCount}
+                                        </span>
+                                      )}
+                                      {realtimeCount > 0 && (
+                                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 flex-shrink-0">
+                                          ⚡{realtimeCount}
+                                        </span>
+                                      )}
+                                    </div>
                                     <ChevronDown className={cn(
                                       "h-4 w-4 text-muted-foreground/40 flex-shrink-0 transition-transform duration-150",
                                       isOpen ? "rotate-180" : "rotate-0"
                                     )} />
                                   </button>
 
-                                  {/* Section actions */}
+                                  {/* Section actions: P4 presets + edit + delete */}
                                   <div className="flex items-center gap-0.5 flex-shrink-0">
+                                    {/* P4: Presets button */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!isOpen) toggleSection(section.id);
+                                        setPresetsOpenSection(prev => prev === section.id ? null : section.id);
+                                      }}
+                                      data-testid={`presets-section-${section.id}`}
+                                      title="Apply preset"
+                                      className={cn(
+                                        "p-1.5 rounded-lg transition-colors",
+                                        isPresetsOpen
+                                          ? "text-amber-400 bg-amber-500/10"
+                                          : "text-muted-foreground/30 hover:text-amber-400 hover:bg-amber-500/[0.07]"
+                                      )}
+                                    >
+                                      <Sparkles className="h-3.5 w-3.5" />
+                                    </button>
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -778,13 +946,22 @@ export default function NavigationGovernancePage() {
                                   </div>
                                 )}
 
+                                {/* ── P4: Section Presets Panel ── */}
+                                {isOpen && isPresetsOpen && (
+                                  <SectionPresetsPanel
+                                    sectionMods={sectionMods}
+                                    onApply={applyPreset}
+                                    onClose={() => setPresetsOpenSection(null)}
+                                  />
+                                )}
+
                                 {/* ── Expanded Module Body ── */}
                                 {isOpen && (
                                   <div className="border-t border-white/[0.05] pt-1 pb-2">
-                                    {/* Module list */}
                                     <DndContext
                                       sensors={sensors}
                                       collisionDetection={closestCenter}
+                                      onDragStart={handleModuleDragStart}
                                       onDragEnd={(e) => handleModuleDragEnd(e, section.sectionKey, sectionMods)}
                                     >
                                       <SortableContext items={sectionMods.map(m => String(m.id))} strategy={verticalListSortingStrategy}>
@@ -797,17 +974,19 @@ export default function NavigationGovernancePage() {
                                           )}
                                           {sectionMods.map(mod => {
                                             const isEditingMod = editAssignmentId === mod.id;
+                                            const isRO        = mod.visibility === 'read_only';
                                             return (
                                               <SortableItem key={mod.id} id={mod.id}>
                                                 {(modHandle) => (
                                                   <div className={cn(
-                                                    "rounded-xl border transition-all duration-150",
+                                                    "group/mod rounded-xl border transition-all duration-150",
                                                     isEditingMod
                                                       ? "border-indigo-500/25 bg-indigo-500/[0.04]"
-                                                      : "border-transparent hover:border-white/[0.06] hover:bg-white/[0.025]"
+                                                      : "border-transparent hover:border-white/[0.07] hover:bg-white/[0.03]"
                                                   )}>
+                                                    {/* ── P2: Module row — inline quick actions on hover ── */}
                                                     <div className="flex items-center gap-2 px-2 py-2">
-                                                      <span className="opacity-30 hover:opacity-60 transition-opacity">{modHandle}</span>
+                                                      <span className="opacity-30 group-hover/mod:opacity-70 transition-opacity">{modHandle}</span>
                                                       <Icon k={mod.icon} className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0" />
                                                       <div className="flex-1 min-w-0">
                                                         <p className="text-xs font-medium text-foreground/90 truncate">
@@ -817,14 +996,15 @@ export default function NavigationGovernancePage() {
                                                           {mod.route}
                                                         </p>
                                                       </div>
-                                                      {/* Badges */}
+
+                                                      {/* Always-visible metadata badges */}
                                                       <div className="flex items-center gap-1 flex-shrink-0">
                                                         {(mod as any).adapterType && (
                                                           <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-300 border border-blue-500/15">
                                                             {(mod as any).adapterType}
                                                           </span>
                                                         )}
-                                                        {mod.visibility === 'read_only' && (
+                                                        {isRO && (
                                                           <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/15">
                                                             RO
                                                           </span>
@@ -840,45 +1020,81 @@ export default function NavigationGovernancePage() {
                                                           </span>
                                                         )}
                                                       </div>
-                                                      <button
-                                                        onClick={() => {
-                                                          if (isEditingMod) {
-                                                            setEditAssignmentId(null);
-                                                          } else {
-                                                            setEditAssignmentId(mod.id);
-                                                            setEditAssignmentDraft({
-                                                              displayLabel: mod.displayLabel ?? '',
-                                                              adapter: mod.adapter ?? '',
-                                                              visibility: mod.visibility ?? 'full',
-                                                              isPinned: mod.isPinned ?? false,
-                                                              adapterType: (mod as any).adapterType ?? '',
-                                                              widgetProfile: (mod as any).widgetProfile ?? 'standard',
-                                                              accessScope: (mod as any).accessScope ?? 'global',
-                                                              realtimeEnabled: (mod as any).realtimeEnabled ?? false,
-                                                              densityMode: (mod as any).densityMode ?? 'standard',
-                                                              defaultTimeRange: (mod as any).defaultTimeRange ?? '24h',
-                                                            });
-                                                          }
-                                                        }}
-                                                        data-testid={`edit-module-${mod.id}`}
-                                                        className="p-1.5 rounded-lg text-muted-foreground/30 hover:text-muted-foreground hover:bg-white/[0.06] transition-colors"
-                                                      >
-                                                        <Pencil className="h-3 w-3" />
-                                                      </button>
-                                                      <button
-                                                        onClick={() => {
-                                                          if (selectedPortal) {
-                                                            unassignModuleMut.mutate({ portalId: selectedPortal, moduleId: mod.moduleId });
-                                                          }
-                                                        }}
-                                                        data-testid={`remove-module-${mod.id}`}
-                                                        className="p-1.5 rounded-lg text-muted-foreground/30 hover:text-rose-400 hover:bg-rose-500/[0.07] transition-colors"
-                                                      >
-                                                        <Trash2 className="h-3 w-3" />
-                                                      </button>
+
+                                                      {/* P2: Hover-only quick actions */}
+                                                      <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/mod:opacity-100 transition-opacity duration-100">
+                                                        {/* Quick pin toggle */}
+                                                        <button
+                                                          onClick={() => quickTogglePin(mod)}
+                                                          data-testid={`quick-pin-${mod.id}`}
+                                                          title={mod.isPinned ? 'Unpin' : 'Pin'}
+                                                          className={cn(
+                                                            "p-1.5 rounded-lg transition-colors",
+                                                            mod.isPinned
+                                                              ? "text-violet-400 hover:bg-violet-500/10"
+                                                              : "text-muted-foreground/30 hover:text-violet-400 hover:bg-violet-500/[0.07]"
+                                                          )}
+                                                        >
+                                                          <Pin className="h-3 w-3" />
+                                                        </button>
+                                                        {/* Quick visibility toggle */}
+                                                        <button
+                                                          onClick={() => quickToggleVisibility(mod)}
+                                                          data-testid={`quick-visibility-${mod.id}`}
+                                                          title={isRO ? 'Set full access' : 'Set read-only'}
+                                                          className={cn(
+                                                            "p-1.5 rounded-lg transition-colors",
+                                                            isRO
+                                                              ? "text-amber-400 hover:bg-amber-500/10"
+                                                              : "text-muted-foreground/30 hover:text-amber-400 hover:bg-amber-500/[0.07]"
+                                                          )}
+                                                        >
+                                                          {isRO ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                                                        </button>
+                                                        {/* Full edit */}
+                                                        <button
+                                                          onClick={() => {
+                                                            if (isEditingMod) {
+                                                              setEditAssignmentId(null);
+                                                            } else {
+                                                              setEditAssignmentId(mod.id);
+                                                              setEditAssignmentDraft({
+                                                                displayLabel: mod.displayLabel ?? '',
+                                                                adapter: mod.adapter ?? '',
+                                                                visibility: mod.visibility ?? 'full',
+                                                                isPinned: mod.isPinned ?? false,
+                                                                adapterType: (mod as any).adapterType ?? '',
+                                                                widgetProfile: (mod as any).widgetProfile ?? 'standard',
+                                                                accessScope: (mod as any).accessScope ?? 'global',
+                                                                realtimeEnabled: (mod as any).realtimeEnabled ?? false,
+                                                                densityMode: (mod as any).densityMode ?? 'standard',
+                                                                defaultTimeRange: (mod as any).defaultTimeRange ?? '24h',
+                                                              });
+                                                            }
+                                                          }}
+                                                          data-testid={`edit-module-${mod.id}`}
+                                                          title="Edit module"
+                                                          className="p-1.5 rounded-lg text-muted-foreground/30 hover:text-muted-foreground hover:bg-white/[0.06] transition-colors"
+                                                        >
+                                                          <Pencil className="h-3 w-3" />
+                                                        </button>
+                                                        {/* Remove */}
+                                                        <button
+                                                          onClick={() => {
+                                                            if (selectedPortal) {
+                                                              unassignModuleMut.mutate({ portalId: selectedPortal, moduleId: mod.moduleId });
+                                                            }
+                                                          }}
+                                                          data-testid={`remove-module-${mod.id}`}
+                                                          title="Remove from section"
+                                                          className="p-1.5 rounded-lg text-muted-foreground/30 hover:text-rose-400 hover:bg-rose-500/[0.07] transition-colors"
+                                                        >
+                                                          <Trash2 className="h-3 w-3" />
+                                                        </button>
+                                                      </div>
                                                     </div>
 
-                                                    {/* Module edit panel */}
+                                                    {/* Module edit panel — full editor */}
                                                     {isEditingMod && (
                                                       <ModuleEditPanel
                                                         mod={mod}
@@ -896,6 +1112,11 @@ export default function NavigationGovernancePage() {
                                           })}
                                         </div>
                                       </SortableContext>
+
+                                      {/* P3: Drag overlay — mini card follows cursor */}
+                                      <DragOverlay dropAnimation={null}>
+                                        <DragPreviewCard mod={activeDragMod} />
+                                      </DragOverlay>
                                     </DndContext>
 
                                     {/* Assign from registry */}
