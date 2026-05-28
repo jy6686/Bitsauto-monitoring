@@ -1,0 +1,267 @@
+Yes — “Send Rate” absolutely belongs inside the KAM domain/workspace, not Finance.
+
+That is the correct operational ownership.
+
+Recommended Ownership Model
+Module	Primary Owner
+Rate Creation	Routing/Rates Team
+Margin Approval	Finance
+Rate Dispatch / Client Communication	KAM
+Rate Upload to Sippy	Routing/Rates Ops
+Client Confirmation Follow-up	KAM
+Commercial Notification Tracking	KAM + Finance
+
+So in your portal architecture:
+
+KAM Portal
+
+should include:
+
+Send Rate
+Rate Cards (read / assigned)
+Client Pricing
+Rate History
+Commercial Notices
+WhatsApp Alerts
+
+NOT:
+
+reconciliation internals,
+carrier cost data,
+vendor buy rates,
+AI assurance,
+collections.
+Best KAM Workflow (Professional Telecom Flow)
+Stage 1 — Client Created
+Company Profile
+    ↓
+Account Creation
+    ↓
+Rate Card Assignment
+Stage 2 — Pricing Prepared
+
+Routing/Rates team:
+
+uploads vendor rates,
+applies margin,
+generates tariff.
+
+Finance:
+
+approves margin strategy.
+Stage 3 — KAM Sends Rate
+
+KAM Portal:
+
+Clients
+   → Send Rate
+
+KAM selects:
+
+client,
+rate deck,
+effective date,
+notification template,
+sender profile.
+
+Then:
+
+rates@ichibaanlogic.com
+pricing@ichibaanlogic.com
+
+dispatches:
+
+PDF,
+XLSX,
+inline HTML,
+or ZIP attachment.
+Recommended KAM Sidebar
+Final KAM Sidebar
+Dashboard
+Client Accounts
+Onboarding Wizard
+Send Rate
+Rate History
+Traffic Analytics
+ASR / ACD
+CDR Viewer
+Balance Monitor
+Invoices (read only)
+Disputes
+Commercial Notices
+WhatsApp Alerts
+Reports
+
+This is:
+
+clean,
+commercially focused,
+operationally realistic.
+IMPORTANT:
+Send Rate should NOT be a standalone global page
+
+Best structure:
+
+Clients
+   └── Send Rate
+
+Because:
+
+rates belong to client lifecycle,
+KAM thinks account-first,
+not “tool-first”.
+Recommended Send Rate Flow
+KAM clicks:
+Client Account
+   ↓
+Send Rate
+Step 1
+
+Select:
+
+tariff,
+destinations,
+effective date.
+Step 2
+
+Preview:
+
+added prefixes,
+removed prefixes,
+increased rates,
+decreased rates,
+interval changes.
+Step 3
+
+Select template:
+
+Rate Update
+New Destinations
+Price Increase
+Promotional Pricing
+Interval Change
+Step 4
+
+Select sender:
+
+rates@
+pricing@
+sales@
+Step 5
+
+Dispatch:
+
+email,
+WhatsApp,
+portal notification.
+Step 6
+
+Track:
+
+delivered,
+opened,
+acknowledged.
+VERY IMPORTANT FEATURE
+Delta-based Rate Send
+
+Do NOT always send:
+
+full rate deck
+
+Instead:
+
+send only changes
+
+Example:
+
+Prefix	Old	New
+212	0.041	0.046
+971	0.032	0.031
+
+This is how carriers operate professionally.
+
+Your:
+
+tariff_change_events
+
+already makes this possible.
+
+Strong Recommendation
+KAM Dashboard should revolve around:
+account health
+
+NOT:
+
+system health
+
+KAM KPIs:
+
+client traffic trend,
+ASR degradation,
+balance risk,
+disputes,
+rate changes sent,
+acknowledgements pending,
+top destinations,
+margin health.
+Recommended Portal Structure
+Finance Portal
+money truth
+NOC Portal
+network truth
+KAM Portal
+client relationship truth
+
+That separation is extremely important.
+
+Most Important UX Change
+
+Your current menu is:
+
+feature-centric
+
+You should move to:
+
+workflow-centric
+
+Example:
+
+BAD:
+
+Rate Cards
+Notifications
+Templates
+Sender Profiles
+
+GOOD:
+
+Client → Send Rate
+
+The second mirrors how telecom teams actually work.
+
+Best Next Implementation Order
+Immediate
+1. Portal/Workspace switcher
+[NOC ▼]
+2. KAM Portal shell
+3. Contextual sidebar
+4. Send Rate embedded into Client workflow
+5. Role-specific dashboards
+Most Important Architectural Decision
+
+You are no longer building:
+
+a VoIP admin panel
+
+You are building:
+
+a telecom operations operating system
+
+That means:
+
+department separation,
+workflow ownership,
+operational context,
+and portalized UX
+
+matter more than adding more pages.
