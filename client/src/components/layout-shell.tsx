@@ -146,6 +146,13 @@ const NAV_PINNED_TOP: NavItem[] = [];
 
 const NAV_PINNED_BOTTOM: NavItem[] = [];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// [MAINTENANCE-ONLY] SIDEBAR_GROUPS — DO NOT ADD NEW PORTAL FEATURES HERE.
+// Portal-specific features belong in: portal_sections + portal_module_assignments (DB).
+// Full-platform features belong in: DOMAINS[] (app-nav-shell.tsx).
+// This array is frozen for new feature expansion. Edit only to fix existing items.
+// See: /workspace-settings (admin) and /governance (super_admin) for runtime config.
+// ─────────────────────────────────────────────────────────────────────────────
 export const SIDEBAR_GROUPS: NavGroup[] = [
   // ─── 1. Live Network ─────────────────────────────────────────────────────────
   {
@@ -315,7 +322,9 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/notification-centre",  label: "Notification Centre",icon: Bell,             roles: ['admin','management']                              },
       { href: "/whatsapp-alerts",      label: "WhatsApp Alerts",    icon: MessageSquare,    roles: ['admin','management']                              },
       { href: "/sms-monitor",          label: "SMS / A2P",          icon: MessageCircle,    roles: ['admin','management'],  status: 'planned'          },
+      { href: "/workspace-settings",   label: "Workspace Settings", icon: Layers,           roles: ['admin','super_admin']                              },
       { href: "/sidebar-settings",     label: "Navigation Manager", icon: SlidersHorizontal,roles: ['admin']                                           },
+      { href: "/governance",           label: "Governance Console", icon: Shield,           roles: ['super_admin']                                      },
       { href: "/account",              label: "My Account",         icon: UserCog,          roles: ['admin','management','viewer','noc_operator','team_lead','super_admin'] },
     ],
   },
@@ -325,7 +334,10 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
 const ALL_OPS: Role[] = ['super_admin','admin','management','noc_operator','team_lead'];
 const ADM_MGT: Role[] = ['super_admin','admin','management'];
 
-// ── Contextual workspace rail — lean per-workspace shortcuts ──────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// [MAINTENANCE-ONLY] WORKSPACE_RAIL — DO NOT ADD NEW PORTAL FEATURES HERE.
+// Per-workspace shortcuts for full-platform mode only. Frozen for expansion.
+// ─────────────────────────────────────────────────────────────────────────────
 // Desktop sidebar default: ~5-7 curated operational shortcuts per workspace.
 // The full SIDEBAR_GROUPS view remains accessible via the "All Tools" toggle.
 const WORKSPACE_RAIL: Record<string, NavItem[]> = {
@@ -393,11 +405,12 @@ const WORKSPACE_RAIL: Record<string, NavItem[]> = {
     { href: '/credit-control',       label: 'Credit Control',   icon: Banknote,      roles: ADM_MGT              },
   ],
   'platform': [
-    { href: '/settings',     label: 'Platform Settings', icon: Settings,  roles: ['super_admin','admin'] as Role[] },
-    { href: '/team',         label: 'Team & KAM',        icon: Users,     roles: ['super_admin','admin'] as Role[] },
-    { href: '/api-keys',     label: 'API Keys',          icon: Key,       roles: ['super_admin','admin'] as Role[] },
-    { href: '/email-centre', label: 'Notifications',     icon: Mail,      roles: ['super_admin','admin'] as Role[] },
-    { href: '/sidebar-settings', label: 'Navigation Manager', icon: SlidersHorizontal, roles: ['super_admin','admin'] as Role[] },
+    { href: '/settings',           label: 'Platform Settings', icon: Settings,          roles: ['super_admin','admin'] as Role[] },
+    { href: '/team',               label: 'Team & KAM',        icon: Users,             roles: ['super_admin','admin'] as Role[] },
+    { href: '/api-keys',           label: 'API Keys',          icon: Key,               roles: ['super_admin','admin'] as Role[] },
+    { href: '/email-centre',       label: 'Notifications',     icon: Mail,              roles: ['super_admin','admin'] as Role[] },
+    { href: '/workspace-settings', label: 'Workspace Settings',icon: Layers,            roles: ['super_admin','admin'] as Role[] },
+    { href: '/governance',         label: 'Governance Console',icon: Shield,            roles: ['super_admin'] as Role[] },
   ],
 };
 
@@ -639,7 +652,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
   const search      = useSearch();
   const { user, logout, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const { isPortalMode } = usePortal();
+  const { isPortalMode, portalConfig } = usePortal();
   useOrgScope();
 
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -1617,9 +1630,20 @@ export function LayoutShell({ children }: LayoutShellProps) {
   // ── Shared sidebar CSS class ──────────────────────────────────────────────────
   const sidebarCls = "border-r border-white/[0.05] bg-[hsl(var(--background)/0.75)] backdrop-blur-xl";
 
+  // ── Phase 3: Portal context owns layout — apply portal theme at root level ───
+  // When a portal is active its theme slug is stamped as a data-attribute so
+  // portal-specific CSS variables / overrides can be scoped with [data-portal].
+  const portalTheme = isPortalMode && portalConfig ? portalConfig.theme : null;
+  const portalSlug  = isPortalMode && portalConfig ? portalConfig.slug  : null;
+
   return (
     <ChatDrawerProvider>
-    <div className="min-h-screen bg-background flex flex-col">
+    <div
+      className="min-h-screen bg-background flex flex-col"
+      data-portal-mode={isPortalMode ? "true" : undefined}
+      data-portal={portalSlug ?? undefined}
+      data-portal-theme={portalTheme ?? undefined}
+    >
       <AppNavShell />
 
       {/* ── Sidebar + content row ────────────────────────────────────────────── */}

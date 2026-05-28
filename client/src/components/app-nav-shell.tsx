@@ -32,6 +32,13 @@ interface Module  { href: string; label: string; desc: string; icon: React.Compo
 interface Group   { label: string; desc?: string; icon: React.ComponentType<{ className?: string }>; items: Module[]; badge?: (s: NavStats) => number }
 interface Domain  { id: string; label: string; icon: React.ComponentType<{ className?: string }>; color: string; groups: Group[] }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// [MAINTENANCE-ONLY] DOMAINS — Full-platform domain tab registry.
+// New PORTAL-specific features → portal_sections + portal_module_assignments (DB).
+// New FULL-PLATFORM features → add here ONLY (never duplicate into both systems).
+// SIDEBAR_GROUPS and WORKSPACE_RAIL in layout-shell.tsx are also frozen.
+// Runtime configuration: /workspace-settings (admin), /governance (super_admin).
+// ─────────────────────────────────────────────────────────────────────────────
 const DOMAINS: Domain[] = [
   // ── 1. LIVE NETWORK ──────────────────────────────────────────────────────────
   {
@@ -283,10 +290,12 @@ const DOMAINS: Domain[] = [
   {
     id: 'platform', label: 'Platform', icon: Settings, color: 'text-slate-400',
     groups: [
-      { label: 'System',        desc: 'System configuration, VPN and navigation management', icon: Settings, items: [
-        { href: '/settings',         label: 'Platform Settings',  desc: 'System configuration',         icon: Settings },
-        { href: '/vpn-config',       label: 'VPN Config',         desc: 'VPN configuration',            icon: Lock },
-        { href: '/sidebar-settings', label: 'Navigation Manager', desc: 'Enterprise navigation control', icon: Layers },
+      { label: 'System',        desc: 'System configuration, VPN and workspace management', icon: Settings, items: [
+        { href: '/settings',           label: 'Platform Settings',  desc: 'System configuration',          icon: Settings },
+        { href: '/vpn-config',         label: 'VPN Config',         desc: 'VPN configuration',             icon: Lock },
+        { href: '/workspace-settings', label: 'Workspace Settings', desc: 'Portal workspaces & themes',    icon: Layers },
+        { href: '/governance',         label: 'Governance Console', desc: 'Module assignments & sections',  icon: SlidersHorizontal },
+        { href: '/sidebar-settings',   label: 'Navigation Manager', desc: 'Sidebar item visibility',        icon: Layers },
       ]},
       { label: 'Team & Access', desc: 'Team roles, API keys and approval rules',       icon: Users, items: [
         { href: '/team',              label: 'Team & KAM',    desc: 'Roles & access control',   icon: Users },

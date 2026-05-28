@@ -160,6 +160,7 @@ import PortalViewPage from "@/pages/portal-view";
 import SelfHealPage from "@/pages/self-heal";
 import SidebarSettingsPage from "@/pages/sidebar-settings";
 import NavigationGovernancePage from "@/pages/navigation-governance";
+import WorkspaceSettingsPage from "@/pages/workspace-settings";
 import CompanyListPage from "@/pages/company-list";
 import CompanyCreatePage from "@/pages/company-create";
 import CompanyOnboardingPage from "@/pages/company-onboarding";
@@ -636,8 +637,17 @@ function Router() {
       <Route path="/sidebar-settings">
         {() => <ProtectedRoute component={SidebarSettingsPage} requiredRoles={['admin']} />}
       </Route>
+      {/* Workspace Settings — operational admin view (portal on/off, themes) */}
+      <Route path="/workspace-settings">
+        {() => <ProtectedRoute component={WorkspaceSettingsPage} requiredRoles={['admin', 'super_admin']} />}
+      </Route>
+      {/* Governance Console — architecture layer, super_admin only */}
+      <Route path="/governance">
+        {() => <ProtectedRoute component={NavigationGovernancePage} requiredRoles={['super_admin', 'admin']} />}
+      </Route>
+      {/* Keep legacy route for backward compat */}
       <Route path="/navigation-governance">
-        {() => <ProtectedRoute component={NavigationGovernancePage} requiredRoles={['admin']} />}
+        {() => <ProtectedRoute component={NavigationGovernancePage} requiredRoles={['admin', 'super_admin']} />}
       </Route>
 
       <Route path="/company/list">
