@@ -195,24 +195,33 @@ async function refreshAccountCache(): Promise<void> {
     const portalUrl = sippyPortalUrl(settings);
     // Paginate to fetch ALL accounts — try both default scope and iCustomer=1 (root).
     // CDRs can reference accounts from multiple customer scopes so we merge both.
-    const PAGE = 200;
+    // Use a large page size (10 000) so we pull all accounts in as few requests as
+    // possible. Sippy XML-RPC does not expose a "no-limit" mode, so we paginate
+    // until a page returns fewer rows than requested (= last page).
+    const PAGE = 10_000;
     const allAccounts: Awaited<ReturnType<typeof sippy.listSippyAccounts>>['accounts'] = [];
     const seenIds = new Set<number>();
-    for (const customerScope of [undefined, 1] as (number | undefined)[]) {
+    // Try every distinct customer scope Sippy exposes so cross-scope CDR accounts
+    // (e.g. iCustomer 1, 2, … or the default ssp-root scope) are all captured.
+    for (const customerScope of [undefined, 1, 2, 3, 4, 5] as (number | undefined)[]) {
       let offset = 0;
+      let pageNum = 0;
       while (true) {
         const opts: { iCustomer?: number; offset: number; limit: number } = { offset, limit: PAGE };
         if (customerScope !== undefined) opts.iCustomer = customerScope;
         const { accounts, error } = await withSippyCreds(settings, (u, p) =>
           sippy.listSippyAccounts(u, p, opts, portalUrl));
+        // An error on a non-root customer scope just means that scope doesn't
+        // exist — stop paging for this scope but continue with others.
         if (error || !accounts?.length) break;
+        pageNum++;
         for (const a of accounts) {
           if (a.iAccount && !seenIds.has(a.iAccount)) {
             seenIds.add(a.iAccount);
             allAccounts.push(a);
           }
         }
-        if (accounts.length < PAGE) break; // last page
+        if (accounts.length < PAGE) break; // last page for this scope
         offset += PAGE;
       }
     }
@@ -229,7 +238,7 @@ async function refreshAccountCache(): Promise<void> {
       }
     }
     if (newIds.length) liveAccountIds = newIds;
-    console.log(`[routes] accountCache refreshed: ${liveAccountIds.length} accounts (${Math.ceil(liveAccountIds.length / PAGE)} page(s))`);
+    console.log(`[routes] accountCache refreshed: ${liveAccountIds.length} accounts`);
   } catch (e: any) {
     console.warn('[routes] accountCache refresh failed:', e.message);
   } finally { _accountCacheRunning = false; }

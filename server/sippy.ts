@@ -8333,7 +8333,7 @@ export async function listSippyAccounts(
   const params: Record<string, string | number | boolean | null> = {};
   if (opts.iCustomer !== undefined) params.i_customer = opts.iCustomer;
   if (opts.offset    !== undefined) params.offset      = opts.offset;
-  params.limit = opts.limit ?? 200;
+  params.limit = opts.limit ?? 10_000;
 
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('listAccounts', params), username, password);
