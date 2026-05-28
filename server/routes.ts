@@ -193,21 +193,84 @@ async function refreshAccountCache(): Promise<void> {
     const settings = await storage.getSippySettings();
     if (!settings) return;
     const portalUrl = sippyPortalUrl(settings);
-    const { accounts } = await withSippyCreds(settings, (u, p) =>
-      sippy.listSippyAccounts(u, p, {}, portalUrl));
-    if (!accounts?.length) return;
+    // Paginate to fetch ALL accounts — try both default scope and iCustomer=1 (root).
+    // CDRs can reference accounts from multiple customer scopes so we merge both.
+    const PAGE = 200;
+    const allAccounts: Awaited<ReturnType<typeof sippy.listSippyAccounts>>['accounts'] = [];
+    const seenIds = new Set<number>();
+    for (const customerScope of [undefined, 1] as (number | undefined)[]) {
+      let offset = 0;
+      while (true) {
+        const opts: { iCustomer?: number; offset: number; limit: number } = { offset, limit: PAGE };
+        if (customerScope !== undefined) opts.iCustomer = customerScope;
+        const { accounts, error } = await withSippyCreds(settings, (u, p) =>
+          sippy.listSippyAccounts(u, p, opts, portalUrl));
+        if (error || !accounts?.length) break;
+        for (const a of accounts) {
+          if (a.iAccount && !seenIds.has(a.iAccount)) {
+            seenIds.add(a.iAccount);
+            allAccounts.push(a);
+          }
+        }
+        if (accounts.length < PAGE) break; // last page
+        offset += PAGE;
+      }
+    }
+    if (!allAccounts.length) return;
     const newIds: number[] = [];
-    for (const acct of accounts) {
-      if (acct.iAccount && acct.username) {
-        accountNameCache.set(String(acct.iAccount), acct.username);
-        newIds.push(acct.iAccount);
+    for (const acct of allAccounts) {
+      if (acct.iAccount) {
+        // Prefer description (company/display name) over username (SIP login)
+        const displayName = acct.description?.trim() || acct.username?.trim() || '';
+        if (displayName) {
+          accountNameCache.set(String(acct.iAccount), displayName);
+          newIds.push(acct.iAccount);
+        }
       }
     }
     if (newIds.length) liveAccountIds = newIds;
-    console.log(`[routes] accountCache refreshed: ${liveAccountIds.length} accounts`);
+    console.log(`[routes] accountCache refreshed: ${liveAccountIds.length} accounts (${Math.ceil(liveAccountIds.length / PAGE)} page(s))`);
   } catch (e: any) {
     console.warn('[routes] accountCache refresh failed:', e.message);
   } finally { _accountCacheRunning = false; }
+}
+
+// Warm the accountNameCache for specific iAccount IDs not already cached.
+// Uses getAccountInfo for each missing ID (parallel, up to 20 at a time).
+// Silently skips failures — cache stays empty for those IDs.
+async function warmAccountCacheForIds(ids: number[]): Promise<void> {
+  const missing = ids.filter(id => !accountNameCache.has(String(id)));
+  if (!missing.length) return;
+  try {
+    const settings = await storage.getSippySettings();
+    if (!settings) return;
+    const portalUrl = sippyPortalUrl(settings);
+    const creds = sippyXmlCredsPairs(settings);
+    if (!creds.length) return;
+    const { username, password } = creds[0];
+    // Fetch up to 20 unknown IDs in parallel
+    const batch = missing.slice(0, 20);
+    const results = await Promise.allSettled(
+      batch.map(id => sippy.getAccountInfo(username, password, portalUrl, id))
+    );
+    let resolved = 0;
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value) {
+        const info = result.value;
+        const displayName = (info.description as string | undefined)?.trim()
+          || info.name?.trim()
+          || info.username?.trim()
+          || '';
+        if (displayName && info.iAccount) {
+          accountNameCache.set(String(info.iAccount), displayName);
+          resolved++;
+        }
+      }
+    }
+    if (resolved > 0) {
+      console.log(`[routes] accountCache warmed: resolved ${resolved}/${batch.length} unknown account IDs`);
+    }
+  } catch { /* silent — cache miss is non-critical */ }
 }
 
 // ── Connection → Vendor name cache ────────────────────────────────────────────
@@ -5377,6 +5440,17 @@ export async function registerRoutes(
       cdrCacheUpdatedAt = new Date();
       if (added > 0) console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size} idx=${cdrTimeIndex.length}`);
 
+      // Warm accountNameCache for any iAccount IDs in the CDR cache not yet resolved.
+      // Runs in background — does not block CDR cache completion.
+      const unknownCacheIds = [...new Set(
+        [...cdrCache.values()]
+          .map(c => (c as any).iAccount as number | undefined)
+          .filter((id): id is number => typeof id === 'number' && !accountNameCache.has(String(id)))
+      )];
+      if (unknownCacheIds.length > 0) {
+        warmAccountCacheForIds(unknownCacheIds).catch(() => {});
+      }
+
       // ── Option B: Mera CDR enrichment ────────────────────────────────────────
       // Portal-scraped CDRs carry no iConnection / remoteIp / vendor fields.
       // exportVendorsCDRs_Mera() returns vendor-side CDRs with dstName (vendor name)
@@ -6166,12 +6240,6 @@ export async function registerRoutes(
         }
         // empty CDR result is not a circuit failure
       }
-      // Enrich with clientName from account cache and vendorName from connection cache
-      cdrs = cdrs.map(c => ({
-        ...c,
-        clientName: c.clientName || accountNameCache.get(String(c.iAccount ?? '')) || (c.iAccount ? `Acct.${c.iAccount}` : undefined),
-        vendorName: (c as any).vendorName || (c as any).vendor || connectionVendorCache.get(String((c as any).iConnection ?? '')) || undefined,
-      }));
       // Fallback 1: XML-RPC returned 0 → scrape customer portal with RTST1 credentials
       if (cdrs.length === 0 && settings) {
         const portalUser = settings.portalUsername ?? '';
@@ -6235,6 +6303,29 @@ export async function registerRoutes(
           }
         }
       }
+      // Warm accountNameCache for any iAccount IDs seen in CDRs but not yet cached.
+      // This resolves accounts that listAccounts() missed (e.g. sub-customer scope).
+      if (cdrs.length > 0) {
+        const unknownIds = [...new Set(
+          cdrs
+            .map((c: any) => c.iAccount as number | undefined)
+            .filter((id): id is number => typeof id === 'number' && !accountNameCache.has(String(id)))
+        )];
+        if (unknownIds.length > 0) {
+          await warmAccountCacheForIds(unknownIds);
+        }
+      }
+      // Enrich ALL CDRs (regardless of source) with clientName and vendorName.
+      // clientName: prefer raw field → account name cache (iAccount → display name) → fallback label
+      // Also use c.user (present in portal-scraped CDRs) as an additional source.
+      cdrs = cdrs.map(c => ({
+        ...c,
+        clientName: (c as any).clientName
+          || accountNameCache.get(String((c as any).iAccount ?? ''))
+          || (c as any).user
+          || ((c as any).iAccount ? `Acct.${(c as any).iAccount}` : undefined),
+        vendorName: (c as any).vendorName || (c as any).vendor || connectionVendorCache.get(String((c as any).iConnection ?? '')) || undefined,
+      }));
       res.json({ cdrs });
     } catch (e: any) { res.status(500).json({ cdrs: [], error: e.message }); }
   });
