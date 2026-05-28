@@ -145,6 +145,9 @@ import NocCommandPage from "@/pages/noc-command";
 import NocDashboardPage from "@/pages/noc-dashboard";
 import NocIncidentsPage from "@/pages/noc-incidents";
 import RouteIntelligencePage from "@/pages/route-intelligence";
+import MfaSetupPage from "@/pages/mfa-setup";
+import MfaVerifyPage from "@/pages/mfa-verify";
+import SecurityOpsPage from "@/pages/security-ops";
 import OpsConsolePage from "@/pages/ops-console";
 import IncidentDetailPage from "@/pages/incident-detail";
 import ConsolePage from "@/pages/console";
@@ -661,6 +664,18 @@ function Router() {
 
       <Route path="/rbac">
         {() => <ProtectedRoute component={RbacMatrixPage} requiredRoles={['admin','super_admin']} />}
+      </Route>
+
+      <Route path="/mfa-setup">
+        {() => <ProtectedRoute component={MfaSetupPage} requiredRoles={['admin','super_admin','management','finance','noc_operator','team_lead','kam','viewer']} />}
+      </Route>
+
+      <Route path="/mfa-verify">
+        {() => <MfaVerifyPage />}
+      </Route>
+
+      <Route path="/security-ops">
+        {() => <ProtectedRoute component={SecurityOpsPage} requiredRoles={['admin','super_admin']} />}
       </Route>
 
       <Route component={NotFound} />

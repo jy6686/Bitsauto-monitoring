@@ -2886,3 +2886,42 @@ export const nocIncidentAssignments = pgTable("noc_incident_assignments", {
 });
 export type NocIncidentAssignment       = typeof nocIncidentAssignments.$inferSelect;
 export type InsertNocIncidentAssignment = typeof nocIncidentAssignments.$inferInsert;
+
+// ── Security Sprint ───────────────────────────────────────────────────────────
+
+export const mfaSecrets = pgTable("mfa_secrets", {
+  id:          serial("id").primaryKey(),
+  userId:      varchar("user_id",  { length: 255 }).notNull().unique(),
+  secret:      text("secret").notNull(),
+  isEnabled:   boolean("is_enabled").notNull().default(false),
+  backupCodes: text("backup_codes").array().notNull().default([]),
+  enabledAt:   timestamp("enabled_at"),
+  lastUsedAt:  timestamp("last_used_at"),
+});
+export type MfaSecret = typeof mfaSecrets.$inferSelect;
+
+export const userSessions = pgTable("user_sessions", {
+  id:           serial("id").primaryKey(),
+  sessionId:    varchar("session_id",  { length: 512 }).notNull(),
+  userId:       varchar("user_id",     { length: 255 }).notNull(),
+  ipAddress:    varchar("ip_address",  { length: 64  }),
+  userAgent:    text("user_agent"),
+  lastActivity: timestamp("last_activity").defaultNow().notNull(),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  isRevoked:    boolean("is_revoked").notNull().default(false),
+  revokedAt:    timestamp("revoked_at"),
+  revokedBy:    varchar("revoked_by",  { length: 255 }),
+});
+export type UserSession = typeof userSessions.$inferSelect;
+
+export const ipRestrictions = pgTable("ip_restrictions", {
+  id:          serial("id").primaryKey(),
+  scope:       varchar("scope",        { length: 20  }).notNull().default('global'),
+  scopeValue:  varchar("scope_value",  { length: 255 }),
+  cidr:        varchar("cidr",         { length: 64  }).notNull(),
+  description: text("description"),
+  isActive:    boolean("is_active").notNull().default(true),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+  createdBy:   varchar("created_by",   { length: 255 }),
+});
+export type IpRestriction = typeof ipRestrictions.$inferSelect;

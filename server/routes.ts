@@ -28,6 +28,9 @@ import { setupChatWebSocket } from "./chat-ws";
 import { broadcastLiveTrafficSnapshot, getLastLiveTrafficSnapshot } from "./live-traffic-ws";
 import type { LiveTrafficRow, LiveTrafficWindow, LiveTrafficSnapshot } from "./live-traffic-ws";
 import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
+import * as mfaSvc from "./security/mfa";
+import { sessionActivityMiddleware, listActiveSessions, revokeSession, revokeAllUserSessions, getSessionStats, upsertSessionRecord } from "./security/sessions";
+import { ipGuardMiddleware, listRestrictions, addRestriction, deleteRestriction, toggleRestriction } from "./security/ip-guard";
 import { requirePermission, requireAnyPermission, getCachedUserPermissions, invalidatePermissionCache, logPermissionEvent } from "./rbac";
 import { evaluateRules } from "./rule-engine";
 import { runAnomalyEngine } from "./anomaly-engine";
@@ -682,6 +685,9 @@ export async function registerRoutes(
     console.warn('[auth] Replit OIDC setup skipped (non-fatal):', err?.message ?? err);
   }
   registerAuthRoutes(app);
+
+  // ── Security Middleware ────────────────────────────────────────────────────
+  app.use('/api', sessionActivityMiddleware);
 
   // ── Smart Sippy Connect ────────────────────────────────────────────────────
   // Tries both credential pairs and always prefers XML-RPC mode over portal.
@@ -28540,6 +28546,167 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       await db.update(nocIncidents).set({ updatedAt: new Date() }).where(eq(nocIncidents.id, id));
       res.status(201).json(event);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Security Sprint Routes ────────────────────────────────────────────────
+
+  // MFA status
+  app.get('/api/security/mfa/status', (req: any, res: any, next: any) => requireRole(['admin','super_admin','management','finance','noc_operator','noc','team_lead','kam','viewer','destination_manager','routing_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const record = await mfaSvc.getMfaRecord(userId);
+      res.json({ isEnabled: record?.isEnabled ?? false, hasSecret: !!record, required: mfaSvc.MFA_REQUIRED_ROLES.has(req.userRole ?? '') });
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // MFA setup — generate secret + QR code
+  app.get('/api/security/mfa/setup', (req: any, res: any, next: any) => requireRole(['admin','super_admin','management','finance','noc_operator','noc','team_lead','kam','viewer','destination_manager','routing_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      const email  = req.user?.claims?.email ?? userId;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const secret      = mfaSvc.generateSecret(userId);
+      const backupCodes = mfaSvc.generateBackupCodes();
+      await mfaSvc.setupMfa(userId, secret, backupCodes);
+      const otpAuthUrl = await mfaSvc.getOtpAuthUrl(secret, userId, email);
+      const qrCode     = await mfaSvc.generateQrCode(otpAuthUrl);
+      res.json({ qrCode, secret, backupCodes });
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // MFA verify-setup — verify first token to confirm and enable
+  app.post('/api/security/mfa/verify-setup', (req: any, res: any, next: any) => requireRole(['admin','super_admin','management','finance','noc_operator','noc','team_lead','kam','viewer','destination_manager','routing_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const { token } = req.body;
+      const record = await mfaSvc.getMfaRecord(userId);
+      if (!record) return res.status(400).json({ message: 'No MFA setup in progress' });
+      if (!mfaSvc.verifyToken(record.secret, token)) return res.status(400).json({ message: 'Invalid token' });
+      await mfaSvc.enableMfa(userId);
+      req.session.mfaVerified = true;
+      await writeAudit({ category: 'security', action: 'MFA_ENABLED', actor: userId, actorType: 'user', severity: 'info', ip: req.ip ?? undefined });
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // MFA validate — post-login TOTP gate
+  app.post('/api/security/mfa/validate', async (req: any, res: any) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const { token, backupCode } = req.body;
+      const record = await mfaSvc.getMfaRecord(userId);
+      if (!record?.isEnabled) { req.session.mfaVerified = true; return res.json({ success: true }); }
+
+      let ok = false;
+      if (backupCode) {
+        ok = await mfaSvc.verifyBackupCode(userId, backupCode);
+      } else if (token) {
+        ok = mfaSvc.verifyToken(record.secret, token);
+        if (ok) await mfaSvc.recordMfaUsage(userId);
+      }
+      if (!ok) {
+        await writeAudit({ category: 'security', action: 'MFA_VALIDATE_FAILED', actor: userId, actorType: 'user', severity: 'warning', ip: req.ip ?? undefined });
+        return res.status(400).json({ message: 'Invalid code' });
+      }
+      req.session.mfaVerified = true;
+      await writeAudit({ category: 'security', action: 'MFA_VALIDATED', actor: userId, actorType: 'user', severity: 'info', ip: req.ip ?? undefined });
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // MFA disable
+  app.post('/api/security/mfa/disable', (req: any, res: any, next: any) => requireRole(['admin','super_admin','management','finance','noc_operator','noc','team_lead','kam','viewer','destination_manager','routing_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const { token } = req.body;
+      const record = await mfaSvc.getMfaRecord(userId);
+      if (!record) return res.status(400).json({ message: 'MFA not configured' });
+      if (!mfaSvc.verifyToken(record.secret, token)) return res.status(400).json({ message: 'Invalid token' });
+      await mfaSvc.disableMfa(userId);
+      req.session.mfaVerified = false;
+      await writeAudit({ category: 'security', action: 'MFA_DISABLED', actor: userId, actorType: 'user', severity: 'warning', ip: req.ip ?? undefined });
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // Session list
+  app.get('/api/security/sessions', (req: any, res: any, next: any) => requireRole(['admin','super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const sessions = await listActiveSessions();
+      res.json(sessions);
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // Session stats
+  app.get('/api/security/sessions/stats', (req: any, res: any, next: any) => requireRole(['admin','super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const stats = await getSessionStats();
+      res.json(stats);
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // Revoke a specific session
+  app.delete('/api/security/sessions/:sessionId', (req: any, res: any, next: any) => requireRole(['admin','super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { sessionId } = req.params;
+      const revokedBy = req.user?.claims?.sub ?? 'admin';
+      await revokeSession(sessionId, revokedBy);
+      await writeAudit({ category: 'security', action: 'SESSION_REVOKED', actor: revokedBy, actorType: 'user', severity: 'warning', targetId: sessionId, ip: req.ip ?? undefined });
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // Revoke all sessions for a user
+  app.delete('/api/security/sessions/user/:userId', (req: any, res: any, next: any) => requireRole(['admin','super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { userId } = req.params;
+      const revokedBy = req.user?.claims?.sub ?? 'admin';
+      await revokeAllUserSessions(userId, revokedBy);
+      await writeAudit({ category: 'security', action: 'ALL_SESSIONS_REVOKED', actor: revokedBy, actorType: 'user', severity: 'warning', targetId: userId, ip: req.ip ?? undefined });
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // IP restrictions list
+  app.get('/api/security/ip-restrictions', (req: any, res: any, next: any) => requireRole(['admin','super_admin'], req, res, next), async (_req: any, res: any) => {
+    try {
+      res.json(await listRestrictions());
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // IP restrictions add
+  app.post('/api/security/ip-restrictions', (req: any, res: any, next: any) => requireRole(['admin','super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { cidr, scope, scopeValue, description } = req.body;
+      if (!cidr) return res.status(400).json({ message: 'cidr required' });
+      const createdBy = req.user?.claims?.sub ?? 'admin';
+      const row = await addRestriction({ cidr, scope: scope ?? 'global', scopeValue, description, createdBy });
+      await writeAudit({ category: 'security', action: 'IP_RESTRICTION_ADDED', actor: createdBy, actorType: 'user', severity: 'warning', metadata: { cidr, scope }, ip: req.ip ?? undefined });
+      res.json(row);
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // IP restrictions delete
+  app.delete('/api/security/ip-restrictions/:id', (req: any, res: any, next: any) => requireRole(['admin','super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      await deleteRestriction(Number(req.params.id));
+      const actor = req.user?.claims?.sub ?? 'admin';
+      await writeAudit({ category: 'security', action: 'IP_RESTRICTION_DELETED', actor, actorType: 'user', severity: 'warning', targetId: req.params.id, ip: req.ip ?? undefined });
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ message: String(e) }); }
+  });
+
+  // IP restrictions toggle
+  app.patch('/api/security/ip-restrictions/:id', (req: any, res: any, next: any) => requireRole(['admin','super_admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { isActive } = req.body;
+      await toggleRestriction(Number(req.params.id), Boolean(isActive));
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ message: String(e) }); }
   });
 
   return httpServer;

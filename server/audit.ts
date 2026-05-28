@@ -2,7 +2,7 @@ import { db } from "./db";
 import { auditEvents } from "@shared/schema";
 import { eq, desc, and, or, gte, lte, ilike, sql } from "drizzle-orm";
 
-export type AuditCategory = 'user' | 'system' | 'sippy' | 'fraud' | 'financial';
+export type AuditCategory = 'user' | 'system' | 'sippy' | 'fraud' | 'financial' | 'security' | 'operational';
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 export type AuditActorType = 'user' | 'system' | 'automation';
 

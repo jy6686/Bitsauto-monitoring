@@ -265,7 +265,9 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/stir-shaken",          label: "STIR/SHAKEN",    icon: Lock,          roles: ['admin','management']              },
       { href: "/compliance",           label: "Compliance",     icon: FileCheck2,    roles: ['admin','management']              },
       { href: "/audit-log",            label: "Audit Log",      icon: ClipboardList, roles: ['admin','management','destination_manager','routing_admin'], isNew: true },
-      { href: "/rbac",                  label: "Permission Matrix", icon: Lock,          roles: ['admin','super_admin'], isNew: true },
+      { href: "/rbac",                 label: "Permission Matrix", icon: Lock,        roles: ['admin','super_admin'], isNew: true },
+      { href: "/mfa-setup",            label: "MFA / 2FA",      icon: ShieldCheck,   roles: ['admin','super_admin','management','finance','noc_operator','team_lead','kam','viewer'], isNew: true },
+      { href: "/security-ops",         label: "Security Ops",   icon: Shield,        roles: ['admin','super_admin'], isNew: true },
     ],
   },
   // ─── 8. Finance & Billing ────────────────────────────────────────────────────
@@ -393,6 +395,8 @@ const WORKSPACE_RAIL: Record<string, NavItem[]> = {
     { href: '/audit-log',        label: 'Audit Log',       icon: ClipboardList, roles: ADM_MGT, isNew: true   },
     { href: '/firewall',         label: 'Firewall',        icon: Shield,        roles: ADM_MGT              },
     { href: '/compliance',       label: 'Compliance',      icon: FileCheck2,    roles: ADM_MGT              },
+    { href: '/mfa-setup',        label: 'MFA / 2FA',       icon: ShieldCheck,   roles: ALL_OPS, isNew: true   },
+    { href: '/security-ops',     label: 'Security Ops',    icon: Shield,        roles: ADM_MGT, isNew: true   },
   ],
   'finance': [
     { href: '/billing',              label: 'Billing',          icon: Wallet,        roles: ADM_MGT              },
