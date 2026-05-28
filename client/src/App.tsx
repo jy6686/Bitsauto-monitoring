@@ -5,12 +5,14 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LayoutShell } from "@/components/layout-shell";
 import { useAuth } from "@/hooks/use-auth";
-import { useEffect, Component } from "react";
+import { useEffect, Component, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Loader2, ShieldOff } from "lucide-react";
 import type { Role } from "@shared/schema";
 import { MGMT_CONFIGURABLE_FEATURES } from "@shared/schema";
+import { CommandPalette } from "@/components/command-palette";
+import { usePortalTheme } from "@/hooks/use-portal-theme";
 
 class GlobalErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -649,6 +651,35 @@ function Router() {
   );
 }
 
+function AppCore() {
+  const [cmdOpen, setCmdOpen] = useState(false);
+  usePortalTheme();
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (e instanceof KeyboardEvent && (e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCmdOpen(v => !v);
+      }
+    };
+    const customHandler = () => setCmdOpen(v => !v);
+    document.addEventListener('keydown', handler);
+    document.addEventListener('open-command-palette', customHandler);
+    return () => {
+      document.removeEventListener('keydown', handler);
+      document.removeEventListener('open-command-palette', customHandler);
+    };
+  }, []);
+
+  return (
+    <>
+      <Toaster />
+      <Router />
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+    </>
+  );
+}
+
 function App() {
   return (
     <GlobalErrorBoundary>
@@ -658,8 +689,7 @@ function App() {
             <OrgScopeProvider>
               <PortalProvider>
                 <TooltipProvider>
-                  <Toaster />
-                  <Router />
+                  <AppCore />
                 </TooltipProvider>
               </PortalProvider>
             </OrgScopeProvider>

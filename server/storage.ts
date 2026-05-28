@@ -125,9 +125,10 @@ import {
   carrierReconciliations,
   type CarrierReconciliation, type InsertCarrierReconciliation,
   portalDefinitions, navigationModules, portalModuleAssignments, portalSections,
+  userFavorites,
   type PortalDefinition, type InsertPortalModuleAssignment,
   type PortalModuleAssignment, type PortalModuleWithMeta, type PortalSection,
-  type NavigationModule,
+  type NavigationModule, type UserFavorite,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -262,6 +263,12 @@ export interface IStorage {
   reorderPortalSections(portalSlug: string, orderedIds: number[]): Promise<void>;
   updatePortalModuleAssignmentById(id: number, data: { section?: string; displayOrder?: number; displayLabel?: string; adapter?: string; visibility?: string; isPinned?: boolean }): Promise<PortalModuleAssignment>;
   reorderPortalModuleAssignments(portalId: string, sectionKey: string, orderedIds: number[]): Promise<void>;
+
+  // User Favorites
+  getFavorites(userId: string): Promise<UserFavorite[]>;
+  addFavorite(data: { userId: string; moduleKey: string; label?: string; icon?: string; route: string; portalKey?: string }): Promise<UserFavorite>;
+  removeFavorite(userId: string, moduleKey: string): Promise<void>;
+  reorderFavorites(userId: string, orderedIds: number[]): Promise<void>;
 
   // Watcher Recipients
   getWatcherRecipients(): Promise<WatcherRecipient[]>;
@@ -3144,6 +3151,44 @@ export class DatabaseStorage implements IStorage {
             eq(portalModuleAssignments.portalId, portalId),
             eq(portalModuleAssignments.section, sectionKey),
           ))
+      )
+    );
+  }
+
+  async getFavorites(userId: string): Promise<UserFavorite[]> {
+    return db.select().from(userFavorites)
+      .where(eq(userFavorites.userId, userId))
+      .orderBy(asc(userFavorites.sortOrder), asc(userFavorites.createdAt));
+  }
+
+  async addFavorite(data: { userId: string; moduleKey: string; label?: string; icon?: string; route: string; portalKey?: string }): Promise<UserFavorite> {
+    const existing = await db.select().from(userFavorites)
+      .where(and(eq(userFavorites.userId, data.userId), eq(userFavorites.moduleKey, data.moduleKey)));
+    if (existing.length > 0) return existing[0];
+    const maxOrder = await db.select({ maxOrder: sql<number>`coalesce(max(sort_order),0)` })
+      .from(userFavorites).where(eq(userFavorites.userId, data.userId));
+    const [row] = await db.insert(userFavorites).values({
+      userId:    data.userId,
+      moduleKey: data.moduleKey,
+      label:     data.label,
+      icon:      data.icon ?? 'circle',
+      route:     data.route,
+      portalKey: data.portalKey,
+      sortOrder: (maxOrder[0]?.maxOrder ?? 0) + 1,
+    }).returning();
+    return row;
+  }
+
+  async removeFavorite(userId: string, moduleKey: string): Promise<void> {
+    await db.delete(userFavorites)
+      .where(and(eq(userFavorites.userId, userId), eq(userFavorites.moduleKey, moduleKey)));
+  }
+
+  async reorderFavorites(userId: string, orderedIds: number[]): Promise<void> {
+    await Promise.all(
+      orderedIds.map((id, idx) =>
+        db.update(userFavorites).set({ sortOrder: idx })
+          .where(and(eq(userFavorites.id, id), eq(userFavorites.userId, userId)))
       )
     );
   }

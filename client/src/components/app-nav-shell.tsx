@@ -21,9 +21,10 @@ import { inferWorkspace } from "@/lib/workspace";
 import { useChatDrawer } from "@/context/chat-drawer-context";
 import { WorkspaceSwitcherPill, PortalTopNav } from "@/components/portal-sidebar";
 import { usePortal } from "@/context/portal-context";
+import { FavoritesStrip } from "@/components/favorites-strip";
 
 function openCommandBar() {
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
+  document.dispatchEvent(new CustomEvent('open-command-palette', { bubbles: true }));
 }
 
 interface NavStats { activeIncidents: number; pendingApprovals: number; degradedCarriers: number; }
@@ -711,8 +712,13 @@ export function AppNavShell() {
           </nav>
         )}
 
+        {/* ── Favorites strip — sits between centre nav and right zone ── */}
+        <div className="hidden xl:flex items-center mx-2 flex-shrink-0 overflow-hidden">
+          <FavoritesStrip />
+        </div>
+
         {/* ── Right zone: global utilities ── */}
-        <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+        <div className="flex items-center gap-1 ml-auto flex-shrink-0">
           {/* Breadcrumb — only on wide screens, only in standard mode */}
           {!isPortalMode && activeDomain && (
             <div className="hidden xl:flex items-center gap-1 text-[10px] text-muted-foreground/40 mr-2">

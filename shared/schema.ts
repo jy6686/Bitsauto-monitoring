@@ -2668,17 +2668,24 @@ export const insertCarrierReconciliationSchema = createInsertSchema(carrierRecon
 // ── Portal Governance Framework ───────────────────────────────────────────────
 
 export const portalDefinitions = pgTable("portal_definitions", {
-  id:           serial("id").primaryKey(),
-  slug:         text("slug").unique().notNull(),
-  name:         text("name").notNull(),
-  icon:         text("icon").notNull().default("layout-dashboard"),
-  theme:        text("theme").notNull().default("neutral"),
-  layoutType:   text("layout_type").notNull().default("sidebar-sections"),
-  defaultRoute: text("default_route").notNull().default("/"),
-  allowedRoles: text("allowed_roles").array().notNull().default([]),
-  isActive:     boolean("is_active").notNull().default(true),
-  sortOrder:    integer("sort_order").notNull().default(0),
-  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  id:              serial("id").primaryKey(),
+  slug:            text("slug").unique().notNull(),
+  name:            text("name").notNull(),
+  icon:            text("icon").notNull().default("layout-dashboard"),
+  theme:           text("theme").notNull().default("neutral"),
+  layoutType:      text("layout_type").notNull().default("sidebar-sections"),
+  defaultRoute:    text("default_route").notNull().default("/"),
+  allowedRoles:    text("allowed_roles").array().notNull().default([]),
+  isActive:        boolean("is_active").notNull().default(true),
+  sortOrder:       integer("sort_order").notNull().default(0),
+  // Theme engine fields
+  primaryColor:    text("primary_color").notNull().default("purple"),
+  accentColor:     text("accent_color").notNull().default("indigo"),
+  backgroundStyle: text("background_style").notNull().default("flat"),
+  density:         text("density").notNull().default("comfortable"),
+  navStyle:        text("nav_style").notNull().default("glass"),
+  fontScale:       text("font_scale").notNull().default("normal"),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
 });
 export type PortalDefinition       = typeof portalDefinitions.$inferSelect;
 export type InsertPortalDefinition = typeof portalDefinitions.$inferInsert;
@@ -2702,18 +2709,25 @@ export type NavigationModule       = typeof navigationModules.$inferSelect;
 export type InsertNavigationModule = typeof navigationModules.$inferInsert;
 
 export const portalModuleAssignments = pgTable("portal_module_assignments", {
-  id:           serial("id").primaryKey(),
-  portalId:     text("portal_id").notNull(),
-  moduleId:     integer("module_id").notNull(),
-  section:      text("section").notNull().default("main"),
-  displayOrder: integer("display_order").notNull().default(0),
-  displayLabel: text("display_label"),
-  adapter:      text("adapter"),
-  visibility:   text("visibility").notNull().default("full"),
-  isHome:       boolean("is_home").notNull().default(false),
-  isPinned:     boolean("is_pinned").notNull().default(false),
-  updatedAt:    timestamp("updated_at").defaultNow().notNull(),
-  updatedBy:    text("updated_by"),
+  id:               serial("id").primaryKey(),
+  portalId:         text("portal_id").notNull(),
+  moduleId:         integer("module_id").notNull(),
+  section:          text("section").notNull().default("main"),
+  displayOrder:     integer("display_order").notNull().default(0),
+  displayLabel:     text("display_label"),
+  adapter:          text("adapter"),
+  visibility:       text("visibility").notNull().default("full"),
+  isHome:           boolean("is_home").notNull().default(false),
+  isPinned:         boolean("is_pinned").notNull().default(false),
+  updatedAt:        timestamp("updated_at").defaultNow().notNull(),
+  updatedBy:        text("updated_by"),
+  // Adapter metadata (T001)
+  adapterType:      text("adapter_type"),
+  widgetProfile:    text("widget_profile").notNull().default("standard"),
+  accessScope:      text("access_scope").notNull().default("global"),
+  realtimeEnabled:  boolean("realtime_enabled").notNull().default(false),
+  densityMode:      text("density_mode").notNull().default("standard"),
+  defaultTimeRange: text("default_time_range").notNull().default("24h"),
 });
 export type PortalModuleAssignment       = typeof portalModuleAssignments.$inferSelect;
 export type InsertPortalModuleAssignment = typeof portalModuleAssignments.$inferInsert;
@@ -2741,4 +2755,19 @@ export const portalSections = pgTable("portal_sections", {
 });
 
 export type PortalSection       = typeof portalSections.$inferSelect;
+
+// ── User Favorites ────────────────────────────────────────────────────────────
+export const userFavorites = pgTable("user_favorites", {
+  id:         serial("id").primaryKey(),
+  userId:     text("user_id").notNull(),
+  moduleKey:  text("module_key").notNull(),
+  portalKey:  text("portal_key"),
+  label:      text("label"),
+  icon:       text("icon").notNull().default("circle"),
+  route:      text("route").notNull(),
+  sortOrder:  integer("sort_order").notNull().default(0),
+  createdAt:  timestamp("created_at").defaultNow().notNull(),
+});
+export type UserFavorite       = typeof userFavorites.$inferSelect;
+export type InsertUserFavorite = typeof userFavorites.$inferInsert;
 export type InsertPortalSection = typeof portalSections.$inferInsert;

@@ -103,7 +103,11 @@ export default function NavigationGovernancePage() {
   const [addSectionIcon, setAddSectionIcon] = useState("circle");
   const [showAddSection, setShowAddSection] = useState(false);
   const [editAssignmentId, setEditAssignmentId] = useState<number | null>(null);
-  const [editAssignmentDraft, setEditAssignmentDraft] = useState<{ displayLabel?: string; adapter?: string; visibility?: string; isPinned?: boolean }>({});
+  const [editAssignmentDraft, setEditAssignmentDraft] = useState<{
+    displayLabel?: string; adapter?: string; visibility?: string; isPinned?: boolean;
+    adapterType?: string; widgetProfile?: string; accessScope?: string;
+    realtimeEnabled?: boolean; densityMode?: string; defaultTimeRange?: string;
+  }>({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -680,6 +684,12 @@ export default function NavigationGovernancePage() {
                                             adapter: mod.adapter ?? '',
                                             visibility: mod.visibility ?? 'full',
                                             isPinned: mod.isPinned ?? false,
+                                            adapterType: (mod as any).adapterType ?? '',
+                                            widgetProfile: (mod as any).widgetProfile ?? 'standard',
+                                            accessScope: (mod as any).accessScope ?? 'global',
+                                            realtimeEnabled: (mod as any).realtimeEnabled ?? false,
+                                            densityMode: (mod as any).densityMode ?? 'standard',
+                                            defaultTimeRange: (mod as any).defaultTimeRange ?? '24h',
                                           });
                                         }
                                       }}
@@ -703,53 +713,127 @@ export default function NavigationGovernancePage() {
                                 </div>
 
                                 {isEditing && (
-                                  <div className="px-3 pb-3 border-t border-white/[0.05] pt-2.5 grid grid-cols-2 gap-2">
-                                    <div>
-                                      <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Display label</label>
-                                      <input
-                                        className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-indigo-400/40"
-                                        value={editAssignmentDraft.displayLabel ?? ''}
-                                        onChange={e => setEditAssignmentDraft(d => ({ ...d, displayLabel: e.target.value }))}
-                                        placeholder={mod.title}
-                                        data-testid="edit-assignment-label"
-                                      />
+                                  <div className="px-3 pb-3 border-t border-white/[0.05] pt-2.5 space-y-2">
+                                    {/* Row 1: Label + Adapter */}
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Display label</label>
+                                        <input
+                                          className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-indigo-400/40"
+                                          value={editAssignmentDraft.displayLabel ?? ''}
+                                          onChange={e => setEditAssignmentDraft(d => ({ ...d, displayLabel: e.target.value }))}
+                                          placeholder={mod.title}
+                                          data-testid="edit-assignment-label"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Adapter type</label>
+                                        <select
+                                          className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground outline-none focus:border-indigo-400/40"
+                                          value={editAssignmentDraft.adapterType ?? ''}
+                                          onChange={e => setEditAssignmentDraft(d => ({ ...d, adapterType: e.target.value }))}
+                                          data-testid="edit-assignment-adapter-type"
+                                        >
+                                          <option value="">— none —</option>
+                                          {['kam', 'noc', 'finance', 'client', 'partner', 'admin'].map(a => <option key={a} value={a}>{a}</option>)}
+                                        </select>
+                                      </div>
                                     </div>
-                                    <div>
-                                      <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Adapter</label>
-                                      <input
-                                        className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground placeholder:text-muted-foreground/40 outline-none focus:border-indigo-400/40"
-                                        value={editAssignmentDraft.adapter ?? ''}
-                                        onChange={e => setEditAssignmentDraft(d => ({ ...d, adapter: e.target.value }))}
-                                        placeholder="kam, noc, finance..."
-                                        data-testid="edit-assignment-adapter"
-                                      />
+                                    {/* Row 2: Widget profile + Access scope */}
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Widget profile</label>
+                                        <select
+                                          className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground outline-none focus:border-indigo-400/40"
+                                          value={editAssignmentDraft.widgetProfile ?? 'standard'}
+                                          onChange={e => setEditAssignmentDraft(d => ({ ...d, widgetProfile: e.target.value }))}
+                                          data-testid="edit-assignment-widget-profile"
+                                        >
+                                          {['compact', 'standard', 'detailed', 'live'].map(p => <option key={p} value={p}>{p}</option>)}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Access scope</label>
+                                        <select
+                                          className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground outline-none focus:border-indigo-400/40"
+                                          value={editAssignmentDraft.accessScope ?? 'global'}
+                                          onChange={e => setEditAssignmentDraft(d => ({ ...d, accessScope: e.target.value }))}
+                                          data-testid="edit-assignment-access-scope"
+                                        >
+                                          {['global', 'client', 'vendor'].map(s => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                      </div>
                                     </div>
-                                    <div>
-                                      <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Visibility</label>
-                                      <select
-                                        className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground outline-none focus:border-indigo-400/40"
-                                        value={editAssignmentDraft.visibility ?? 'full'}
-                                        onChange={e => setEditAssignmentDraft(d => ({ ...d, visibility: e.target.value }))}
-                                        data-testid="edit-assignment-visibility"
-                                      >
-                                        {VISIBILITY_OPTS.map(v => <option key={v} value={v}>{v === 'full' ? 'Full access' : 'Read only'}</option>)}
-                                      </select>
+                                    {/* Row 3: Density + Time range */}
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Density mode</label>
+                                        <select
+                                          className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground outline-none focus:border-indigo-400/40"
+                                          value={editAssignmentDraft.densityMode ?? 'standard'}
+                                          onChange={e => setEditAssignmentDraft(d => ({ ...d, densityMode: e.target.value }))}
+                                          data-testid="edit-assignment-density"
+                                        >
+                                          {['dense', 'standard'].map(d => <option key={d} value={d}>{d}</option>)}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Default time range</label>
+                                        <select
+                                          className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground outline-none focus:border-indigo-400/40"
+                                          value={editAssignmentDraft.defaultTimeRange ?? '24h'}
+                                          onChange={e => setEditAssignmentDraft(d => ({ ...d, defaultTimeRange: e.target.value }))}
+                                          data-testid="edit-assignment-time-range"
+                                        >
+                                          {['1h', '24h', '7d', 'billing_month'].map(r => <option key={r} value={r}>{r}</option>)}
+                                        </select>
+                                      </div>
                                     </div>
-                                    <div>
-                                      <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Pinned</label>
-                                      <button
-                                        onClick={() => setEditAssignmentDraft(d => ({ ...d, isPinned: !d.isPinned }))}
-                                        className={cn(
-                                          "flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors w-full",
-                                          editAssignmentDraft.isPinned
-                                            ? "bg-violet-500/15 text-violet-300"
-                                            : "bg-white/[0.04] text-muted-foreground hover:bg-white/[0.07]"
-                                        )}
-                                      >
-                                        {editAssignmentDraft.isPinned ? '★ Pinned' : '☆ Not pinned'}
-                                      </button>
+                                    {/* Row 4: Visibility + Realtime + Pinned */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div>
+                                        <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Visibility</label>
+                                        <select
+                                          className="w-full text-xs bg-white/[0.05] border border-white/[0.1] rounded-md px-2 py-1.5 text-foreground outline-none focus:border-indigo-400/40"
+                                          value={editAssignmentDraft.visibility ?? 'full'}
+                                          onChange={e => setEditAssignmentDraft(d => ({ ...d, visibility: e.target.value }))}
+                                          data-testid="edit-assignment-visibility"
+                                        >
+                                          {VISIBILITY_OPTS.map(v => <option key={v} value={v}>{v === 'full' ? 'Full' : 'Read only'}</option>)}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Realtime</label>
+                                        <button
+                                          onClick={() => setEditAssignmentDraft(d => ({ ...d, realtimeEnabled: !d.realtimeEnabled }))}
+                                          className={cn(
+                                            "flex items-center justify-center gap-1 text-xs px-2 py-1.5 rounded-md transition-colors w-full",
+                                            editAssignmentDraft.realtimeEnabled
+                                              ? "bg-emerald-500/15 text-emerald-300"
+                                              : "bg-white/[0.04] text-muted-foreground/50 hover:bg-white/[0.07]"
+                                          )}
+                                          data-testid="edit-assignment-realtime"
+                                        >
+                                          {editAssignmentDraft.realtimeEnabled ? '⚡ On' : '— Off'}
+                                        </button>
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] text-muted-foreground/50 uppercase tracking-wide block mb-1">Pinned</label>
+                                        <button
+                                          onClick={() => setEditAssignmentDraft(d => ({ ...d, isPinned: !d.isPinned }))}
+                                          className={cn(
+                                            "flex items-center justify-center gap-1 text-xs px-2 py-1.5 rounded-md transition-colors w-full",
+                                            editAssignmentDraft.isPinned
+                                              ? "bg-violet-500/15 text-violet-300"
+                                              : "bg-white/[0.04] text-muted-foreground/50 hover:bg-white/[0.07]"
+                                          )}
+                                          data-testid="edit-assignment-pinned"
+                                        >
+                                          {editAssignmentDraft.isPinned ? '★ Yes' : '☆ No'}
+                                        </button>
+                                      </div>
                                     </div>
-                                    <div className="col-span-2 flex gap-2 pt-1">
+                                    <div className="flex gap-2 pt-1">
                                       <button
                                         onClick={() => updateAssignmentMut.mutate({ id: mod.id, data: editAssignmentDraft })}
                                         data-testid={`save-assignment-${mod.id}`}

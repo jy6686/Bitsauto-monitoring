@@ -1406,6 +1406,39 @@ export async function registerRoutes(
     }
   );
 
+  // ── User Favorites API ────────────────────────────────────────────────────────
+  app.get('/api/favorites', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try { res.json(await storage.getFavorites(userId)); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/favorites', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    const { moduleKey, label, icon, route, portalKey } = req.body;
+    if (!moduleKey || !route) return res.status(400).json({ error: 'moduleKey and route required' });
+    try { res.json(await storage.addFavorite({ userId, moduleKey, label, icon, route, portalKey })); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.delete('/api/favorites/:moduleKey', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    try { await storage.removeFavorite(userId, req.params.moduleKey); res.json({ ok: true }); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/favorites/reorder', async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    const { orderedIds } = req.body;
+    if (!Array.isArray(orderedIds)) return res.status(400).json({ error: 'orderedIds required' });
+    try { await storage.reorderFavorites(userId, orderedIds); res.json({ ok: true }); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   app.put('/api/portal/:slug/modules',
     (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
     async (req: any, res: any) => {
