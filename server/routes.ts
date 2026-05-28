@@ -17527,6 +17527,40 @@ export async function registerRoutes(
     setInterval(runQualityEventLogger, 15 * 60 * 1000);
   }, 90000); // 90s offset to spread server load
 
+  // ── DMR Daily Pipeline — fires at 00:05 UTC every day ────────────────────
+  // Governance spec: DMR for the previous GMT calendar day must be auto-generated
+  // at 00:05 UTC so operators can verify before the business day begins.
+  // Implementation: minute-tick poll that fires once per UTC day at HH:MM = 00:05.
+  {
+    let _dmrDailyLastRun = '';  // tracks the UTC date of the last successful auto-run
+    setInterval(async () => {
+      const now   = new Date();
+      const hh    = now.getUTCHours();
+      const mm    = now.getUTCMinutes();
+      const today = now.toISOString().slice(0, 10);
+      // Trigger only at 00:05 UTC and only once per calendar day
+      if (hh === 0 && mm === 5 && _dmrDailyLastRun !== today) {
+        _dmrDailyLastRun = today;
+        try {
+          const settings = await storage.getSippySettings();
+          if (!settings?.portalUrl) {
+            console.warn('[dmr-daily] Skipping auto-generate — Sippy not configured.');
+            return;
+          }
+          const { autoDailyDMR } = await import('./services/sippy/index');
+          await autoDailyDMR({
+            portalUrl:        settings.portalUrl,
+            username:         settings.portalUsername  ?? settings.apiAdminUsername ?? '',
+            password:         settings.portalPassword  ?? settings.apiAdminPassword ?? '',
+            adminWebPassword: settings.adminWebPassword ?? '',
+          });
+        } catch (err: any) {
+          console.error('[dmr-daily] Auto-generate failed:', err.message);
+        }
+      }
+    }, 60 * 1000); // poll every minute
+  }
+
   // ── SIP OPTIONS Probe ─────────────────────────────────────────────────────────
   // Per-host SIP OPTIONS keepalive results stored in-memory (refreshed every 60s)
   const sipOptionsCache: Map<number, {
@@ -27260,6 +27294,32 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       if (!iTariff || !periodStart || !periodEnd || !customerName) {
         return res.status(400).json({ error: 'iTariff, periodStart, periodEnd, customerName required' });
       }
+
+      // ── INVOICE GATE: DMR must be verified for the entire billing period ────
+      // This is a carrier-grade governance requirement. All calendar days in the
+      // billing window must have at least one DMR row with verificationStatus =
+      // 'verified' (or 'locked') and no 'critical' discrepancies.
+      const fromDate = String(periodStart).slice(0, 10);
+      const toDate   = String(periodEnd).slice(0, 10);
+      const dmrCheck = await storage.hasDMRVerifiedForPeriod(fromDate, toDate);
+      if (!dmrCheck.verified) {
+        const msgs: string[] = [];
+        if (dmrCheck.missingDates.length > 0) {
+          msgs.push(`DMR not verified for: ${dmrCheck.missingDates.join(', ')}`);
+        }
+        if (dmrCheck.criticalDates.length > 0) {
+          msgs.push(`Critical discrepancies unresolved on: ${dmrCheck.criticalDates.join(', ')}`);
+        }
+        return res.status(422).json({
+          error: 'Invoice blocked by DMR governance gate',
+          detail: msgs.join('; '),
+          missingDates:  dmrCheck.missingDates,
+          criticalDates: dmrCheck.criticalDates,
+          governance:    'All billing period days must have verified DMR before invoice generation.',
+        });
+      }
+      // ── END INVOICE GATE ────────────────────────────────────────────────────
+
       const result = await generateInvoice({ iTariff, periodStart, periodEnd, customerName, notes });
       res.json(result);
     } catch (err: any) {
@@ -27448,6 +27508,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // GET  /api/dmr/trend        — daily trend summary for sparkline (?from=&to=)
   // POST /api/dmr/generate     — generate DMR for a date
   // POST /api/dmr/:id/recalculate — recalculate (creates new version)
+  // POST /api/dmr/date/:date/lock   — lock all verified rows for a date (governance gate pre-invoice)
+  // POST /api/dmr/date/:date/verify — manually verify all generated rows for a date
 
   app.get('/api/dmr', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
@@ -27544,6 +27606,71 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       res.json(result);
     } catch (err: any) {
       console.error('[dmr] recalculate error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── DMR Governance: Lock a date (pre-invoice gate) ────────────────────────
+  // Locks all verified DMR rows for a date. Once locked, rows cannot regress.
+  // Required before invoice generation for that date.
+  app.post('/api/dmr/date/:date/lock', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const date = String(req.params.date);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+      const { lockDMRDate } = await import('./services/sippy/index');
+      const result = await lockDMRDate(date);
+      if (result.error) return res.status(422).json({ error: result.error, ...result });
+      res.json({ success: true, date, ...result });
+    } catch (err: any) {
+      console.error('[dmr] lock error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── DMR Governance: Manually verify all generated rows for a date ─────────
+  // Operator asserts the DMR for this date is correct. Sets status → 'verified'.
+  // Only transitions 'generated' and 'drifted' rows (not 'critical' rows —
+  // those must be corrected first via recalculate).
+  app.post('/api/dmr/date/:date/verify', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const date = String(req.params.date);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+
+      const rows = await storage.listDMRReports({ reportDate: date, latestVersionOnly: true });
+      if (rows.length === 0) return res.status(404).json({ error: `No DMR rows found for ${date}. Generate DMR first.` });
+
+      const criticalRows = rows.filter(r => r.verificationStatus === 'critical');
+      if (criticalRows.length > 0) {
+        return res.status(422).json({
+          error: `Cannot verify: ${criticalRows.length} row(s) have critical discrepancies. Recalculate or correct them first.`,
+          criticalRows: criticalRows.map(r => ({ id: r.id, accountName: r.accountName, driftAmount: r.driftAmount })),
+        });
+      }
+
+      let verified = 0;
+      let skipped  = 0;
+      for (const row of rows) {
+        if (row.verificationStatus === 'locked') { skipped++; continue; }
+        await storage.updateDMRStatus(row.id, 'verified');
+        verified++;
+      }
+      res.json({ success: true, date, verified, skipped });
+    } catch (err: any) {
+      console.error('[dmr] verify error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── DMR Governance: Period check (used by invoice gate) ───────────────────
+  // Returns whether all days in a billing period have verified DMR.
+  app.get('/api/dmr/period-check', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const from = String(req.query.from ?? '');
+      const to   = String(req.query.to   ?? '');
+      if (!from || !to) return res.status(400).json({ error: 'from and to (YYYY-MM-DD) required' });
+      const result = await storage.hasDMRVerifiedForPeriod(from, to);
+      res.json({ from, to, ...result });
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });

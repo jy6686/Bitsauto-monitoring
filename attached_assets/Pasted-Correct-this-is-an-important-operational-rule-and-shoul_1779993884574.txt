@@ -1,0 +1,168 @@
+Correct — this is an important operational rule and should become:
+
+hard billing governance logic,
+
+not configurable UI behavior.
+
+DMR generation should ALWAYS use:
+
+full GMT calendar day boundaries.
+
+Meaning:
+
+FROM:
+27 May 2026 00:00:00 GMT
+
+TO:
+27 May 2026 23:59:59 GMT
+
+NOT:
+
+rolling 24h,
+local timezone,
+server timezone,
+account timezone.
+
+This is the correct telecom-grade approach because:
+
+Sippy reporting,
+carrier reports,
+reconciliation,
+invoices,
+vendor settlements,
+AI assurance,
+dispute defense
+
+all depend on:
+
+deterministic day boundaries.
+Recommended Platform Rule
+DMR Operational Window
+
+Always:
+
+GMT / UTC ONLY
+
+Stored explicitly:
+
+Field	Example
+report_date	2026-05-27
+window_start_gmt	2026-05-27 00:00:00
+window_end_gmt	2026-05-27 23:59:59
+timezone	UTC
+VERY IMPORTANT
+
+Do NOT:
+
+convert to user timezone
+
+inside:
+
+DMR,
+reconciliation,
+invoice calculations,
+AI assurance.
+
+Timezone conversion should only happen:
+
+in display layer/UI.
+
+Operational calculations must remain:
+
+UTC deterministic.
+Correct Daily Pipeline Logic
+At 00:05 GMT
+
+System runs:
+
+Generate DMR for PREVIOUS GMT DAY
+
+Example:
+
+At:
+
+28 May 2026 00:05 GMT
+
+Generate:
+
+27 May 2026
+00:00 → 23:59 GMT
+
+This prevents:
+
+partial-day instability,
+late CDR ingestion,
+replication lag issues.
+
+Very important operational detail.
+
+Recommended Orchestration Timing
+Time GMT	Job
+00:05	DMR generation
+00:15	DMR validation
+00:30	AI assurance
+00:45	Drift detection
+01:00	Finance incident creation
+
+Correct pipeline.
+
+IMPORTANT DMR RULE
+
+DMR should NEVER:
+
+overwrite same day rows
+
+Instead:
+
+append-only versioning.
+
+Example:
+
+Date	Version
+2026-05-27	v1
+2026-05-27	v2 recalculated
+2026-05-27	v3 corrected
+
+This preserves:
+
+finance auditability.
+Recommended Status Model
+Status	Meaning
+pending	not generated
+generating	running
+generated	created
+verified	passed checks
+drifted	anomalies found
+corrected	regenerated
+locked	immutable
+
+Very important later for:
+
+invoice readiness,
+AI assurance,
+reconciliation confidence.
+MOST IMPORTANT GOVERNANCE RULE
+
+Invoice generation should ONLY happen if:
+
+DMR.status = verified
+
+NOT:
+
+generated
+
+Huge operational distinction.
+
+Strategic Result
+
+This turns DMR into:
+
+telecom operational truth layer.
+
+Everything else then derives from:
+
+verified daily economics,
+deterministic GMT boundaries,
+immutable operational windows.
+
+That is exactly how carrier-grade finance assurance systems operate.

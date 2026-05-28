@@ -118,6 +118,8 @@ export {
   generateDMR,
   recalculateDMR,
   getDMRTrend,
+  lockDMRDate,
+  autoDailyDMR,
 } from './sippy-dmr.service';
 
 // ── AI Revenue Assurance Layer ────────────────────────────────────────────────

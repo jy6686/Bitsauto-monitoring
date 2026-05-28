@@ -1929,12 +1929,21 @@ export type InsertPlatformFeatureFlag = typeof platformFeatureFlags.$inferInsert
 // Never mutate historical economics silently.
 // source: 'daily_summary' | 'client_cdr' | 'vendor_cdr' | 'manual'
 // discrepancy_type: 'exact_match' | 'duration_drift' | 'amount_drift' | 'tariff_mismatch' | 'missing_cdr' | 'duplicate_cdr'
-// verification_status: 'pending' | 'verified' | 'drifted' | 'critical'
+// verification_status: 'pending' | 'generating' | 'generated' | 'verified' | 'drifted' | 'critical' | 'corrected' | 'locked'
+// GOVERNANCE: window_start_gmt / window_end_gmt are ALWAYS UTC. Timezone conversion
+//             is display-only. All invoicing, recon, and AI assurance must use
+//             these fields as the deterministic truth boundary.
+// INVOICE GATE: invoice generation requires verification_status = 'verified' for the period.
 export const dailyMinutesReports = pgTable("daily_minutes_reports", {
   id:                serial("id").primaryKey(),
   reportDate:        date("report_date").notNull(),
   dmrVersion:        integer("dmr_version").notNull().default(1),
   parentDmrId:       integer("parent_dmr_id"),
+
+  // ── Explicit UTC window (immutable, set at generation time) ───────────────
+  windowStartGmt:    timestamp("window_start_gmt"),
+  windowEndGmt:      timestamp("window_end_gmt"),
+  timezone:          varchar("timezone", { length: 8 }).notNull().default('UTC'),
 
   accountId:         varchar("account_id",   { length: 64 }),
   accountName:       varchar("account_name", { length: 256 }),

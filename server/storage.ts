@@ -437,6 +437,9 @@ export interface IStorage {
   listDMRReports(opts: { reportDate?: string; fromDate?: string; toDate?: string; latestVersionOnly?: boolean; status?: string }): Promise<DailyMinutesReport[]>;
   getDMRReport(id: number): Promise<DailyMinutesReport | null>;
   bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]>;
+  updateDMRStatus(id: number, status: string): Promise<DailyMinutesReport | null>;
+  // Governance: check if all days in a period have at least one 'verified' DMR row
+  hasDMRVerifiedForPeriod(fromDate: string, toDate: string): Promise<{ verified: boolean; missingDates: string[]; criticalDates: string[] }>;
 
   // ── Client Identity Map ────────────────────────────────────────────────────
   listClientIdentities(opts?: { activeOnly?: boolean; search?: string }): Promise<ClientIdentity[]>;
@@ -2502,6 +2505,47 @@ export class DatabaseStorage implements IStorage {
   async bulkInsertDMRReports(rows: InsertDailyMinutesReport[]): Promise<DailyMinutesReport[]> {
     if (rows.length === 0) return [];
     return db.insert(dailyMinutesReports).values(rows).returning();
+  }
+
+  async updateDMRStatus(id: number, status: string): Promise<DailyMinutesReport | null> {
+    const [row] = await db
+      .update(dailyMinutesReports)
+      .set({ verificationStatus: status })
+      .where(eq(dailyMinutesReports.id, id))
+      .returning();
+    return row ?? null;
+  }
+
+  async hasDMRVerifiedForPeriod(fromDate: string, toDate: string): Promise<{ verified: boolean; missingDates: string[]; criticalDates: string[] }> {
+    const rows = await this.listDMRReports({ fromDate, toDate, latestVersionOnly: true });
+
+    // Build set of dates that have at least one verified row
+    const verifiedDates   = new Set<string>();
+    const criticalDates   = new Set<string>();
+    for (const r of rows) {
+      if (r.verificationStatus === 'verified' || r.verificationStatus === 'locked') {
+        verifiedDates.add(r.reportDate);
+      }
+      if (r.verificationStatus === 'critical') {
+        criticalDates.add(r.reportDate);
+      }
+    }
+
+    // Enumerate every calendar day in the billing period
+    const missingDates: string[] = [];
+    const cur = new Date(fromDate + 'T00:00:00Z');
+    const end = new Date(toDate   + 'T00:00:00Z');
+    while (cur <= end) {
+      const d = cur.toISOString().slice(0, 10);
+      if (!verifiedDates.has(d)) missingDates.push(d);
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+
+    return {
+      verified:      missingDates.length === 0 && criticalDates.size === 0,
+      missingDates,
+      criticalDates: [...criticalDates],
+    };
   }
 
   // ── Partner Operations Portal ─────────────────────────────────────────────────────
