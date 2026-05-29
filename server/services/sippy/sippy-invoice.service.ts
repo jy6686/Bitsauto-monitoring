@@ -17,6 +17,7 @@
  */
 
 import { storage } from '../../storage';
+import { lookupDialCode } from '../../dial-lookup';
 import type {
   Invoice, InsertInvoice,
   InvoiceLineItem, InsertInvoiceLineItem,
@@ -71,144 +72,6 @@ function fmtRate(r: number): string {
   return r.toFixed(5);
 }
 
-// ── Country prefix lookup ─────────────────────────────────────────────────────
-
-const COUNTRY_PREFIX: [string, string][] = [
-  ['1',   'United States'],
-  ['7',   'Russia'],
-  ['20',  'Egypt'],
-  ['27',  'South Africa'],
-  ['30',  'Greece'],
-  ['31',  'Netherlands'],
-  ['32',  'Belgium'],
-  ['33',  'France'],
-  ['34',  'Spain'],
-  ['36',  'Hungary'],
-  ['39',  'Italy'],
-  ['40',  'Romania'],
-  ['41',  'Switzerland'],
-  ['43',  'Austria'],
-  ['44',  'United Kingdom'],
-  ['45',  'Denmark'],
-  ['46',  'Sweden'],
-  ['47',  'Norway'],
-  ['48',  'Poland'],
-  ['49',  'Germany'],
-  ['51',  'Peru'],
-  ['52',  'Mexico'],
-  ['54',  'Argentina'],
-  ['55',  'Brazil'],
-  ['56',  'Chile'],
-  ['57',  'Colombia'],
-  ['58',  'Venezuela'],
-  ['60',  'Malaysia'],
-  ['61',  'Australia'],
-  ['62',  'Indonesia'],
-  ['63',  'Philippines'],
-  ['64',  'New Zealand'],
-  ['65',  'Singapore'],
-  ['66',  'Thailand'],
-  ['81',  'Japan'],
-  ['82',  'South Korea'],
-  ['84',  'Vietnam'],
-  ['86',  'China'],
-  ['90',  'Turkey'],
-  ['91',  'India'],
-  ['92',  'Pakistan'],
-  ['93',  'Afghanistan'],
-  ['94',  'Sri Lanka'],
-  ['95',  'Myanmar'],
-  ['98',  'Iran'],
-  ['212', 'Morocco'],
-  ['213', 'Algeria'],
-  ['216', 'Tunisia'],
-  ['218', 'Libya'],
-  ['234', 'Nigeria'],
-  ['237', 'Cameroon'],
-  ['249', 'Sudan'],
-  ['250', 'Rwanda'],
-  ['251', 'Ethiopia'],
-  ['254', 'Kenya'],
-  ['255', 'Tanzania'],
-  ['256', 'Uganda'],
-  ['260', 'Zambia'],
-  ['263', 'Zimbabwe'],
-  ['351', 'Portugal'],
-  ['352', 'Luxembourg'],
-  ['353', 'Ireland'],
-  ['354', 'Iceland'],
-  ['355', 'Albania'],
-  ['358', 'Finland'],
-  ['370', 'Lithuania'],
-  ['371', 'Latvia'],
-  ['372', 'Estonia'],
-  ['373', 'Moldova'],
-  ['374', 'Armenia'],
-  ['375', 'Belarus'],
-  ['380', 'Ukraine'],
-  ['381', 'Serbia'],
-  ['385', 'Croatia'],
-  ['386', 'Slovenia'],
-  ['387', 'Bosnia and Herzegovina'],
-  ['420', 'Czech Republic'],
-  ['421', 'Slovakia'],
-  ['502', 'Guatemala'],
-  ['503', 'El Salvador'],
-  ['504', 'Honduras'],
-  ['505', 'Nicaragua'],
-  ['506', 'Costa Rica'],
-  ['507', 'Panama'],
-  ['509', 'Haiti'],
-  ['591', 'Bolivia'],
-  ['593', 'Ecuador'],
-  ['595', 'Paraguay'],
-  ['598', 'Uruguay'],
-  ['670', 'East Timor'],
-  ['673', 'Brunei'],
-  ['675', 'Papua New Guinea'],
-  ['679', 'Fiji'],
-  ['852', 'Hong Kong'],
-  ['853', 'Macau'],
-  ['855', 'Cambodia'],
-  ['856', 'Laos'],
-  ['880', 'Bangladesh'],
-  ['886', 'Taiwan'],
-  ['960', 'Maldives'],
-  ['961', 'Lebanon'],
-  ['962', 'Jordan'],
-  ['963', 'Syria'],
-  ['964', 'Iraq'],
-  ['965', 'Kuwait'],
-  ['966', 'Saudi Arabia'],
-  ['967', 'Yemen'],
-  ['968', 'Oman'],
-  ['971', 'United Arab Emirates'],
-  ['972', 'Israel'],
-  ['973', 'Bahrain'],
-  ['974', 'Qatar'],
-  ['975', 'Bhutan'],
-  ['976', 'Mongolia'],
-  ['977', 'Nepal'],
-  ['992', 'Tajikistan'],
-  ['993', 'Turkmenistan'],
-  ['994', 'Azerbaijan'],
-  ['995', 'Georgia'],
-  ['996', 'Kyrgyzstan'],
-  ['998', 'Uzbekistan'],
-];
-
-// Sort longest-first so more specific matches win
-const SORTED_PREFIXES = [...COUNTRY_PREFIX].sort((a, b) => b[0].length - a[0].length);
-
-function getCountryFromPrefix(prefix: string): string {
-  const digits = (prefix ?? '').replace(/\D/g, '');
-  if (!digits) return 'Unknown';
-  for (const [code, name] of SORTED_PREFIXES) {
-    if (digits.startsWith(code)) return name;
-  }
-  return `Unknown (${digits.slice(0, 3)})`;
-}
-
 // ── Destination grouping ──────────────────────────────────────────────────────
 
 interface DestRow {
@@ -233,19 +96,25 @@ function buildDestRows(snapshots: InvoiceCdrSnapshot[]): {
   const groups = new Map<string, DestRow>();
 
   for (const s of snapshots) {
-    const prefix  = s.prefix ?? s.callee ?? '';
-    const country = getCountryFromPrefix(prefix);
-    const mins    = (s.durationSecs ?? 0) / 60;
-    const cost    = s.reproducedCost ?? 0;
-    const rate    = mins > 0 ? +(cost / mins).toFixed(5) : 0;
-    const key     = `${country}||${prefix}||${rate.toFixed(5)}`;
+    // Use the callee (dialed number) for lookup — lookupDialCode strips the
+    // leading Sippy trunk-class digit (1=First Class, 2=Business, 6=Bravo, 7=Charlie)
+    // before resolving the E.164 country, so "18801402853167" → Bangladesh, not US.
+    const dialNum    = s.callee ?? s.prefix ?? '';
+    const match      = lookupDialCode(dialNum);
+    const country    = match?.country     ?? 'Unknown';
+    const destination = match?.destination ?? (s.prefix ?? dialNum);
+
+    const mins = (s.durationSecs ?? 0) / 60;
+    const cost = s.reproducedCost ?? 0;
+    const rate = mins > 0 ? +(cost / mins).toFixed(5) : 0;
+    const key  = `${country}||${destination}||${rate.toFixed(5)}`;
 
     const existing = groups.get(key);
     if (existing) {
       existing.durationSecs += s.durationSecs ?? 0;
       existing.amount       += cost;
     } else {
-      groups.set(key, { country, destination: prefix, durationSecs: s.durationSecs ?? 0, amount: cost, rate });
+      groups.set(key, { country, destination, durationSecs: s.durationSecs ?? 0, amount: cost, rate });
     }
   }
 
