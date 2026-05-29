@@ -99,6 +99,7 @@ import UnbilledUsagePage from "@/pages/unbilled-usage";
 import AccountStatementPage from "@/pages/account-statement";
 import InvoiceSchedulesPage from "@/pages/invoice-schedules";
 import PaymentRemindersPage from "@/pages/payment-reminders";
+import { CdrRerateWS } from "@/pages/cdr-rerate";
 import CommunicationPoliciesPage from "@/pages/communication-policies";
 import DMRPage from "@/pages/dmr";
 import ClientReconciliationPage from "@/pages/client-reconciliation";
@@ -524,6 +525,9 @@ function Router() {
       </Route>
       <Route path="/payment-reminders">
         {() => <ProtectedRoute component={PaymentRemindersWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/cdr-rerate">
+        {() => <ProtectedRoute component={CdrRerateWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/communication-policies">
         {() => <ProtectedRoute component={CommunicationPoliciesPage} requiredRoles={['admin']} />}

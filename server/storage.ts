@@ -131,6 +131,7 @@ import {
   payments, type Payment, type InsertPayment,
   invoiceSchedules, type InvoiceSchedule, type InsertInvoiceSchedule,
   paymentReminderConfig, type PaymentReminderConfig,
+  cdrRerateRuns, type CdrRerateRun, type InsertCdrRerateRun,
   portalDefinitions, navigationModules, portalModuleAssignments, portalSections,
   userFavorites,
   type PortalDefinition, type InsertPortalModuleAssignment,
@@ -685,6 +686,13 @@ export interface IStorage {
   // ── Payment Reminder Config ────────────────────────────────────────────────
   getPaymentReminderConfig(): Promise<PaymentReminderConfig | null>;
   upsertPaymentReminderConfig(data: Partial<PaymentReminderConfig>): Promise<PaymentReminderConfig>;
+
+  // ── CDR Re-rating ──────────────────────────────────────────────────────────
+  createCdrRerateRun(data: InsertCdrRerateRun): Promise<CdrRerateRun>;
+  listCdrRerateRuns(): Promise<CdrRerateRun[]>;
+  getCdrRerateRun(id: number): Promise<CdrRerateRun | null>;
+  updateCdrRerateRun(id: number, updates: Partial<CdrRerateRun>): Promise<CdrRerateRun>;
+  deleteCdrRerateRun(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3591,6 +3599,26 @@ export class DatabaseStorage implements IStorage {
       ...data, updatedAt: new Date(),
     }).returning();
     return row;
+  }
+
+  // ── CDR Re-rating ──────────────────────────────────────────────────────────
+  async createCdrRerateRun(data: InsertCdrRerateRun): Promise<CdrRerateRun> {
+    const [row] = await db.insert(cdrRerateRuns).values(data).returning();
+    return row;
+  }
+  async listCdrRerateRuns(): Promise<CdrRerateRun[]> {
+    return db.select().from(cdrRerateRuns).orderBy(desc(cdrRerateRuns.createdAt));
+  }
+  async getCdrRerateRun(id: number): Promise<CdrRerateRun | null> {
+    const [row] = await db.select().from(cdrRerateRuns).where(eq(cdrRerateRuns.id, id));
+    return row ?? null;
+  }
+  async updateCdrRerateRun(id: number, updates: Partial<CdrRerateRun>): Promise<CdrRerateRun> {
+    const [row] = await db.update(cdrRerateRuns).set(updates).where(eq(cdrRerateRuns.id, id)).returning();
+    return row;
+  }
+  async deleteCdrRerateRun(id: number): Promise<void> {
+    await db.delete(cdrRerateRuns).where(eq(cdrRerateRuns.id, id));
   }
 }
 

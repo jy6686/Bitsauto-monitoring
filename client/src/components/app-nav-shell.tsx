@@ -226,6 +226,7 @@ const DOMAINS: Domain[] = [
         { href: '/carrier-reconciliation', label: 'Carrier Recon',       desc: 'Carrier-side reconciliation', icon: ArrowRightLeft },
         { href: '/ai-assurance',           label: 'AI Assurance',        desc: 'AI-driven revenue checks',    icon: BrainCircuit },
         { href: '/margin-intelligence',    label: 'Margin Intelligence', desc: 'Cost vs revenue margins',     icon: TrendingDown },
+        { href: '/cdr-rerate',             label: 'CDR Re-rating',       desc: 'Pricing scenario analysis on locked snapshots', icon: History },
       ]},
       { label: 'Disputes', desc: 'Billing disputes, case tracking and defense toolkit', icon: Shield, items: [
         { href: '/billing-disputes', label: 'Disputes',       desc: 'Billing dispute resolution',  icon: Shield },

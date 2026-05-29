@@ -29527,6 +29527,86 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── CDR Re-rating ─────────────────────────────────────────────────────────────
+  // NEVER modifies invoice_cdr_snapshots. Reads snapshots, applies new rate,
+  // stores summary in cdr_rerate_runs for scenario/pricing analysis only.
+
+  // GET /api/cdr-rerate — list all re-rating runs
+  app.get('/api/cdr-rerate', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const runs = await storage.listCdrRerateRuns();
+      res.json(runs);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/cdr-rerate/:id — single run
+  app.get('/api/cdr-rerate/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const run = await storage.getCdrRerateRun(Number(req.params.id));
+      if (!run) return res.status(404).json({ error: 'Not found' });
+      res.json(run);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/cdr-rerate — create and execute a re-rating run
+  app.post('/api/cdr-rerate', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { name, fromDate, toDate, iTariffFilter, flatRatePerMin, notes } = req.body;
+      if (!name || !fromDate || !toDate) return res.status(400).json({ error: 'name, fromDate and toDate are required' });
+      if (flatRatePerMin === undefined || flatRatePerMin === null || isNaN(Number(flatRatePerMin))) {
+        return res.status(400).json({ error: 'flatRatePerMin is required for flat_rate mode' });
+      }
+      const rate = Number(flatRatePerMin);
+      if (rate < 0) return res.status(400).json({ error: 'flatRatePerMin must be ≥ 0' });
+
+      // Create run as 'running'
+      const run = await storage.createCdrRerateRun({
+        name, mode: 'flat_rate', fromDate, toDate,
+        iTariffFilter: iTariffFilter || null,
+        flatRatePerMin: rate, status: 'running', notes: notes || null,
+      });
+
+      // Execute re-rating against invoice_cdr_snapshots (read-only)
+      const { db: dbConn } = await import('./db');
+      const { invoiceCdrSnapshots } = await import('../shared/schema');
+      const { and, gte, lte, eq: eqD, sql: sqlExpr } = await import('drizzle-orm');
+
+      const conditions: any[] = [
+        gte(invoiceCdrSnapshots.cdrStartTime, fromDate),
+        lte(invoiceCdrSnapshots.cdrStartTime, toDate + 'Z'),
+      ];
+      if (iTariffFilter) conditions.push(eqD(invoiceCdrSnapshots.iTariff, iTariffFilter));
+
+      const snapshots = await dbConn.select().from(invoiceCdrSnapshots).where(and(...conditions));
+
+      let originalCost = 0;
+      let reratedCost  = 0;
+      for (const s of snapshots) {
+        originalCost += s.reproducedCost ?? 0;
+        reratedCost  += ((s.durationSecs ?? 0) / 60) * rate;
+      }
+      const delta      = reratedCost - originalCost;
+      const savingsPct = originalCost !== 0 ? ((originalCost - reratedCost) / originalCost) * 100 : 0;
+
+      const updated = await storage.updateCdrRerateRun(run.id, {
+        status: 'done', snapshotCount: snapshots.length,
+        originalCost, reratedCost, delta, savingsPct,
+        completedAt: new Date(),
+      });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // DELETE /api/cdr-rerate/:id — remove a run record
+  app.delete('/api/cdr-rerate/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      await storage.deleteCdrRerateRun(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   return httpServer;
 }
 

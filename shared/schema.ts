@@ -2728,6 +2728,32 @@ export const paymentReminderConfig = pgTable("payment_reminder_config", {
 export type PaymentReminderConfig       = typeof paymentReminderConfig.$inferSelect;
 export type InsertPaymentReminderConfig = typeof paymentReminderConfig.$inferInsert;
 
+// ── CDR Re-rating Runs ────────────────────────────────────────────────────────
+// Scenario analysis ONLY — never modifies invoice_cdr_snapshots (immutable).
+// mode='flat_rate': every CDR duration * flatRatePerMin = reratedCost.
+// mode='tariff_swap': deferred — requires Sippy prefix-match integration.
+export const cdrRerateRuns = pgTable("cdr_rerate_runs", {
+  id:             serial("id").primaryKey(),
+  name:           varchar("name",            { length: 256 }).notNull(),
+  mode:           varchar("mode",            { length: 32  }).notNull().default('flat_rate'),
+  fromDate:       varchar("from_date",       { length: 32  }).notNull(),
+  toDate:         varchar("to_date",         { length: 32  }).notNull(),
+  iTariffFilter:  varchar("i_tariff_filter", { length: 64  }),
+  flatRatePerMin: real("flat_rate_per_min"),
+  status:         varchar("status",          { length: 32  }).notNull().default('pending'),
+  snapshotCount:  integer("snapshot_count").default(0),
+  originalCost:   real("original_cost").default(0),
+  reratedCost:    real("rerated_cost").default(0),
+  delta:          real("delta").default(0),
+  savingsPct:     real("savings_pct").default(0),
+  notes:          text("notes"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  completedAt:    timestamp("completed_at"),
+});
+export type CdrRerateRun       = typeof cdrRerateRuns.$inferSelect;
+export type InsertCdrRerateRun = typeof cdrRerateRuns.$inferInsert;
+export const insertCdrRerateRunSchema = createInsertSchema(cdrRerateRuns).omit({ id: true, createdAt: true, completedAt: true });
+
 // ── Portal Governance Framework ───────────────────────────────────────────────
 
 export const portalDefinitions = pgTable("portal_definitions", {
