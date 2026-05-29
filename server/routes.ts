@@ -1,6 +1,7 @@
 
 import type { Express } from "express";
 import { registerBhaooRoutes } from './routes-bhaoo';
+import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { createServer, type Server } from "http";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import * as net from "net";
@@ -30030,6 +30031,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── BhaooSMS / REVE SMS integration routes ────────────────────────────────
   registerBhaooRoutes(app);
+
+  // ── Voice OTP / Asterisk AMI routes ───────────────────────────────────────
+  registerVoiceOtpRoutes(app);
 
   return httpServer;
 }

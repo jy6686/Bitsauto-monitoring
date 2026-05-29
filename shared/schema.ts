@@ -3150,3 +3150,18 @@ export const smsVendorStats = pgTable("sms_vendor_stats", {
   createdAt:    timestamp("created_at").defaultNow().notNull(),
 });
 export type SmsVendorStat = typeof smsVendorStats.$inferSelect;
+
+// ── Voice OTP ────────────────────────────────────────────────────────────────
+export const voiceOtpCalls = pgTable("voice_otp_calls", {
+  id:           serial("id").primaryKey(),
+  toNumber:     varchar("to_number",  { length: 32 }).notNull(),
+  otp:          varchar("otp",         { length: 16 }).notNull(),
+  trunk:        varchar("trunk",        { length: 64 }).default('Sippy'),
+  asteriskId:   varchar("asterisk_id", { length: 128 }),
+  status:       varchar("status",       { length: 16 }).notNull().default('initiated'),
+  errorMessage: text("error_message"),
+  initiatedAt:  timestamp("initiated_at").defaultNow().notNull(),
+  answeredAt:   timestamp("answered_at"),
+  completedAt:  timestamp("completed_at"),
+});
+export type VoiceOtpCall = typeof voiceOtpCalls.$inferSelect;
