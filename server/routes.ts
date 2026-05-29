@@ -19087,21 +19087,10 @@ export async function registerRoutes(
         }
       }
 
-      // Attempt 4: portal scrape fallback
-      if (!cdrs.length) {
-        const pUser = settings.portalUsername || '';
-        const pPass = settings.portalPassword || '';
-        if (pUser && pPass) {
-          try {
-            const pad = (n: number) => String(n).padStart(2, '0');
-            const fmt = (d: Date) => `${pad(d.getMonth()+1)}/${pad(d.getDate())}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-            cdrs = await sippy.scrapePortalCDRs(pUser, pPass, portalBase, { limit: 2000, startDate: fmt(fromDate), endDate: fmt(toDate), callsSelect: '4' });
-            if (cdrs.length > 0) dataSource = 'portal-scrape';
-          } catch (e: any) {
-            console.warn('[analytics/margin] scrapePortalCDRs fallback failed:', e.message);
-          }
-        }
-      }
+      // Attempt 4: portal scrape — intentionally removed.
+      // Finance reporting must only use Admin API (XML-RPC) data sources.
+      // If Attempts 1-3 returned no CDRs, report empty data rather than
+      // falling back to live operational (RTST1) portal data.
 
       if (!cdrs.length) {
         return res.json({
@@ -27153,37 +27142,43 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         return true;
       });
 
-      // ── Step 2: if cache empty and we have an account + period, fetch from Sippy portal ──
+      // ── Step 2: if cache empty and we have an account + period, fetch via Admin API (XML-RPC) ──
+      // Portal / RTST1 scraping is excluded from billing pipelines.
+      // Only the Admin API is an authoritative source for rating verification CDR data.
       if (workList.length === 0 && iAccount && periodStart) {
-        console.log(`[rating-verification] cache empty — fetching portal CDRs for account ${iAccount} ${periodStart}→${periodEnd}`);
+        console.log(`[rating-verification] cache empty — fetching via Admin API for account ${iAccount} ${periodStart}→${periodEnd}`);
         try {
           const settings  = await storage.getSettings();
           const portalUrl = sippyPortalUrl(settings);
-          const portUser  = settings.adminWebPassword
-            ? (settings.portalUsername ?? settings.apiAdminUsername ?? '')
-            : (settings.apiAdminUsername ?? settings.portalUsername ?? '');
-          const portPass  = settings.adminWebPassword ?? settings.apiAdminPassword ?? settings.portalPassword ?? '';
+          const startIso  = `${periodStart}T00:00:00`;
+          const endIso    = `${(periodEnd ?? periodStart)}T23:59:59`;
+          const RV_PAGE   = 500;
+          const allPages: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
 
-          // Convert YYYY-MM-DD dates to Sippy portal MM/DD/YYYY HH:MM:SS format
-          const toPortalDate = (d: string, endOfDay = false) => {
-            const parts = d.split('-');
-            if (parts.length !== 3) return d;
-            const t = endOfDay ? '23:59:59' : '00:00:00';
-            return `${parts[1]}/${parts[2]}/${parts[0]} ${t}`;
-          };
+          if (!xmlRpcCircuitGuard()) {
+            for (const { username, password } of sippyXmlCredsPairs(settings)) {
+              const pagesAcc: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+              let offset = 0;
+              try {
+                while (true) {
+                  const page = await sippy.getSippyCDRs(username, password, RV_PAGE,
+                    { iAccount: Number(iAccount), startDate: startIso, endDate: endIso, offset },
+                    portalUrl);
+                  if (page.length > 0) { pagesAcc.push(...page); xmlRpcRecordSuccess(); }
+                  if (page.length < RV_PAGE) break;
+                  offset += RV_PAGE;
+                }
+                if (pagesAcc.length > 0) { allPages.push(...pagesAcc); break; }
+              } catch (e: any) {
+                console.warn(`[rating-verification] XML-RPC(${username}) error: ${e.message}`);
+              }
+            }
+          }
 
-          const portalCdrs = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
-            startDate:       toPortalDate(periodStart),
-            endDate:         toPortalDate(periodEnd ?? periodStart, true),
-            fallbackUsername: settings.portalUsername  ?? '',
-            fallbackPassword: settings.portalPassword  ?? '',
-            maxPages:        50,
-          });
-
-          console.log(`[rating-verification] portal fetch → ${portalCdrs.length} CDRs`);
-          workList = portalCdrs.map((c: any) => ({ ...c, _fromPortal: true }));
+          console.log(`[rating-verification] Admin API fetch → ${allPages.length} CDRs`);
+          workList = allPages;
         } catch (fetchErr: any) {
-          console.warn('[rating-verification] portal CDR fetch failed:', fetchErr.message);
+          console.warn('[rating-verification] Admin API CDR fetch failed:', fetchErr.message);
         }
       }
 
@@ -27193,7 +27188,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         return res.json({
           total: 0, verified: 0, discrepancies: 0, missing: 0,
           unrated: 0, totalDelta: 0, byType: {}, bySeverity: {}, durationMs: 0,
-          message: 'No CDRs found in cache or Sippy portal for this account/period.',
+          message: 'No CDRs found in cache or via Admin API for this account/period. Verify the iAccount ID and XML-RPC credentials in Settings → Sippy Connection.',
         });
       }
 
@@ -27207,7 +27202,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }));
 
       const result = await verifyBatch(inputs, { concurrency: 5 });
-      res.json({ ...result, source: workList[0]?._fromPortal ? 'portal' : 'cache' });
+      res.json({ ...result, source: workList.length > 0 ? 'admin-api' : 'cache' });
     } catch (err: any) {
       console.error('[rating-verification] batch error:', err.message);
       res.status(500).json({ error: err.message });
@@ -27353,64 +27348,68 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const startIso  = `${periodStart}T00:00:00`;
         const endIso    = `${periodEnd ?? periodStart}T23:59:59`;
 
-        let rawCdrs: Awaited<ReturnType<typeof sippy.scrapePortalCDRsAll>> = [];
+        let rawCdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
 
-        // ── Path 1: XML-RPC getAccountCDRs (fastest — used when available) ──
+        // ── Admin API (XML-RPC) — paginated getAccountCDRs ───────────────────
+        // This is the ONLY authoritative source for billing CDR data.
+        // Portal / RTST1 scraping is intentionally excluded from the billing
+        // pipeline — operational live-traffic data must never be mixed with
+        // invoice-quality billing records.
+        const XML_PAGE = 500; // Sippy CDR page size for pagination
+        job.phase = 'Fetching via Admin API (XML-RPC)';
+        let xmlRpcAttempted = false;
+
         if (!xmlRpcCircuitGuard()) {
-          job.phase = 'Fetching via Admin API (XML-RPC)';
+          credLoop:
           for (const { username, password } of sippyXmlCredsPairs(settings)) {
+            xmlRpcAttempted = true;
+            const pagesAccum: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+            let offset = 0;
             try {
-              const cdrs = await sippy.getSippyCDRs(username, password, Number(limit),
-                { iAccount: Number(iAccount), startDate: startIso, endDate: endIso }, portalUrl);
-              if (cdrs.length > 0) { xmlRpcRecordSuccess(); rawCdrs = cdrs as any; break; }
-            } catch { /* fall through to portal */ }
-          }
-        }
-
-        // ── Path 2: Admin portal scrape (sees ALL customers' CDRs) ───────────
-        if (rawCdrs.length === 0) {
-          const adminCreds = [
-            { user: apiUser,  pass: webPass || apiPass },
-            { user: portUser, pass: portPass },
-          ].filter(a => a.user && a.pass);
-
-          for (const { user, pass } of adminCreds) {
-            try {
-              job.phase = `Fetching via admin portal (${user})`;
-              // Try 500 rows/page — Sippy clamps internally if needed but
-              // many builds support larger pages for CDR exports.
-              const ADMIN_PAGE = 500;
-              let batch: Awaited<ReturnType<typeof sippy.scrapeAdminPortalCDRs>> = [];
-              for (let pg = 0; pg < 200; pg++) {
-                const page = await sippy.scrapeAdminPortalCDRs(user, pass, portalUrl, {
-                  limit: ADMIN_PAGE, offset: pg * ADMIN_PAGE,
-                  startDate: startIso, endDate: endIso,
-                  iAccount: Number(iAccount),  // filter to this account only
-                });
-                if (page.length > 0) batch.push(...page);
-                if (page.length < ADMIN_PAGE) break;
-                job.phase = `Admin portal — ${batch.length} CDRs fetched…`;
+              while (true) {
+                const page = await sippy.getSippyCDRs(username, password, XML_PAGE,
+                  { iAccount: Number(iAccount), startDate: startIso, endDate: endIso, offset },
+                  portalUrl);
+                console.log(`[seed-job:${jobId}] XML-RPC(${username}) offset=${offset} → ${page.length} CDRs`);
+                if (page.length > 0) {
+                  pagesAccum.push(...page);
+                  xmlRpcRecordSuccess();
+                  job.phase = `Admin API (XML-RPC) — ${pagesAccum.length} CDRs fetched…`;
+                }
+                if (page.length < XML_PAGE) break; // last page
+                offset += XML_PAGE;
               }
-              if (batch.length > 0) { rawCdrs = batch as any; break; }
+              if (pagesAccum.length > 0) {
+                rawCdrs = pagesAccum;
+                break credLoop; // found CDRs — stop trying other credentials
+              }
             } catch (e: any) {
-              console.warn(`[seed-job:${jobId}] admin portal (${user}) failed:`, e.message);
+              console.warn(`[seed-job:${jobId}] XML-RPC(${username}) error: ${e.message}`);
             }
           }
         }
 
-        // ── Path 3: Customer portal (same credentials as refreshCdrCache) ────
-        if (rawCdrs.length === 0 && portUser && portPass) {
-          job.phase = `Fetching via customer portal (${portUser})`;
-          try {
-            const scraped = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
-              startDate: startIso, endDate: endIso,
-              fallbackUsername: apiUser, fallbackPassword: webPass || apiPass,
-              maxPages: 200,
-            });
-            if (scraped.length > 0) rawCdrs = scraped as any;
-          } catch (e: any) {
-            console.warn(`[seed-job:${jobId}] customer portal failed:`, e.message);
-          }
+        // If the Admin API returned 0 CDRs, stop here.
+        // Never fall back to portal / RTST1 data for billing purposes.
+        if (rawCdrs.length === 0) {
+          const diagMsg = xmlRpcCircuitGuard()
+            ? 'Admin API circuit breaker is open after repeated failures. ' +
+              'Reset via Settings → Sippy Connection → Reset Circuit Breaker.'
+            : xmlRpcAttempted
+              ? `Admin API returned 0 CDRs for account ${iAccount} in ` +
+                `${periodStart} → ${periodEnd ?? periodStart}. ` +
+                'Check: (1) the iAccount ID is correct in Sippy, ' +
+                '(2) CDRs exist for this period, ' +
+                '(3) XML-RPC credentials have CDR access (Settings → Sippy Connection).'
+              : 'XML-RPC circuit breaker skipped the attempt — wait for cooldown ' +
+                'or reset via Settings → Sippy Connection.';
+          console.warn(`[seed-job:${jobId}] ${diagMsg}`);
+          job.status  = 'done';
+          job.total   = 0;
+          job.created = 0;
+          job.skipped = 0;
+          job.phase   = diagMsg;
+          return; // do not proceed — portal fallback is not allowed for billing data
         }
 
         job.fetched = rawCdrs.length;

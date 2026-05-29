@@ -396,9 +396,9 @@ export default function InvoicesPage() {
                 toast({ title: `${skipped} snapshot(s) already exist`, description: "Click Generate Draft Invoice to proceed." });
               } else {
                 toast({
-                  title: "No CDRs found in Sippy",
+                  title: "No CDRs from Admin API",
                   description: total === 0
-                    ? "Sippy returned 0 CDRs for this account and billing period. Verify portal credentials and that CDRs exist for this date range."
+                    ? (job.phase && job.phase.length > 20 ? job.phase : "Admin API returned 0 CDRs for this account and billing period. Verify the iAccount ID and XML-RPC credentials in Settings → Sippy Connection.")
                     : `${total} CDRs fetched but none were new.`,
                   variant: "destructive",
                 });
@@ -757,7 +757,7 @@ export default function InvoicesPage() {
                 <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded px-3 py-2">
                   <Layers className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-400/70" />
                   <span>
-                    Step 1 runs Rating Verification against CDRs for tariff <span className="font-mono text-amber-300">ID {form.iTariff}</span>.
+                    Step 1 fetches billing CDRs via the <span className="text-amber-300 font-medium">Sippy Admin API (XML-RPC)</span> for tariff <span className="font-mono text-amber-300">ID {form.iTariff}</span> — never from live operational data.
                     Step 2 crystallises verified records into locked, immutable snapshots used for invoice line items.
                   </span>
                 </div>
@@ -766,7 +766,7 @@ export default function InvoicesPage() {
                     <span className="text-amber-300 font-medium">0 new snapshots created</span>
                     {lockBatchResult.skipped > 0
                       ? ` — ${lockBatchResult.skipped} snapshot(s) already exist for this tariff.`
-                      : " — No rated CDRs found for this tariff. CDRs may not yet exist for the selected billing period."}
+                      : " — Admin API returned 0 CDRs. Check the iAccount ID and XML-RPC credentials in Settings → Sippy Connection."}
                   </div>
                 )}
                 <Button
@@ -779,7 +779,7 @@ export default function InvoicesPage() {
                 >
                   {lockBatchRunning
                     ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />{seedJobPhase || 'Starting…'}</>
-                    : <><Zap className="h-3.5 w-3.5 mr-2" />Run Rating Verification + Lock Batch Now</>
+                    : <><Zap className="h-3.5 w-3.5 mr-2" />Fetch via Admin API + Lock Batch</>
                   }
                 </Button>
               </div>
