@@ -1476,6 +1476,19 @@ export async function registerRoutes(
     }
   });
 
+  app.get('/api/workspaces/by-portal/:portalSlug', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const { portalSlug } = req.params;
+      const all = await storage.listWorkspaces();
+      const filtered = all.filter((w: any) => w.portalSlug === portalSlug && w.isActive);
+      const withTabs = await Promise.all(filtered.map((w: any) => storage.getWorkspace(w.slug)));
+      res.json(withTabs.filter(Boolean));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/workspaces/:slug', async (req: any, res) => {
     if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
     try {

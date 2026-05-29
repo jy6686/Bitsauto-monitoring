@@ -1,20 +1,23 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { usePortal } from "@/context/portal-context";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
+import { useQuery } from "@tanstack/react-query";
+import type { WorkspaceWithTabs } from "@shared/schema";
 import {
   LayoutDashboard, Users, HeartPulse, Zap, Activity, BarChart3, FileText, Wallet,
   SendHorizonal, GitBranch, Megaphone, MessageSquare, BarChart2, ClipboardList, ReceiptText,
   Phone, Bell, Monitor, Radio, ShieldAlert, Settings, Layers, Key, Lock,
-  Banknote, ArrowRightLeft, FileSpreadsheet, TrendingDown, BrainCircuit,
+  Banknote, ArrowRightLeft, FileSpreadsheet, TrendingDown, TrendingUp, BrainCircuit, Brain,
+  CreditCard, RefreshCw, BookOpen, AlertTriangle, Network, Receipt, Scale,
   LogOut, ChevronDown, Circle, LayoutGrid, SlidersHorizontal, Sun, Moon, X, Wrench,
 } from "lucide-react";
-import type { PortalModuleWithMeta } from "@shared/schema";
 
 // ── Icon registry ──────────────────────────────────────────────────────────────
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  // kebab-case (portal module legacy keys)
   "layout-dashboard":   LayoutDashboard,
   "users":              Users,
   "heart-pulse":        HeartPulse,
@@ -48,10 +51,32 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   "brain-circuit":      BrainCircuit,
   "wrench":             Wrench,
   "star":               LayoutGrid,
+  // PascalCase — workspace seed icon names
+  "Activity":           Activity,
+  "AlertTriangle":      AlertTriangle,
+  "BarChart2":          BarChart2,
+  "BarChart3":          BarChart3,
+  "BookOpen":           BookOpen,
+  "Brain":              Brain,
+  "CreditCard":         CreditCard,
+  "FileText":           FileText,
+  "Layers":             Layers,
+  "Monitor":            Monitor,
+  "Network":            Network,
+  "Receipt":            Receipt,
+  "ReceiptText":        ReceiptText,
+  "RefreshCw":          RefreshCw,
+  "Scale":              Scale,
+  "Settings":           Settings,
+  "ShieldAlert":        ShieldAlert,
+  "TrendingUp":         TrendingUp,
+  "TrendingDown":       TrendingDown,
+  "Wallet":             Wallet,
 };
 
-function resolveIcon(iconKey: string): React.ComponentType<{ className?: string }> {
-  return ICON_MAP[iconKey] ?? Circle;
+function resolveIcon(iconKey?: string | null): React.ComponentType<{ className?: string }> {
+  if (!iconKey) return Circle;
+  return ICON_MAP[iconKey] ?? ICON_MAP[iconKey.toLowerCase()] ?? Circle;
 }
 
 // ── Per-theme accent colours ───────────────────────────────────────────────────
@@ -85,12 +110,37 @@ const THEME_ACTIVE: Record<string, string> = {
   neutral:"bg-violet-500/15 text-violet-200 border-l-2 border-violet-500",
 };
 
-// ── PortalSidebar — contextual, shows only active section's modules ────────────
+// ── PortalSidebar — workspace-driven contextual navigation ────────────────────
 export function PortalSidebar({ collapsed }: { collapsed?: boolean }) {
   const [location] = useLocation();
-  const { portalConfig, sectionModules, exitPortalMode, activePortal } = usePortal();
+  const { portalConfig, exitPortalMode, activePortal } = usePortal();
   const { logout, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const [expandedWs, setExpandedWs] = useState<Set<string>>(new Set());
+
+  const { data: workspaces = [], isLoading } = useQuery<WorkspaceWithTabs[]>({
+    queryKey: ['/api/workspaces/by-portal', activePortal],
+    queryFn: async () => {
+      if (!activePortal) return [];
+      const res = await fetch(`/api/workspaces/by-portal/${activePortal}`, { credentials: 'include' });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!activePortal,
+    staleTime: 5 * 60_000,
+  });
+
+  // Auto-expand workspace containing the current route
+  useEffect(() => {
+    if (!workspaces.length) return;
+    for (const ws of workspaces) {
+      const allRoutes = ws.tabs.flatMap(t => t.items.map(i => i.route));
+      if (allRoutes.some(r => location === r || location.startsWith(r + '/') || location.startsWith(r + '?'))) {
+        setExpandedWs(prev => new Set([...prev, ws.slug]));
+        return;
+      }
+    }
+  }, [location, workspaces]);
 
   if (!portalConfig || !activePortal) return null;
 
@@ -98,16 +148,20 @@ export function PortalSidebar({ collapsed }: { collapsed?: boolean }) {
   const badge   = THEME_BADGE[portalConfig.theme]  ?? THEME_BADGE.neutral;
   const activeC = THEME_ACTIVE[portalConfig.theme]  ?? THEME_ACTIVE.neutral;
 
-  function isActive(route: string): boolean {
+  function isRouteActive(route: string): boolean {
     const base = route.split("?")[0];
     return location === base || location.startsWith(base + "?") || location.startsWith(base + "/");
+  }
+
+  function isWsActive(ws: WorkspaceWithTabs): boolean {
+    return ws.tabs.flatMap(t => t.items).some(i => isRouteActive(i.route));
   }
 
   const userInitial = (user as any)?.firstName?.[0] || (user as any)?.email?.[0]?.toUpperCase() || "U";
 
   return (
     <div className="flex flex-col h-full">
-      {/* Portal label */}
+      {/* Portal label header */}
       <div className="px-3 py-3 border-b border-white/[0.05] flex items-center justify-between gap-2 flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <span className={cn("text-xs font-bold uppercase tracking-widest truncate", accent)}>
@@ -131,49 +185,97 @@ export function PortalSidebar({ collapsed }: { collapsed?: boolean }) {
         )}
       </div>
 
-      {/* Contextual module list — only active section's modules */}
+      {/* Workspace-driven navigation */}
       <nav className="flex-1 overflow-y-auto py-2 [&::-webkit-scrollbar]:hidden">
-        {sectionModules.length === 0 ? (
-          !collapsed && (
-            <div className="px-4 py-6 text-center">
-              <p className="text-xs text-muted-foreground/50">No modules in this section</p>
-            </div>
-          )
-        ) : (
-          <div>
-            {sectionModules.map(mod => {
-              const Icon   = resolveIcon(mod.icon);
-              const label  = mod.displayLabel ?? mod.title;
-              const active = isActive(mod.route);
-              return (
-                <Link key={mod.id} href={mod.route} data-testid={`nav-portal-${mod.moduleKey}`}>
-                  <div
-                    className={cn(
-                      "flex items-center gap-2.5 mx-2 py-2 rounded-lg text-sm cursor-pointer transition-all",
-                      collapsed ? "justify-center px-0 mx-1" : "px-2",
-                      active
-                        ? cn("font-medium", activeC)
-                        : "text-muted-foreground hover:text-foreground hover:bg-white/[0.04]",
-                    )}
-                    title={collapsed ? label : undefined}
-                  >
-                    <Icon className={cn("h-4 w-4 flex-shrink-0", active ? "" : "opacity-70")} />
-                    {!collapsed && (
-                      <>
-                        <span className="truncate leading-tight">{label}</span>
-                        {mod.visibility === "read_only" && (
-                          <span className="ml-auto text-[9px] text-muted-foreground/40 font-medium uppercase tracking-wide flex-shrink-0">
-                            RO
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </Link>
-              );
-            })}
+        {isLoading && !collapsed && (
+          <div className="px-4 py-8 text-center">
+            <p className="text-xs text-muted-foreground/40">Loading...</p>
           </div>
         )}
+        {!isLoading && workspaces.length === 0 && !collapsed && (
+          <div className="px-4 py-8 text-center">
+            <p className="text-xs text-muted-foreground/40">No workspaces configured</p>
+          </div>
+        )}
+
+        {workspaces.map(ws => {
+          const WsIcon   = resolveIcon(ws.icon);
+          const wsActive = isWsActive(ws);
+          const expanded = expandedWs.has(ws.slug) || wsActive;
+
+          if (collapsed) {
+            return (
+              <div key={ws.slug} className="flex justify-center mb-0.5 px-1">
+                <div
+                  title={ws.label}
+                  className={cn(
+                    "p-2 rounded-lg transition-colors w-full flex justify-center",
+                    wsActive
+                      ? cn("bg-white/[0.07]", accent)
+                      : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-white/[0.04]"
+                  )}
+                >
+                  <WsIcon className="h-4 w-4" />
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div key={ws.slug} className="mb-0.5">
+              {/* Workspace section header — clickable to expand/collapse */}
+              <button
+                onClick={() => setExpandedWs(prev => {
+                  const next = new Set(prev);
+                  if (next.has(ws.slug)) next.delete(ws.slug);
+                  else next.add(ws.slug);
+                  return next;
+                })}
+                className={cn(
+                  "w-full flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors",
+                  wsActive
+                    ? accent
+                    : "text-muted-foreground/45 hover:text-muted-foreground/70"
+                )}
+              >
+                <WsIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="truncate flex-1 text-left">{ws.label}</span>
+                <ChevronDown className={cn(
+                  "h-3 w-3 flex-shrink-0 transition-transform duration-150",
+                  expanded && "rotate-180"
+                )} />
+              </button>
+
+              {/* Workspace tabs rendered as sidebar nav items */}
+              {expanded && (
+                <div className="pb-1">
+                  {ws.tabs.map(tab => {
+                    const firstRoute = tab.items.find(i => !i.isContextual)?.route
+                      ?? tab.items[0]?.route;
+                    if (!firstRoute) return null;
+                    const TabIcon   = resolveIcon(tab.icon);
+                    const tabActive = tab.items.some(i => isRouteActive(i.route));
+                    return (
+                      <Link key={tab.slug} href={firstRoute} data-testid={`nav-portal-tab-${tab.slug}`}>
+                        <div
+                          className={cn(
+                            "flex items-center gap-2.5 mx-2 py-[5px] px-2 rounded-lg text-[12px] cursor-pointer transition-all",
+                            tabActive
+                              ? cn("font-semibold", activeC)
+                              : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.04]",
+                          )}
+                        >
+                          <TabIcon className={cn("h-3.5 w-3.5 flex-shrink-0", tabActive ? "" : "opacity-60")} />
+                          <span className="truncate">{tab.label}</span>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       {/* User footer */}
@@ -249,7 +351,6 @@ export function WorkspaceSwitcherPill() {
                   onClick={() => {
                     setPortal(p.slug as any);
                     setOpen(false);
-                    // Navigate to the portal's dashboard route
                     const target = (p as any).defaultRoute ?? '/';
                     navigate(target);
                   }}
@@ -286,7 +387,7 @@ export function WorkspaceSwitcherPill() {
   );
 }
 
-// ── PortalTopNav — Level 2 domain section tabs rendered in the top bar ─────────
+// ── PortalTopNav — kept for backward compatibility (sections nav) ───────────────
 export function PortalTopNav() {
   const { sections, activeSection, setSection, portalConfig, modules } = usePortal();
   const [, navigate] = useLocation();
@@ -308,9 +409,8 @@ export function PortalTopNav() {
             key={section.sectionKey}
             onClick={() => {
               setSection(section.sectionKey);
-              // Navigate to the home module route for this section
-              const homeModule = modules.find(m => m.section === section.sectionKey && m.isHome);
-              const firstModule = modules.find(m => m.section === section.sectionKey);
+              const homeModule = modules.find((m: any) => m.section === section.sectionKey && m.isHome);
+              const firstModule = modules.find((m: any) => m.section === section.sectionKey);
               const target = homeModule?.route ?? firstModule?.route;
               if (target) navigate(target);
             }}
