@@ -349,41 +349,52 @@ export default function InvoicesPage() {
     setLockBatchRunning(true);
     setLockBatchResult(null);
     try {
-      // Step 1: run rating verification batch for this tariff
-      const rvRes  = await apiRequest("POST", "/api/rating-verifications/run-batch", {
-        iTariff:     form.iTariff     || undefined,
-        iAccount:    form.iAccount    || undefined,
-        periodStart: form.periodStart || undefined,
-        periodEnd:   form.periodEnd   || undefined,
+      if (!form.iAccount || !form.iTariff || !form.periodStart) {
+        throw new Error("Account, tariff and period start are required");
+      }
+
+      // Seed snapshots directly from Sippy portal CDRs (Sippy's own billed cost).
+      // This bypasses the tariff version resolution pipeline and works even when
+      // the local tariff version DB is empty.
+      const res  = await apiRequest("POST", "/api/rating-snapshots/seed-from-portal", {
+        iAccount:    form.iAccount,
+        iTariff:     form.iTariff,
+        periodStart: form.periodStart,
+        periodEnd:   form.periodEnd   || form.periodStart,
         limit:       5000,
       });
-      const rvBody = await rvRes.json();
-      if (!rvRes.ok) throw new Error(rvBody.error ?? "Rating verification failed");
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Snapshot seeding failed");
 
-      // Step 2: lock verified CDRs into immutable snapshots
-      const lbRes  = await apiRequest("POST", "/api/rating-snapshots/lock-batch", {
-        iTariff: form.iTariff || undefined,
-        limit:   5000,
-      });
-      const lbBody = await lbRes.json();
-      if (!lbRes.ok) throw new Error(lbBody.error ?? "Lock batch failed");
-
-      const created = lbBody.created ?? 0;
-      const skipped = lbBody.skipped ?? 0;
+      const created = body.created ?? 0;
+      const skipped = body.skipped ?? 0;
+      const total   = body.total   ?? 0;
       setLockBatchResult({ created, skipped });
 
       if (created > 0) {
         setSnapshotGateError(null);
-        toast({ title: "Snapshots locked", description: `${created} CDR snapshot(s) crystallised. Click Generate to continue.` });
+        toast({
+          title: "Snapshots locked",
+          description: `${created} CDR snapshot(s) seeded from Sippy. Click Generate to continue.`,
+        });
+      } else if (skipped > 0) {
+        // All already existed — clear the gate, generation should now work
+        setSnapshotGateError(null);
+        toast({
+          title: `${skipped} snapshot(s) already exist`,
+          description: "Click Generate Draft Invoice to proceed.",
+        });
       } else {
         toast({
-          title: "No new snapshots created",
-          description: `${skipped} already exist, ${rvBody.verified ?? 0} verifications found. There may be no rated CDRs for this tariff + period.`,
+          title: "No CDRs found in Sippy",
+          description: total === 0
+            ? "Sippy returned 0 CDRs for this account and billing period. Verify the portal credentials and that CDRs exist for this date range."
+            : `${total} CDRs fetched but none could be seeded.`,
           variant: "destructive",
         });
       }
     } catch (err: any) {
-      toast({ title: "Lock batch failed", description: err.message, variant: "destructive" });
+      toast({ title: "Snapshot seeding failed", description: err.message, variant: "destructive" });
     } finally {
       setLockBatchRunning(false);
     }

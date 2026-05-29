@@ -27296,6 +27296,116 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // POST /api/rating-snapshots/seed-from-portal
+  // Direct snapshot creation from Sippy portal CDRs — bypasses tariff version resolution.
+  // Used when the local tariff version DB is unpopulated.
+  // Sippy's own billed cost is used as both actualCost and reproducedCost (delta=0).
+  app.post('/api/rating-snapshots/seed-from-portal', async (req: any, res: any) => {
+    try {
+      const { computeSnapshotHash } = await import('./services/sippy/sippy-rating-snapshot.service');
+      const { iAccount, iTariff, periodStart, periodEnd, limit = 5000 } = req.body ?? {};
+
+      if (!iAccount || !iTariff || !periodStart) {
+        return res.status(400).json({ error: 'iAccount, iTariff, and periodStart are required' });
+      }
+
+      const settings  = await storage.getSettings();
+      const portalUrl = sippyPortalUrl(settings);
+      const portUser  = settings.adminWebPassword
+        ? (settings.portalUsername ?? settings.apiAdminUsername ?? '')
+        : (settings.apiAdminUsername ?? settings.portalUsername ?? '');
+      const portPass  = settings.adminWebPassword ?? settings.apiAdminPassword ?? settings.portalPassword ?? '';
+
+      // Convert YYYY-MM-DD → Sippy portal MM/DD/YYYY HH:MM:SS
+      const toPortalDate = (d: string, endOfDay = false) => {
+        const parts = d.split('-');
+        if (parts.length !== 3) return d;
+        return `${parts[1]}/${parts[2]}/${parts[0]} ${endOfDay ? '23:59:59' : '00:00:00'}`;
+      };
+
+      console.log(`[seed-from-portal] fetching CDRs for account=${iAccount} tariff=${iTariff} ${periodStart}→${periodEnd}`);
+
+      const portalCdrs = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
+        startDate:        toPortalDate(periodStart),
+        endDate:          toPortalDate(periodEnd ?? periodStart, true),
+        fallbackUsername: settings.portalUsername ?? '',
+        fallbackPassword: settings.portalPassword ?? '',
+        maxPages:         100,
+      });
+
+      console.log(`[seed-from-portal] portal returned ${portalCdrs.length} CDRs`);
+
+      let created = 0;
+      let skipped = 0;
+      let errors  = 0;
+
+      const work = portalCdrs.slice(0, limit);
+
+      for (const c of work) {
+        try {
+          const cdrId       = String(c.callId ?? c.i_cdr ?? '');
+          const cost        = parseFloat(String(c.cost ?? c.price ?? c.charged_amount ?? '0')) || 0;
+          const durationSec = Number(c.totalDuration ?? c.duration ?? c.billDuration ?? 0);
+          const startTime   = String(c.startTime ?? c.connectTime ?? c.connect_time ?? '');
+          const callee      = String(c.callee ?? c.cld ?? '');
+
+          // Idempotency: skip if snapshot already exists for this cdrId
+          if (cdrId) {
+            const existing = await storage.getInvoiceCdrSnapshotByCdrId(cdrId);
+            if (existing) { skipped++; continue; }
+          }
+
+          const hashFields = {
+            cdrId,
+            tariffVersionId:      null,
+            ratingVerificationId: null,
+            reproducedCost:       cost,
+            actualCost:           cost,
+            interval1Used:        undefined,
+            intervalNUsed:        undefined,
+            price1Used:           undefined,
+            priceNUsed:           undefined,
+            connectFeeUsed:       undefined,
+            gracePeriodUsed:      undefined,
+            freeSecondsUsed:      undefined,
+            postCallSurchargeUsed: undefined,
+            prefix:               null,
+            durationSecs:         durationSec || null,
+          };
+
+          const snapshotHash = computeSnapshotHash(hashFields);
+
+          await storage.createInvoiceCdrSnapshot({
+            cdrId:                cdrId || null,
+            cdrStartTime:         startTime || null,
+            callee:               callee || null,
+            durationSecs:         durationSec || null,
+            iTariff:              String(iTariff),
+            tariffVersionId:      null,
+            ratingVerificationId: null,
+            reproducedCost:       cost,
+            actualCost:           cost,
+            delta:                0,
+            prefix:               null,
+            verificationStatus:   'verified',
+            snapshotHash,
+          });
+
+          created++;
+        } catch (rowErr: any) {
+          if (rowErr.code === '23505') { skipped++; }
+          else { errors++; console.error('[seed-from-portal] row error:', rowErr.message); }
+        }
+      }
+
+      console.log(`[seed-from-portal] done — created=${created} skipped=${skipped} errors=${errors}`);
+      res.json({ created, skipped, errors, total: work.length, source: 'portal' });
+    } catch (err: any) {
+      console.error('[seed-from-portal] error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Layer 5A — Executive Reports ──────────────────────────────────────────
   // GET  /api/executive-reports          — list all report jobs
   // GET  /api/executive-reports/:id      — single report (includes htmlContent)
