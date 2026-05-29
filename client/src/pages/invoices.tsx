@@ -58,6 +58,12 @@ interface SippyAccount {
   displayName:  string;
 }
 
+interface SippyTariff {
+  iTariff:   number;
+  name:      string;
+  currency:  string;
+}
+
 type BillingCycleMode = "custom" | "weekly" | "monthly";
 
 interface FormState {
@@ -88,19 +94,19 @@ function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 function computeBillingPeriod(cycle: "weekly" | "monthly"): { start: string; end: string; label: string } {
   const now = new Date();
   if (cycle === "weekly") {
-    const dow       = now.getDay();
-    const fromMon   = dow === 0 ? 6 : dow - 1;
-    const thisMon   = new Date(now); thisMon.setDate(now.getDate() - fromMon); thisMon.setHours(0,0,0,0);
-    const lastMon   = new Date(thisMon); lastMon.setDate(thisMon.getDate() - 7);
-    const lastSun   = new Date(thisMon); lastSun.setDate(thisMon.getDate() - 1);
-    const fmt       = (d: Date) => d.toLocaleDateString("en-GB", { weekday:"short", day:"numeric", month:"short" });
-    const fmtY      = (d: Date) => d.toLocaleDateString("en-GB", { weekday:"short", day:"numeric", month:"short", year:"numeric" });
+    const dow     = now.getDay();
+    const fromMon = dow === 0 ? 6 : dow - 1;
+    const thisMon = new Date(now); thisMon.setDate(now.getDate() - fromMon); thisMon.setHours(0,0,0,0);
+    const lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate() - 7);
+    const lastSun = new Date(thisMon); lastSun.setDate(thisMon.getDate() - 1);
+    const fmt  = (d: Date) => d.toLocaleDateString("en-GB", { weekday:"short", day:"numeric", month:"short" });
+    const fmtY = (d: Date) => d.toLocaleDateString("en-GB", { weekday:"short", day:"numeric", month:"short", year:"numeric" });
     return { start: toISO(lastMon), end: toISO(lastSun), label: `${fmt(lastMon)} – ${fmtY(lastSun)} (last week)` };
   } else {
-    const y  = now.getFullYear();
-    const m  = now.getMonth();
-    const s  = new Date(y, m - 1, 1);
-    const e  = new Date(y, m, 0);
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const s = new Date(y, m - 1, 1);
+    const e = new Date(y, m, 0);
     return { start: toISO(s), end: toISO(e), label: s.toLocaleDateString("en-US", { month:"long", year:"numeric" }) };
   }
 }
@@ -135,26 +141,34 @@ const EMPTY_FORM: FormState = {
 };
 
 export default function InvoicesPage() {
-  const { toast }        = useToast();
-  const queryClient      = useQueryClient();
+  const { toast }   = useToast();
+  const queryClient = useQueryClient();
 
-  const [showGenerate, setShowGenerate] = useState(false);
-  const [previewId,    setPreviewId]    = useState<number | null>(null);
-  const [approveId,    setApproveId]    = useState<number | null>(null);
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [form,         setForm]         = useState<FormState>(EMPTY_FORM);
-  const [fetchingTariff,   setFetchingTariff]   = useState(false);
-  const [tariffError,      setTariffError]      = useState<string | null>(null);
-  const [dmrGateError,     setDmrGateError]     = useState<DmrGateError | null>(null);
-  const [dmrAutoResults,   setDmrAutoResults]   = useState<DmrAutoResult[] | null>(null);
-  const [dmrAutoRunning,   setDmrAutoRunning]   = useState(false);
+  const [showGenerate,   setShowGenerate]   = useState(false);
+  const [previewId,      setPreviewId]      = useState<number | null>(null);
+  const [approveId,      setApproveId]      = useState<number | null>(null);
+  const [filterStatus,   setFilterStatus]   = useState("all");
+  const [form,           setForm]           = useState<FormState>(EMPTY_FORM);
+  const [fetchingTariff, setFetchingTariff] = useState(false);
+  const [autoTariffName, setAutoTariffName] = useState<string | null>(null);
+  const [dmrGateError,   setDmrGateError]   = useState<DmrGateError | null>(null);
+  const [dmrAutoResults, setDmrAutoResults] = useState<DmrAutoResult[] | null>(null);
+  const [dmrAutoRunning, setDmrAutoRunning] = useState(false);
 
-  const { data: accountsData, isLoading: accountsLoading } = useQuery<{ accounts: SippyAccount[]; error?: string }>({
+  const { data: accountsData, isLoading: accountsLoading } = useQuery<{ accounts: SippyAccount[] }>({
     queryKey: ["/api/invoices/sippy-accounts"],
     queryFn: () => apiRequest("GET", "/api/invoices/sippy-accounts").then(r => r.json()),
     staleTime: 60_000,
   });
   const accounts = accountsData?.accounts ?? [];
+
+  const { data: tariffsRaw = [] } = useQuery<SippyTariff[]>({
+    queryKey: ["/api/sippy/tariffs"],
+    queryFn: () => apiRequest("GET", "/api/sippy/tariffs").then(r => r.json()),
+    staleTime: 120_000,
+    enabled: showGenerate,
+  });
+  const tariffs: SippyTariff[] = Array.isArray(tariffsRaw) ? tariffsRaw : [];
 
   const { data: invoices = [], isLoading } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices", filterStatus],
@@ -174,7 +188,7 @@ export default function InvoicesPage() {
   const generateMutation = useMutation({
     mutationFn: (data: FormState) =>
       apiRequest("POST", "/api/invoices/generate", {
-        iTariff:     data.iTariff,
+        iTariff:      data.iTariff,
         customerName: data.customerName,
         periodStart:  data.periodStart,
         periodEnd:    data.periodEnd,
@@ -192,6 +206,7 @@ export default function InvoicesPage() {
       setDmrAutoResults(null);
       setShowGenerate(false);
       setForm(EMPTY_FORM);
+      setAutoTariffName(null);
       setPreviewId(data.invoice.id);
       toast({ title: `Invoice ${data.invoice.invoiceNumber} generated (DRAFT)`, description: `${data.lineCount} line items from locked snapshots.` });
     },
@@ -224,19 +239,21 @@ export default function InvoicesPage() {
     const acct = accounts.find(a => String(a.iAccount) === iAccountStr);
     if (!acct) return;
     setForm(f => ({ ...f, iAccount: iAccountStr, customerName: acct.displayName, iTariff: "" }));
-    setTariffError(null);
+    setAutoTariffName(null);
     setDmrGateError(null);
     setDmrAutoResults(null);
     setFetchingTariff(true);
     try {
       const info = await apiRequest("GET", `/api/sippy/accounts/${acct.iAccount}/info`).then(r => r.json());
-      if (info.iTariff) {
-        setForm(f => ({ ...f, iTariff: String(info.iTariff) }));
-      } else {
-        setTariffError("No tariff assigned to this account. Enter tariff ID manually.");
+      const tariffId = info.iTariff ?? info.i_tariff;
+      if (tariffId && Number(tariffId) > 0) {
+        setForm(f => ({ ...f, iTariff: String(tariffId) }));
+        const matched = tariffs.find(t => t.iTariff === Number(tariffId));
+        setAutoTariffName(matched?.name ?? null);
       }
+      // If not found via getAccountInfo, leave iTariff empty — user picks from dropdown
     } catch {
-      setTariffError("Could not fetch account tariff — enter ID manually.");
+      // leave iTariff empty — user picks from dropdown
     } finally {
       setFetchingTariff(false);
     }
@@ -246,6 +263,14 @@ export default function InvoicesPage() {
       const { start, end } = computeBillingPeriod(cycle);
       setForm(f => ({ ...f, billingCycle: cycle as BillingCycleMode, periodStart: start, periodEnd: end }));
     }
+  }
+
+  function onTariffSelect(val: string) {
+    setForm(f => ({ ...f, iTariff: val }));
+    const matched = tariffs.find(t => String(t.iTariff) === val);
+    setAutoTariffName(matched?.name ?? null);
+    setDmrGateError(null);
+    setDmrAutoResults(null);
   }
 
   function onBillingCycleChange(cycle: BillingCycleMode) {
@@ -264,22 +289,16 @@ export default function InvoicesPage() {
     setDmrAutoRunning(true);
     setDmrAutoResults(null);
     try {
-      const r = await apiRequest("POST", "/api/dmr/auto-verify-period", {
-        from: form.periodStart,
-        to:   form.periodEnd,
-      });
+      const r    = await apiRequest("POST", "/api/dmr/auto-verify-period", { from: form.periodStart, to: form.periodEnd });
       const body = await r.json();
       if (!r.ok) {
         toast({ title: "DMR auto-generate failed", description: body.error, variant: "destructive" });
         return;
       }
       setDmrAutoResults(body.processed ?? []);
-      if (body.periodNowVerified) {
+      if (body.periodNowVerified || body.alreadyVerified) {
         setDmrGateError(null);
         toast({ title: "DMR verified for all dates", description: "You can now generate the invoice." });
-      } else if (body.alreadyVerified) {
-        setDmrGateError(null);
-        toast({ title: "DMR already verified", description: "Retrying invoice generation…" });
       } else {
         toast({ title: "DMR partially verified", description: `${body.remainingMissing?.length ?? 0} date(s) still pending.`, variant: "destructive" });
       }
@@ -290,9 +309,20 @@ export default function InvoicesPage() {
     }
   }
 
+  function resetModal() {
+    setShowGenerate(false);
+    setForm(EMPTY_FORM);
+    setAutoTariffName(null);
+    setDmrGateError(null);
+    setDmrAutoResults(null);
+    setFetchingTariff(false);
+  }
+
   const periodLabel = form.billingCycle !== "custom" && form.periodStart
     ? computeBillingPeriod(form.billingCycle as "weekly" | "monthly").label
     : null;
+
+  const selectedTariff = tariffs.find(t => String(t.iTariff) === form.iTariff);
 
   const stats = {
     total:      invoices.length,
@@ -316,7 +346,7 @@ export default function InvoicesPage() {
             Invoice engine sourced exclusively from immutable rating snapshots. Draft → Review → Approve → Send.
           </p>
         </div>
-        <Button data-testid="button-generate-invoice" onClick={() => { setForm(EMPTY_FORM); setTariffError(null); setDmrGateError(null); setDmrAutoResults(null); setShowGenerate(true); }}>
+        <Button data-testid="button-generate-invoice" onClick={() => { setForm(EMPTY_FORM); setAutoTariffName(null); setDmrGateError(null); setDmrAutoResults(null); setShowGenerate(true); }}>
           <Play className="h-4 w-4 mr-2" />Generate Invoice
         </Button>
       </div>
@@ -402,25 +432,15 @@ export default function InvoicesPage() {
                         {inv.periodStart ?? "—"} → {inv.periodEnd ?? "—"}
                       </TableCell>
                       <TableCell className="text-sm">{inv.lineCount?.toLocaleString() ?? "—"}</TableCell>
-                      <TableCell className="font-mono text-sm">
-                        ${(inv.totalReproduced ?? 0).toFixed(4)}
-                      </TableCell>
+                      <TableCell className="font-mono text-sm">${(inv.totalReproduced ?? 0).toFixed(4)}</TableCell>
                       <TableCell><StatusBadge status={inv.status} /></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button
-                            data-testid={`button-view-${inv.id}`}
-                            variant="ghost" size="sm"
-                            onClick={() => setPreviewId(inv.id)}
-                          >
+                          <Button data-testid={`button-view-${inv.id}`} variant="ghost" size="sm" onClick={() => setPreviewId(inv.id)}>
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
                           {(inv.status === "draft" || inv.status === "review") && (
-                            <Button
-                              data-testid={`button-approve-${inv.id}`}
-                              variant="ghost" size="sm"
-                              onClick={() => setApproveId(inv.id)}
-                            >
+                            <Button data-testid={`button-approve-${inv.id}`} variant="ghost" size="sm" onClick={() => setApproveId(inv.id)}>
                               <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
                             </Button>
                           )}
@@ -435,8 +455,8 @@ export default function InvoicesPage() {
         </CardContent>
       </Card>
 
-      {/* Generate dialog */}
-      <Dialog open={showGenerate} onOpenChange={o => { if (!o) { setShowGenerate(false); setTariffError(null); setDmrGateError(null); setDmrAutoResults(null); } }}>
+      {/* ── Generate dialog ── */}
+      <Dialog open={showGenerate} onOpenChange={o => { if (!o) resetModal(); }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Generate Invoice</DialogTitle>
@@ -447,21 +467,12 @@ export default function InvoicesPage() {
 
           <div className="space-y-4">
 
-            {/* Client Account selector */}
+            {/* ── Client Account ── */}
             <div>
               <Label className="text-xs mb-1.5 flex items-center gap-1.5">
                 <User className="h-3.5 w-3.5" /> Client Account
               </Label>
-              {accountsData?.error && (
-                <p className="text-xs text-amber-400 mb-1.5 flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3" /> {accountsData.error}
-                </p>
-              )}
-              <Select
-                value={form.iAccount}
-                onValueChange={onAccountSelect}
-                disabled={accountsLoading}
-              >
+              <Select value={form.iAccount} onValueChange={onAccountSelect} disabled={accountsLoading}>
                 <SelectTrigger data-testid="select-inv-account">
                   <SelectValue placeholder={accountsLoading ? "Loading accounts…" : "Select client account"} />
                 </SelectTrigger>
@@ -470,30 +481,21 @@ export default function InvoicesPage() {
                     <SelectItem key={a.iAccount} value={String(a.iAccount)}>
                       <span className="flex items-center gap-2">
                         {a.displayName}
-                        {a.billingCycle && (
-                          <span className="text-xs text-muted-foreground">({cycleBadge(a.billingCycle)})</span>
-                        )}
+                        {a.billingCycle && <span className="text-xs text-muted-foreground">({cycleBadge(a.billingCycle)})</span>}
                         {a.blocked && <span className="text-xs text-red-400">[blocked]</span>}
                       </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-
               {fetchingTariff && (
                 <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3 animate-spin" /> Fetching assigned tariff from Sippy…
+                  <RefreshCw className="h-3 w-3 animate-spin" /> Looking up assigned tariff…
                 </p>
-              )}
-              {!fetchingTariff && form.iTariff && (
-                <p className="text-xs text-emerald-400 mt-1.5">✓ Tariff ID {form.iTariff} assigned</p>
-              )}
-              {!fetchingTariff && tariffError && (
-                <p className="text-xs text-amber-400 mt-1.5">⚠ {tariffError}</p>
               )}
             </div>
 
-            {/* Customer Name */}
+            {/* ── Customer Name ── */}
             <div>
               <Label className="text-xs mb-1.5 block">Customer Name</Label>
               <Input
@@ -504,20 +506,55 @@ export default function InvoicesPage() {
               />
             </div>
 
-            {/* Tariff ID manual override */}
-            {tariffError && (
-              <div>
-                <Label className="text-xs mb-1.5 block">Tariff ID (manual)</Label>
-                <Input
-                  data-testid="input-tariff-id"
-                  value={form.iTariff}
-                  onChange={e => setForm(f => ({ ...f, iTariff: e.target.value }))}
-                  placeholder="Enter Sippy tariff ID"
-                />
-              </div>
-            )}
+            {/* ── Tariff / Service Plan ── */}
+            <div>
+              <Label className="text-xs mb-1.5 block">Service Plan (Tariff)</Label>
+              <Select
+                value={form.iTariff}
+                onValueChange={onTariffSelect}
+                disabled={!form.iAccount || fetchingTariff || tariffs.length === 0}
+              >
+                <SelectTrigger data-testid="select-inv-tariff">
+                  <SelectValue
+                    placeholder={
+                      !form.iAccount    ? "Select a client account first" :
+                      fetchingTariff    ? "Fetching…" :
+                      tariffs.length === 0 ? "Loading tariffs…" :
+                      "Select service plan"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {tariffs
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map(t => (
+                      <SelectItem key={t.iTariff} value={String(t.iTariff)} data-testid={`tariff-option-${t.iTariff}`}>
+                        <span className="flex items-center gap-2">
+                          <span>{t.name}</span>
+                          <span className="text-xs text-muted-foreground font-mono">({t.currency} · ID {t.iTariff})</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
 
-            {/* Billing Cycle */}
+              {/* Status line below tariff selector */}
+              {form.iTariff && !fetchingTariff && (
+                <p className="text-xs text-emerald-400 mt-1.5 flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" />
+                  {selectedTariff
+                    ? `${selectedTariff.name} · ${selectedTariff.currency} · ID ${selectedTariff.iTariff}`
+                    : `Tariff ID ${form.iTariff} selected`
+                  }
+                  {autoTariffName && form.iTariff && (
+                    <span className="text-muted-foreground ml-1">(auto-matched from account)</span>
+                  )}
+                </p>
+              )}
+            </div>
+
+            {/* ── Billing Cycle ── */}
             <div>
               <Label className="text-xs mb-2 flex items-center gap-1.5">
                 <Calendar className="h-3.5 w-3.5" /> Billing Cycle
@@ -550,7 +587,7 @@ export default function InvoicesPage() {
               )}
             </div>
 
-            {/* Period dates */}
+            {/* ── Period dates ── */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs mb-1.5 block">Period Start</Label>
@@ -576,7 +613,7 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            {/* Notes */}
+            {/* ── Notes ── */}
             <div>
               <Label className="text-xs mb-1.5 block">Notes (optional)</Label>
               <Input
@@ -599,12 +636,9 @@ export default function InvoicesPage() {
                     </p>
                   </div>
                 </div>
-
                 {dmrGateError.missingDates.length > 0 && (
                   <div>
-                    <p className="text-xs font-medium text-red-300 mb-1.5">
-                      {dmrGateError.missingDates.length} date(s) missing verified DMR:
-                    </p>
+                    <p className="text-xs font-medium text-red-300 mb-1.5">{dmrGateError.missingDates.length} date(s) missing verified DMR:</p>
                     <div className="flex flex-wrap gap-1">
                       {dmrGateError.missingDates.map(d => (
                         <span key={d} className="font-mono text-xs px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/20">{d}</span>
@@ -612,12 +646,9 @@ export default function InvoicesPage() {
                     </div>
                   </div>
                 )}
-
                 {dmrGateError.criticalDates.length > 0 && (
                   <div>
-                    <p className="text-xs font-medium text-amber-300 mb-1.5">
-                      {dmrGateError.criticalDates.length} date(s) have critical discrepancies — manual review needed:
-                    </p>
+                    <p className="text-xs font-medium text-amber-300 mb-1.5">{dmrGateError.criticalDates.length} date(s) have critical discrepancies — manual review needed:</p>
                     <div className="flex flex-wrap gap-1">
                       {dmrGateError.criticalDates.map(d => (
                         <span key={d} className="font-mono text-xs px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/20">{d}</span>
@@ -625,7 +656,6 @@ export default function InvoicesPage() {
                     </div>
                   </div>
                 )}
-
                 {dmrGateError.missingDates.length > 0 && dmrGateError.criticalDates.length === 0 && (
                   <Button
                     data-testid="button-auto-dmr"
@@ -667,7 +697,7 @@ export default function InvoicesPage() {
               </div>
             )}
 
-            {/* Generate button */}
+            {/* ── Generate button ── */}
             <Button
               data-testid="button-confirm-generate"
               className="w-full"
@@ -679,7 +709,7 @@ export default function InvoicesPage() {
                 : !form.iAccount
                   ? "Select a client account"
                   : !form.iTariff
-                    ? fetchingTariff ? "Fetching tariff…" : "Tariff ID required"
+                    ? fetchingTariff ? "Fetching tariff…" : "Select a service plan"
                     : !form.periodStart || !form.periodEnd
                       ? "Select billing period"
                       : "Generate Draft Invoice"}
@@ -688,7 +718,7 @@ export default function InvoicesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Preview dialog */}
+      {/* ── Preview dialog ── */}
       <Dialog open={previewId != null} onOpenChange={open => !open && setPreviewId(null)}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
@@ -711,7 +741,7 @@ export default function InvoicesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Approve confirm */}
+      {/* ── Approve confirm ── */}
       <AlertDialog open={approveId != null} onOpenChange={open => !open && setApproveId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -723,10 +753,7 @@ export default function InvoicesPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="button-confirm-approve"
-              onClick={() => approveId && approveMutation.mutate(approveId)}
-            >
+            <AlertDialogAction data-testid="button-confirm-approve" onClick={() => approveId && approveMutation.mutate(approveId)}>
               Approve Invoice
             </AlertDialogAction>
           </AlertDialogFooter>
