@@ -115,10 +115,10 @@ export function registerBhaooRoutes(app: Express) {
     }
   });
 
-  // ── DLR webhook — BhaooSMS pushes delivery status here ──────────────────────
-  app.post('/api/bhaoo/dlr', async (req: any, res: any) => {
+  // ── DLR webhook — shared handler (GET or POST) ──────────────────────────────
+  async function handleDlrPush(data: Record<string, any>, res: any) {
     try {
-      const payload = parseDlrPush(req.body ?? {});
+      const payload = parseDlrPush(data);
 
       await db.insert(smsDlrEvents).values({
         messageId:  payload.messageId || null,
@@ -129,7 +129,7 @@ export function registerBhaooRoutes(app: Express) {
         operator:   payload.operator || null,
         country:    payload.country || null,
         errorCode:  payload.errorCode || null,
-        rawPayload: req.body,
+        rawPayload: data,
       });
 
       if (payload.messageId) {
@@ -141,13 +141,13 @@ export function registerBhaooRoutes(app: Express) {
 
         await db.update(smsMessages)
           .set({
-            status:       dlrStatus,
-            statusCode:   payload.status,
-            operator:     payload.operator ?? undefined,
-            country:      payload.country ?? undefined,
-            errorCode:    payload.errorCode ?? undefined,
+            status:        dlrStatus,
+            statusCode:    payload.status,
+            operator:      payload.operator ?? undefined,
+            country:       payload.country ?? undefined,
+            errorCode:     payload.errorCode ?? undefined,
             dlrReceivedAt: new Date(),
-            updatedAt:    new Date(),
+            updatedAt:     new Date(),
           })
           .where(eq(smsMessages.bhaooId, payload.messageId));
       }
@@ -157,7 +157,13 @@ export function registerBhaooRoutes(app: Express) {
       console.error('[bhaoo-dlr] error:', err.message);
       res.status(500).json({ error: err.message });
     }
-  });
+  }
+
+  // BhaooSMS POST push (recommended)
+  app.post('/api/bhaoo/dlr', (req: any, res: any) => handleDlrPush(req.body ?? {}, res));
+
+  // BhaooSMS GET push (if GET method selected in BhaooSMS config)
+  app.get('/api/bhaoo/dlr', (req: any, res: any) => handleDlrPush(req.query ?? {}, res));
 
   // ── DLR query — poll delivery status for a specific message ─────────────────
   app.get('/api/bhaoo/dlr/:messageId', requireAuth, async (req: any, res: any) => {
