@@ -132,3 +132,9 @@ id = "LpXJCrcN25wn_D59ZALci"
 uri = "file://BitsAuto_Platform_Report_May2026.md"
 type = "text"
 title = "BitsAuto Platform Report — May 2026"
+
+[[outputs]]
+id = "6oiFxXoVzdV8VUSoUH4Ad"
+uri = "file://attached_assets/BitsAuto_Platform_Feature_Status_Report.docx"
+type = "word_document"
+title = "BitsAuto Platform Feature Status Report"
