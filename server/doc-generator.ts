@@ -494,3 +494,214 @@ export async function generateStatusReport(outputPath?: string): Promise<Buffer>
 }
 
 export const STATUS_REPORT_PATH = '/tmp/VoIP_Platform_Volume1_Status.docx';
+
+// ── Platform Feature Status Report (Department-Categorised) ───────────────────
+
+const DEPT_SECTIONS: { dept: string; desc: string; color: string; ids: number[] }[] = [
+  {
+    dept: 'NOC',
+    desc: 'Network Operations Center — real-time call monitoring, alerting, concurrent-session telemetry & mobile NOC view',
+    color: GREEN,
+    ids: [1, 4, 22, 29, 30, 31, 37],
+  },
+  {
+    dept: 'Finance & Billing',
+    desc: 'Revenue analytics, vendor balance tracking, rate card management & multi-vendor billing integration',
+    color: AMBER,
+    ids: [6, 8, 11, 16],
+  },
+  {
+    dept: 'Commercial',
+    desc: 'KAM management, NOC viewer mode, monitoring assignments, client portal & client provisioning wizard',
+    color: CYAN_SOFT,
+    ids: [13, 14, 15, 32, 33, 36],
+  },
+  {
+    dept: 'Fraud & Security',
+    desc: 'Role-based access control, FAS fraud detection engine & API key management / external access control',
+    color: ROSE,
+    ids: [5, 12, 24],
+  },
+  {
+    dept: 'Analytics',
+    desc: 'CDR browser, ASR/ACD trend graphs, BitsEye traffic analytics, MOS widget, reports, traffic map & command bar',
+    color: GOLD,
+    ids: [2, 7, 9, 10, 17, 18, 19, 23, 25, 26, 27, 28],
+  },
+  {
+    dept: 'Engineering',
+    desc: 'Sippy XML-RPC integration, dashboard widgets, dark/light mode, translation rule cascade & load reduction architecture',
+    color: TEAL,
+    ids: [3, 20, 21, 34, 35],
+  },
+];
+
+function metaLine(label: string, value: string): Paragraph {
+  return new Paragraph({
+    spacing: { after: 60 },
+    indent: { left: 360 },
+    children: [
+      new TextRun({ text: `${label}  `, color: MID, size: 19, bold: true }),
+      new TextRun({ text: value, color: SLATE, size: 19 }),
+    ],
+  });
+}
+
+export async function generatePlatformStatusReport(outputPath?: string): Promise<Buffer> {
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+
+  const featureById = new Map(FEATURES.map(f => [f.id, f]));
+  const totalLive   = FEATURES.filter(f => f.status === 'COMPLETE').length;
+
+  function statusRun(s: string): TextRun {
+    if (s === 'COMPLETE') return new TextRun({ text: '  ✓ LIVE',    color: GREEN,     size: 17, bold: true });
+    if (s === 'PARTIAL')  return new TextRun({ text: '  ◑ PARTIAL', color: AMBER,     size: 17, bold: true });
+    return                       new TextRun({ text: '  ○ PLANNED', color: ROSE,      size: 17, bold: true });
+  }
+
+  const deptChildren: Paragraph[] = [];
+
+  for (const { dept, desc, color, ids } of DEPT_SECTIONS) {
+    const features = ids.flatMap(id => { const f = featureById.get(id); return f ? [f] : []; });
+    const liveCount = features.filter(f => f.status === 'COMPLETE').length;
+
+    deptChildren.push(
+      // Department header banner
+      new Paragraph({
+        spacing: { before: 440, after: 0 },
+        shading: { type: ShadingType.SOLID, color: hex(NAVY_MID), fill: hex(NAVY_MID) },
+        children: [
+          new TextRun({ text: '  ' }),
+          new TextRun({ text: dept.toUpperCase(), color, bold: true, size: 27 }),
+          new TextRun({ text: `   ${liveCount} / ${features.length} LIVE`, color: MID, size: 18 }),
+        ],
+      }),
+      new Paragraph({
+        spacing: { before: 0, after: 180 },
+        shading: { type: ShadingType.SOLID, color: hex(NAVY_MID), fill: hex(NAVY_MID) },
+        children: [
+          new TextRun({ text: '  ' }),
+          new TextRun({ text: desc, color: SLATE, size: 17 }),
+        ],
+      }),
+      // Feature rows
+      ...features.flatMap(f => [
+        new Paragraph({
+          spacing: { before: 100, after: 20 },
+          indent: { left: 360 },
+          children: [
+            new TextRun({ text: `[${String(f.id).padStart(2, '0')}]  `, color: DIM, size: 18, bold: true }),
+            new TextRun({ text: f.name, color: WHITE, size: 19, bold: true }),
+            statusRun(f.status),
+          ],
+        }),
+        new Paragraph({
+          spacing: { before: 0, after: 100 },
+          indent: { left: 560 },
+          children: [new TextRun({ text: f.notes, color: SLATE, size: 17 })],
+        }),
+      ]),
+    );
+  }
+
+  const doc = new Document({
+    numbering: {
+      config: [{
+        reference: 'bullet-list',
+        levels: [{ level: 0, format: NumberFormat.BULLET, text: '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 360, hanging: 260 } } } }],
+      }],
+    },
+    sections: [{
+      properties: { page: { margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 } } },
+      headers: {
+        default: new Header({
+          children: [new Paragraph({
+            border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: DIVIDER_C } },
+            spacing: { after: 100 },
+            children: [
+              new TextRun({ text: 'BITSAUTO', color: CYAN, bold: true, size: 17 }),
+              new TextRun({ text: '   ·   VoIP Monitoring Platform   ·   Feature Status Report   ·   ', color: DIM, size: 17 }),
+              new TextRun({ text: dateStr, color: MID, size: 17 }),
+            ],
+          })],
+        }),
+      },
+      footers: {
+        default: new Footer({
+          children: [new Paragraph({
+            border: { top: { style: BorderStyle.SINGLE, size: 6, color: DIVIDER_C } },
+            spacing: { before: 100 },
+            alignment: AlignmentType.CENTER,
+            children: [
+              new TextRun({ text: 'Bitsauto VoIP Monitoring Platform  ·  Confidential — Internal Use Only  ·  Page ', color: DIM, size: 16 }),
+              new PageNumberElement(),
+            ],
+          })],
+        }),
+      },
+      children: [
+
+        // ── COVER ──────────────────────────────────────────────────────────────
+        new Paragraph({
+          spacing: { before: 560, after: 80 },
+          children: [new TextRun({ text: 'BITSAUTO', color: CYAN, bold: true, size: 104 })],
+        }),
+        new Paragraph({
+          spacing: { after: 80 },
+          children: [new TextRun({ text: 'VoIP Monitoring Platform', color: WHITE, bold: true, size: 56 })],
+        }),
+        new Paragraph({
+          spacing: { after: 60 },
+          children: [new TextRun({ text: 'Department-Categorised Implementation Status & Roadmap Report', color: SLATE, size: 30 })],
+        }),
+        new Paragraph({
+          spacing: { after: 80 },
+          children: [new TextRun({ text: 'NOC  ·  Finance & Billing  ·  Commercial  ·  Fraud & Security  ·  Analytics  ·  Engineering', color: CYAN_SOFT, size: 22 })],
+        }),
+        divider(),
+        metaLine('Report Date:', dateStr),
+        metaLine('Platform:', 'Sippy Softswitch / VoIP NOC Dashboard'),
+        metaLine('App URL:', 'https://vo-ip-watcher--junaid70.replit.app'),
+        metaLine('Stack:', 'React 18 + Vite + Express + PostgreSQL (Drizzle ORM) + Replit Auth OIDC'),
+        metaLine('Prepared by:', 'BitsAuto Engineering'),
+        metaLine('Classification:', 'Internal — Confidential'),
+        divider(),
+
+        // ── SUMMARY ────────────────────────────────────────────────────────────
+        sectionBanner('IMPLEMENTATION SUMMARY'),
+        sectionBannerSub(`${totalLive} of ${FEATURES.length} features LIVE across 6 departments  ·  Generated ${dateStr} at ${timeStr}`),
+        new Paragraph({
+          spacing: { before: 220, after: 120 },
+          children: [
+            new TextRun({ text: `${totalLive}`, color: GREEN, bold: true, size: 56 }),
+            new TextRun({ text: '  features LIVE   ', color: MID, size: 26 }),
+            new TextRun({ text: `${FEATURES.length - totalLive}`, color: AMBER, bold: true, size: 56 }),
+            new TextRun({ text: '  in development', color: MID, size: 26 }),
+          ],
+        }),
+        para('All features are tracked by department below. Each entry shows the feature name, implementation status, and technical notes.', { color: SLATE }),
+
+        // ── DEPARTMENT SECTIONS ────────────────────────────────────────────────
+        ...deptChildren,
+
+        // ── BUG FIXES ──────────────────────────────────────────────────────────
+        sectionBanner('BUG FIXES & PLATFORM IMPROVEMENTS'),
+        sectionBannerSub('Resolved issues and quality improvements shipped alongside feature work'),
+        ...BUG_FIXES.map(fix => bullet(fix)),
+
+        // ── CLOSING ────────────────────────────────────────────────────────────
+        divider(),
+        para(`This report was auto-generated by the Bitsauto Monitoring Platform on ${dateStr} at ${timeStr}.`, { color: DIM, size: 17 }),
+        para('All features are implemented against the Sippy Softswitch platform. Classification: Internal — Confidential.', { color: DIM, size: 17 }),
+      ],
+    }],
+  });
+
+  const buffer = await Packer.toBuffer(doc);
+  if (outputPath) writeFileSync(outputPath, buffer);
+  return buffer;
+}
+
+export const PLATFORM_STATUS_REPORT_PATH = '/tmp/BitsAuto_Platform_Feature_Status.docx';

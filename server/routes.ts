@@ -59,7 +59,7 @@ import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode, searchDialCodes } from "./dial-lookup";
 import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
-import { generateStatusReport, STATUS_REPORT_PATH } from "./doc-generator";
+import { generateStatusReport, STATUS_REPORT_PATH, generatePlatformStatusReport, PLATFORM_STATUS_REPORT_PATH } from "./doc-generator";
 import { generateUserManual, USER_MANUAL_PATH } from "./manual-generator";
 import { convertMdToDocx } from "./md-to-docx";
 import { generateSippyDataflowDoc, SIPPY_DATAFLOW_PATH } from "./sippy-dataflow-generator";
@@ -24959,12 +24959,33 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     });
   });
 
-  // GET /api/download/platform-status-report — Complete Status & Roadmap Report (May 2026)
-  app.get('/api/download/platform-status-report', (_req: any, res: any) => {
-    const filePath = _pathJoin(process.cwd(), 'client', 'public', 'downloads', 'BitsAuto_Platform_Report_May2026.docx');
-    res.download(filePath, 'BitsAuto_Platform_Report_May2026.docx', (err: any) => {
-      if (err && !res.headersSent) res.status(404).json({ error: 'File not found' });
-    });
+  // GET /api/download/platform-status-report — Department-Categorised Feature Status Report (auto-generated)
+  app.get('/api/download/platform-status-report', async (_req: any, res: any) => {
+    try {
+      const { existsSync } = await import('fs');
+      if (!existsSync(PLATFORM_STATUS_REPORT_PATH)) {
+        await generatePlatformStatusReport(PLATFORM_STATUS_REPORT_PATH);
+      }
+      res.download(PLATFORM_STATUS_REPORT_PATH, 'BitsAuto_Platform_Feature_Status_Report.docx', (err: any) => {
+        if (err && !res.headersSent) res.status(500).json({ message: 'Download error' });
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: `Failed to generate report: ${e.message}` });
+    }
+  });
+
+  // POST /api/download/regenerate-platform-status — rebuild the Feature Status Report on demand (admin)
+  app.post('/api/download/regenerate-platform-status', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.claims?.sub;
+      const role   = await storage.getUserRole(userId);
+      if (role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+      await generatePlatformStatusReport(PLATFORM_STATUS_REPORT_PATH);
+      res.json({ ok: true, regeneratedAt: new Date().toISOString(), file: 'BitsAuto_Platform_Feature_Status_Report.docx' });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   // GET /api/download/feature-cost-estimate — Feature Implementation Time & Cost Estimate
