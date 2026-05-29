@@ -8884,8 +8884,10 @@ export async function registerRoutes(
         iAccount:      info.iAccount,
         username:      info.username,
         iRoutingGroup: info.iRoutingGroup ?? null,
-        description:   info.description ?? null,
-        blocked:       info.blocked ?? false,
+        iTariff:       info.iTariff       ?? null,
+        iBillingPlan:  info.iBillingPlan  ?? null,
+        description:   info.description   ?? null,
+        blocked:       info.blocked       ?? false,
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -27386,11 +27388,62 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // ── Layer 5B — Invoices ───────────────────────────────────────────────────
+  // GET  /api/invoices/sippy-accounts    — Sippy accounts enriched with local billing cycle
   // GET  /api/invoices                   — list invoices (filter: status, iTariff)
   // GET  /api/invoices/:id               — single invoice with htmlContent
   // POST /api/invoices/generate          — generate draft invoice from snapshots
   // POST /api/invoices/:id/approve       — approve invoice (draft/review → approved)
   // POST /api/invoices/:id/void          — void an invoice
+
+  // GET /api/invoices/sippy-accounts — Sippy account list enriched with local company billing cycle
+  app.get('/api/invoices/sippy-accounts', async (req: any, res: any) => {
+    try {
+      if (!req.user) return res.status(401).json({ accounts: [], error: 'Unauthorized' });
+      const settings  = await storage.getSettings();
+      const portalUrl = sippyPortalUrl(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
+
+      // Fetch Sippy account list
+      let sippyAccts: any[] = [];
+      if (!xmlRpcIsBlocked()) {
+        for (const { username, password } of credPairs) {
+          const r = await sippy.listSippyAccounts(username, password, { limit: 500 }, portalUrl);
+          if (r.accounts?.length) { sippyAccts = r.accounts; break; }
+        }
+      }
+      // Fallback to in-memory cache when Sippy is unreachable
+      if (!sippyAccts.length && accountNameCache.size > 0) {
+        sippyAccts = Array.from(accountNameCache.entries()).map(([id, name]) => ({
+          iAccount: parseInt(id, 10), username: name, cached: true,
+        }));
+      }
+
+      // Enrich with local company data (billing cycle, display name)
+      const companies = await storage.getCompanies();
+      const byIAccount = new Map<number, any>(
+        companies.filter(c => c.sippyIAccount != null).map(c => [c.sippyIAccount!, c])
+      );
+
+      const enriched = sippyAccts.map(a => {
+        const co = byIAccount.get(a.iAccount);
+        return {
+          iAccount:     a.iAccount,
+          username:     a.username,
+          balance:      a.balance      ?? 0,
+          blocked:      !!a.blocked,
+          cached:       !!a.cached,
+          companyId:    co?.id         ?? null,
+          companyName:  co?.name       ?? null,
+          billingCycle: co?.clientBillingCycle ?? null,
+          displayName:  co?.name || a.username,
+        };
+      });
+
+      res.json({ accounts: enriched });
+    } catch (e: any) {
+      res.status(500).json({ accounts: [], error: e.message });
+    }
+  });
 
   app.get('/api/invoices', async (req: any, res: any) => {
     try {
