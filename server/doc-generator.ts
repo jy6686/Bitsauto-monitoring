@@ -1,7 +1,7 @@
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel,
   Table, TableRow, TableCell, WidthType, AlignmentType,
-  BorderStyle, ShadingType, Header, Footer, PageNumberElement,
+  BorderStyle, ShadingType, Header, Footer, SimpleField,
   NumberFormat,
 } from 'docx';
 import { writeFileSync } from 'fs';
@@ -377,7 +377,7 @@ export async function generateStatusReport(outputPath?: string): Promise<Buffer>
               alignment: AlignmentType.CENTER,
               children: [
                 new TextRun({ text: 'Bitsauto Monitoring Platform  ·  Confidential — Internal Use Only  ·  Page ', color: DIM, size: 16 }),
-                new PageNumberElement(),
+                new SimpleField('PAGE'),
               ],
             }),
           ],
@@ -643,7 +643,7 @@ export async function generatePlatformStatusReport(outputPath?: string): Promise
             alignment: AlignmentType.CENTER,
             children: [
               new TextRun({ text: 'Bitsauto VoIP Monitoring Platform  ·  Confidential — Internal Use Only  ·  Page ', color: DIM, size: 16 }),
-              new PageNumberElement(),
+              new SimpleField('PAGE'),
             ],
           })],
         }),
