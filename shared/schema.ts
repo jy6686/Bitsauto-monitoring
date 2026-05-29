@@ -3088,6 +3088,22 @@ export type WorkspaceTabItem      = typeof workspaceTabItems.$inferSelect;
 export type WorkspaceTabWithItems = WorkspaceTab & { items: WorkspaceTabItem[] };
 export type WorkspaceWithTabs     = WorkspaceDefinition & { tabs: WorkspaceTabWithItems[] };
 
+// ── BhaooSMS Profiles ────────────────────────────────────────────────────────
+export const bhaooProfiles = pgTable("bhaoo_profiles", {
+  id:        serial("id").primaryKey(),
+  name:      varchar("name",       { length: 64  }).notNull(),
+  baseUrl:   varchar("base_url",   { length: 256 }).notNull().default('http://149.20.185.6/BhaooSMSV5'),
+  apiKey:    varchar("api_key",    { length: 128 }).notNull(),
+  secretKey: varchar("secret_key", { length: 128 }).notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  isActive:  boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type BhaooProfile       = typeof bhaooProfiles.$inferSelect;
+export type InsertBhaooProfile = typeof bhaooProfiles.$inferInsert;
+export const insertBhaooProfileSchema = createInsertSchema(bhaooProfiles).omit({ id: true, createdAt: true, updatedAt: true });
+
 // ── BhaooSMS / REVE SMS Integration ──────────────────────────────────────────
 
 export const smsMessages = pgTable("sms_messages", {

@@ -23,14 +23,20 @@ interface RequestOptions {
   params?:    Record<string, string>;
   body?:      Record<string, unknown>;
   timeoutMs?: number;
+  profile?:   { baseUrl: string; apiKey: string; secretKey: string };
 }
 
 export async function bhaooRequest<T = unknown>(opts: RequestOptions): Promise<T> {
-  if (!isConfigured()) {
+  const profile = opts.profile;
+
+  if (!profile && !isConfigured()) {
     throw new Error('BhaooSMS credentials not configured (BHAOO_API_KEY / BHAOO_SECRET_KEY missing)');
   }
 
-  const { baseUrl, apiKey, secretKey } = getConfig();
+  const baseUrl   = profile?.baseUrl   ?? BASE_URL;
+  const apiKey    = profile?.apiKey    ?? API_KEY;
+  const secretKey = profile?.secretKey ?? SECRET_KEY;
+
   const method    = opts.method ?? 'POST';
   const timeoutMs = opts.timeoutMs ?? 15_000;
   let url = `${baseUrl}${opts.path}`;
