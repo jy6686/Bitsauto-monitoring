@@ -139,7 +139,8 @@ export function registerBhaooRoutes(app: Express) {
           : payload.status === 4 ? 'sent'
           : 'unknown';
 
-        await db.update(smsMessages)
+        // Try to update an existing record first
+        const updated = await db.update(smsMessages)
           .set({
             status:        dlrStatus,
             statusCode:    payload.status,
@@ -149,7 +150,26 @@ export function registerBhaooRoutes(app: Express) {
             dlrReceivedAt: new Date(),
             updatedAt:     new Date(),
           })
-          .where(eq(smsMessages.bhaooId, payload.messageId));
+          .where(eq(smsMessages.bhaooId, payload.messageId))
+          .returning();
+
+        // No existing record — message was sent directly from REVE/BhaooSMS
+        // Create a new record so it appears in the SMS Monitor
+        if (updated.length === 0) {
+          await db.insert(smsMessages).values({
+            bhaooId:      payload.messageId,
+            toNumber:     payload.msisdn || 'unknown',
+            fromId:       null,
+            messageText:  null,
+            messageType:  'text',
+            status:       dlrStatus,
+            statusCode:   payload.status,
+            operator:     payload.operator || null,
+            country:      payload.country || null,
+            errorCode:    payload.errorCode || null,
+            dlrReceivedAt: new Date(),
+          }).onConflictDoNothing();
+        }
       }
 
       res.json({ ok: true });
