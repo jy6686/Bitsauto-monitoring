@@ -362,7 +362,7 @@ export default function InvoicesPage() {
         iTariff:     form.iTariff,
         periodStart: form.periodStart,
         periodEnd:   form.periodEnd || form.periodStart,
-        limit:       5000,
+        limit:       100000,
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Snapshot seeding failed");

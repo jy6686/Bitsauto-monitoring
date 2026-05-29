@@ -3211,6 +3211,7 @@ export async function scrapeAdminPortalCDRs(
     source?: string;       // CLI filter
     destination?: string;  // CLD filter
     offset?: number;
+    iAccount?: number;     // when set: filter portal CDRs to this account (caller=N_N param)
   } = {},
 ): Promise<SippyCDR[]> {
   const FAIL = (): SippyCDR[] => [];
@@ -3219,6 +3220,8 @@ export async function scrapeAdminPortalCDRs(
   const limit     = opts.limit     || 100;
   const callsSel  = opts.callsSelect || '1';
   const offset    = opts.offset ?? 0;
+  // Sippy CDR portal account filter: caller=0_0 = all, caller=N_N = specific account N
+  const callerParam = opts.iAccount ? `${opts.iAccount}_${opts.iAccount}` : '0_0';
 
   // Try admin login, then reseller, then customer (fallback)
   let loginRes = await portalLogin(base, adminUsername, adminPassword, 'admin');
@@ -3238,7 +3241,7 @@ export async function scrapeAdminPortalCDRs(
       'endDate='   + encodeURIComponent(endDate),
       'source='    + encodeURIComponent(opts.source  || ''),
       'destination=' + encodeURIComponent(opts.destination || ''),
-      'caller=0_0',
+      'caller=' + callerParam,
       'calls_select=' + callsSel,
       'cdr_currency=USD', 'cli_clause=0', 'cld_clause=0',
       'bt_clause=0', 'bt_pattern=', 'account_class=0',

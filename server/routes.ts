@@ -27385,6 +27385,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                 const page = await sippy.scrapeAdminPortalCDRs(user, pass, portalUrl, {
                   limit: ADMIN_PAGE, offset: pg * ADMIN_PAGE,
                   startDate: startIso, endDate: endIso,
+                  iAccount: Number(iAccount),  // filter to this account only
                 });
                 if (page.length > 0) batch.push(...page);
                 if (page.length < ADMIN_PAGE) break;
@@ -27413,13 +27414,33 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
 
         job.fetched = rawCdrs.length;
-        job.total   = rawCdrs.length;
-        console.log(`[seed-job:${jobId}] fetched ${rawCdrs.length} CDRs`);
+
+        // ── Post-filter by account name (belt-and-suspenders) ────────────────
+        // The admin portal caller=N_N filter may be ignored by some Sippy builds.
+        // Resolve iAccount → display name from the in-process account cache, then
+        // filter any CDRs whose clientName doesn't match so we never mix accounts.
+        const targetAccountName = accountNameCache.get(String(iAccount));
+        if (targetAccountName && rawCdrs.length > 0) {
+          const before = rawCdrs.length;
+          // Portal CDRs with a clientName that doesn't match are from other accounts.
+          // CDRs with no clientName (e.g. from XML-RPC) are always kept.
+          rawCdrs = rawCdrs.filter((c: any) =>
+            !c.clientName || c.clientName === targetAccountName,
+          );
+          console.log(`[seed-job:${jobId}] account filter (${targetAccountName}): ${before} → ${rawCdrs.length} CDRs`);
+        } else if (!targetAccountName) {
+          console.log(`[seed-job:${jobId}] account name not in cache for iAccount=${iAccount} — skipping clientName filter`);
+        }
+
+        job.total = rawCdrs.length;
+        console.log(`[seed-job:${jobId}] fetched ${job.fetched} CDRs, ${rawCdrs.length} after account filter`);
 
         // ── Batch dedup: 1 SELECT instead of N ──────────────────────────────
         job.phase = 'Deduplicating against existing snapshots';
         const existingIds = await storage.getExistingCdrIdsForTariff(String(iTariff));
-        const toProcess   = rawCdrs.slice(0, Number(limit));
+        // Process ALL fetched CDRs — do not cap to a low limit.
+        // rawCdrs is already filtered to the target account+period by the fetch paths above.
+        const toProcess   = rawCdrs;
 
         let skippedCount = 0;
         const newRows: Parameters<typeof storage.bulkCreateInvoiceCdrSnapshots>[0] = [];
@@ -27427,7 +27448,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           const cdrId = String(c.callId ?? (c as any).i_cdr ?? '');
           if (cdrId && existingIds.has(cdrId)) { skippedCount++; continue; }
           const cost        = parseFloat(String(c.cost ?? c.price ?? (c as any).charged_amount ?? '0')) || 0;
-          const durationSec = Number(c.totalDuration ?? c.duration ?? c.billDuration ?? 0);
+          // Use billed duration (what Sippy charged) — note: field is billedDuration, not billDuration
+          const durationSec = Number(c.billedDuration ?? c.billDuration ?? c.duration ?? c.totalDuration ?? 0);
           const startTime   = String(c.startTime ?? c.connectTime ?? (c as any).connect_time ?? '');
           const callee      = String(c.callee ?? (c as any).cld ?? '');
           const snapshotHash = computeSnapshotHash({
