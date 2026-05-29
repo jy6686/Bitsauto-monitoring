@@ -27859,6 +27859,96 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── DMR Governance: Auto-generate + verify all missing dates in a period ────
+  // One-shot helper used by the invoice modal "Auto-generate DMR" button.
+  // For each date in [from, to] that has no verified DMR:
+  //   1. Calls generateDMR  (creates 'generated' rows)
+  //   2. Calls /api/dmr/date/:date/verify inline (marks rows 'verified')
+  // Returns a per-date summary so the UI can show progress.
+  app.post('/api/dmr/auto-verify-period', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const from = String(req.body?.from ?? '');
+      const to   = String(req.body?.to   ?? '');
+      if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        return res.status(400).json({ error: 'from and to (YYYY-MM-DD) required' });
+      }
+
+      const settings = await storage.getSippySettings();
+      if (!settings?.portalUrl) return res.status(400).json({ error: 'Sippy not configured — set Portal URL in settings' });
+
+      const { generateDMR } = await import('./services/sippy/index');
+      const config = {
+        portalUrl:        settings.portalUrl,
+        username:         settings.portalUsername  ?? settings.apiAdminUsername ?? '',
+        password:         settings.portalPassword  ?? settings.apiAdminPassword ?? '',
+        adminWebPassword: settings.adminWebPassword ?? '',
+      };
+
+      // Find dates still missing verified DMR
+      const periodCheck = await storage.hasDMRVerifiedForPeriod(from, to);
+      if (periodCheck.verified) {
+        return res.json({ alreadyVerified: true, processed: [], from, to });
+      }
+
+      const results: { date: string; generated: number; verified: number; error?: string }[] = [];
+
+      for (const dateStr of periodCheck.missingDates) {
+        try {
+          // Build CDR-cache fallback for this date (mirrors /api/dmr/generate logic)
+          const cdrFallbackMap = new Map<string, { durationSec: number; amount: number; totalCalls: number; answeredCalls: number }>();
+          for (const [, cdr] of cdrCache) {
+            const ts = sippy.parseSippyDate((cdr as any).startTime);
+            if (!ts || ts.toISOString().slice(0, 10) !== dateStr) continue;
+            const name = ((cdr as any).clientName || accountNameCache.get(String((cdr as any).iAccount ?? '')) || 'Unknown').trim();
+            const ex = cdrFallbackMap.get(name) ?? { durationSec: 0, amount: 0, totalCalls: 0, answeredCalls: 0 };
+            const durSec = (cdr as any).totalDuration ?? (cdr as any).duration ?? 0;
+            cdrFallbackMap.set(name, {
+              durationSec:   ex.durationSec + durSec,
+              amount:        ex.amount + ((cdr as any).cost ?? 0),
+              totalCalls:    ex.totalCalls + 1,
+              answeredCalls: ex.answeredCalls + (durSec > 0 ? 1 : 0),
+            });
+          }
+          const cdrFallbackClients = [...cdrFallbackMap.entries()].map(([name, d]) => ({ name, ...d }));
+
+          // 1. Generate DMR for this date
+          const genResult = await generateDMR(config, new Date(dateStr + 'T00:00:00Z'), {
+            notes: `Auto-generated for invoice period by ${(req as any).user?.username ?? 'operator'}`,
+            cdrFallbackClients,
+          });
+
+          // 2. Verify all generated rows for this date
+          const rows = await storage.listDMRReports({ reportDate: dateStr, latestVersionOnly: true });
+          let verified = 0;
+          for (const row of rows) {
+            if (row.verificationStatus === 'generated' || row.verificationStatus === 'drifted') {
+              await storage.updateDMRStatus(row.id, 'verified');
+              verified++;
+            }
+          }
+
+          results.push({ date: dateStr, generated: genResult.rows ?? rows.length, verified });
+        } catch (dateErr: any) {
+          results.push({ date: dateStr, generated: 0, verified: 0, error: dateErr.message });
+        }
+      }
+
+      const allOk = results.every(r => !r.error);
+      const finalCheck = await storage.hasDMRVerifiedForPeriod(from, to);
+
+      res.json({
+        success: allOk,
+        processed: results,
+        periodNowVerified: finalCheck.verified,
+        remainingMissing:  finalCheck.missingDates,
+        from, to,
+      });
+    } catch (err: any) {
+      console.error('[dmr] auto-verify-period error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Margin Intelligence Engine ─────────────────────────────────────────────────
   // GET  /api/margin/clients?date=    — ranked client margins
   // GET  /api/margin/vendors?date=    — ranked vendor costs
