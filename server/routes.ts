@@ -27142,37 +27142,72 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   app.post('/api/rating-verifications/run-batch', async (req: any, res: any) => {
     try {
-      const { iTariff, limit = 100 } = req.body ?? {};
+      const { iTariff, iAccount, periodStart, periodEnd, limit = 500 } = req.body ?? {};
+      const { verifyBatch } = await import('./services/sippy/index');
 
-      // Pull recent CDRs from storage cache
-      const { verifyCdr, verifyBatch } = await import('./services/sippy/index');
-
-      // Get recent CDRs from the in-memory cache or DB
+      // ── Step 1: try in-memory CDR cache ────────────────────────────────────
       const rawCdrs: any[] = (globalThis as any).__sippyCdrCache ?? [];
-      let workList = iTariff
-        ? rawCdrs.filter((c: any) => String(c.iTariff ?? c.i_account ?? '') === String(iTariff))
-        : rawCdrs;
+      let workList = rawCdrs.filter((c: any) => {
+        if (iTariff && String(c.iTariff ?? c.i_account ?? '') !== String(iTariff)) return false;
+        if (iAccount && String(c.iAccount ?? c.i_account ?? '') !== String(iAccount)) return false;
+        return true;
+      });
+
+      // ── Step 2: if cache empty and we have an account + period, fetch from Sippy portal ──
+      if (workList.length === 0 && iAccount && periodStart) {
+        console.log(`[rating-verification] cache empty — fetching portal CDRs for account ${iAccount} ${periodStart}→${periodEnd}`);
+        try {
+          const settings  = await storage.getSettings();
+          const portalUrl = sippyPortalUrl(settings);
+          const portUser  = settings.adminWebPassword
+            ? (settings.portalUsername ?? settings.apiAdminUsername ?? '')
+            : (settings.apiAdminUsername ?? settings.portalUsername ?? '');
+          const portPass  = settings.adminWebPassword ?? settings.apiAdminPassword ?? settings.portalPassword ?? '';
+
+          // Convert YYYY-MM-DD dates to Sippy portal MM/DD/YYYY HH:MM:SS format
+          const toPortalDate = (d: string, endOfDay = false) => {
+            const parts = d.split('-');
+            if (parts.length !== 3) return d;
+            const t = endOfDay ? '23:59:59' : '00:00:00';
+            return `${parts[1]}/${parts[2]}/${parts[0]} ${t}`;
+          };
+
+          const portalCdrs = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
+            startDate:       toPortalDate(periodStart),
+            endDate:         toPortalDate(periodEnd ?? periodStart, true),
+            fallbackUsername: settings.portalUsername  ?? '',
+            fallbackPassword: settings.portalPassword  ?? '',
+            maxPages:        50,
+          });
+
+          console.log(`[rating-verification] portal fetch → ${portalCdrs.length} CDRs`);
+          workList = portalCdrs.map((c: any) => ({ ...c, _fromPortal: true }));
+        } catch (fetchErr: any) {
+          console.warn('[rating-verification] portal CDR fetch failed:', fetchErr.message);
+        }
+      }
+
       workList = workList.slice(0, limit);
 
       if (workList.length === 0) {
         return res.json({
           total: 0, verified: 0, discrepancies: 0, missing: 0,
           unrated: 0, totalDelta: 0, byType: {}, bySeverity: {}, durationMs: 0,
-          message: 'No CDRs in cache. Fetch live calls or load CDRs first.',
+          message: 'No CDRs found in cache or Sippy portal for this account/period.',
         });
       }
 
       const inputs = workList.map((c: any) => ({
         callId:          c.callId ?? c.i_cdr,
-        startTime:       c.startTime ?? c.connect_time,
+        startTime:       c.startTime ?? c.connectTime ?? c.connect_time,
         callee:          c.callee ?? c.cld ?? '',
-        durationSecs:    c.totalDuration ?? c.duration ?? c.billed_duration ?? 0,
-        sippyActualCost: parseFloat(c.cost ?? c.charged_amount ?? '0') || 0,
+        durationSecs:    Number(c.totalDuration ?? c.duration ?? c.billDuration ?? c.billed_duration ?? 0),
+        sippyActualCost: parseFloat(String(c.cost ?? c.price ?? c.charged_amount ?? '0')) || 0,
         iTariff:         String(iTariff ?? c.iTariff ?? c.i_account ?? ''),
       }));
 
       const result = await verifyBatch(inputs, { concurrency: 5 });
-      res.json(result);
+      res.json({ ...result, source: workList[0]?._fromPortal ? 'portal' : 'cache' });
     } catch (err: any) {
       console.error('[rating-verification] batch error:', err.message);
       res.status(500).json({ error: err.message });

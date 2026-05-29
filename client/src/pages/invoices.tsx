@@ -351,8 +351,11 @@ export default function InvoicesPage() {
     try {
       // Step 1: run rating verification batch for this tariff
       const rvRes  = await apiRequest("POST", "/api/rating-verifications/run-batch", {
-        iTariff: form.iTariff || undefined,
-        limit:   5000,
+        iTariff:     form.iTariff     || undefined,
+        iAccount:    form.iAccount    || undefined,
+        periodStart: form.periodStart || undefined,
+        periodEnd:   form.periodEnd   || undefined,
+        limit:       5000,
       });
       const rvBody = await rvRes.json();
       if (!rvRes.ok) throw new Error(rvBody.error ?? "Rating verification failed");
