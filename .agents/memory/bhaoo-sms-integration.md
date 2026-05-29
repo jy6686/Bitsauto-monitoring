@@ -38,4 +38,14 @@ This endpoint has no auth guard (public) so BhaooSMS can push delivery reports.
 - `BHAOO_SECRET_KEY` — BhaooSMS secret key
 - `BHAOO_BASE_URL` — optional override (default: http://149.20.185.6/BhaooSMSV5)
 
+## Voice OTP (Asterisk AMI)
+- Service: `server/services/asterisk/ami.ts` + `index.ts`
+- Routes: `server/routes-voice-otp.ts` → registered via `registerVoiceOtpRoutes()`
+- DB table: `voice_otp_calls` (created via direct SQL)
+- Frontend: `client/src/pages/voice-otp.tsx` at `/voice-otp`
+- Asterisk server: `159.223.32.59:5038` (FreePBX, DigitalOcean)
+- AMI user: `bitsauto` — secret in `ASTERISK_AMI_SECRET`
+- Dialplan context: `otp-playback` in `/etc/asterisk/extensions_custom.conf`
+- CallerID name carries OTP digits; `SayDigits(${CALLERID(name)})` speaks them
+
 **Why:** API path pattern is `/api/` for send, `/api/balance/` for balance, `/api/dlr/` for DLR query — REVE V5 standard paths.
