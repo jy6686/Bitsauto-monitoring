@@ -1595,13 +1595,46 @@ export async function registerRoutes(
   );
 
   // ── Sidebar Visibility Config ─────────────────────────────────────────────
+  // Default hidden set — applied when no admin has explicitly saved a config yet.
+  // Leaves ~38 core operational items visible; hides advanced/supplementary features.
+  const SIDEBAR_DEFAULT_HIDDEN: string[] = [
+    // Live Network — keep: Live Calls, Alerts, NOC Dashboard, Incident Command, BitsEye 2, Live Traffic
+    "/route-intelligence","/noc-command","/ops-console","/console",
+    "/traffic-map","/graphs","/multi-switch","/server-monitoring","/sbc-monitor","/network-topology",
+    // Company — keep: Accounts, Client Portal, DID Management
+    "/reseller","/company/list","/company-profile","/client/wizard",
+    "/company/onboarding","/account-names","/call-recordings","/products",
+    // Operations — keep: Vendor List, Balance Monitor, Routing Manager, LCR Analyser, Route Tester, Tools
+    "/vendor-sla-scorecard","/carrier-scoring","/vendor-stability-timeline",
+    "/call-flow-simulator","/self-heal","/sip-trace","/replay","/test-campaigns",
+    // Analytics — keep: Traffic Analytics, ASR/ACD, Reports, CDR Viewer, BitsEye
+    "/qos-heatmap","/codec-analytics","/rtp-analytics","/revenue-heatmap","/traffic-forecast",
+    // Intelligence — keep: Intelligence Hub, Cost Optimisation
+    "/ai-ops","/ai-ops?tab=decision-overlay","/intelligence-validation","/carrier-intelligence",
+    "/vendor-rca","/vendor-prefix-intelligence","/routing-intelligence","/number-intelligence",
+    "/route-optimisation","/traffic-steering","/simulation-sandbox",
+    // Security — keep: Fraud Engine, Firewall Manager, Approval Queue, Audit Log
+    "/sla-breaches","/approval-settings","/stir-shaken","/compliance","/rbac","/mfa-setup","/security-ops",
+    // Finance — keep: Billing, Billing Disputes, Invoices, Margin Intelligence, DMR, Rate Cards
+    "/invoice-jobs","/invoice-templates","/credit-notes","/credit-control",
+    "/dispute-cases","/dispute-defense","/client-reconciliation","/carrier-reconciliation",
+    "/ai-assurance","/partner-profiles","/executive-reports",
+    // Platform — keep: Platform Settings, Team & KAM, API Keys, Workspace Settings, Navigation Manager
+    "/vpn-config","/tariff-versions","/rating-verification","/rating-snapshots",
+    "/communication-policies","/commercial-notifications","/sender-profiles",
+    "/email-centre","/notification-centre","/whatsapp-alerts","/sms-monitor","/governance",
+  ];
+
   // GET — any authenticated user can read (sidebar needs it to filter items)
   app.get('/api/settings/sidebar-visibility', async (req: any, res) => {
     const userId = req.user?.claims?.sub;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
     const s = await storage.getSettings();
+    const raw = s.sidebarHiddenItems ?? '[]';
     let hiddenItems: string[] = [];
-    try { hiddenItems = JSON.parse(s.sidebarHiddenItems ?? '[]'); } catch { hiddenItems = []; }
+    try { hiddenItems = JSON.parse(raw); } catch { hiddenItems = []; }
+    // If no admin has ever saved a config (factory default), return sensible defaults
+    if (raw === '[]') hiddenItems = SIDEBAR_DEFAULT_HIDDEN;
     res.json({ hiddenItems });
   });
 
