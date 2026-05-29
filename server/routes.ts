@@ -1,5 +1,6 @@
 
 import type { Express } from "express";
+import { registerBhaooRoutes } from './routes-bhaoo';
 import { createServer, type Server } from "http";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import * as net from "net";
@@ -30026,6 +30027,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   setTimeout(_runDueInvoiceSchedules, 60_000);
   setInterval(_runDueInvoiceSchedules, 30 * 60 * 1000);
   console.log('[invoice-scheduler] Started — checking every 30 min (first check at T+60s)');
+
+  // ── BhaooSMS / REVE SMS integration routes ────────────────────────────────
+  registerBhaooRoutes(app);
 
   return httpServer;
 }

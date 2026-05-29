@@ -107,6 +107,9 @@ const DOMAINS: Domain[] = [
         { href: '/call-flow-simulator', label: 'Route Simulator', desc: 'Simulate routing decisions',         icon: ArrowRightLeft },
         { href: '/self-heal',           label: 'Self-Heal',       desc: 'Auto-healing & failover engine',     icon: HeartPulse },
       ]},
+      { label: 'Messaging', desc: 'BhaooSMS gateway, SMS delivery monitoring and A2P operations', icon: MessageSquare, items: [
+        { href: '/sms-monitor', label: 'SMS Monitor',  desc: 'Live delivery rates and gateway status', icon: MessageSquare },
+      ]},
       { label: 'Diagnostics', desc: 'SIP tracing, session replay, test suites and engineering tools', icon: Wrench, items: [
         { href: '/sip-trace',      label: 'SIP Trace',      desc: 'Packet-level SIP tracing',  icon: Mic },
         { href: '/replay',         label: 'Replay Engine',  desc: 'Call session replay',        icon: Rewind },

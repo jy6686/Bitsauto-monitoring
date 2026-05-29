@@ -3087,3 +3087,66 @@ export type WorkspaceTab          = typeof workspaceTabs.$inferSelect;
 export type WorkspaceTabItem      = typeof workspaceTabItems.$inferSelect;
 export type WorkspaceTabWithItems = WorkspaceTab & { items: WorkspaceTabItem[] };
 export type WorkspaceWithTabs     = WorkspaceDefinition & { tabs: WorkspaceTabWithItems[] };
+
+// ── BhaooSMS / REVE SMS Integration ──────────────────────────────────────────
+
+export const smsMessages = pgTable("sms_messages", {
+  id:            serial("id").primaryKey(),
+  internalId:    varchar("internal_id",   { length: 64  }).unique(),
+  bhaooId:       varchar("bhaoo_id",      { length: 128 }),
+  toNumber:      varchar("to_number",     { length: 32  }).notNull(),
+  fromId:        varchar("from_id",       { length: 32  }),
+  messageText:   text("message_text"),
+  messageType:   varchar("message_type",  { length: 16  }).default('text'),
+  status:        varchar("status",        { length: 16  }).notNull().default('submitted'),
+  statusCode:    integer("status_code"),
+  operator:      varchar("operator",      { length: 64  }),
+  country:       varchar("country",       { length: 64  }),
+  errorCode:     varchar("error_code",    { length: 32  }),
+  errorMessage:  text("error_message"),
+  clientRef:     varchar("client_ref",    { length: 128 }),
+  dlrReceivedAt: timestamp("dlr_received_at"),
+  submittedAt:   timestamp("submitted_at").defaultNow().notNull(),
+  updatedAt:     timestamp("updated_at").defaultNow().notNull(),
+});
+export type SmsMessage       = typeof smsMessages.$inferSelect;
+export type InsertSmsMessage = typeof smsMessages.$inferInsert;
+
+export const smsDlrEvents = pgTable("sms_dlr_events", {
+  id:         serial("id").primaryKey(),
+  messageId:  varchar("message_id",  { length: 128 }),
+  clientRef:  varchar("client_ref",  { length: 128 }),
+  status:     integer("status"),
+  statusText: varchar("status_text", { length: 16  }),
+  msisdn:     varchar("msisdn",      { length: 32  }),
+  operator:   varchar("operator",    { length: 64  }),
+  country:    varchar("country",     { length: 64  }),
+  errorCode:  varchar("error_code",  { length: 32  }),
+  rawPayload: jsonb("raw_payload"),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+});
+export type SmsDlrEvent = typeof smsDlrEvents.$inferSelect;
+
+export const bhaooBalanceLog = pgTable("bhaoo_balance_log", {
+  id:          serial("id").primaryKey(),
+  balance:     real("balance").notNull(),
+  creditLimit: real("credit_limit"),
+  currency:    varchar("currency", { length: 8 }).default('USD'),
+  checkedAt:   timestamp("checked_at").defaultNow().notNull(),
+});
+export type BhaooBalanceLog = typeof bhaooBalanceLog.$inferSelect;
+
+export const smsVendorStats = pgTable("sms_vendor_stats", {
+  id:           serial("id").primaryKey(),
+  operator:     varchar("operator",  { length: 64  }).notNull(),
+  country:      varchar("country",   { length: 64  }),
+  sent:         integer("sent").default(0),
+  delivered:    integer("delivered").default(0),
+  failed:       integer("failed").default(0),
+  pending:      integer("pending").default(0),
+  deliveryRate: real("delivery_rate"),
+  windowStart:  timestamp("window_start").notNull(),
+  windowEnd:    timestamp("window_end").notNull(),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+});
+export type SmsVendorStat = typeof smsVendorStats.$inferSelect;
