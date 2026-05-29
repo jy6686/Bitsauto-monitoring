@@ -266,7 +266,8 @@ export default function InvoicesPage() {
     // Fetch client timezone from company record (best-effort)
     let clientTimezone: string | null = null;
     try {
-      const companies: any[] = await apiRequest("GET", "/api/companies").then(r => r.json());
+      const companiesRes: any = await apiRequest("GET", "/api/companies").then(r => r.json());
+      const companies: any[] = companiesRes.companies ?? (Array.isArray(companiesRes) ? companiesRes : []);
       const company = companies.find((c: any) =>
         String(c.sippyAccountId) === iAccountStr ||
         c.name?.toLowerCase() === acct.displayName?.toLowerCase()

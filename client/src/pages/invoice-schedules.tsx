@@ -58,7 +58,7 @@ export default function InvoiceSchedulesPage() {
 
   const { data: companies = [] } = useQuery<Company[]>({
     queryKey: ["/api/companies"],
-    queryFn: () => apiRequest("GET", "/api/companies").then(r => r.json()),
+    queryFn: () => apiRequest("GET", "/api/companies").then(r => r.json()).then((d: any) => d.companies ?? []),
     staleTime: 60_000,
   });
 
