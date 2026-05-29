@@ -580,6 +580,7 @@ export function AppNavShell() {
   const { isOpen: chatOpen, toggle: toggleChat } = useChatDrawer();
 
   const { isPortalMode, allowedPortals, activePortal: activePortalSlug, setPortal, exitPortalMode, portalConfig } = usePortal();
+  const [showPortalDrop, setShowPortalDrop] = useState(false);
 
   // ── Workspace data for portal-mode second row ────────────────────────────────
   const { data: allWorkspaces = [] } = useQuery<WorkspaceDefinition[]>({
@@ -728,46 +729,8 @@ export function AppNavShell() {
         {/* ── Divider ── */}
         <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
 
-        {/* ── PRIMARY NAVIGATION: Portal tabs (always first) ───────────────── */}
-        {allowedPortals.length > 0 && (
-          <nav className="flex items-center gap-0.5 flex-shrink-0" role="group" aria-label="Portal navigation">
-            {allowedPortals.map(portal => {
-              const isActive = portal.slug === activePortalSlug;
-              const t        = portal.theme ?? "neutral";
-              return (
-                <button
-                  key={portal.slug}
-                  onClick={() => {
-                    if (isActive) exitPortalMode();
-                    else { setPortal(portal.slug as any); navigate((portal as any).defaultRoute ?? '/'); }
-                  }}
-                  data-testid={`nav-portal-${portal.slug}`}
-                  title={isActive ? `Exit ${portal.name}` : `Enter ${portal.name}`}
-                  className={cn(
-                    "relative flex items-center gap-1.5 h-[36px] px-3 rounded-lg text-[12px] font-bold uppercase tracking-wide transition-all duration-150 whitespace-nowrap flex-shrink-0",
-                    isActive
-                      ? PORTAL_BTN_ACTIVE[t] ?? PORTAL_BTN_ACTIVE.neutral
-                      : cn("text-muted-foreground/70 hover:text-foreground", PORTAL_BTN_IDLE[t] ?? PORTAL_BTN_IDLE.neutral)
-                  )}
-                >
-                  {isActive && (
-                    <span className={cn("absolute bottom-0 left-2 right-2 h-[2px] rounded-full pointer-events-none", PORTAL_UNDERLINE[t] ?? PORTAL_UNDERLINE.neutral)} />
-                  )}
-                  <span>{portal.name}</span>
-                </button>
-              );
-            })}
-          </nav>
-        )}
-
-        {/* Divider */}
-        {allowedPortals.length > 0 && (
-          <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
-        )}
-
-        {/* ── SECONDARY (full-platform fallback only): Domain mega-menu tabs ─ */}
-        {!isPortalMode && (
-          <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
+        {/* ── Domain mega-menu tabs — always visible ─────────────────────────── */}
+        <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
             {visibleDomains.map(domain => {
               const isActive = meta.domain === domain.id;
               const isOpen   = openDomain === domain.id;
@@ -830,19 +793,6 @@ export function AppNavShell() {
               );
             })}
           </nav>
-        )}
-
-        {/* In portal mode: push right zone to end + exit button */}
-        {isPortalMode && <div className="flex-1" />}
-        {isPortalMode && (
-          <button
-            onClick={() => exitPortalMode()}
-            data-testid="nav-exit-portal"
-            className="flex items-center gap-1 h-[24px] px-2 rounded-md text-[10px] text-muted-foreground/30 hover:text-muted-foreground hover:bg-white/[0.05] transition-colors flex-shrink-0"
-          >
-            ← Full Platform
-          </button>
-        )}
 
         {/* ── Favorites strip — sits between centre nav and right zone ── */}
         <div className="hidden xl:flex items-center mx-2 flex-shrink-0 overflow-hidden">
@@ -920,6 +870,69 @@ export function AppNavShell() {
                     </div>
                   )}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Portals dropdown — context switcher in right zone */}
+          {allowedPortals.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowPortalDrop(v => !v)}
+                data-testid="nav-portals-switcher"
+                className={cn(
+                  "flex items-center gap-1 h-[26px] px-2.5 rounded-md border text-[11px] font-medium transition-colors",
+                  isPortalMode
+                    ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20"
+                    : "border-white/[0.1] text-muted-foreground/50 hover:text-foreground hover:border-white/[0.2] hover:bg-white/[0.04]"
+                )}
+              >
+                <span>{isPortalMode ? (portalConfig?.name ?? 'Portal') : 'Portals'}</span>
+                <ChevronDown className="w-2.5 h-2.5" />
+              </button>
+              {showPortalDrop && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowPortalDrop(false)} />
+                  <div
+                    className="absolute right-0 top-full mt-1.5 z-50 w-48 rounded-xl shadow-2xl overflow-hidden border border-border/60"
+                    style={{ background: 'hsl(var(--background)/0.98)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
+                  >
+                    <div className="px-3 py-2 border-b border-border/40">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">Switch Workspace</p>
+                    </div>
+                    <div className="py-1">
+                      {allowedPortals.map(p => (
+                        <button
+                          key={p.slug}
+                          onClick={() => {
+                            if (activePortalSlug === p.slug) exitPortalMode();
+                            else { setPortal(p.slug as any); navigate((p as any).defaultRoute ?? '/'); }
+                            setShowPortalDrop(false);
+                          }}
+                          data-testid={`nav-portal-${p.slug}`}
+                          className={cn(
+                            "w-full flex items-center justify-between px-3 py-1.5 text-[12px] transition-colors hover:bg-white/[0.05]",
+                            p.slug === activePortalSlug ? "font-semibold text-indigo-400" : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <span>{p.name}</span>
+                          {p.slug === activePortalSlug && <span className="text-[10px] opacity-50">active</span>}
+                        </button>
+                      ))}
+                    </div>
+                    {isPortalMode && (
+                      <div className="border-t border-border/40 py-1">
+                        <button
+                          onClick={() => { exitPortalMode(); setShowPortalDrop(false); }}
+                          className="w-full px-3 py-1.5 text-[12px] text-left text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors"
+                          data-testid="nav-exit-portal"
+                        >
+                          ← Full Platform
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )}

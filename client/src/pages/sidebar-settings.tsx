@@ -10,31 +10,28 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Search, SlidersHorizontal, Save, Eye, EyeOff,
-  ChevronDown, Lock, CheckCheck, ShieldOff,
+  Lock, CheckCheck, ShieldOff,
 } from "lucide-react";
 import { SIDEBAR_GROUPS } from "@/components/layout-shell";
 
 const ALWAYS_VISIBLE = new Set(['/', '/chat', '/account', '/sidebar-settings']);
 
-const GROUP_COLORS: Record<string, { badge: string; dot: string }> = {
-  live_network:    { badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',  dot: 'bg-emerald-400'  },
-  company:         { badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20',        dot: 'bg-amber-400'    },
-  operations:      { badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20',           dot: 'bg-blue-400'     },
-  analytics:       { badge: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',     dot: 'bg-indigo-400'   },
-  intelligence:    { badge: 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20',  dot: 'bg-fuchsia-400'  },
-  troubleshooting: { badge: 'bg-orange-500/10 text-orange-400 border-orange-500/20',     dot: 'bg-orange-400'   },
-  security:        { badge: 'bg-rose-500/10 text-rose-400 border-rose-500/20',           dot: 'bg-rose-400'     },
-  finance:         { badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',  dot: 'bg-emerald-400'  },
-  platform:        { badge: 'bg-slate-500/10 text-slate-400 border-slate-500/20',        dot: 'bg-slate-400'    },
+const GROUP_COLORS: Record<string, { badge: string; dot: string; header: string }> = {
+  live_network:    { badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',  dot: 'bg-emerald-400',  header: 'border-l-emerald-400/60'  },
+  company:         { badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20',        dot: 'bg-amber-400',    header: 'border-l-amber-400/60'    },
+  operations:      { badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20',           dot: 'bg-blue-400',     header: 'border-l-blue-400/60'     },
+  analytics:       { badge: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',     dot: 'bg-indigo-400',   header: 'border-l-indigo-400/60'   },
+  intelligence:    { badge: 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20',  dot: 'bg-fuchsia-400',  header: 'border-l-fuchsia-400/60'  },
+  troubleshooting: { badge: 'bg-orange-500/10 text-orange-400 border-orange-500/20',     dot: 'bg-orange-400',   header: 'border-l-orange-400/60'   },
+  security:        { badge: 'bg-rose-500/10 text-rose-400 border-rose-500/20',           dot: 'bg-rose-400',     header: 'border-l-rose-400/60'     },
+  finance:         { badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',  dot: 'bg-emerald-400',  header: 'border-l-emerald-400/60'  },
+  platform:        { badge: 'bg-slate-500/10 text-slate-400 border-slate-500/20',        dot: 'bg-slate-400',    header: 'border-l-slate-400/60'    },
 };
 
 export default function SidebarSettingsPage() {
   const { role } = useAuth();
   const { toast } = useToast();
   const [search, setSearch] = useState('');
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(SIDEBAR_GROUPS.map(g => [g.key, true]))
-  );
   const [localHidden, setLocalHidden] = useState<Set<string> | null>(null);
 
   const { data: visibilityData, isLoading } = useQuery<{ hiddenItems: string[] }>({
@@ -66,8 +63,8 @@ export default function SidebarSettingsPage() {
     []
   );
 
-  const totalItems = allConfigurableItems.length;
-  const hiddenCount = [...hiddenItems].filter(h => !ALWAYS_VISIBLE.has(h)).length;
+  const totalItems   = allConfigurableItems.length;
+  const hiddenCount  = [...hiddenItems].filter(h => !ALWAYS_VISIBLE.has(h)).length;
   const visibleCount = totalItems - hiddenCount;
 
   const toggleItem = (href: string) => {
@@ -80,10 +77,7 @@ export default function SidebarSettingsPage() {
   };
 
   const enableAll = () => setLocalHidden(new Set());
-
-  const hideAll = () => {
-    setLocalHidden(new Set(allConfigurableItems.map(i => i.href)));
-  };
+  const hideAll   = () => setLocalHidden(new Set(allConfigurableItems.map(i => i.href)));
 
   const enableGroup = (groupKey: string) => {
     const group = SIDEBAR_GROUPS.find(g => g.key === groupKey);
@@ -118,9 +112,6 @@ export default function SidebarSettingsPage() {
     })).filter(g => g.items.length > 0);
   }, [search]);
 
-  const toggleGroup = (key: string) =>
-    setExpandedGroups(prev => ({ ...prev, [key]: !prev[key] }));
-
   if (role !== 'admin') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center">
@@ -131,7 +122,7 @@ export default function SidebarSettingsPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-10">
+    <div className="max-w-5xl mx-auto space-y-6 pb-10">
 
       {/* ── Page header ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -203,17 +194,16 @@ export default function SidebarSettingsPage() {
         </span>
       </div>
 
-      {/* ── Groups ── */}
+      {/* ── Groups — card-grid layout ── */}
       {isLoading ? (
-        <div className="space-y-3">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-20 rounded-xl bg-muted/20 animate-pulse" />
+        <div className="space-y-4">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-40 rounded-xl bg-muted/20 animate-pulse" />
           ))}
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {filteredGroups.map(group => {
-            const isOpen = expandedGroups[group.key] !== false;
             const groupTotal   = group.items.length;
             const groupVisible = group.items.filter(item =>
               ALWAYS_VISIBLE.has(item.href) || !hiddenItems.has(item.href)
@@ -223,28 +213,23 @@ export default function SidebarSettingsPage() {
             const allOff = group.items.every(i => !ALWAYS_VISIBLE.has(i.href) && hiddenItems.has(i.href));
 
             return (
-              <div key={group.key} className="rounded-xl border border-border/40 bg-card/30 overflow-hidden">
-
+              <div
+                key={group.key}
+                className={cn(
+                  "rounded-xl border border-border/40 bg-card/30 overflow-hidden border-l-4",
+                  colors.header
+                )}
+              >
                 {/* Group header */}
-                <div className="flex items-center gap-3 px-4 py-3 bg-muted/10">
-                  <button
-                    onClick={() => toggleGroup(group.key)}
-                    className="flex items-center gap-2.5 flex-1 text-left min-w-0"
-                    data-testid={`sidebar-group-toggle-${group.key}`}
-                  >
-                    <ChevronDown className={cn(
-                      "h-4 w-4 text-muted-foreground/50 transition-transform flex-shrink-0",
-                      isOpen && "rotate-180"
-                    )} />
-                    <div className={cn("w-2 h-2 rounded-full flex-shrink-0", colors.dot)} />
-                    <span className="font-semibold text-sm">{group.label}</span>
-                    <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 h-4 leading-none border flex-shrink-0", colors.badge)}>
-                      {groupVisible}/{groupTotal}
-                    </Badge>
-                    {allOn  && <span className="text-[10px] text-emerald-400/60">all visible</span>}
-                    {allOff && <span className="text-[10px] text-rose-400/60">all hidden</span>}
-                  </button>
-                  <div className="flex gap-1 flex-shrink-0">
+                <div className="flex items-center gap-3 px-5 py-3.5 bg-muted/10 border-b border-border/20">
+                  <div className={cn("w-2 h-2 rounded-full flex-shrink-0", colors.dot)} />
+                  <span className="font-semibold text-sm flex-1">{group.label}</span>
+                  <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 h-4 leading-none border flex-shrink-0", colors.badge)}>
+                    {groupVisible}/{groupTotal}
+                  </Badge>
+                  {allOn  && <span className="text-[10px] text-emerald-400/60">all visible</span>}
+                  {allOff && <span className="text-[10px] text-rose-400/60">all hidden</span>}
+                  <div className="flex gap-1 flex-shrink-0 ml-1">
                     <button
                       onClick={() => enableGroup(group.key)}
                       className="text-[11px] px-2.5 py-1 rounded-md text-emerald-400 hover:bg-emerald-500/10 border border-transparent hover:border-emerald-500/20 transition-colors"
@@ -262,86 +247,81 @@ export default function SidebarSettingsPage() {
                   </div>
                 </div>
 
-                {/* Items */}
-                {isOpen && (
-                  <div className="divide-y divide-border/20">
-                    {group.items.map(item => {
-                      const isLocked  = ALWAYS_VISIBLE.has(item.href);
-                      const isVisible = isLocked || !hiddenItems.has(item.href);
-                      const Icon      = item.icon;
+                {/* Items — 2-column card grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-4">
+                  {group.items.map(item => {
+                    const isLocked  = ALWAYS_VISIBLE.has(item.href);
+                    const isVisible = isLocked || !hiddenItems.has(item.href);
+                    const Icon      = item.icon;
 
-                      return (
-                        <div
-                          key={item.href}
-                          className={cn(
-                            "flex items-center gap-3 px-4 py-3 transition-colors select-none",
-                            isLocked
-                              ? "opacity-45"
-                              : isVisible
-                                ? "hover:bg-white/[0.03] cursor-pointer"
-                                : "hover:bg-white/[0.02] cursor-pointer bg-muted/[0.015]"
-                          )}
-                          onClick={isLocked ? undefined : () => toggleItem(item.href)}
-                          data-testid={`sidebar-item-${item.href.replace(/\//g, '-').slice(1) || 'home'}`}
-                        >
-                          {/* Icon */}
-                          <div className={cn(
-                            "p-1.5 rounded-md flex-shrink-0 transition-colors",
-                            isVisible ? "bg-white/[0.07]" : "bg-white/[0.02]"
-                          )}>
-                            <Icon className={cn(
-                              "h-3.5 w-3.5 transition-colors",
-                              isVisible ? "text-foreground/75" : "text-muted-foreground/25"
-                            )} />
-                          </div>
-
-                          {/* Label + path */}
-                          <div className="flex-1 min-w-0">
-                            <div className={cn(
-                              "text-[13px] font-medium leading-tight transition-colors",
-                              isVisible ? "text-foreground/90" : "text-muted-foreground/35"
-                            )}>
-                              {item.label}
-                            </div>
-                            <div className="text-[11px] text-muted-foreground/35 font-mono mt-0.5">{item.href}</div>
-                          </div>
-
-                          {/* Badges */}
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {item.isNew && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30 tracking-wide leading-none">
-                                NEW
-                              </span>
-                            )}
-                            {item.status === 'planned' && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted/40 text-muted-foreground/40 border border-border/20 leading-none">
-                                SOON
-                              </span>
-                            )}
-                            {item.status === 'live' && (
-                              <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                            )}
-
-                            {/* Toggle or lock */}
-                            {isLocked ? (
-                              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/35">
-                                <Lock className="h-3 w-3" />
-                                <span>Always on</span>
-                              </div>
-                            ) : (
-                              <Switch
-                                checked={isVisible}
-                                onCheckedChange={() => toggleItem(item.href)}
-                                onClick={e => e.stopPropagation()}
-                                data-testid={`toggle-${item.href.replace(/\//g, '-').slice(1) || 'home'}`}
-                              />
-                            )}
-                          </div>
+                    return (
+                      <div
+                        key={item.href}
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all select-none",
+                          isLocked
+                            ? "border-border/20 bg-muted/10 opacity-50 cursor-default"
+                            : isVisible
+                              ? "border-border/40 bg-card hover:bg-card/60 hover:border-border/60 cursor-pointer"
+                              : "border-dashed border-border/20 bg-muted/5 hover:bg-muted/10 cursor-pointer"
+                        )}
+                        onClick={isLocked ? undefined : () => toggleItem(item.href)}
+                        data-testid={`sidebar-item-${item.href.replace(/\//g, '-').slice(1) || 'home'}`}
+                      >
+                        {/* Icon */}
+                        <div className={cn(
+                          "p-1.5 rounded-md flex-shrink-0 transition-colors",
+                          isVisible ? "bg-white/[0.07]" : "bg-white/[0.02]"
+                        )}>
+                          <Icon className={cn(
+                            "h-3.5 w-3.5 transition-colors",
+                            isVisible ? "text-foreground/75" : "text-muted-foreground/25"
+                          )} />
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+
+                        {/* Label + path */}
+                        <div className="flex-1 min-w-0">
+                          <div className={cn(
+                            "text-[12px] font-medium leading-tight transition-colors",
+                            isVisible ? "text-foreground/90" : "text-muted-foreground/35"
+                          )}>
+                            {item.label}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground/35 font-mono mt-0.5 truncate">{item.href}</div>
+                        </div>
+
+                        {/* Status badges */}
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {item.isNew && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30 tracking-wide leading-none">
+                              NEW
+                            </span>
+                          )}
+                          {item.status === 'planned' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-muted/40 text-muted-foreground/40 border border-border/20 leading-none">
+                              SOON
+                            </span>
+                          )}
+                          {item.status === 'live' && !isLocked && (
+                            <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                          )}
+
+                          {/* Toggle or lock icon */}
+                          {isLocked ? (
+                            <Lock className="h-3 w-3 text-muted-foreground/30" />
+                          ) : (
+                            <Switch
+                              checked={isVisible}
+                              onCheckedChange={() => toggleItem(item.href)}
+                              onClick={e => e.stopPropagation()}
+                              data-testid={`toggle-${item.href.replace(/\//g, '-').slice(1) || 'home'}`}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}

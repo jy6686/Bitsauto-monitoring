@@ -115,9 +115,11 @@ function StatusBadge({ status }: { status: string }) {
 export default function DMRPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  });
   const [filter, setFilter] = useState('');
 
   const { data: reports = [], isLoading } = useQuery<DMRRow[]>({
