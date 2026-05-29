@@ -27311,29 +27311,96 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       const settings  = await storage.getSettings();
       const portalUrl = sippyPortalUrl(settings);
-      const portUser  = settings.adminWebPassword
-        ? (settings.portalUsername ?? settings.apiAdminUsername ?? '')
-        : (settings.apiAdminUsername ?? settings.portalUsername ?? '');
-      const portPass  = settings.adminWebPassword ?? settings.apiAdminPassword ?? settings.portalPassword ?? '';
 
-      // Convert YYYY-MM-DD → Sippy portal MM/DD/YYYY HH:MM:SS
-      const toPortalDate = (d: string, endOfDay = false) => {
-        const parts = d.split('-');
-        if (parts.length !== 3) return d;
-        return `${parts[1]}/${parts[2]}/${parts[0]} ${endOfDay ? '23:59:59' : '00:00:00'}`;
-      };
+      // Use exactly the same credential resolution as refreshCdrCache
+      const apiUser  = settings.apiAdminUsername  ?? '';
+      const apiPass  = settings.apiAdminPassword  ?? '';
+      const webPass  = (settings as any).adminWebPassword ?? '';
+      const portUser = settings.portalUsername    ?? '';
+      const portPass = settings.portalPassword    ?? '';
 
-      console.log(`[seed-from-portal] fetching CDRs for account=${iAccount} tariff=${iTariff} ${periodStart}→${periodEnd}`);
+      // ISO date strings → Sippy portal format (MM/DD/YYYY HH:MM:SS)
+      // toSippyPortalDate (inside scrapePortalCDRsAll) accepts ISO 8601 directly
+      const startIso = `${periodStart}T00:00:00`;
+      const endIso   = `${periodEnd ?? periodStart}T23:59:59`;
 
-      const portalCdrs = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
-        startDate:        toPortalDate(periodStart),
-        endDate:          toPortalDate(periodEnd ?? periodStart, true),
-        fallbackUsername: settings.portalUsername ?? '',
-        fallbackPassword: settings.portalPassword ?? '',
-        maxPages:         100,
-      });
+      console.log(`[seed-from-portal] fetching CDRs account=${iAccount} tariff=${iTariff} ${periodStart}→${periodEnd ?? periodStart}`);
 
-      console.log(`[seed-from-portal] portal returned ${portalCdrs.length} CDRs`);
+      let portalCdrs: Awaited<ReturnType<typeof sippy.scrapePortalCDRsAll>> = [];
+
+      // ── Path 1: XML-RPC getAccountCDRs (Admin API — preferred) ──────────────
+      if (!xmlRpcCircuitGuard()) {
+        const credPairs = sippyXmlCredsPairs(settings);
+        for (const { username, password } of credPairs) {
+          try {
+            const cdrs = await sippy.getSippyCDRs(username, password, limit, {
+              iAccount:  Number(iAccount),
+              startDate: startIso,
+              endDate:   endIso,
+            }, portalUrl);
+            if (cdrs.length > 0) {
+              xmlRpcRecordSuccess();
+              console.log(`[seed-from-portal] XML-RPC → ${cdrs.length} CDRs via ${username}`);
+              portalCdrs = cdrs as any;
+              break;
+            }
+          } catch { /* fall through */ }
+        }
+      }
+
+      // ── Path 2: Admin portal scrape (ssp-root/admin login) — ALL customers ──
+      if (portalCdrs.length === 0) {
+        const adminAttempts = [
+          { user: apiUser,  pass: webPass  || apiPass },
+          { user: portUser, pass: portPass },
+        ].filter(a => a.user && a.pass);
+
+        for (const { user, pass } of adminAttempts) {
+          try {
+            const PORTAL_PAGE_CAP = 50;
+            const MAX_PAGES       = 200;
+            let batch: Awaited<ReturnType<typeof sippy.scrapeAdminPortalCDRs>> = [];
+            for (let pg = 0; pg < MAX_PAGES; pg++) {
+              const page = await sippy.scrapeAdminPortalCDRs(user, pass, portalUrl, {
+                limit:     PORTAL_PAGE_CAP,
+                offset:    pg * PORTAL_PAGE_CAP,
+                startDate: startIso,
+                endDate:   endIso,
+              });
+              if (page.length > 0) batch.push(...page);
+              if (page.length < PORTAL_PAGE_CAP) break;
+            }
+            if (batch.length > 0) {
+              console.log(`[seed-from-portal] admin portal → ${batch.length} CDRs via ${user}`);
+              portalCdrs = batch as any;
+              break;
+            }
+          } catch (e: any) {
+            console.warn(`[seed-from-portal] admin portal failed (${user}):`, e.message);
+          }
+        }
+      }
+
+      // ── Path 3: Customer portal scrape (same as refreshCdrCache path B) ─────
+      if (portalCdrs.length === 0 && portUser && portPass) {
+        try {
+          const scraped = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
+            startDate:        startIso,
+            endDate:          endIso,
+            fallbackUsername: apiUser,
+            fallbackPassword: webPass || apiPass,
+            maxPages:         200,
+          });
+          if (scraped.length > 0) {
+            console.log(`[seed-from-portal] customer portal → ${scraped.length} CDRs via ${portUser}`);
+            portalCdrs = scraped as any;
+          }
+        } catch (e: any) {
+          console.warn('[seed-from-portal] customer portal failed:', e.message);
+        }
+      }
+
+      console.log(`[seed-from-portal] total CDRs fetched: ${portalCdrs.length}`);
 
       let created = 0;
       let skipped = 0;
