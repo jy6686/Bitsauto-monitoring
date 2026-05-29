@@ -45,47 +45,47 @@ const DOMAINS: Domain[] = [
   {
     id: 'live-network', label: 'Live Network', icon: Radio, color: 'text-emerald-400',
     groups: [
-      { label: 'Monitoring',     desc: 'Live topology, call stream and traffic maps',  icon: Eye, items: [
-        { href: '/bitseye2',     label: 'BitsEye 2',      desc: 'Live topology observatory',    icon: Eye },
-        { href: '/live-traffic', label: 'Live Traffic',   desc: 'Active call stream',            icon: Activity },
-        { href: '/traffic-map',  label: 'Traffic Map',    desc: 'Geographic call view',          icon: Globe },
-        { href: '/graphs',       label: 'Graphs',         desc: 'Real-time performance charts',  icon: LineChart },
-        { href: '/multi-switch', label: 'Multi-Switch',   desc: 'Consolidated switch view',      icon: Layers },
+      { label: 'Live Operations', desc: 'Active calls, alerts and real-time traffic streams', icon: Phone, badge: (s) => s.activeIncidents, items: [
+        { href: '/calls',        label: 'Live Calls',   desc: 'Active calls monitor',         icon: Phone },
+        { href: '/alerts',       label: 'Alerts',       desc: 'Platform alerts & incidents',   icon: Zap },
+        { href: '/live-traffic', label: 'Live Traffic', desc: 'Active call stream',            icon: Activity },
+        { href: '/traffic-map',  label: 'Traffic Map',  desc: 'Geographic call view',          icon: Globe },
       ]},
-      { label: 'Infrastructure', desc: 'Server, SBC and network health monitoring',    icon: Server, items: [
-        { href: '/server-monitoring', label: 'Server Monitor',   desc: 'Infrastructure health',      icon: Server },
-        { href: '/sbc-monitor',       label: 'SBC Monitor',      desc: 'Session border controller',  icon: HardDrive },
-        { href: '/network-topology',  label: 'Network Topology', desc: 'Topology visualisation',     icon: Network },
+      { label: 'Infrastructure', desc: 'Server, SBC, topology and real-time charts', icon: Server, items: [
+        { href: '/server-monitoring', label: 'Server Monitor',   desc: 'Infrastructure health',     icon: Server },
+        { href: '/sbc-monitor',       label: 'SBC Monitor',      desc: 'Session border controller', icon: HardDrive },
+        { href: '/network-topology',  label: 'Network Topology', desc: 'Topology visualisation',    icon: Network },
+        { href: '/graphs',            label: 'Graphs',           desc: 'Real-time performance charts', icon: LineChart },
+        { href: '/multi-switch',      label: 'Multi-Switch',     desc: 'Consolidated switch view',  icon: Layers },
+        { href: '/bitseye2',          label: 'Network View',     desc: 'Live topology observatory', icon: Eye },
       ]},
-      { label: 'Command',        desc: 'Command centre, console and live call management', icon: Monitor, items: [
-        { href: '/calls',       label: 'Live Calls',  desc: 'Active calls monitor',             icon: Phone },
-        { href: '/alerts',      label: 'Alerts',      desc: 'Platform alerts & incidents',       icon: Zap },
-        { href: '/noc-command', label: 'NOC Command', desc: 'Operator command centre',           icon: Monitor },
-        { href: '/ops-console', label: 'Ops Console', desc: 'Unified operations surface',        icon: SlidersHorizontal },
-        { href: '/console',     label: 'Console',     desc: 'Logs & debug shell',                icon: Database },
+      { label: 'Command Centre', desc: 'NOC command, incident management and ops console', icon: Monitor, badge: (s) => s.activeIncidents, items: [
+        { href: '/noc-command',   label: 'NOC Command',      desc: 'Operator command centre',    icon: Monitor },
+        { href: '/noc-incidents', label: 'Incident Command', desc: 'NOC incident management',    icon: ShieldAlert },
+        { href: '/ops-console',   label: 'Ops Console',      desc: 'Unified operations surface', icon: SlidersHorizontal },
       ]},
     ],
   },
 
-  // ── 2. COMPANY ───────────────────────────────────────────────────────────────
+  // ── 2. CLIENTS ───────────────────────────────────────────────────────────────
   {
-    id: 'company', label: 'Company', icon: Building2, color: 'text-amber-400',
+    id: 'company', label: 'Clients', icon: Building2, color: 'text-amber-400',
     groups: [
-      { label: 'Account Operations', desc: 'Client accounts, portals and reseller management', icon: Users, items: [
-        { href: '/clients',       label: 'Accounts',            desc: 'All client accounts',           icon: Users },
-        { href: '/client-portal', label: 'Client Portal',       desc: 'Self-service client access',    icon: Globe },
-        { href: '/reseller',      label: 'Reseller Management', desc: 'Partner & reseller accounts',   icon: Star },
+      { label: 'Account Management', desc: 'Client accounts, portals, partners and resellers', icon: Users, items: [
+        { href: '/clients',          label: 'Accounts',       desc: 'All client accounts',         icon: Users },
+        { href: '/company/list',     label: 'Company List',   desc: 'All company profiles',        icon: Building2 },
+        { href: '/client-portal',    label: 'Client Portal',  desc: 'Self-service client access',  icon: Globe },
+        { href: '/reseller',         label: 'Resellers',      desc: 'Partner & reseller accounts', icon: Star },
+        { href: '/partner-profiles', label: 'Partner Portal', desc: 'Partner billing & profiles',  icon: Star },
+        { href: '/account-names',    label: 'Account Names',  desc: 'Account naming & aliases',    icon: FileText },
       ]},
-      { label: 'Onboarding & Provisioning', desc: 'Company lifecycle, onboarding and account creation', icon: Zap, items: [
-        { href: '/company/list',       label: 'Company List',             desc: 'All company & client profiles',       icon: Building2 },
-        { href: '/company-profile',    label: 'Organization Management',  desc: 'Company lifecycle & org details',     icon: Building2 },
-        { href: '/client/wizard',      label: 'Create Account Wizard',    desc: 'Provision a new client account',      icon: UserPlus },
-        { href: '/company/onboarding', label: 'Onboarding Wizard',        desc: 'Full customer onboarding lifecycle',  icon: Zap },
-        { href: '/account-names',      label: 'Account Names',            desc: 'Account naming & aliases',            icon: FileText },
+      { label: 'Onboarding', desc: 'Account provisioning, onboarding wizards and org setup', icon: Zap, items: [
+        { href: '/client/wizard',      label: 'Account Wizard',    desc: 'Provision a new account',        icon: UserPlus },
+        { href: '/company/onboarding', label: 'Onboarding Wizard', desc: 'Full customer onboarding flow',  icon: Zap },
+        { href: '/company-profile',    label: 'Org Management',    desc: 'Company lifecycle & org details', icon: Building2 },
       ]},
-      { label: 'Assets', desc: 'DID inventory and call recordings', icon: Phone, items: [
-        { href: '/dids',            label: 'DID Management', desc: 'Number inventory management',  icon: Phone },
-        { href: '/call-recordings', label: 'Recordings',     desc: 'Call recordings archive',      icon: Mic },
+      { label: 'Assets', desc: 'DID number inventory', icon: Phone, items: [
+        { href: '/dids', label: 'DID Management', desc: 'Number inventory management', icon: Phone },
       ]},
     ],
   },
@@ -94,58 +94,43 @@ const DOMAINS: Domain[] = [
   {
     id: 'operations', label: 'Operations', icon: Wifi, color: 'text-blue-400',
     groups: [
-      { label: 'Carriers',     desc: 'Carrier management, SLA scoring and balances',
-        icon: Wifi,
-        badge: (s) => s.degradedCarriers,
-        items: [
-          { href: '/vendors',                   label: 'Vendor List',        desc: 'All carrier accounts',         icon: Wifi },
-          { href: '/vendor-sla-scorecard',      label: 'SLA Scorecard',      desc: 'Carrier SLA performance',      icon: HeartPulse },
-          { href: '/carrier-scoring',           label: 'Carrier Scoring',    desc: 'Quality benchmarks',           icon: BarChart3 },
-          { href: '/vendor-stability-timeline', label: 'Stability Timeline', desc: 'Vendor stability timeline',    icon: Activity },
-          { href: '/balance',                   label: 'Balance Monitor',    desc: 'Vendor account balances',      icon: Wallet },
-        ],
-      },
-      { label: 'Routing',      desc: 'Routing groups, LCR analyser and simulators',
-        icon: GitBranch,
-        items: [
-          { href: '/routing-manager',     label: 'Routing Manager',  desc: 'Groups, connections & dest. sets', icon: GitBranch },
-          { href: '/lcr-analyser',        label: 'LCR Analyser',     desc: 'Least-cost routing engine',        icon: Calculator },
-          { href: '/call-flow-simulator', label: 'Route Simulator',  desc: 'Simulate routing decisions',       icon: ArrowRightLeft },
-          { href: '/self-heal',           label: 'Traffic Steering', desc: 'Auto-healing & traffic steering',  icon: HeartPulse },
-          { href: '/test-call',           label: 'Route Tester',     desc: 'On-demand route test calls',       icon: PhoneCall },
-        ],
-      },
-      { label: 'Translation',  desc: 'Translation rules, destination sets and connections',
-        icon: Route,
-        items: [
-          { href: '/routing-manager?tab=translations',    label: 'Translation Rules', desc: 'Number translation rules',  icon: Route },
-          { href: '/routing-manager?tab=destination-sets',label: 'Destination Sets',  desc: 'Routing destination sets',  icon: Layers },
-          { href: '/routing-manager?tab=connections',     label: 'Connections',       desc: 'Switch connections',        icon: Network },
-        ],
-      },
+      { label: 'Carriers', desc: 'Carrier accounts, SLA scoring, stability and balances', icon: Wifi, badge: (s) => s.degradedCarriers, items: [
+        { href: '/vendors',                   label: 'Vendor List',        desc: 'All carrier accounts',         icon: Wifi },
+        { href: '/vendor-sla-scorecard',      label: 'SLA Scorecard',      desc: 'Carrier SLA performance',      icon: HeartPulse },
+        { href: '/carrier-scoring',           label: 'Carrier Scoring',    desc: 'Quality benchmarks',           icon: BarChart3 },
+        { href: '/vendor-stability-timeline', label: 'Stability Timeline', desc: 'Vendor stability history',     icon: Activity },
+        { href: '/balance',                   label: 'Balance Monitor',    desc: 'Vendor account balances',      icon: Wallet },
+      ]},
+      { label: 'Routing', desc: 'Routing groups, LCR analysis, simulators and route testing', icon: GitBranch, items: [
+        { href: '/routing-manager',     label: 'Routing Manager', desc: 'Groups, connections, translations & dest. sets', icon: GitBranch },
+        { href: '/lcr-analyser',        label: 'LCR Analyser',    desc: 'Least-cost routing engine',                     icon: Calculator },
+        { href: '/call-flow-simulator', label: 'Route Simulator', desc: 'Simulate routing decisions',                    icon: ArrowRightLeft },
+        { href: '/self-heal',           label: 'Self-Heal',       desc: 'Auto-healing & traffic steering',               icon: HeartPulse },
+        { href: '/test-call',           label: 'Route Tester',    desc: 'On-demand route test calls',                    icon: PhoneCall },
+      ]},
     ],
   },
 
-  // ── 4. ANALYTICS & REPORTS ───────────────────────────────────────────────────
+  // ── 4. ANALYTICS ─────────────────────────────────────────────────────────────
   {
-    id: 'analytics', label: 'Analytics & Reports', icon: BarChart2, color: 'text-indigo-400',
+    id: 'analytics', label: 'Analytics', icon: BarChart2, color: 'text-indigo-400',
     groups: [
-      { label: 'Traffic & Quality', desc: 'Call traffic analytics and quality heatmaps', icon: Activity, items: [
+      { label: 'Traffic & Quality', desc: 'Call traffic, ASR/ACD, QoS and codec analytics', icon: Activity, items: [
         { href: '/analytics',       label: 'Traffic Analytics', desc: 'Call traffic analytics',    icon: Activity },
         { href: '/asr-acd',         label: 'ASR / ACD',         desc: 'ASR/ACD call quality KPIs', icon: BarChart3 },
         { href: '/qos-heatmap',     label: 'QoS Heatmap',       desc: 'Quality of service map',    icon: HeartPulse },
         { href: '/codec-analytics', label: 'Codec Analytics',   desc: 'Codec breakdown analysis',  icon: Route },
         { href: '/rtp-analytics',   label: 'RTP Analytics',     desc: 'Media quality analysis',    icon: Activity },
       ]},
-      { label: 'Revenue',           desc: 'Revenue heatmap, reports and demand forecasting', icon: TrendingDown, items: [
-        { href: '/revenue-heatmap',  label: 'Revenue Heatmap',  desc: 'Revenue visualisation map', icon: MapIcon },
-        { href: '/reports',          label: 'Reports',          desc: 'Standard report centre',    icon: BarChart2 },
-        { href: '/traffic-forecast', label: 'Traffic Forecast', desc: 'Demand forecasting',        icon: TrendingDown },
+      { label: 'Reports & Forecasting', desc: 'Revenue reports, traffic forecasting and executive summaries', icon: TrendingDown, items: [
+        { href: '/reports',           label: 'Reports',           desc: 'Standard report centre',    icon: BarChart2 },
+        { href: '/executive-reports', label: 'Executive Reports', desc: 'C-suite summary views',     icon: Star },
+        { href: '/traffic-forecast',  label: 'Traffic Forecast',  desc: 'Demand forecasting',        icon: TrendingDown },
+        { href: '/revenue-heatmap',   label: 'Revenue Heatmap',   desc: 'Revenue visualisation map', icon: MapIcon },
       ]},
-      { label: 'Records',           desc: 'CDR viewer and BitsEye drill-down analytics', icon: History, items: [
-        { href: '/cdrs',     label: 'CDR Viewer', desc: 'Call detail records',    icon: History },
-        { href: '/bitseye',  label: 'BitsEye',    desc: 'Drill-down analytics',   icon: Eye },
-        { href: '/bitseye2', label: 'BitsEye 2',  desc: 'Live topology analytics', icon: Eye },
+      { label: 'CDRs & Records', desc: 'Call detail records and BitsEye drill-down analytics', icon: History, items: [
+        { href: '/cdrs',    label: 'CDR Viewer', desc: 'Call detail records',        icon: History },
+        { href: '/bitseye', label: 'BitsEye',    desc: 'Drill-down CDR analytics',   icon: Eye },
       ]},
     ],
   },
@@ -154,43 +139,24 @@ const DOMAINS: Domain[] = [
   {
     id: 'intelligence', label: 'Intelligence', icon: Brain, color: 'text-fuchsia-400',
     groups: [
-      { label: 'AI Ops',        desc: 'Anomaly detection, AI decisions and recommendations',
-        icon: Bot,
-        badge: (s) => s.activeIncidents,
-        items: [
-          { href: '/ai-ops',                      label: 'AI Ops Center',    desc: 'Anomaly detection & AI ops',      icon: Bot },
-          { href: '/intelligence',                label: 'Intelligence Hub', desc: 'Correlated multi-source signals', icon: Brain },
-          { href: '/ai-ops?tab=decision-overlay', label: 'Decision Overlay', desc: 'AI steering decisions',           icon: Eye },
-        ],
-      },
-      { label: 'Validation',    desc: 'Data quality, trust scoring and lifecycle checks',
-        icon: Shield,
-        items: [
-          { href: '/intelligence-validation', label: 'Validation Console', desc: 'Data quality validation',  icon: Shield },
-          { href: '/carrier-scoring',         label: 'Carrier Scoring',    desc: 'Quality benchmark trust',  icon: BarChart3 },
-        ],
-      },
-      { label: 'Analysis',      desc: 'Vendor RCA, prefix signals and route intelligence',
-        icon: Search,
-        badge: (s) => s.degradedCarriers,
-        items: [
-          { href: '/vendor-rca',                 label: 'Vendor RCA',           desc: 'Root cause analysis',        icon: Search },
-          { href: '/vendor-prefix-intelligence', label: 'Prefix Intelligence',  desc: 'Prefix-level intelligence',  icon: Globe },
-          { href: '/vendor-stability-timeline',  label: 'Stability Engine',     desc: 'Vendor stability analysis',  icon: Activity },
-          { href: '/routing-intelligence',       label: 'Routing Intelligence', desc: 'Route intelligence engine',  icon: GitBranch },
-          { href: '/carrier-intelligence',       label: 'Carrier Intelligence', desc: 'Route health signals',       icon: Brain },
-        ],
-      },
-      { label: 'Optimisation',  desc: 'Route optimisation, traffic steering and cost intelligence',
-        icon: TrendingDown,
-        items: [
-          { href: '/route-optimisation',   label: 'Route Optimisation',   desc: 'Advisory carrier recommendations',  icon: BrainCircuit },
-          { href: '/traffic-steering',    label: 'Traffic Steering',     desc: 'Carrier shift suggestions',         icon: ArrowRightLeft },
-          { href: '/simulation-sandbox',  label: 'Simulation Sandbox',   desc: 'Model traffic shifts — no impact',  icon: FlaskConical },
-          { href: '/cost-optimisation',   label: 'Cost Optimisation',    desc: 'Route cost engine',                 icon: TrendingDown },
-          { href: '/number-intelligence', label: 'Number Intelligence',  desc: 'Number-level analysis',             icon: Phone },
-        ],
-      },
+      { label: 'AI Operations', desc: 'Anomaly detection, AI decisions and data quality', icon: Bot, badge: (s) => s.activeIncidents, items: [
+        { href: '/ai-ops',                  label: 'AI Ops Center',      desc: 'Anomaly detection & AI ops',      icon: Bot },
+        { href: '/intelligence',            label: 'Intelligence Hub',   desc: 'Correlated multi-source signals', icon: Brain },
+        { href: '/intelligence-validation', label: 'Validation Console', desc: 'Data quality & trust scoring',    icon: Shield },
+      ]},
+      { label: 'Carrier Intelligence', desc: 'Vendor RCA, prefix signals and route intelligence', icon: Search, badge: (s) => s.degradedCarriers, items: [
+        { href: '/vendor-rca',                 label: 'Vendor RCA',           desc: 'Root cause analysis',        icon: Search },
+        { href: '/vendor-prefix-intelligence', label: 'Prefix Intelligence',  desc: 'Prefix-level signals',       icon: Globe },
+        { href: '/routing-intelligence',       label: 'Routing Intelligence', desc: 'Route intelligence engine',  icon: GitBranch },
+        { href: '/carrier-intelligence',       label: 'Carrier Intelligence', desc: 'Route health signals',       icon: Brain },
+      ]},
+      { label: 'Optimisation', desc: 'Route optimisation, traffic steering and cost intelligence', icon: TrendingDown, items: [
+        { href: '/route-optimisation',  label: 'Route Optimisation',  desc: 'Advisory carrier recommendations',  icon: BrainCircuit },
+        { href: '/traffic-steering',    label: 'Traffic Steering',    desc: 'Carrier shift suggestions',         icon: ArrowRightLeft },
+        { href: '/simulation-sandbox',  label: 'Simulation Sandbox',  desc: 'Model traffic shifts — no impact',  icon: FlaskConical },
+        { href: '/cost-optimisation',   label: 'Cost Optimisation',   desc: 'Route cost engine',                 icon: TrendingDown },
+        { href: '/number-intelligence', label: 'Number Intelligence', desc: 'Number-level analysis',             icon: Phone },
+      ]},
     ],
   },
 
@@ -198,19 +164,14 @@ const DOMAINS: Domain[] = [
   {
     id: 'troubleshooting', label: 'Troubleshooting', icon: Wrench, color: 'text-orange-400',
     groups: [
-      { label: 'Tracing',          desc: 'SIP and RTP packet tracing and analysis', icon: Mic, items: [
-        { href: '/sip-trace',     label: 'SIP Trace',      desc: 'Packet-level SIP tracing',    icon: Mic },
-        { href: '/rtp-analytics', label: 'RTP Analytics',  desc: 'Media quality & jitter',       icon: Activity },
+      { label: 'Tracing', desc: 'SIP and RTP packet tracing and analysis', icon: Mic, items: [
+        { href: '/sip-trace',     label: 'SIP Trace',     desc: 'Packet-level SIP tracing', icon: Mic },
+        { href: '/rtp-analytics', label: 'RTP Analytics', desc: 'Media quality & jitter',    icon: Activity },
       ]},
-      { label: 'Replay & Testing', desc: 'Session replay, test suites and route testing', icon: Rewind, items: [
-        { href: '/replay',         label: 'Replay Engine',  desc: 'Call session replay',          icon: Rewind },
-        { href: '/test-campaigns', label: 'Test Campaigns', desc: 'Automated test suites',        icon: FlaskConical },
-        { href: '/test-call',      label: 'Route Tester',   desc: 'On-demand route test calls',   icon: PhoneCall },
-      ]},
-      { label: 'Tools',            desc: 'Engineering utilities, server and topology monitoring', icon: Wrench, items: [
-        { href: '/tools',             label: 'Tools',            desc: 'Engineering utilities',    icon: Wrench },
-        { href: '/server-monitoring', label: 'Server Monitor',   desc: 'Infrastructure health',    icon: Server },
-        { href: '/network-topology',  label: 'Network Topology', desc: 'Topology visualisation',   icon: Network },
+      { label: 'Testing & Tools', desc: 'Session replay, automated test suites and engineering utilities', icon: Rewind, items: [
+        { href: '/replay',         label: 'Replay Engine',  desc: 'Call session replay',        icon: Rewind },
+        { href: '/test-campaigns', label: 'Test Campaigns', desc: 'Automated test suites',      icon: FlaskConical },
+        { href: '/tools',          label: 'Tools',          desc: 'Engineering utilities',      icon: Wrench },
       ]},
     ],
   },
@@ -219,32 +180,21 @@ const DOMAINS: Domain[] = [
   {
     id: 'security', label: 'Security & Compliance', icon: ShieldAlert, color: 'text-rose-400',
     groups: [
-      { label: 'Fraud Detection',    desc: 'FAS/IRSF detection, firewall and SLA breaches',
-        icon: ShieldAlert,
-        badge: (s) => s.activeIncidents,
-        items: [
-          { href: '/fraud',        label: 'Fraud Engine', desc: 'FAS/IRSF detection engine',  icon: ShieldAlert },
-          { href: '/firewall',     label: 'Firewall',     desc: 'Auto-blacklist management',   icon: Shield },
-          { href: '/sla-breaches', label: 'SLA Breaches', desc: 'SLA breach tracking',         icon: Zap },
-        ],
-      },
-      { label: 'Access & Approvals', desc: 'Approval queue, governance and STIR/SHAKEN',
-        icon: Lock,
-        badge: (s) => s.pendingApprovals,
-        items: [
-          { href: '/approvals',         label: 'Approval Queue', desc: 'Pending approval items',       icon: FileText },
-          { href: '/approval-settings', label: 'Approval Rules', desc: 'Approval rule configuration',  icon: SlidersHorizontal },
-          { href: '/stir-shaken',       label: 'STIR/SHAKEN',    desc: 'Call attestation framework',   icon: Lock },
-        ],
-      },
-      { label: 'Compliance',         desc: 'Audit trail, compliance rules and recordings',
-        icon: ClipboardList,
-        items: [
-          { href: '/compliance',      label: 'Compliance',  desc: 'Regulatory compliance',      icon: ClipboardList },
-          { href: '/audit-log',       label: 'Audit Log',   desc: 'Platform activity trail',    icon: FileText },
-          { href: '/call-recordings', label: 'Recordings',  desc: 'Call recordings archive',    icon: Mic },
-        ],
-      },
+      { label: 'Fraud & Security', desc: 'FAS/IRSF detection, firewall, SLA breaches and call attestation', icon: ShieldAlert, badge: (s) => s.activeIncidents, items: [
+        { href: '/fraud',        label: 'Fraud Engine', desc: 'FAS/IRSF detection engine',  icon: ShieldAlert },
+        { href: '/firewall',     label: 'Firewall',     desc: 'Auto-blacklist management',   icon: Shield },
+        { href: '/sla-breaches', label: 'SLA Breaches', desc: 'SLA breach tracking',         icon: Zap },
+        { href: '/stir-shaken',  label: 'STIR/SHAKEN',  desc: 'Call attestation framework',  icon: Lock },
+      ]},
+      { label: 'Approvals', desc: 'Pending approvals and governance rule configuration', icon: Lock, badge: (s) => s.pendingApprovals, items: [
+        { href: '/approvals',         label: 'Approval Queue', desc: 'Pending approval items',       icon: FileText },
+        { href: '/approval-settings', label: 'Approval Rules', desc: 'Approval rule configuration',  icon: SlidersHorizontal },
+      ]},
+      { label: 'Compliance & Audit', desc: 'Audit trail, compliance rules and call recordings', icon: ClipboardList, items: [
+        { href: '/compliance',      label: 'Compliance',  desc: 'Regulatory compliance',      icon: ClipboardList },
+        { href: '/audit-log',       label: 'Audit Log',   desc: 'Platform activity trail',    icon: FileText },
+        { href: '/call-recordings', label: 'Recordings',  desc: 'Call recordings archive',    icon: Mic },
+      ]},
     ],
   },
 
@@ -252,41 +202,39 @@ const DOMAINS: Domain[] = [
   {
     id: 'finance', label: 'Finance & Billing', icon: Banknote, color: 'text-emerald-400',
     groups: [
-      { label: 'Cockpit & Identity', desc: 'Finance cockpit dashboard and client identity map', icon: LayoutDashboard, items: [
-        { href: '/finance-cockpit', label: 'Finance Cockpit',    desc: 'Unified finance workspace',   icon: LayoutDashboard },
+      { label: 'Finance Cockpit', desc: 'Finance workspace dashboard and client identity map', icon: LayoutDashboard, items: [
+        { href: '/finance-cockpit', label: 'Finance Cockpit',    desc: 'Unified finance workspace',    icon: LayoutDashboard },
         { href: '/client-identity', label: 'Client Identity Map', desc: 'Canonical client identities', icon: Users },
       ]},
-      { label: 'Billing',        desc: 'Invoices, payments, products and rate cards', icon: Wallet, items: [
-        { href: '/billing',            label: 'Billing',            desc: 'Payments & invoices',         icon: Wallet },
-        { href: '/invoices',           label: 'Invoices',           desc: 'Invoice management',          icon: FileText },
-        { href: '/invoice-jobs',       label: 'Invoice Queue',      desc: 'Scheduled invoice jobs',      icon: ClipboardList },
-        { href: '/invoice-templates',  label: 'Invoice Templates',  desc: 'Reusable invoice templates',  icon: FileSpreadsheet },
-        { href: '/credit-notes',       label: 'Credit Notes',       desc: 'Credit note issuance',        icon: History },
-        { href: '/credit-control',     label: 'Credit Control',     desc: 'Credit risk management',      icon: Banknote },
-        { href: '/billing-disputes',   label: 'Disputes',           desc: 'Billing dispute resolution',  icon: Shield },
-        { href: '/unbilled-usage',     label: 'Unbilled Usage',     desc: 'Usage not yet invoiced',      icon: Activity },
-        { href: '/account-statement',  label: 'Account Statement',  desc: 'Client ledger & balance',     icon: FileText },
-        { href: '/invoice-schedules',  label: 'Invoice Schedules',  desc: 'Auto-invoice scheduling',     icon: ClipboardList },
-        { href: '/payment-reminders',  label: 'Payment Reminders',  desc: 'Overdue invoice reminders',   icon: History },
-        { href: '/products',           label: 'Products',           desc: 'Product catalogue',           icon: Package },
-        { href: '/rate-cards',         label: 'Rate Cards',         desc: 'Rate decks & pricing',        icon: FileSpreadsheet },
+      { label: 'Invoicing', desc: 'Invoices, schedules, templates, unbilled usage and statements', icon: FileText, items: [
+        { href: '/billing',           label: 'Billing Overview',  desc: 'Billing summary & payments',  icon: Wallet },
+        { href: '/invoices',          label: 'Invoices',          desc: 'Invoice management',          icon: FileText },
+        { href: '/invoice-jobs',      label: 'Invoice Queue',     desc: 'Scheduled invoice jobs',      icon: ClipboardList },
+        { href: '/invoice-templates', label: 'Templates',         desc: 'Reusable invoice templates',  icon: FileSpreadsheet },
+        { href: '/invoice-schedules', label: 'Schedules',         desc: 'Auto-invoice scheduling',     icon: History },
+        { href: '/unbilled-usage',    label: 'Unbilled Usage',    desc: 'Usage not yet invoiced',      icon: Activity },
+        { href: '/account-statement', label: 'Account Statement', desc: 'Client ledger & balance',     icon: FileText },
+      ]},
+      { label: 'Payments & Credit', desc: 'Credit notes, credit control and payment reminders', icon: Banknote, items: [
+        { href: '/credit-notes',      label: 'Credit Notes',      desc: 'Credit note issuance',       icon: History },
+        { href: '/credit-control',    label: 'Credit Control',    desc: 'Credit risk management',     icon: Banknote },
+        { href: '/payment-reminders', label: 'Payment Reminders', desc: 'Overdue invoice reminders',  icon: Bell },
       ]},
       { label: 'Revenue Assurance', desc: 'DMR, reconciliation, AI assurance and margin intelligence', icon: Brain, items: [
-        { href: '/dmr',                    label: 'Daily Minutes Report', desc: 'Usage reconciliation',       icon: Activity },
-        { href: '/client-reconciliation',  label: 'Client Reconciliation', desc: 'Client-side recon',        icon: ArrowRightLeft },
-        { href: '/carrier-reconciliation', label: 'Carrier Reconciliation', desc: 'Carrier-side recon',      icon: ArrowRightLeft },
-        { href: '/ai-assurance',           label: 'AI Assurance',         desc: 'AI-driven revenue checks',   icon: BrainCircuit },
-        { href: '/margin-intelligence',    label: 'Margin Intelligence',  desc: 'Cost vs revenue margins',    icon: TrendingDown },
-        { href: '/dispute-cases',          label: 'Dispute Cases',        desc: 'Active dispute tracker',     icon: ClipboardList },
-        { href: '/dispute-defense',        label: 'Dispute Defense',      desc: 'Evidence & defense toolkit', icon: ShieldAlert },
-        { href: '/partner-profiles',       label: 'Partner Portal',       desc: 'Partner & reseller billing', icon: Star },
+        { href: '/dmr',                    label: 'Daily Minutes',       desc: 'Usage reconciliation',        icon: Activity },
+        { href: '/client-reconciliation',  label: 'Client Recon',        desc: 'Client-side reconciliation',  icon: ArrowRightLeft },
+        { href: '/carrier-reconciliation', label: 'Carrier Recon',       desc: 'Carrier-side reconciliation', icon: ArrowRightLeft },
+        { href: '/ai-assurance',           label: 'AI Assurance',        desc: 'AI-driven revenue checks',    icon: BrainCircuit },
+        { href: '/margin-intelligence',    label: 'Margin Intelligence', desc: 'Cost vs revenue margins',     icon: TrendingDown },
       ]},
-      { label: 'Cost & Analytics', desc: 'Route cost optimisation, revenue heatmap and reports', icon: TrendingDown, items: [
-        { href: '/cost-optimisation', label: 'Cost Optimisation', desc: 'Route cost engine',          icon: TrendingDown },
-        { href: '/revenue-heatmap',   label: 'Revenue Heatmap',   desc: 'Revenue visualisation',      icon: MapIcon },
-        { href: '/balance',           label: 'Balance Monitor',   desc: 'Vendor account balances',    icon: Wallet },
-        { href: '/reports',           label: 'Finance Reports',   desc: 'Revenue & cost reports',     icon: BarChart2 },
-        { href: '/cdrs',              label: 'CDR Billing',       desc: 'CDR billing export',         icon: History },
+      { label: 'Disputes', desc: 'Billing disputes, case tracking and defense toolkit', icon: Shield, items: [
+        { href: '/billing-disputes', label: 'Disputes',       desc: 'Billing dispute resolution',  icon: Shield },
+        { href: '/dispute-cases',    label: 'Dispute Cases',  desc: 'Active dispute tracker',      icon: ClipboardList },
+        { href: '/dispute-defense',  label: 'Dispute Defense',desc: 'Evidence & defense toolkit',  icon: ShieldAlert },
+      ]},
+      { label: 'Products & Pricing', desc: 'Product catalogue and rate cards', icon: Package, items: [
+        { href: '/products',   label: 'Products',   desc: 'Product catalogue',    icon: Package },
+        { href: '/rate-cards', label: 'Rate Cards', desc: 'Rate decks & pricing', icon: FileSpreadsheet },
       ]},
     ],
   },
@@ -295,24 +243,23 @@ const DOMAINS: Domain[] = [
   {
     id: 'platform', label: 'Platform', icon: Settings, color: 'text-slate-400',
     groups: [
-      { label: 'System',        desc: 'System configuration, VPN and workspace management', icon: Settings, items: [
+      { label: 'System', desc: 'System configuration, VPN, workspaces and navigation', icon: Settings, items: [
         { href: '/settings',           label: 'Platform Settings',  desc: 'System configuration',          icon: Settings },
         { href: '/vpn-config',         label: 'VPN Config',         desc: 'VPN configuration',             icon: Lock },
         { href: '/workspace-settings', label: 'Workspace Settings', desc: 'Portal workspaces & themes',    icon: Layers },
         { href: '/governance',         label: 'Governance Console', desc: 'Module assignments & sections',  icon: SlidersHorizontal },
         { href: '/sidebar-settings',   label: 'Navigation Manager', desc: 'Sidebar item visibility',        icon: Layers },
       ]},
-      { label: 'Team & Access', desc: 'Team roles, API keys and approval rules',       icon: Users, items: [
-        { href: '/team',              label: 'Team & KAM',    desc: 'Roles & access control',   icon: Users },
-        { href: '/api-keys',          label: 'API Keys',      desc: 'API key management',       icon: Key },
-        { href: '/approval-settings', label: 'Approval Rules', desc: 'Approval configuration',  icon: SlidersHorizontal },
+      { label: 'Team & Access', desc: 'Team roles and API key management', icon: Users, items: [
+        { href: '/team',     label: 'Team & KAM', desc: 'Roles & access control', icon: Users },
+        { href: '/api-keys', label: 'API Keys',   desc: 'API key management',     icon: Key },
       ]},
-      { label: 'Notifications', desc: 'WhatsApp and email alert delivery configuration', icon: Mail, items: [
+      { label: 'Notifications', desc: 'WhatsApp, email and platform notification configuration', icon: Mail, items: [
         { href: '/whatsapp-alerts',     label: 'WhatsApp Alerts',     desc: 'Alert delivery via WhatsApp',  icon: MessageSquare },
         { href: '/email-centre',        label: 'Email Centre',        desc: 'Email notification rules',     icon: Mail },
         { href: '/notification-centre', label: 'Notification Centre', desc: 'All platform notifications',   icon: Bell },
       ]},
-      { label: 'Account',       desc: 'Your profile and personal preferences',           icon: Users, items: [
+      { label: 'Account', desc: 'Your profile and personal preferences', icon: Users, items: [
         { href: '/account', label: 'My Account', desc: 'Profile & personal preferences', icon: Users },
       ]},
     ],
