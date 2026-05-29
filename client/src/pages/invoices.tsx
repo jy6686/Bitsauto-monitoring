@@ -167,6 +167,7 @@ export default function InvoicesPage() {
   const [snapshotGateError, setSnapshotGateError] = useState<string | null>(null);
   const [lockBatchRunning,  setLockBatchRunning]  = useState(false);
   const [lockBatchResult,   setLockBatchResult]   = useState<{ created: number; skipped: number } | null>(null);
+  const [seedJobPhase,      setSeedJobPhase]      = useState<string>('');
 
   const { data: accountsData, isLoading: accountsLoading } = useQuery<{ accounts: SippyAccount[] }>({
     queryKey: ["/api/invoices/sippy-accounts"],
@@ -348,55 +349,77 @@ export default function InvoicesPage() {
   async function handleRunLockBatch() {
     setLockBatchRunning(true);
     setLockBatchResult(null);
+    setSeedJobPhase('Starting…');
     try {
       if (!form.iAccount || !form.iTariff || !form.periodStart) {
         throw new Error("Account, tariff and period start are required");
       }
 
-      // Seed snapshots directly from Sippy portal CDRs (Sippy's own billed cost).
-      // This bypasses the tariff version resolution pipeline and works even when
-      // the local tariff version DB is empty.
+      // POST returns immediately with {jobId} — no 504 timeout possible
       const res  = await apiRequest("POST", "/api/rating-snapshots/seed-from-portal", {
         iAccount:    form.iAccount,
         iTariff:     form.iTariff,
         periodStart: form.periodStart,
-        periodEnd:   form.periodEnd   || form.periodStart,
+        periodEnd:   form.periodEnd || form.periodStart,
         limit:       5000,
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Snapshot seeding failed");
 
-      const created = body.created ?? 0;
-      const skipped = body.skipped ?? 0;
-      const total   = body.total   ?? 0;
-      setLockBatchResult({ created, skipped });
+      const { jobId } = body;
+      if (!jobId) throw new Error("Server did not return a job ID");
 
-      if (created > 0) {
-        setSnapshotGateError(null);
-        toast({
-          title: "Snapshots locked",
-          description: `${created} CDR snapshot(s) seeded from Sippy. Click Generate to continue.`,
-        });
-      } else if (skipped > 0) {
-        // All already existed — clear the gate, generation should now work
-        setSnapshotGateError(null);
-        toast({
-          title: `${skipped} snapshot(s) already exist`,
-          description: "Click Generate Draft Invoice to proceed.",
-        });
-      } else {
-        toast({
-          title: "No CDRs found in Sippy",
-          description: total === 0
-            ? "Sippy returned 0 CDRs for this account and billing period. Verify the portal credentials and that CDRs exist for this date range."
-            : `${total} CDRs fetched but none could be seeded.`,
-          variant: "destructive",
-        });
-      }
+      // Poll for completion every 2 seconds
+      await new Promise<void>((resolve, reject) => {
+        const INTERVAL = 2000;
+        const TIMEOUT  = 15 * 60 * 1000; // 15 min absolute cap
+        const started  = Date.now();
+
+        const tick = async () => {
+          try {
+            const pr   = await fetch(`/api/rating-snapshots/seed-job/${jobId}`);
+            const job  = await pr.json();
+            setSeedJobPhase(job.phase ?? '');
+
+            if (job.status === 'done') {
+              const created = job.created ?? 0;
+              const skipped = job.skipped ?? 0;
+              const total   = job.total   ?? 0;
+              setLockBatchResult({ created, skipped });
+
+              if (created > 0) {
+                setSnapshotGateError(null);
+                toast({ title: "Snapshots locked", description: `${created} CDR snapshot(s) seeded. Click Generate to continue.` });
+              } else if (skipped > 0) {
+                setSnapshotGateError(null);
+                toast({ title: `${skipped} snapshot(s) already exist`, description: "Click Generate Draft Invoice to proceed." });
+              } else {
+                toast({
+                  title: "No CDRs found in Sippy",
+                  description: total === 0
+                    ? "Sippy returned 0 CDRs for this account and billing period. Verify portal credentials and that CDRs exist for this date range."
+                    : `${total} CDRs fetched but none were new.`,
+                  variant: "destructive",
+                });
+              }
+              return resolve();
+            }
+
+            if (job.status === 'error') return reject(new Error(job.error ?? 'Seeding failed'));
+            if (Date.now() - started > TIMEOUT) return reject(new Error('Seeding timed out after 15 minutes'));
+
+            setTimeout(tick, INTERVAL);
+          } catch (e: any) {
+            reject(e);
+          }
+        };
+        setTimeout(tick, INTERVAL);
+      });
     } catch (err: any) {
       toast({ title: "Snapshot seeding failed", description: err.message, variant: "destructive" });
     } finally {
       setLockBatchRunning(false);
+      setSeedJobPhase('');
     }
   }
 
@@ -754,7 +777,7 @@ export default function InvoicesPage() {
                   disabled={lockBatchRunning}
                 >
                   {lockBatchRunning
-                    ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />Running Rating Verification + Lock Batch…</>
+                    ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />{seedJobPhase || 'Starting…'}</>
                     : <><Zap className="h-3.5 w-3.5 mr-2" />Run Rating Verification + Lock Batch Now</>
                   }
                 </Button>

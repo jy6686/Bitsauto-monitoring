@@ -27296,179 +27296,214 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Background Seed Job Store ─────────────────────────────────────────────
+  // Jobs are fire-and-forget: POST returns {jobId} immediately.
+  // Client polls GET /api/rating-snapshots/seed-job/:jobId for live progress.
+  // Jobs expire after 10 minutes to prevent unbounded memory growth.
+  type _SeedJobState = {
+    status:  'running' | 'done' | 'error';
+    phase:   string;
+    fetched: number;
+    created: number;
+    skipped: number;
+    errors:  number;
+    total:   number;
+    source?: string;
+    error?:  string;
+    startedAt: number;
+  };
+  const _seedJobs = new Map<string, _SeedJobState>();
+  const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const _cleanSeedJobs = () => {
+    const cut = Date.now() - 600_000;
+    for (const [k, v] of _seedJobs) if (v.startedAt < cut) _seedJobs.delete(k);
+  };
+
   // POST /api/rating-snapshots/seed-from-portal
-  // Direct snapshot creation from Sippy portal CDRs — bypasses tariff version resolution.
-  // Used when the local tariff version DB is unpopulated.
-  // Sippy's own billed cost is used as both actualCost and reproducedCost (delta=0).
+  // Starts a background CDR seeding job. Returns {jobId} immediately (no 504).
+  // Optimisations vs old synchronous path:
+  //   1. Fire-and-forget IIFE → HTTP response in <100ms regardless of CDR volume
+  //   2. Batch dedup  — 1 DB SELECT for all existing cdrIds (was N SELECTs)
+  //   3. Bulk insert  — 500-row chunks (was 1 INSERT per CDR)
+  //   4. Larger admin portal page size (500 vs 50 → up to 10× fewer HTTP pages)
   app.post('/api/rating-snapshots/seed-from-portal', async (req: any, res: any) => {
-    try {
-      const { computeSnapshotHash } = await import('./services/sippy/sippy-rating-snapshot.service');
-      const { iAccount, iTariff, periodStart, periodEnd, limit = 5000 } = req.body ?? {};
+    const { iAccount, iTariff, periodStart, periodEnd, limit = 5000 } = req.body ?? {};
+    if (!iAccount || !iTariff || !periodStart) {
+      return res.status(400).json({ error: 'iAccount, iTariff, and periodStart are required' });
+    }
+    _cleanSeedJobs();
+    const jobId = _seedJobId();
+    const job: _SeedJobState = {
+      status: 'running', phase: 'Starting', fetched: 0, created: 0,
+      skipped: 0, errors: 0, total: 0, startedAt: Date.now(),
+    };
+    _seedJobs.set(jobId, job);
 
-      if (!iAccount || !iTariff || !periodStart) {
-        return res.status(400).json({ error: 'iAccount, iTariff, and periodStart are required' });
-      }
+    // fire-and-forget — runs after response is sent
+    (async () => {
+      try {
+        const { computeSnapshotHash } = await import('./services/sippy/sippy-rating-snapshot.service');
+        const settings  = await storage.getSettings();
+        const portalUrl = sippyPortalUrl(settings);
+        const apiUser   = settings.apiAdminUsername ?? '';
+        const apiPass   = settings.apiAdminPassword ?? '';
+        const webPass   = (settings as any).adminWebPassword ?? '';
+        const portUser  = settings.portalUsername   ?? '';
+        const portPass  = settings.portalPassword   ?? '';
+        const startIso  = `${periodStart}T00:00:00`;
+        const endIso    = `${periodEnd ?? periodStart}T23:59:59`;
 
-      const settings  = await storage.getSettings();
-      const portalUrl = sippyPortalUrl(settings);
+        let rawCdrs: Awaited<ReturnType<typeof sippy.scrapePortalCDRsAll>> = [];
 
-      // Use exactly the same credential resolution as refreshCdrCache
-      const apiUser  = settings.apiAdminUsername  ?? '';
-      const apiPass  = settings.apiAdminPassword  ?? '';
-      const webPass  = (settings as any).adminWebPassword ?? '';
-      const portUser = settings.portalUsername    ?? '';
-      const portPass = settings.portalPassword    ?? '';
-
-      // ISO date strings → Sippy portal format (MM/DD/YYYY HH:MM:SS)
-      // toSippyPortalDate (inside scrapePortalCDRsAll) accepts ISO 8601 directly
-      const startIso = `${periodStart}T00:00:00`;
-      const endIso   = `${periodEnd ?? periodStart}T23:59:59`;
-
-      console.log(`[seed-from-portal] fetching CDRs account=${iAccount} tariff=${iTariff} ${periodStart}→${periodEnd ?? periodStart}`);
-
-      let portalCdrs: Awaited<ReturnType<typeof sippy.scrapePortalCDRsAll>> = [];
-
-      // ── Path 1: XML-RPC getAccountCDRs (Admin API — preferred) ──────────────
-      if (!xmlRpcCircuitGuard()) {
-        const credPairs = sippyXmlCredsPairs(settings);
-        for (const { username, password } of credPairs) {
-          try {
-            const cdrs = await sippy.getSippyCDRs(username, password, limit, {
-              iAccount:  Number(iAccount),
-              startDate: startIso,
-              endDate:   endIso,
-            }, portalUrl);
-            if (cdrs.length > 0) {
-              xmlRpcRecordSuccess();
-              console.log(`[seed-from-portal] XML-RPC → ${cdrs.length} CDRs via ${username}`);
-              portalCdrs = cdrs as any;
-              break;
-            }
-          } catch { /* fall through */ }
+        // ── Path 1: XML-RPC getAccountCDRs (fastest — used when available) ──
+        if (!xmlRpcCircuitGuard()) {
+          job.phase = 'Fetching via Admin API (XML-RPC)';
+          for (const { username, password } of sippyXmlCredsPairs(settings)) {
+            try {
+              const cdrs = await sippy.getSippyCDRs(username, password, Number(limit),
+                { iAccount: Number(iAccount), startDate: startIso, endDate: endIso }, portalUrl);
+              if (cdrs.length > 0) { xmlRpcRecordSuccess(); rawCdrs = cdrs as any; break; }
+            } catch { /* fall through to portal */ }
+          }
         }
-      }
 
-      // ── Path 2: Admin portal scrape (ssp-root/admin login) — ALL customers ──
-      if (portalCdrs.length === 0) {
-        const adminAttempts = [
-          { user: apiUser,  pass: webPass  || apiPass },
-          { user: portUser, pass: portPass },
-        ].filter(a => a.user && a.pass);
+        // ── Path 2: Admin portal scrape (sees ALL customers' CDRs) ───────────
+        if (rawCdrs.length === 0) {
+          const adminCreds = [
+            { user: apiUser,  pass: webPass || apiPass },
+            { user: portUser, pass: portPass },
+          ].filter(a => a.user && a.pass);
 
-        for (const { user, pass } of adminAttempts) {
+          for (const { user, pass } of adminCreds) {
+            try {
+              job.phase = `Fetching via admin portal (${user})`;
+              // Try 500 rows/page — Sippy clamps internally if needed but
+              // many builds support larger pages for CDR exports.
+              const ADMIN_PAGE = 500;
+              let batch: Awaited<ReturnType<typeof sippy.scrapeAdminPortalCDRs>> = [];
+              for (let pg = 0; pg < 200; pg++) {
+                const page = await sippy.scrapeAdminPortalCDRs(user, pass, portalUrl, {
+                  limit: ADMIN_PAGE, offset: pg * ADMIN_PAGE,
+                  startDate: startIso, endDate: endIso,
+                });
+                if (page.length > 0) batch.push(...page);
+                if (page.length < ADMIN_PAGE) break;
+                job.phase = `Admin portal — ${batch.length} CDRs fetched…`;
+              }
+              if (batch.length > 0) { rawCdrs = batch as any; break; }
+            } catch (e: any) {
+              console.warn(`[seed-job:${jobId}] admin portal (${user}) failed:`, e.message);
+            }
+          }
+        }
+
+        // ── Path 3: Customer portal (same credentials as refreshCdrCache) ────
+        if (rawCdrs.length === 0 && portUser && portPass) {
+          job.phase = `Fetching via customer portal (${portUser})`;
           try {
-            const PORTAL_PAGE_CAP = 50;
-            const MAX_PAGES       = 200;
-            let batch: Awaited<ReturnType<typeof sippy.scrapeAdminPortalCDRs>> = [];
-            for (let pg = 0; pg < MAX_PAGES; pg++) {
-              const page = await sippy.scrapeAdminPortalCDRs(user, pass, portalUrl, {
-                limit:     PORTAL_PAGE_CAP,
-                offset:    pg * PORTAL_PAGE_CAP,
-                startDate: startIso,
-                endDate:   endIso,
-              });
-              if (page.length > 0) batch.push(...page);
-              if (page.length < PORTAL_PAGE_CAP) break;
-            }
-            if (batch.length > 0) {
-              console.log(`[seed-from-portal] admin portal → ${batch.length} CDRs via ${user}`);
-              portalCdrs = batch as any;
-              break;
-            }
+            const scraped = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
+              startDate: startIso, endDate: endIso,
+              fallbackUsername: apiUser, fallbackPassword: webPass || apiPass,
+              maxPages: 200,
+            });
+            if (scraped.length > 0) rawCdrs = scraped as any;
           } catch (e: any) {
-            console.warn(`[seed-from-portal] admin portal failed (${user}):`, e.message);
+            console.warn(`[seed-job:${jobId}] customer portal failed:`, e.message);
           }
         }
-      }
 
-      // ── Path 3: Customer portal scrape (same as refreshCdrCache path B) ─────
-      if (portalCdrs.length === 0 && portUser && portPass) {
-        try {
-          const scraped = await sippy.scrapePortalCDRsAll(portUser, portPass, portalUrl, {
-            startDate:        startIso,
-            endDate:          endIso,
-            fallbackUsername: apiUser,
-            fallbackPassword: webPass || apiPass,
-            maxPages:         200,
-          });
-          if (scraped.length > 0) {
-            console.log(`[seed-from-portal] customer portal → ${scraped.length} CDRs via ${portUser}`);
-            portalCdrs = scraped as any;
-          }
-        } catch (e: any) {
-          console.warn('[seed-from-portal] customer portal failed:', e.message);
-        }
-      }
+        job.fetched = rawCdrs.length;
+        job.total   = rawCdrs.length;
+        console.log(`[seed-job:${jobId}] fetched ${rawCdrs.length} CDRs`);
 
-      console.log(`[seed-from-portal] total CDRs fetched: ${portalCdrs.length}`);
+        // ── Batch dedup: 1 SELECT instead of N ──────────────────────────────
+        job.phase = 'Deduplicating against existing snapshots';
+        const existingIds = await storage.getExistingCdrIdsForTariff(String(iTariff));
+        const toProcess   = rawCdrs.slice(0, Number(limit));
 
-      let created = 0;
-      let skipped = 0;
-      let errors  = 0;
-
-      const work = portalCdrs.slice(0, limit);
-
-      for (const c of work) {
-        try {
-          const cdrId       = String(c.callId ?? c.i_cdr ?? '');
-          const cost        = parseFloat(String(c.cost ?? c.price ?? c.charged_amount ?? '0')) || 0;
+        let skippedCount = 0;
+        const newRows: Parameters<typeof storage.bulkCreateInvoiceCdrSnapshots>[0] = [];
+        for (const c of toProcess) {
+          const cdrId = String(c.callId ?? (c as any).i_cdr ?? '');
+          if (cdrId && existingIds.has(cdrId)) { skippedCount++; continue; }
+          const cost        = parseFloat(String(c.cost ?? c.price ?? (c as any).charged_amount ?? '0')) || 0;
           const durationSec = Number(c.totalDuration ?? c.duration ?? c.billDuration ?? 0);
-          const startTime   = String(c.startTime ?? c.connectTime ?? c.connect_time ?? '');
-          const callee      = String(c.callee ?? c.cld ?? '');
-
-          // Idempotency: skip if snapshot already exists for this cdrId
-          if (cdrId) {
-            const existing = await storage.getInvoiceCdrSnapshotByCdrId(cdrId);
-            if (existing) { skipped++; continue; }
-          }
-
-          const hashFields = {
-            cdrId,
-            tariffVersionId:      null,
-            ratingVerificationId: null,
-            reproducedCost:       cost,
-            actualCost:           cost,
-            interval1Used:        undefined,
-            intervalNUsed:        undefined,
-            price1Used:           undefined,
-            priceNUsed:           undefined,
-            connectFeeUsed:       undefined,
-            gracePeriodUsed:      undefined,
-            freeSecondsUsed:      undefined,
-            postCallSurchargeUsed: undefined,
-            prefix:               null,
-            durationSecs:         durationSec || null,
-          };
-
-          const snapshotHash = computeSnapshotHash(hashFields);
-
-          await storage.createInvoiceCdrSnapshot({
-            cdrId:                cdrId || null,
-            cdrStartTime:         startTime || null,
-            callee:               callee || null,
-            durationSecs:         durationSec || null,
-            iTariff:              String(iTariff),
-            tariffVersionId:      null,
-            ratingVerificationId: null,
-            reproducedCost:       cost,
-            actualCost:           cost,
-            delta:                0,
-            prefix:               null,
-            verificationStatus:   'verified',
-            snapshotHash,
+          const startTime   = String(c.startTime ?? c.connectTime ?? (c as any).connect_time ?? '');
+          const callee      = String(c.callee ?? (c as any).cld ?? '');
+          const snapshotHash = computeSnapshotHash({
+            cdrId, tariffVersionId: null, ratingVerificationId: null,
+            reproducedCost: cost, actualCost: cost,
+            interval1Used: undefined, intervalNUsed: undefined,
+            price1Used: undefined, priceNUsed: undefined,
+            connectFeeUsed: undefined, gracePeriodUsed: undefined,
+            freeSecondsUsed: undefined, postCallSurchargeUsed: undefined,
+            prefix: null, durationSecs: durationSec || null,
           });
+          newRows.push({
+            cdrId: cdrId || null, cdrStartTime: startTime || null, callee: callee || null,
+            durationSecs: durationSec || null, iTariff: String(iTariff),
+            tariffVersionId: null, ratingVerificationId: null,
+            reproducedCost: cost, actualCost: cost, delta: 0, prefix: null,
+            verificationStatus: 'verified', snapshotHash,
+          });
+        }
+        job.skipped = skippedCount;
 
-          created++;
-        } catch (rowErr: any) {
-          if (rowErr.code === '23505') { skipped++; }
-          else { errors++; console.error('[seed-from-portal] row error:', rowErr.message); }
+        // ── Bulk insert in 500-row chunks (was 1 INSERT per CDR) ─────────────
+        job.phase = `Inserting ${newRows.length} snapshot${newRows.length !== 1 ? 's' : ''}`;
+        const inserted = await storage.bulkCreateInvoiceCdrSnapshots(newRows);
+        job.created = inserted;
+        job.source  = 'portal';
+        job.status  = 'done';
+        job.phase   = 'Complete';
+        console.log(`[seed-job:${jobId}] done — created=${inserted} skipped=${skippedCount} total=${rawCdrs.length}`);
+      } catch (err: any) {
+        job.status = 'error';
+        job.error  = err.message;
+        console.error(`[seed-job:${jobId}] error:`, err.message);
+      }
+    })().catch(() => {});
+
+    res.json({ jobId, status: 'running' });
+  });
+
+  // GET /api/rating-snapshots/seed-job/:jobId — poll seeding job progress
+  app.get('/api/rating-snapshots/seed-job/:jobId', (req: any, res: any) => {
+    const job = _seedJobs.get(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found or expired (10 min TTL)' });
+    res.json(job);
+  });
+
+  // POST /api/invoices/bulk-generate
+  // Generate invoices for multiple accounts in a single call.
+  // Each entry: { iAccount, iTariff, periodStart, periodEnd, customerName, notes? }
+  // Processes sequentially (avoids Sippy rate limits). Returns per-account results.
+  app.post('/api/invoices/bulk-generate', async (req: any, res: any) => {
+    try {
+      const { accounts } = req.body ?? {};
+      if (!Array.isArray(accounts) || accounts.length === 0) {
+        return res.status(400).json({ error: 'accounts array required' });
+      }
+      const { generateInvoice } = await import('./services/sippy/index');
+      const results: Array<{ customerName: string; status: 'ok' | 'error'; invoice?: any; error?: string }> = [];
+      for (const acct of accounts) {
+        const { iAccount, iTariff, periodStart, periodEnd, customerName, notes } = acct;
+        if (!iTariff || !periodStart || !periodEnd || !customerName) {
+          results.push({ customerName: customerName ?? `account-${iAccount}`, status: 'error', error: 'Missing required fields' });
+          continue;
+        }
+        try {
+          const result = await generateInvoice({ iTariff, periodStart, periodEnd, customerName, notes });
+          results.push({ customerName, status: 'ok', invoice: result });
+        } catch (e: any) {
+          results.push({ customerName, status: 'error', error: e.message });
         }
       }
-
-      console.log(`[seed-from-portal] done — created=${created} skipped=${skipped} errors=${errors}`);
-      res.json({ created, skipped, errors, total: work.length, source: 'portal' });
+      const ok  = results.filter(r => r.status === 'ok').length;
+      const err = results.filter(r => r.status === 'error').length;
+      res.json({ ok, errors: err, total: results.length, results });
     } catch (err: any) {
-      console.error('[seed-from-portal] error:', err.message);
+      console.error('[invoices/bulk-generate] error:', err.message);
       res.status(500).json({ error: err.message });
     }
   });

@@ -588,6 +588,8 @@ export interface IStorage {
     since?:              Date;
     limit?:              number;
   }): Promise<InvoiceCdrSnapshot[]>;
+  bulkCreateInvoiceCdrSnapshots(rows: InsertInvoiceCdrSnapshot[]): Promise<number>;
+  getExistingCdrIdsForTariff(iTariff: string): Promise<Set<string>>;
 
   // ── Rating Verification (Layer 4B) ────────────────────────────────────────
   createRatingVerification(data: InsertRatingVerification): Promise<RatingVerification>;
@@ -3089,6 +3091,28 @@ export class DatabaseStorage implements IStorage {
     return filtered
       .orderBy(desc(invoiceCdrSnapshots.lockedAt))
       .limit(opts.limit ?? 500);
+  }
+
+  async bulkCreateInvoiceCdrSnapshots(rows: InsertInvoiceCdrSnapshot[]): Promise<number> {
+    if (rows.length === 0) return 0;
+    const CHUNK = 500;
+    let inserted = 0;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const result = await db.insert(invoiceCdrSnapshots)
+        .values(rows.slice(i, i + CHUNK))
+        .returning({ id: invoiceCdrSnapshots.id });
+      inserted += result.length;
+    }
+    return inserted;
+  }
+
+  async getExistingCdrIdsForTariff(iTariff: string): Promise<Set<string>> {
+    const rows = await db.select({ cdrId: invoiceCdrSnapshots.cdrId })
+      .from(invoiceCdrSnapshots)
+      .where(eq(invoiceCdrSnapshots.iTariff, iTariff));
+    return new Set(
+      rows.map(r => r.cdrId).filter((id): id is string => id !== null && id !== undefined)
+    );
   }
 
   // ── Rating Verification (Layer 4B) ───────────────────────────────────────────
