@@ -29507,7 +29507,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   app.post('/api/invoice-schedules', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
-    try { res.json(await storage.createInvoiceSchedule(req.body)); }
+    try {
+      const body = { ...req.body, nextRunAt: _computeNextScheduleRun(req.body) };
+      res.json(await storage.createInvoiceSchedule(body));
+    }
     catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -29853,6 +29856,122 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+
+  // ── Invoice Schedule Background Runner ────────────────────────────────────
+  // Computes the next run date for a schedule based on its configuration.
+  function _computeNextScheduleRun(s: {
+    frequency?: string; dayOfWeek?: number | null; dayOfMonth?: number | null;
+    timezone?: string | null;
+  }): Date {
+    const now      = new Date();
+    const freq     = s.frequency ?? 'monthly';
+    const next     = new Date(now);
+
+    if (freq === 'monthly') {
+      const dom = s.dayOfMonth ?? 1;
+      next.setDate(dom);
+      next.setHours(6, 0, 0, 0);
+      if (next <= now) next.setMonth(next.getMonth() + 1);
+    } else {
+      // weekly / fortnightly — target dayOfWeek (1=Mon…7=Sun in our schema, JS: 0=Sun…6=Sat)
+      const targetDow = ((s.dayOfWeek ?? 1) % 7); // convert 7→0 (Sunday)
+      const curDow    = now.getDay();
+      let daysUntil   = (targetDow - curDow + 7) % 7;
+      if (daysUntil === 0) daysUntil = 7; // always at least 1 week ahead
+      if (freq === 'fortnightly' && daysUntil < 7) daysUntil += 7;
+      next.setDate(now.getDate() + daysUntil);
+      next.setHours(6, 0, 0, 0);
+    }
+    return next;
+  }
+
+  // Runs any invoice schedules whose nextRunAt has passed. Fires every 30 min.
+  async function _runDueInvoiceSchedules() {
+    try {
+      const schedules = await storage.listInvoiceSchedules();
+      const now       = new Date();
+      const due       = schedules.filter(s =>
+        s.active && s.nextRunAt && new Date(s.nextRunAt) <= now
+      );
+      if (due.length === 0) return;
+
+      console.log(`[invoice-scheduler] ${due.length} schedule(s) due — running…`);
+
+      for (const schedule of due) {
+        try {
+          if (!schedule.iTariff) { console.warn(`[invoice-scheduler] schedule #${schedule.id} has no tariff — skipped`); continue; }
+
+          // Compute billing period (last completed week or month)
+          let periodStart: string, periodEnd: string;
+          if (schedule.frequency === 'monthly') {
+            const y = now.getFullYear(); const m = now.getMonth();
+            periodStart = new Date(y, m - 1, 1).toISOString().slice(0, 10);
+            periodEnd   = new Date(y, m, 0).toISOString().slice(0, 10);
+          } else {
+            const curDow  = now.getDay();
+            const fromMon = curDow === 0 ? 6 : curDow - 1;
+            const thisMon = new Date(now); thisMon.setDate(now.getDate() - fromMon); thisMon.setHours(0,0,0,0);
+            const lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate() - (schedule.frequency === 'fortnightly' ? 14 : 7));
+            const lastEnd = new Date(thisMon); lastEnd.setDate(thisMon.getDate() - 1);
+            periodStart   = lastMon.toISOString().slice(0, 10);
+            periodEnd     = lastEnd.toISOString().slice(0, 10);
+          }
+
+          // Fetch locked snapshots for this tariff + period
+          const snapshots = await storage.listInvoiceCdrSnapshots({
+            iTariff: schedule.iTariff, limit: 50000,
+          });
+          const inPeriod = snapshots.filter(s => {
+            if (!s.cdrStartTime) return true;
+            const d = String(s.cdrStartTime).slice(0, 10);
+            return d >= periodStart && d <= periodEnd;
+          });
+
+          if (inPeriod.length === 0) {
+            console.warn(`[invoice-scheduler] schedule #${schedule.id}: no snapshots for ${periodStart}–${periodEnd} — invoice skipped`);
+            // Advance nextRunAt so we don't retry endlessly this period
+            await storage.updateInvoiceSchedule(schedule.id, { nextRunAt: _computeNextScheduleRun(schedule) });
+            continue;
+          }
+
+          const totalReproduced = inPeriod.reduce((s, r) => s + (r.reproducedCost ?? 0), 0);
+          const totalActual     = inPeriod.reduce((s, r) => s + (r.actualCost     ?? 0), 0);
+          const totalDelta      = totalReproduced - totalActual;
+          const seq             = await storage.countInvoices() + 1;
+          const invoiceNumber   = `INV-${String(seq).padStart(5, '0')}`;
+
+          const invoice = await storage.createInvoice({
+            invoiceNumber, iTariff: schedule.iTariff,
+            customerName: schedule.companyName ?? `Account ${schedule.iAccount ?? '?'}`,
+            periodStart, periodEnd,
+            totalReproduced: +totalReproduced.toFixed(6),
+            totalActual:     +totalActual.toFixed(6),
+            totalDelta:      +totalDelta.toFixed(6),
+            lineCount:  inPeriod.length,
+            status:     schedule.autoApprove ? 'approved' : 'draft',
+            generatedAt: now,
+            notes: `Auto-generated by schedule #${schedule.id}`,
+            htmlContent: null,
+          });
+
+          await storage.updateInvoiceSchedule(schedule.id, {
+            lastRunAt: now, nextRunAt: _computeNextScheduleRun(schedule),
+          });
+
+          console.log(`[invoice-scheduler] schedule #${schedule.id} → ${invoiceNumber} (${inPeriod.length} lines, ${periodStart}–${periodEnd})`);
+        } catch (err: any) {
+          console.error(`[invoice-scheduler] schedule #${schedule.id} error:`, err.message);
+        }
+      }
+    } catch (err: any) {
+      console.error('[invoice-scheduler] runner error:', err.message);
+    }
+  }
+
+  // Run at startup (after a brief delay) and then every 30 minutes.
+  setTimeout(_runDueInvoiceSchedules, 60_000);
+  setInterval(_runDueInvoiceSchedules, 30 * 60 * 1000);
+  console.log('[invoice-scheduler] Started — checking every 30 min (first check at T+60s)');
 
   return httpServer;
 }

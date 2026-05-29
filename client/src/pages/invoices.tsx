@@ -233,7 +233,7 @@ export default function InvoicesPage() {
         });
       } else if (err.message?.includes("No locked snapshots")) {
         setSnapshotGateError(err.message);
-        setLockBatchResult(null);
+        // intentionally keep lockBatchResult so context (skipped count) stays visible
       } else {
         toast({ title: "Generation failed", description: err.message, variant: "destructive" });
       }

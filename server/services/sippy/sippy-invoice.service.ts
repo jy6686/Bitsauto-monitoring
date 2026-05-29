@@ -186,10 +186,11 @@ export async function generateInvoice(opts: {
     limit:   50000,
   });
 
-  // Filter to period
+  // Filter to period — normalize to YYYY-MM-DD so timestamps with time components
+  // ("2026-05-24 14:23:45") compare correctly against bare date strings.
   const inPeriod = snapshots.filter(s => {
     if (!s.cdrStartTime) return true;
-    const d = s.cdrStartTime;
+    const d = String(s.cdrStartTime).slice(0, 10);
     return d >= opts.periodStart && d <= opts.periodEnd;
   });
 
