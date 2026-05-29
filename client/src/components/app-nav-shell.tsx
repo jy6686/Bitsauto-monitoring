@@ -108,8 +108,9 @@ const DOMAINS: Domain[] = [
         { href: '/self-heal',           label: 'Self-Heal',       desc: 'Auto-healing & failover engine',     icon: HeartPulse },
       ]},
       { label: 'Messaging', desc: 'BhaooSMS gateway, SMS delivery monitoring and A2P operations', icon: MessageSquare, items: [
-        { href: '/sms-monitor', label: 'SMS Monitor',  desc: 'Live delivery rates and gateway status', icon: MessageSquare },
-        { href: '/voice-otp',   label: 'Voice OTP',    desc: 'Asterisk AMI · OTP call origination',   icon: Phone },
+        { href: '/sms-monitor',        label: 'SMS Monitor',         desc: 'Live delivery rates and gateway status',       icon: MessageSquare },
+        { href: '/voice-otp',          label: 'Voice OTP',           desc: 'Asterisk AMI · OTP call origination',         icon: Phone },
+        { href: '/termination-chains', label: 'Termination Chains',  desc: 'End-to-end entity mapping across all systems', icon: GitBranch },
       ]},
       { label: 'Diagnostics', desc: 'SIP tracing, session replay, test suites and engineering tools', icon: Wrench, items: [
         { href: '/sip-trace',      label: 'SIP Trace',      desc: 'Packet-level SIP tracing',  icon: Mic },

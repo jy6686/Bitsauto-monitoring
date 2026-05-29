@@ -3088,6 +3088,34 @@ export type WorkspaceTabItem      = typeof workspaceTabItems.$inferSelect;
 export type WorkspaceTabWithItems = WorkspaceTab & { items: WorkspaceTabItem[] };
 export type WorkspaceWithTabs     = WorkspaceDefinition & { tabs: WorkspaceTabWithItems[] };
 
+// ── Termination Chains ───────────────────────────────────────────────────────
+export const terminationChains = pgTable("termination_chains", {
+  id:                    serial("id").primaryKey(),
+  name:                  varchar("name",                 { length: 64  }).notNull(),
+  description:           text("description"),
+  // REVE layer
+  reveProfileId:         integer("reve_profile_id"),
+  // Asterisk layer
+  asteriskTrunk:         varchar("asterisk_trunk",       { length: 64  }).notNull().default('Sippy'),
+  asteriskHost:          varchar("asterisk_host",        { length: 128 }).notNull().default('159.223.32.59'),
+  // Sippy layer (IDs from Sippy XML-RPC)
+  sippyClientAccountId:  integer("sippy_client_account_id"),
+  sippyVendorId:         integer("sippy_vendor_id"),
+  sippyConnectionId:     integer("sippy_connection_id"),
+  sippyRoutingGroupId:   integer("sippy_routing_group_id"),
+  // Cached friendly names
+  sippyClientName:       varchar("sippy_client_name",   { length: 128 }),
+  sippyVendorName:       varchar("sippy_vendor_name",   { length: 128 }),
+  sippyConnectionName:   varchar("sippy_connection_name",{ length: 128 }),
+  // Status
+  isActive:              boolean("is_active").notNull().default(true),
+  notes:                 text("notes"),
+  createdAt:             timestamp("created_at").defaultNow().notNull(),
+  updatedAt:             timestamp("updated_at").defaultNow().notNull(),
+});
+export type TerminationChain       = typeof terminationChains.$inferSelect;
+export type InsertTerminationChain = typeof terminationChains.$inferInsert;
+
 // ── BhaooSMS Profiles ────────────────────────────────────────────────────────
 export const bhaooProfiles = pgTable("bhaoo_profiles", {
   id:        serial("id").primaryKey(),

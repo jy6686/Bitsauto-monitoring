@@ -134,6 +134,7 @@ import ResellerPage from "@/pages/reseller";
 import CompliancePage from "@/pages/compliance";
 import SmsMonitorPage from "@/pages/sms-monitor";
 import VoiceOtpPage from "@/pages/voice-otp";
+import TerminationChainsPage from "@/pages/termination-chains";
 import AiOpsPage from "@/pages/ai-ops";
 import CarrierIntelligencePage from "@/pages/carrier-intelligence";
 import IntelligencePage from "@/pages/intelligence";
@@ -628,6 +629,9 @@ function Router() {
       </Route>
       <Route path="/voice-otp">
         {() => <ProtectedRoute component={VoiceOtpPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/termination-chains">
+        {() => <ProtectedRoute component={TerminationChainsPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/ai-ops">
         {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="ai_ops" />}
