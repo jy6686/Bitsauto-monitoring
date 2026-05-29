@@ -67,13 +67,14 @@ interface SippyTariff {
 type BillingCycleMode = "custom" | "weekly" | "monthly";
 
 interface FormState {
-  iAccount:     string;
-  iTariff:      string;
-  customerName: string;
-  periodStart:  string;
-  periodEnd:    string;
-  notes:        string;
-  billingCycle: BillingCycleMode;
+  iAccount:       string;
+  iTariff:        string;
+  customerName:   string;
+  periodStart:    string;
+  periodEnd:      string;
+  notes:          string;
+  billingCycle:   BillingCycleMode;
+  clientTimezone: string | null;
 }
 
 interface DmrGateError {
@@ -91,23 +92,32 @@ interface DmrAutoResult {
 
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 
-function computeBillingPeriod(cycle: "weekly" | "monthly"): { start: string; end: string; label: string } {
-  const now = new Date();
+function computeBillingPeriod(cycle: "weekly" | "monthly", timezone?: string | null): { start: string; end: string; label: string } {
+  // Use client timezone if provided, otherwise fall back to browser local time
+  const tz = timezone || undefined;
+  const toTzDate = (d: Date) => {
+    if (!tz) return d;
+    // Project wall-clock date in target timezone back to a plain Date
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year:"numeric", month:"2-digit", day:"2-digit" }).format(d).split("-");
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  };
+  const now    = toTzDate(new Date());
+  const tzInfo = tz ? ` (${tz.replace("_", " ")})` : "";
   if (cycle === "weekly") {
     const dow     = now.getDay();
     const fromMon = dow === 0 ? 6 : dow - 1;
-    const thisMon = new Date(now); thisMon.setDate(now.getDate() - fromMon); thisMon.setHours(0,0,0,0);
+    const thisMon = new Date(now); thisMon.setDate(now.getDate() - fromMon);
     const lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate() - 7);
     const lastSun = new Date(thisMon); lastSun.setDate(thisMon.getDate() - 1);
     const fmt  = (d: Date) => d.toLocaleDateString("en-GB", { weekday:"short", day:"numeric", month:"short" });
     const fmtY = (d: Date) => d.toLocaleDateString("en-GB", { weekday:"short", day:"numeric", month:"short", year:"numeric" });
-    return { start: toISO(lastMon), end: toISO(lastSun), label: `${fmt(lastMon)} – ${fmtY(lastSun)} (last week)` };
+    return { start: toISO(lastMon), end: toISO(lastSun), label: `${fmt(lastMon)} – ${fmtY(lastSun)} (last week)${tzInfo}` };
   } else {
     const y = now.getFullYear();
     const m = now.getMonth();
     const s = new Date(y, m - 1, 1);
     const e = new Date(y, m, 0);
-    return { start: toISO(s), end: toISO(e), label: s.toLocaleDateString("en-US", { month:"long", year:"numeric" }) };
+    return { start: toISO(s), end: toISO(e), label: `${s.toLocaleDateString("en-US", { month:"long", year:"numeric" })}${tzInfo}` };
   }
 }
 
@@ -137,7 +147,7 @@ function StatusBadge({ status }: { status: string }) {
 const EMPTY_FORM: FormState = {
   iAccount: "", iTariff: "", customerName: "",
   periodStart: "", periodEnd: "", notes: "",
-  billingCycle: "custom",
+  billingCycle: "custom", clientTimezone: null,
 };
 
 export default function InvoicesPage() {
@@ -238,29 +248,43 @@ export default function InvoicesPage() {
   async function onAccountSelect(iAccountStr: string) {
     const acct = accounts.find(a => String(a.iAccount) === iAccountStr);
     if (!acct) return;
-    setForm(f => ({ ...f, iAccount: iAccountStr, customerName: acct.displayName, iTariff: "" }));
+    setForm(f => ({ ...f, iAccount: iAccountStr, customerName: acct.displayName, iTariff: "", clientTimezone: null }));
     setAutoTariffName(null);
     setDmrGateError(null);
     setDmrAutoResults(null);
     setFetchingTariff(true);
+
+    // Fetch client timezone from company record (best-effort)
+    let clientTimezone: string | null = null;
+    try {
+      const companies: any[] = await apiRequest("GET", "/api/companies").then(r => r.json());
+      const company = companies.find((c: any) =>
+        String(c.sippyAccountId) === iAccountStr ||
+        c.name?.toLowerCase() === acct.displayName?.toLowerCase()
+      );
+      if (company?.clientTimezone) clientTimezone = company.clientTimezone;
+    } catch { /* optional */ }
+
     try {
       const info = await apiRequest("GET", `/api/sippy/accounts/${acct.iAccount}/info`).then(r => r.json());
       const tariffId = info.iTariff ?? info.i_tariff;
       if (tariffId && Number(tariffId) > 0) {
-        setForm(f => ({ ...f, iTariff: String(tariffId) }));
+        setForm(f => ({ ...f, iTariff: String(tariffId), clientTimezone }));
         const matched = tariffs.find(t => t.iTariff === Number(tariffId));
         setAutoTariffName(matched?.name ?? null);
+      } else {
+        setForm(f => ({ ...f, clientTimezone }));
       }
       // If not found via getAccountInfo, leave iTariff empty — user picks from dropdown
     } catch {
-      // leave iTariff empty — user picks from dropdown
+      setForm(f => ({ ...f, clientTimezone }));
     } finally {
       setFetchingTariff(false);
     }
 
     if (acct.billingCycle && acct.billingCycle !== "custom") {
       const cycle = acct.billingCycle.startsWith("monthly") ? "monthly" : "weekly";
-      const { start, end } = computeBillingPeriod(cycle);
+      const { start, end } = computeBillingPeriod(cycle, clientTimezone);
       setForm(f => ({ ...f, billingCycle: cycle as BillingCycleMode, periodStart: start, periodEnd: end }));
     }
   }
@@ -277,7 +301,7 @@ export default function InvoicesPage() {
     if (cycle === "custom") {
       setForm(f => ({ ...f, billingCycle: "custom", periodStart: "", periodEnd: "" }));
     } else {
-      const { start, end } = computeBillingPeriod(cycle);
+      const { start, end } = computeBillingPeriod(cycle, form.clientTimezone);
       setForm(f => ({ ...f, billingCycle: cycle, periodStart: start, periodEnd: end }));
     }
     setDmrGateError(null);
@@ -319,7 +343,7 @@ export default function InvoicesPage() {
   }
 
   const periodLabel = form.billingCycle !== "custom" && form.periodStart
-    ? computeBillingPeriod(form.billingCycle as "weekly" | "monthly").label
+    ? computeBillingPeriod(form.billingCycle as "weekly" | "monthly", form.clientTimezone).label
     : null;
 
   const selectedTariff = tariffs.find(t => String(t.iTariff) === form.iTariff);

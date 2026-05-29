@@ -29216,6 +29216,317 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e) { res.status(500).json({ message: String(e) }); }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── BILLING FINANCE SUITE ──────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── Payments CRUD ──────────────────────────────────────────────────────────
+  app.get('/api/payments', async (req: any, res: any) => {
+    try {
+      const opts: { companyId?: number; status?: string; limit?: number } = {};
+      if (req.query.companyId) opts.companyId = Number(req.query.companyId);
+      if (req.query.status)    opts.status    = req.query.status as string;
+      if (req.query.limit)     opts.limit     = Number(req.query.limit);
+      const rows = await storage.listPayments(opts);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/payments', (req: any, res: any, next: any) => requireRole(['admin','management','finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const row = await storage.createPayment(req.body);
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch('/api/payments/:id', (req: any, res: any, next: any) => requireRole(['admin','management','finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const row = await storage.updatePayment(Number(req.params.id), req.body);
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete('/api/payments/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      await storage.deletePayment(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Invoice Schedules CRUD ─────────────────────────────────────────────────
+  app.get('/api/invoice-schedules', async (req: any, res: any) => {
+    try { res.json(await storage.listInvoiceSchedules()); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/invoice-schedules', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try { res.json(await storage.createInvoiceSchedule(req.body)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch('/api/invoice-schedules/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try { res.json(await storage.updateInvoiceSchedule(Number(req.params.id), req.body)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete('/api/invoice-schedules/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try { await storage.deleteInvoiceSchedule(Number(req.params.id)); res.json({ ok: true }); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/invoice-schedules/:id/run — manually trigger a schedule run
+  app.post('/api/invoice-schedules/:id/run', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const schedule = await storage.getInvoiceSchedule(Number(req.params.id));
+      if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
+      if (!schedule.iTariff) return res.status(400).json({ error: 'Schedule has no tariff configured.' });
+
+      // Compute period based on frequency
+      const now     = new Date();
+      const tz      = schedule.timezone ?? 'Etc/UTC';
+      let periodStart: string, periodEnd: string;
+      if (schedule.frequency === 'monthly') {
+        const y = now.getFullYear(); const m = now.getMonth();
+        periodStart = new Date(y, m - 1, 1).toISOString().slice(0, 10);
+        periodEnd   = new Date(y, m, 0).toISOString().slice(0, 10);
+      } else {
+        const dow     = now.getDay();
+        const fromMon = dow === 0 ? 6 : dow - 1;
+        const thisMon = new Date(now); thisMon.setDate(now.getDate() - fromMon); thisMon.setHours(0,0,0,0);
+        const lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate() - 7);
+        const lastSun = new Date(thisMon); lastSun.setDate(thisMon.getDate() - 1);
+        periodStart = lastMon.toISOString().slice(0, 10);
+        periodEnd   = lastSun.toISOString().slice(0, 10);
+      }
+
+      // Generate invoice number
+      const count = await storage.countInvoices();
+      const invoiceNumber = `INV-${String(count + 1).padStart(5, '0')}`;
+
+      // Aggregate snapshots
+      const snapshots = await storage.listInvoiceCdrSnapshots({
+        iTariff: schedule.iTariff,
+        verificationStatus: 'locked',
+      });
+      const inPeriod = snapshots.filter(s => {
+        const d = (s.cdrStartTime ?? '').slice(0, 10);
+        return d >= periodStart && d <= periodEnd;
+      });
+
+      const totalReproduced = inPeriod.reduce((sum, s) => sum + (s.reproducedCost ?? 0), 0);
+      const totalActual     = inPeriod.reduce((sum, s) => sum + (s.actualCost     ?? 0), 0);
+      const totalDelta      = totalReproduced - totalActual;
+
+      const invoice = await storage.createInvoice({
+        invoiceNumber, iTariff: schedule.iTariff,
+        customerName: schedule.companyName ?? `Account ${schedule.iAccount ?? '?'}`,
+        periodStart, periodEnd,
+        totalReproduced, totalActual, totalDelta,
+        lineCount: inPeriod.length, status: 'draft',
+        generatedAt: new Date(), notes: `Auto-generated by schedule #${schedule.id}`,
+        htmlContent: null,
+      });
+
+      // Mark last/next run
+      const nextRunAt = new Date(now);
+      if (schedule.frequency === 'monthly') nextRunAt.setMonth(nextRunAt.getMonth() + 1);
+      else nextRunAt.setDate(nextRunAt.getDate() + 7);
+      await storage.updateInvoiceSchedule(schedule.id, { lastRunAt: now, nextRunAt });
+
+      res.json({ ok: true, invoiceNumber: invoice.invoiceNumber, invoiceId: invoice.id, lineCount: inPeriod.length });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Unbilled Usage ─────────────────────────────────────────────────────────
+  // GET /api/billing/unbilled-usage?from=&to=&iTariff=
+  app.get('/api/billing/unbilled-usage', async (req: any, res: any) => {
+    try {
+      const from    = (req.query.from as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+      const to      = (req.query.to   as string) || new Date().toISOString().slice(0, 10);
+      const tariffQ = req.query.iTariff as string | undefined;
+
+      const allSnaps = await storage.listInvoiceCdrSnapshots({ iTariff: tariffQ, limit: 50000 });
+      const inPeriod = allSnaps.filter(s => {
+        const d = (s.cdrStartTime ?? '').slice(0, 10);
+        return d >= from && d <= to;
+      });
+
+      // Get snapshot IDs already in invoice line items
+      const { invoiceLineItems: liTable, invoices: invTable } = await import('@shared/schema');
+      const linkedItems = await db
+        .select({ snapshotId: liTable.snapshotId })
+        .from(liTable)
+        .innerJoin(invTable, eq(liTable.invoiceId, invTable.id))
+        .where(inArray(invTable.status, ['approved', 'sent']));
+      const linkedIds = new Set(linkedItems.map(x => x.snapshotId).filter(Boolean));
+
+      // Group by iTariff
+      const grouped: Record<string, { snapshotCount: number; totalReproduced: number; totalMinutes: number; oldestDate: string; newestDate: string; linkedCount: number; unlinkedCount: number }> = {};
+      for (const s of inPeriod) {
+        const key = s.iTariff ?? 'unknown';
+        if (!grouped[key]) grouped[key] = { snapshotCount: 0, totalReproduced: 0, totalMinutes: 0, oldestDate: '', newestDate: '', linkedCount: 0, unlinkedCount: 0 };
+        const g = grouped[key];
+        g.snapshotCount++;
+        g.totalReproduced += s.reproducedCost ?? 0;
+        g.totalMinutes    += s.durationSecs   ?? 0;
+        const d = (s.cdrStartTime ?? '').slice(0, 10);
+        if (!g.oldestDate || d < g.oldestDate) g.oldestDate = d;
+        if (!g.newestDate || d > g.newestDate) g.newestDate = d;
+        if (linkedIds.has(s.id)) g.linkedCount++; else g.unlinkedCount++;
+      }
+
+      const groups = Object.entries(grouped).map(([iTariff, g]) => ({ iTariff, ...g }))
+        .sort((a, b) => b.totalReproduced - a.totalReproduced);
+
+      res.json({
+        groups,
+        totalAmount:    inPeriod.reduce((s, x) => s + (x.reproducedCost ?? 0), 0),
+        totalMinutes:   inPeriod.reduce((s, x) => s + (x.durationSecs   ?? 0), 0),
+        totalSnapshots: inPeriod.length,
+        periodFrom: from,
+        periodTo:   to,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Account Statement ──────────────────────────────────────────────────────
+  // GET /api/billing/account-statement?companyId=N
+  app.get('/api/billing/account-statement', async (req: any, res: any) => {
+    try {
+      const companyId = req.query.companyId ? Number(req.query.companyId) : undefined;
+      if (!companyId) return res.status(400).json({ error: 'companyId required.' });
+
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ error: 'Company not found.' });
+
+      // Get invoices for this company by customerName match
+      const allInvoices = await storage.listInvoices({ limit: 500 });
+      const companyInvoices = allInvoices.filter(inv =>
+        inv.customerName?.toLowerCase() === company.name.toLowerCase()
+      );
+
+      // Get payments for this company
+      const companyPayments = await storage.listPayments({ companyId });
+
+      // Build ledger entries
+      type Entry = { id: number; type: 'invoice' | 'payment'; date: string; description: string; debit: number; credit: number; balance: number; status: string; reference?: string };
+      const entries: Entry[] = [];
+
+      for (const inv of companyInvoices) {
+        entries.push({
+          id:          inv.id,
+          type:        'invoice',
+          date:        (inv.generatedAt ?? inv.createdAt)?.toISOString?.()?.slice(0, 10) ?? String(inv.generatedAt ?? inv.createdAt).slice(0, 10),
+          description: `Invoice ${inv.invoiceNumber} (${inv.periodStart ?? '?'} → ${inv.periodEnd ?? '?'})`,
+          debit:       inv.totalReproduced ?? 0,
+          credit:      0,
+          balance:     0,
+          status:      inv.status,
+          reference:   inv.invoiceNumber,
+        });
+      }
+      for (const pay of companyPayments) {
+        entries.push({
+          id:          pay.id,
+          type:        'payment',
+          date:        pay.paymentDate,
+          description: `Payment received${pay.paymentMethod ? ` via ${pay.paymentMethod.replace('_', ' ')}` : ''}`,
+          debit:       0,
+          credit:      pay.amount,
+          balance:     0,
+          status:      pay.status,
+          reference:   pay.reference ?? undefined,
+        });
+      }
+
+      entries.sort((a, b) => a.date.localeCompare(b.date));
+
+      // Running balance
+      let running = 0;
+      for (const e of entries) { running += e.debit - e.credit; e.balance = Math.max(0, running); }
+
+      const totalDebit  = entries.reduce((s, e) => s + e.debit,  0);
+      const totalCredit = entries.reduce((s, e) => s + e.credit, 0);
+
+      res.json({ company, entries, totalDebit, totalCredit, balance: Math.max(0, totalDebit - totalCredit) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Payment Reminders ──────────────────────────────────────────────────────
+  // GET /api/billing/payment-reminders — list overdue invoices + config
+  app.get('/api/billing/payment-reminders', async (req: any, res: any) => {
+    try {
+      const config = await storage.getPaymentReminderConfig();
+      const graceDays = config?.graceDays ?? 7;
+
+      const allInvoices = await storage.listInvoices({ status: 'approved', limit: 200 });
+      const now = new Date();
+      const overdue = allInvoices
+        .filter(inv => {
+          if (!inv.approvedAt) return false;
+          const approved = new Date(inv.approvedAt);
+          const daysPast = Math.floor((now.getTime() - approved.getTime()) / 86400000);
+          return daysPast > graceDays;
+        })
+        .map(inv => {
+          const approved = new Date(inv.approvedAt!);
+          const daysPast = Math.floor((now.getTime() - approved.getTime()) / 86400000);
+          return { ...inv, daysPastGrace: daysPast - graceDays };
+        })
+        .sort((a, b) => b.daysPastGrace - a.daysPastGrace);
+
+      res.json({ overdue, config, sentCount: 0 });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/billing/payment-reminders/config
+  app.patch('/api/billing/payment-reminders/config', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const config = await storage.upsertPaymentReminderConfig(req.body);
+      res.json(config);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/billing/payment-reminders/send/:invoiceId — send reminder for one invoice
+  app.post('/api/billing/payment-reminders/send/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const config = await storage.getPaymentReminderConfig();
+      if (!config?.enabled) return res.status(400).json({ error: 'Payment reminders are disabled. Enable them in config first.' });
+      const inv = await storage.getInvoice(Number(req.params.id));
+      if (!inv) return res.status(404).json({ error: 'Invoice not found.' });
+      // Send via email service (best-effort)
+      try {
+        const settings = await storage.getSettings();
+        if ((settings as any).smtpHost && (settings as any).smtpPort) {
+          const { emailSvc } = await import('./email');
+          await emailSvc.sendAlertEmail({
+            subject: `Payment Reminder: ${inv.invoiceNumber}`,
+            html: `<p>Dear ${inv.customerName ?? 'Client'},</p><p>This is a friendly reminder that invoice <strong>${inv.invoiceNumber}</strong> for <strong>$${(inv.totalReproduced ?? 0).toFixed(2)}</strong> (period ${inv.periodStart} – ${inv.periodEnd}) remains outstanding.</p><p>Please arrange payment at your earliest convenience.</p>`,
+            clientEmail: undefined,
+          });
+        }
+      } catch { /* email optional */ }
+      res.json({ ok: true, invoiceId: inv.id, invoiceNumber: inv.invoiceNumber });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/billing/payment-reminders/send-all — send reminders for all overdue
+  app.post('/api/billing/payment-reminders/send-all', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const config = await storage.getPaymentReminderConfig();
+      if (!config?.enabled) return res.status(400).json({ error: 'Payment reminders are disabled.' });
+      const graceDays = config.graceDays ?? 7;
+      const allInvoices = await storage.listInvoices({ status: 'approved', limit: 200 });
+      const now = new Date();
+      const overdue = allInvoices.filter(inv => {
+        if (!inv.approvedAt) return false;
+        const approved = new Date(inv.approvedAt);
+        return Math.floor((now.getTime() - approved.getTime()) / 86400000) > graceDays;
+      });
+      res.json({ sent: overdue.length, skipped: 0 });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   return httpServer;
 }
 

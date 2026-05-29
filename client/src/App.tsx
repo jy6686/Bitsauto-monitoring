@@ -95,6 +95,10 @@ import RatingSnapshotsPage from "@/pages/rating-snapshots";
 import ExecutiveReportsPage from "@/pages/executive-reports";
 import InvoicesPage from "@/pages/invoices";
 import CarrierReconciliationPage from "@/pages/carrier-reconciliation";
+import UnbilledUsagePage from "@/pages/unbilled-usage";
+import AccountStatementPage from "@/pages/account-statement";
+import InvoiceSchedulesPage from "@/pages/invoice-schedules";
+import PaymentRemindersPage from "@/pages/payment-reminders";
 import CommunicationPoliciesPage from "@/pages/communication-policies";
 import DMRPage from "@/pages/dmr";
 import ClientReconciliationPage from "@/pages/client-reconciliation";
@@ -212,6 +216,12 @@ const AiAssuranceWS     = withWorkspace('revenue-assurance', AiAssurancePage);
 const MarginIntelWS     = withWorkspace('revenue-assurance', MarginIntelligencePage);
 const TrafficForecastWS = withWorkspace('revenue-assurance', TrafficForecastPage);
 const RevenueHeatmapWS  = withWorkspace('revenue-assurance', RevenueHeatmapPage);
+
+// billing-ops finance suite additions
+const UnbilledUsageWS    = withWorkspace('billing-ops', UnbilledUsagePage);
+const AccountStatementWS = withWorkspace('billing-ops', AccountStatementPage);
+const InvoiceSchedulesWS = withWorkspace('billing-ops', InvoiceSchedulesPage);
+const PaymentRemindersWS = withWorkspace('billing-ops', PaymentRemindersPage);
 
 // dispute-governance workspace
 const BillingDisputesWS  = withWorkspace('dispute-governance', BillingDisputesPage);
@@ -502,6 +512,18 @@ function Router() {
       </Route>
       <Route path="/carrier-reconciliation">
         {() => <ProtectedRoute component={CarrierReconWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/unbilled-usage">
+        {() => <ProtectedRoute component={UnbilledUsageWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/account-statement">
+        {() => <ProtectedRoute component={AccountStatementWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/invoice-schedules">
+        {() => <ProtectedRoute component={InvoiceSchedulesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/payment-reminders">
+        {() => <ProtectedRoute component={PaymentRemindersWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/communication-policies">
         {() => <ProtectedRoute component={CommunicationPoliciesPage} requiredRoles={['admin']} />}

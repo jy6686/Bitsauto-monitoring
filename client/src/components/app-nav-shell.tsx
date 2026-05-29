@@ -264,6 +264,10 @@ const DOMAINS: Domain[] = [
         { href: '/credit-notes',       label: 'Credit Notes',       desc: 'Credit note issuance',        icon: History },
         { href: '/credit-control',     label: 'Credit Control',     desc: 'Credit risk management',      icon: Banknote },
         { href: '/billing-disputes',   label: 'Disputes',           desc: 'Billing dispute resolution',  icon: Shield },
+        { href: '/unbilled-usage',     label: 'Unbilled Usage',     desc: 'Usage not yet invoiced',      icon: Activity },
+        { href: '/account-statement',  label: 'Account Statement',  desc: 'Client ledger & balance',     icon: FileText },
+        { href: '/invoice-schedules',  label: 'Invoice Schedules',  desc: 'Auto-invoice scheduling',     icon: ClipboardList },
+        { href: '/payment-reminders',  label: 'Payment Reminders',  desc: 'Overdue invoice reminders',   icon: History },
         { href: '/products',           label: 'Products',           desc: 'Product catalogue',           icon: Package },
         { href: '/rate-cards',         label: 'Rate Cards',         desc: 'Rate decks & pricing',        icon: FileSpreadsheet },
       ]},
@@ -600,7 +604,7 @@ export function AppNavShell() {
     'analytics-hub':      '/analytics',
   };
   const WORKSPACE_ROUTES: Record<string, string[]> = {
-    'billing-ops':        ['/billing', '/invoices', '/invoice-jobs', '/invoice-templates', '/credit-notes', '/credit-control', '/products', '/rate-cards', '/tariff-versions'],
+    'billing-ops':        ['/billing', '/invoices', '/invoice-jobs', '/invoice-templates', '/credit-notes', '/credit-control', '/products', '/rate-cards', '/tariff-versions', '/unbilled-usage', '/account-statement', '/invoice-schedules', '/payment-reminders'],
     'revenue-assurance':  ['/dmr', '/client-reconciliation', '/carrier-reconciliation', '/ai-assurance', '/margin-intelligence', '/traffic-forecast', '/revenue-heatmap'],
     'dispute-governance': ['/billing-disputes', '/dispute-cases', '/dispute-defense', '/commercial-notifications'],
     'noc-ops':            ['/calls', '/live-traffic', '/noc-dashboard', '/noc-incidents', '/alerts', '/server-monitoring', '/noc-command', '/sip-trace'],

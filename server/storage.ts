@@ -128,6 +128,9 @@ import {
   type InvoiceLineItem, type InsertInvoiceLineItem,
   carrierReconciliations,
   type CarrierReconciliation, type InsertCarrierReconciliation,
+  payments, type Payment, type InsertPayment,
+  invoiceSchedules, type InvoiceSchedule, type InsertInvoiceSchedule,
+  paymentReminderConfig, type PaymentReminderConfig,
   portalDefinitions, navigationModules, portalModuleAssignments, portalSections,
   userFavorites,
   type PortalDefinition, type InsertPortalModuleAssignment,
@@ -664,6 +667,24 @@ export interface IStorage {
   insertConcurrentSnapshots(rows: { dim: string; entityName: string; ts: number; active: number; connected: number; routing: number }[]): Promise<void>;
   queryConcurrentHistory(dim: string, entityName: string, fromTs: number, bucketMs: number): Promise<{ bucketTs: number; maxActive: number; avgActive: number; maxConnected: number; maxRouting: number }[]>;
   pruneConcurrentSnapshots(): Promise<void>;
+
+  // ── Payments ──────────────────────────────────────────────────────────────
+  createPayment(data: InsertPayment): Promise<Payment>;
+  listPayments(opts?: { companyId?: number; status?: string; limit?: number }): Promise<Payment[]>;
+  getPayment(id: number): Promise<Payment | null>;
+  updatePayment(id: number, updates: Partial<Payment>): Promise<Payment>;
+  deletePayment(id: number): Promise<void>;
+
+  // ── Invoice Schedules ──────────────────────────────────────────────────────
+  createInvoiceSchedule(data: InsertInvoiceSchedule): Promise<InvoiceSchedule>;
+  listInvoiceSchedules(): Promise<InvoiceSchedule[]>;
+  getInvoiceSchedule(id: number): Promise<InvoiceSchedule | null>;
+  updateInvoiceSchedule(id: number, updates: Partial<InvoiceSchedule>): Promise<InvoiceSchedule>;
+  deleteInvoiceSchedule(id: number): Promise<void>;
+
+  // ── Payment Reminder Config ────────────────────────────────────────────────
+  getPaymentReminderConfig(): Promise<PaymentReminderConfig | null>;
+  upsertPaymentReminderConfig(data: Partial<PaymentReminderConfig>): Promise<PaymentReminderConfig>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3504,6 +3525,72 @@ export class DatabaseStorage implements IStorage {
           .where(and(eq(workspaceTabs.id, id), eq(workspaceTabs.workspaceId, workspaceId)))
       )
     );
+  }
+
+  // ── Payments ──────────────────────────────────────────────────────────────
+  async createPayment(data: InsertPayment): Promise<Payment> {
+    const [row] = await db.insert(payments).values(data).returning();
+    return row;
+  }
+  async listPayments(opts: { companyId?: number; status?: string; limit?: number } = {}): Promise<Payment[]> {
+    const conds: any[] = [];
+    if (opts.companyId) conds.push(eq(payments.companyId, opts.companyId));
+    if (opts.status)    conds.push(eq(payments.status, opts.status));
+    const q = db.select().from(payments);
+    const filtered = conds.length ? q.where(and(...conds)) : q;
+    return filtered.orderBy(desc(payments.createdAt)).limit(opts.limit ?? 200);
+  }
+  async getPayment(id: number): Promise<Payment | null> {
+    const [row] = await db.select().from(payments).where(eq(payments.id, id));
+    return row ?? null;
+  }
+  async updatePayment(id: number, updates: Partial<Payment>): Promise<Payment> {
+    const [row] = await db.update(payments).set(updates).where(eq(payments.id, id)).returning();
+    return row;
+  }
+  async deletePayment(id: number): Promise<void> {
+    await db.delete(payments).where(eq(payments.id, id));
+  }
+
+  // ── Invoice Schedules ──────────────────────────────────────────────────────
+  async createInvoiceSchedule(data: InsertInvoiceSchedule): Promise<InvoiceSchedule> {
+    const [row] = await db.insert(invoiceSchedules).values(data).returning();
+    return row;
+  }
+  async listInvoiceSchedules(): Promise<InvoiceSchedule[]> {
+    return db.select().from(invoiceSchedules).orderBy(desc(invoiceSchedules.createdAt));
+  }
+  async getInvoiceSchedule(id: number): Promise<InvoiceSchedule | null> {
+    const [row] = await db.select().from(invoiceSchedules).where(eq(invoiceSchedules.id, id));
+    return row ?? null;
+  }
+  async updateInvoiceSchedule(id: number, updates: Partial<InvoiceSchedule>): Promise<InvoiceSchedule> {
+    const [row] = await db.update(invoiceSchedules).set(updates).where(eq(invoiceSchedules.id, id)).returning();
+    return row;
+  }
+  async deleteInvoiceSchedule(id: number): Promise<void> {
+    await db.delete(invoiceSchedules).where(eq(invoiceSchedules.id, id));
+  }
+
+  // ── Payment Reminder Config ────────────────────────────────────────────────
+  async getPaymentReminderConfig(): Promise<PaymentReminderConfig | null> {
+    const [row] = await db.select().from(paymentReminderConfig).limit(1);
+    return row ?? null;
+  }
+  async upsertPaymentReminderConfig(data: Partial<PaymentReminderConfig>): Promise<PaymentReminderConfig> {
+    const existing = await this.getPaymentReminderConfig();
+    if (existing) {
+      const [row] = await db.update(paymentReminderConfig)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(paymentReminderConfig.id, existing.id))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(paymentReminderConfig).values({
+      graceDays: 7, reminderIntervalDays: 7, maxReminders: 3, enabled: false,
+      ...data, updatedAt: new Date(),
+    }).returning();
+    return row;
   }
 }
 

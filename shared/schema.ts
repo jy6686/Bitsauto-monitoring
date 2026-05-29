@@ -2674,6 +2674,60 @@ export type CarrierReconciliation       = typeof carrierReconciliations.$inferSe
 export type InsertCarrierReconciliation = typeof carrierReconciliations.$inferInsert;
 export const insertCarrierReconciliationSchema = createInsertSchema(carrierReconciliations).omit({ id: true, createdAt: true });
 
+// ── Layer 5D — Payments Received ──────────────────────────────────────────────
+export const payments = pgTable("payments", {
+  id:            serial("id").primaryKey(),
+  companyId:     integer("company_id"),
+  companyName:   varchar("company_name",   { length: 256 }),
+  invoiceId:     integer("invoice_id"),
+  amount:        real("amount").notNull().default(0),
+  currency:      varchar("currency",       { length: 8  }).notNull().default('USD'),
+  paymentDate:   varchar("payment_date",   { length: 32 }).notNull(),
+  paymentMethod: varchar("payment_method", { length: 64 }).default('bank_transfer'),
+  reference:     varchar("reference",      { length: 256 }),
+  notes:         text("notes"),
+  status:        varchar("status",         { length: 32 }).notNull().default('received'),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+});
+export type Payment       = typeof payments.$inferSelect;
+export type InsertPayment = typeof payments.$inferInsert;
+export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
+
+// ── Layer 5E — Invoice Schedules ───────────────────────────────────────────────
+export const invoiceSchedules = pgTable("invoice_schedules", {
+  id:          serial("id").primaryKey(),
+  companyId:   integer("company_id"),
+  companyName: varchar("company_name", { length: 256 }),
+  iAccount:    integer("i_account"),
+  iTariff:     varchar("i_tariff",     { length: 64  }),
+  frequency:   varchar("frequency",    { length: 32  }).notNull().default('monthly'),
+  dayOfWeek:   integer("day_of_week").default(1),
+  dayOfMonth:  integer("day_of_month").default(1),
+  timezone:    varchar("timezone",     { length: 64  }).default('Etc/UTC'),
+  autoApprove: boolean("auto_approve").default(false),
+  active:      boolean("active").notNull().default(true),
+  lastRunAt:   timestamp("last_run_at"),
+  nextRunAt:   timestamp("next_run_at"),
+  notes:       text("notes"),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type InvoiceSchedule       = typeof invoiceSchedules.$inferSelect;
+export type InsertInvoiceSchedule = typeof invoiceSchedules.$inferInsert;
+export const insertInvoiceScheduleSchema = createInsertSchema(invoiceSchedules).omit({ id: true, createdAt: true });
+
+// ── Layer 5F — Payment Reminder Config ────────────────────────────────────────
+export const paymentReminderConfig = pgTable("payment_reminder_config", {
+  id:                    serial("id").primaryKey(),
+  graceDays:             integer("grace_days").notNull().default(7),
+  reminderIntervalDays:  integer("reminder_interval_days").notNull().default(7),
+  maxReminders:          integer("max_reminders").notNull().default(3),
+  enabled:               boolean("enabled").notNull().default(false),
+  reminderEmailTemplate: text("reminder_email_template"),
+  updatedAt:             timestamp("updated_at").defaultNow().notNull(),
+});
+export type PaymentReminderConfig       = typeof paymentReminderConfig.$inferSelect;
+export type InsertPaymentReminderConfig = typeof paymentReminderConfig.$inferInsert;
+
 // ── Portal Governance Framework ───────────────────────────────────────────────
 
 export const portalDefinitions = pgTable("portal_definitions", {
