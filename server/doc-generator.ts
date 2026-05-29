@@ -79,6 +79,13 @@ const FEATURES: { tier: number; id: number; name: string; status: 'COMPLETE' | '
   { tier: 7, id: 35, name: 'Sippy Load Reduction Architecture',         status: 'COMPLETE', notes: 'Push-based NOC WebSocket, cache-first /api/sippy/live-calls, mutex guards preventing concurrent poll overlap, staggered background job intervals. ~65-70% reduction in Sippy XML-RPC calls. Platform is safe for 24/7 production operation.' },
   { tier: 7, id: 36, name: 'Client Provisioning Wizard',                status: 'COMPLETE', notes: 'Multi-step wizard: Company Info → Trunk Config → IP Auth → Notifications → Review & Submit. Auto-creates Sippy service plan, provisions via createAccount XML-RPC with full cascade fallback (billing plan, routing group, customer, translation rule strips), adds IP authentication rules, updates company status in DB.' },
   { tier: 7, id: 37, name: 'Concurrent Snapshot Persistence',           status: 'COMPLETE', notes: 'concurrent_snapshots table persists per-entity call counts to PostgreSQL every 45s. Powers DAILY (1h MAX) and WEEKLY (6h MAX) historical aggregation from DB. Accumulates automatically — DAILY graphs populate after 72h runtime, WEEKLY after 7 days.' },
+
+  // Tier 8 — Finance, Revenue Assurance & Platform Governance
+  { tier: 8, id: 38, name: 'CDR Re-rating Engine',                       status: 'COMPLETE', notes: 'Flat-rate re-rating with scenario analysis, immutable run snapshots, revenue delta P&L comparison. Stored in cdr_rerate_runs table. Finance → Revenue Assurance nav entry.' },
+  { tier: 8, id: 39, name: 'Finance Suite — Invoice Templates & Schedules', status: 'COMPLETE', notes: 'Invoice template builder, schedule engine, auto-invoice generation triggers. Wired into Finance workspace billing-ops module.' },
+  { tier: 8, id: 40, name: 'Finance Suite — Credit Notes & Credit Control', status: 'COMPLETE', notes: 'Credit note issuance, credit control rule engine, per-account credit policies. Full audit trail via adjustment_ledger.' },
+  { tier: 8, id: 41, name: 'Finance Suite — AI Revenue Assurance & Adjustment Ledger', status: 'COMPLETE', notes: 'AI-assisted revenue anomaly detection, adjustment ledger for all billing corrections. Covers migrations 015–018 fully wired across 4 governance modules.' },
+  { tier: 8, id: 42, name: 'Platform Navigation Reorganization',          status: 'COMPLETE', notes: 'Domain-based top-nav shell with 9 domains, 29 groups (consolidated from 35), ~103 items. Removed 15 duplicates, collapsed aliases, renamed Company → Clients. WorkspaceShell tab-bar wraps 20 finance routes across 3 workspaces.' },
 ];
 
 const BUG_FIXES = [
@@ -506,9 +513,9 @@ const DEPT_SECTIONS: { dept: string; desc: string; color: string; ids: number[] 
   },
   {
     dept: 'Finance & Billing',
-    desc: 'Revenue analytics, vendor balance tracking, rate card management & multi-vendor billing integration',
+    desc: 'Revenue analytics, vendor balance tracking, rate card management, multi-vendor billing integration, CDR re-rating & finance governance suite',
     color: AMBER,
-    ids: [6, 8, 11, 16],
+    ids: [6, 8, 11, 16, 38, 39, 40, 41],
   },
   {
     dept: 'Commercial',
@@ -530,9 +537,9 @@ const DEPT_SECTIONS: { dept: string; desc: string; color: string; ids: number[] 
   },
   {
     dept: 'Engineering',
-    desc: 'Sippy XML-RPC integration, dashboard widgets, dark/light mode, translation rule cascade & load reduction architecture',
+    desc: 'Sippy XML-RPC integration, dashboard widgets, dark/light mode, translation rule cascade, load reduction architecture & platform navigation reorganization',
     color: TEAL,
-    ids: [3, 20, 21, 34, 35],
+    ids: [3, 20, 21, 34, 35, 42],
   },
 ];
 

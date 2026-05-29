@@ -2149,6 +2149,32 @@ export default function SettingsPage() {
   const [allDocsProgress, setAllDocsProgress] = useState<string | null>(null);
   const { toast } = useToast();
 
+  const [downloadingDoc, setDownloadingDoc] = useState<string | null>(null);
+
+  async function downloadDoc(href: string, label: string, ext?: string) {
+    setDownloadingDoc(href);
+    try {
+      const res = await fetch(href);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      const cd   = res.headers.get('content-disposition') ?? '';
+      const fnMatch = cd.match(/filename[^;=\n]*=(['"]?)([^'";\n]+)\1/);
+      a.href     = url;
+      a.download = fnMatch ? fnMatch[2].trim() : `${label.replace(/[^a-z0-9]/gi, '_')}${ext ?? '.docx'}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: 'Download started', description: label });
+    } catch (e: any) {
+      toast({ title: 'Download failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setDownloadingDoc(null);
+    }
+  }
+
   const regenMutation = useMutation({
     mutationFn: () => apiRequest('POST', '/api/download/regenerate'),
     onSuccess: async (res) => {
@@ -3228,7 +3254,7 @@ export default function SettingsPage() {
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[
-            { label: "BitsAuto Platform — Feature Status Report", desc: "Department-Categorised Implementation Status & Roadmap Report. NOC · Finance & Billing · Commercial · Fraud & Security · Analytics · Engineering. All 37 live features mapped to departments with status, technical notes & bug-fix log. Auto-generated on demand.", href: "/api/download/platform-status-report", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" },
+            { label: "BitsAuto Platform — Feature Status Report", desc: "Department-Categorised Implementation Status & Roadmap Report. NOC · Finance & Billing · Commercial · Fraud & Security · Analytics · Engineering. All 42 live features mapped to departments — including CDR Re-rating Engine, Finance Governance Suite (Invoice Templates, Credit Notes, Credit Control, AI Revenue Assurance) & Navigation Reorganization. Auto-generated on demand.", href: "/api/download/platform-status-report", color: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" },
           { label: "Feature Implementation Time & Cost Estimate", desc: "All 68 features across Vol 1, 2 & 3 — developer days, hours and USD cost per feature. Includes sprint-by-sprint build plan, grand total investment summary, and cost assumptions. Rate: USD 500/day senior developer.", href: "/api/download/feature-cost-estimate", color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20" },
           { label: "Full Feature Reference", desc: "Every page, menu item, how each feature works, business impact, and complete 2D/3D animation effects list", href: "/api/download/platform-features-docx", color: "text-pink-400", bg: "bg-pink-500/10 border-pink-500/20" },
             { label: "Features Explained (Deep-Dive)", desc: "All 30 features in structured narrative format — end-to-end flow, integration map, business impact, and limitations for each", href: "/api/download/platform-features-explained-docx", color: "text-fuchsia-400", bg: "bg-fuchsia-500/10 border-fuchsia-500/20" },
@@ -3249,24 +3275,31 @@ export default function SettingsPage() {
             { label: "White-Label Partner Deployment — Initial Cost Estimate", desc: "Full cost breakdown for the first partner deployment: hosting, domains, plan requirements, scaling table, and recommended sequence before incurring any cost.", href: "/api/download/partner-initial-cost-docx", color: "text-lime-400", bg: "bg-lime-500/10 border-lime-500/20" },
             { label: "Account Management Workflow & Script", desc: "Complete operations reference — Company wizard (3 steps), Client Account wizard (7 steps), IP approval flow, Sippy XML-RPC parameters, codec IDs, post-creation checklist, error fixes, and full database schema.", href: "/api/download/account-management-workflow", color: "text-emerald-300", bg: "bg-emerald-500/10 border-emerald-500/20" },
             { label: "Account Management — Technical Implementation Spec", desc: "Full developer rebuild guide — verbatim source code for all 3 pages, 9 API routes, 4 DB tables (Drizzle + raw SQL), storage interface, sidebar wiring, router registration, auth middleware pattern, and known caveats. Sufficient to reconstruct the module in any Replit app.", href: "/api/download/account-management-impl-spec", color: "text-sky-300", bg: "bg-sky-500/10 border-sky-500/20" },
-          ].map(doc => (
-            <a
-              key={doc.href}
-              href={doc.href}
-              download
-              data-testid={`download-${doc.href.split('/').pop()}`}
-              className={`flex items-start gap-3 p-4 rounded-lg border ${doc.bg} hover:opacity-80 transition-opacity group`}
-            >
-              <FileText className={`h-5 w-5 mt-0.5 shrink-0 ${doc.color}`} />
-              <div className="min-w-0">
-                <div className={`text-sm font-medium ${doc.color}`}>{doc.label}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{doc.desc}</div>
-                <div className="text-xs text-muted-foreground/50 mt-1 flex items-center gap-1">
-                  <Download className="h-3 w-3" /> Click to download {(doc as any).ext ?? '.docx'}
+          ].map(doc => {
+            const isLoading = downloadingDoc === doc.href;
+            return (
+              <button
+                key={doc.href}
+                onClick={() => downloadDoc(doc.href, doc.label, (doc as any).ext)}
+                disabled={isLoading}
+                data-testid={`download-${doc.href.split('/').pop()}`}
+                className={`flex items-start gap-3 p-4 rounded-lg border ${doc.bg} hover:opacity-80 transition-opacity group text-left w-full disabled:opacity-60 disabled:cursor-wait`}
+              >
+                {isLoading
+                  ? <Loader2 className={`h-5 w-5 mt-0.5 shrink-0 animate-spin ${doc.color}`} />
+                  : <FileText className={`h-5 w-5 mt-0.5 shrink-0 ${doc.color}`} />}
+                <div className="min-w-0">
+                  <div className={`text-sm font-medium ${doc.color}`}>{doc.label}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{doc.desc}</div>
+                  <div className="text-xs text-muted-foreground/50 mt-1 flex items-center gap-1">
+                    {isLoading
+                      ? <><Loader2 className="h-3 w-3 animate-spin" /> Generating…</>
+                      : <><Download className="h-3 w-3" /> Click to download {(doc as any).ext ?? '.docx'}</>}
+                  </div>
                 </div>
-              </div>
-            </a>
-          ))}
+              </button>
+            );
+          })}
         </div>
       </div>
 
