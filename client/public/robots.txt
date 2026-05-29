@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /api/
+Disallow: /api/sippy/
+Disallow: /api/invoices/
+Disallow: /api/portal/
+Allow: /
+
+Sitemap: https://vo-ip-watcher--junaid70.replit.app/sitemap.xml
