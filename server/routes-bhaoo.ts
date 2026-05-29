@@ -10,7 +10,7 @@ import {
   checkBalance, rechargeAccount, isConfigured,
 } from './services/bhaoo/index';
 import {
-  smsMessages, smsDlrEvents, bhaooBalanceLog, smsVendorStats,
+  smsMessages, smsDlrEvents, bhaooBalanceLog, smsVendorStats, bhaooProfiles,
 } from '@shared/schema';
 import { eq, desc, gte, sql } from 'drizzle-orm';
 
@@ -170,6 +170,57 @@ export function registerBhaooRoutes(app: Express) {
             dlrReceivedAt: new Date(),
           }).onConflictDoNothing();
         }
+
+        // ── Auto-fallback to Voice OTP on delivery failure ─────────────────
+        if (dlrStatus === 'failed' && payload.msisdn) {
+          try {
+            const { originateOtpCall, isAmiConfigured } = await import('./services/asterisk/index');
+            if (isAmiConfigured()) {
+              // Find the message to get OTP text if available
+              const [msgRecord] = updated.length > 0 ? updated : await db
+                .select()
+                .from(smsMessages)
+                .where(eq(smsMessages.bhaooId, payload.messageId))
+                .limit(1);
+
+              // Extract OTP from message text (look for 4-8 digit sequence)
+              let otp = '000000';
+              if (msgRecord?.messageText) {
+                const match = msgRecord.messageText.match(/\b(\d{4,8})\b/);
+                if (match) otp = match[1];
+              }
+
+              console.log(`[bhaoo-dlr] SMS failed → triggering Voice OTP fallback to ${payload.msisdn}`);
+
+              const { voiceOtpCalls } = await import('@shared/schema');
+              const { eq: eqOp } = await import('drizzle-orm');
+
+              const [callRow] = await db.insert(voiceOtpCalls).values({
+                toNumber: payload.msisdn,
+                otp:      otp[0] + '*'.repeat(Math.max(0, otp.length - 2)) + otp[otp.length - 1],
+                trunk:    'Sippy',
+                status:   'initiated',
+              }).returning();
+
+              originateOtpCall({ to: payload.msisdn, otp, trunk: 'Sippy' })
+                .then(async (result) => {
+                  await db.update(voiceOtpCalls)
+                    .set({ status: result.success ? 'ringing' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? null })
+                    .where(eqOp(voiceOtpCalls.id, callRow.id));
+                })
+                .catch((err) => console.error('[bhaoo-dlr] Voice OTP fallback error:', err.message));
+
+              // Mark original SMS as fallback triggered
+              if (msgRecord) {
+                await db.update(smsMessages)
+                  .set({ fallbackTriggered: true, fallbackAt: new Date(), updatedAt: new Date() })
+                  .where(eq(smsMessages.id, msgRecord.id));
+              }
+            }
+          } catch (fbErr: any) {
+            console.error('[bhaoo-dlr] Fallback error:', fbErr.message);
+          }
+        }
       }
 
       res.json({ ok: true });
@@ -261,6 +312,123 @@ export function registerBhaooRoutes(app: Express) {
         balanceError:   balance.error,
         operatorBreakdown,
       });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Profiles CRUD ────────────────────────────────────────────────────────────
+  app.get('/api/bhaoo/profiles', requireAuth, async (_req: any, res: any) => {
+    try {
+      const rows = await db.select().from(bhaooProfiles).orderBy(bhaooProfiles.createdAt);
+      // Mask secrets in response
+      res.json(rows.map(r => ({ ...r, secretKey: '••••••••' })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/bhaoo/profiles', requireAuth, async (req: any, res: any) => {
+    const { name, baseUrl, apiKey, secretKey, isDefault } = req.body ?? {};
+    if (!name || !apiKey || !secretKey) return res.status(400).json({ error: 'name, apiKey, secretKey are required' });
+    try {
+      if (isDefault) {
+        await db.update(bhaooProfiles).set({ isDefault: false, updatedAt: new Date() });
+      }
+      const [row] = await db.insert(bhaooProfiles).values({
+        name,
+        baseUrl: baseUrl || 'http://149.20.185.6/BhaooSMSV5',
+        apiKey,
+        secretKey,
+        isDefault: !!isDefault,
+      }).returning();
+      res.json({ ...row, secretKey: '••••••••' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/bhaoo/profiles/:id', requireAuth, async (req: any, res: any) => {
+    const id = Number(req.params.id);
+    const { name, baseUrl, apiKey, secretKey, isDefault, isActive } = req.body ?? {};
+    try {
+      if (isDefault) {
+        await db.update(bhaooProfiles).set({ isDefault: false, updatedAt: new Date() });
+      }
+      const updates: Record<string, any> = { updatedAt: new Date() };
+      if (name      !== undefined) updates.name      = name;
+      if (baseUrl   !== undefined) updates.baseUrl   = baseUrl;
+      if (apiKey    !== undefined && apiKey    !== '••••••••') updates.apiKey    = apiKey;
+      if (secretKey !== undefined && secretKey !== '••••••••') updates.secretKey = secretKey;
+      if (isDefault !== undefined) updates.isDefault = isDefault;
+      if (isActive  !== undefined) updates.isActive  = isActive;
+      const [row] = await db.update(bhaooProfiles).set(updates).where(eq(bhaooProfiles.id, id)).returning();
+      res.json({ ...row, secretKey: '••••••••' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/bhaoo/profiles/:id', requireAuth, async (req: any, res: any) => {
+    const id = Number(req.params.id);
+    try {
+      await db.delete(bhaooProfiles).where(eq(bhaooProfiles.id, id));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Test a profile by checking its balance
+  app.post('/api/bhaoo/profiles/:id/test', requireAuth, async (req: any, res: any) => {
+    const id = Number(req.params.id);
+    try {
+      const [profile] = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.id, id));
+      if (!profile) return res.status(404).json({ error: 'Profile not found' });
+      const { bhaooRequest } = await import('./services/bhaoo/client');
+      const result = await bhaooRequest<any>({
+        method:  'POST',
+        path:    '/api/balance/',
+        profile: { baseUrl: profile.baseUrl, apiKey: profile.apiKey, secretKey: profile.secretKey },
+      });
+      res.json({ ok: true, balance: result.balance ?? result.Balance, currency: result.currency, raw: result });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Send SMS via a specific profile
+  app.post('/api/sms/send-profile', requireAuth, async (req: any, res: any) => {
+    const { profileId, to, from, text, type } = req.body ?? {};
+    if (!profileId || !to || !from || !text) return res.status(400).json({ error: 'profileId, to, from, text are required' });
+    try {
+      const [profile] = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.id, Number(profileId)));
+      if (!profile) return res.status(404).json({ error: 'Profile not found' });
+      if (!profile.isActive) return res.status(400).json({ error: 'Profile is disabled' });
+
+      const { bhaooRequest } = await import('./services/bhaoo/client');
+      const internalId = `bts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const raw = await bhaooRequest<any>({
+        method:  'POST',
+        path:    '/api/',
+        profile: { baseUrl: profile.baseUrl, apiKey: profile.apiKey, secretKey: profile.secretKey },
+        body: { type: type ?? 'text', from, to, text, transactionId: internalId },
+      });
+
+      const status = Number(raw?.status ?? -1);
+      await db.insert(smsMessages).values({
+        internalId,
+        bhaooId:     status === 0 ? raw.messageId : null,
+        toNumber:    to,
+        fromId:      from,
+        messageText: text,
+        messageType: type ?? 'text',
+        status:      status === 0 ? 'submitted' : 'failed',
+        statusCode:  status,
+        errorMessage: status !== 0 ? (raw.text ?? 'Send failed') : null,
+      });
+
+      res.json({ status, messageId: raw.messageId, profile: profile.name });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

@@ -3120,10 +3120,13 @@ export const smsMessages = pgTable("sms_messages", {
   country:       varchar("country",       { length: 64  }),
   errorCode:     varchar("error_code",    { length: 32  }),
   errorMessage:  text("error_message"),
-  clientRef:     varchar("client_ref",    { length: 128 }),
-  dlrReceivedAt: timestamp("dlr_received_at"),
-  submittedAt:   timestamp("submitted_at").defaultNow().notNull(),
-  updatedAt:     timestamp("updated_at").defaultNow().notNull(),
+  clientRef:          varchar("client_ref",    { length: 128 }),
+  profileId:          integer("profile_id"),
+  fallbackTriggered:  boolean("fallback_triggered").notNull().default(false),
+  fallbackAt:         timestamp("fallback_at"),
+  dlrReceivedAt:      timestamp("dlr_received_at"),
+  submittedAt:        timestamp("submitted_at").defaultNow().notNull(),
+  updatedAt:          timestamp("updated_at").defaultNow().notNull(),
 });
 export type SmsMessage       = typeof smsMessages.$inferSelect;
 export type InsertSmsMessage = typeof smsMessages.$inferInsert;
