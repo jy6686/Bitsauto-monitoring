@@ -19,7 +19,31 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
+async function seedDefaultProfile() {
+  try {
+    const apiKey    = process.env.BHAOO_API_KEY;
+    const secretKey = process.env.BHAOO_SECRET_KEY;
+    if (!apiKey || !secretKey) return;
+
+    const existing = await db.select({ id: bhaooProfiles.id }).from(bhaooProfiles).limit(1);
+    if (existing.length > 0) return;
+
+    await db.insert(bhaooProfiles).values({
+      name:      'R.Testing1',
+      baseUrl:   'http://149.20.185.6/BhaooSMSV5',
+      apiKey,
+      secretKey,
+      isDefault: true,
+      isActive:  true,
+    });
+    console.log('[bhaoo] seeded default profile R.Testing1');
+  } catch (err: any) {
+    console.warn('[bhaoo] seed skipped:', err.message);
+  }
+}
+
 export function registerBhaooRoutes(app: Express) {
+  seedDefaultProfile();
 
   // ── Connection status ────────────────────────────────────────────────────────
   app.get('/api/bhaoo/status', requireAuth, async (_req: any, res: any) => {
