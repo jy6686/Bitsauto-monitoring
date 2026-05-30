@@ -4,7 +4,7 @@ import {
   MessageSquare, CheckCircle2, AlertTriangle, XCircle, RefreshCw,
   Clock, BarChart3, Send, Wallet, Activity, ChevronDown, Loader2,
   WifiOff, Info, Plus, Trash2, Phone, Settings2, Eye, EyeOff,
-  FlipHorizontal, CheckCheck, Plug,
+  FlipHorizontal, CheckCheck, Plug, Copy, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +64,43 @@ interface BhaooProfile {
 }
 
 const EMPTY_PROFILE = { name: '', baseUrl: 'http://149.20.185.6/BhaooSMSV5', apiKey: '', secretKey: '', isDefault: false };
+
+function DlrUrlBox() {
+  const [copied, setCopied] = useState(false);
+  const dlrUrl = `${window.location.origin}/api/bhaoo/dlr`;
+  const isDevUrl = window.location.hostname.includes('riker.replit.dev') || window.location.hostname === 'localhost';
+
+  function handleCopy() {
+    navigator.clipboard.writeText(dlrUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className={`rounded-xl border p-3 space-y-2 ${isDevUrl ? 'border-amber-500/30 bg-amber-500/5' : 'border-emerald-500/20 bg-emerald-500/5'}`}>
+      <div className="flex items-center gap-2">
+        <Info className={`h-3.5 w-3.5 shrink-0 ${isDevUrl ? 'text-amber-400' : 'text-emerald-400'}`} />
+        <span className="text-[11px] font-medium text-foreground/80">
+          DLR Callback URL — copy this into every REVE HTTP profile
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 text-[11px] font-mono bg-muted/60 px-2 py-1.5 rounded-lg truncate text-foreground/90 select-all">
+          {dlrUrl}
+        </code>
+        <Button size="sm" variant="outline" className="h-7 px-2 shrink-0" onClick={handleCopy} data-testid="button-copy-dlr-url">
+          {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+        </Button>
+      </div>
+      {isDevUrl && (
+        <p className="text-[10px] text-amber-400/80">
+          ⚠ This is the dev URL — it changes when the workspace restarts. Use the deployed app URL in REVE production profiles.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
@@ -478,12 +515,7 @@ export default function SmsMonitorPage() {
               </p>
             </div>
 
-            <div className="rounded-xl border border-border/50 bg-muted/5 p-3 flex items-center gap-2">
-              <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <p className="text-[11px] text-muted-foreground">
-                DLR push endpoint: <code className="bg-muted px-1 rounded font-mono">POST /api/bhaoo/dlr</code> — configure this URL in your BhaooSMS HTTP profile to receive live delivery reports.
-              </p>
-            </div>
+            <DlrUrlBox />
           </>
         )}
 
@@ -576,12 +608,7 @@ export default function SmsMonitorPage() {
             )}
 
             {/* DLR info */}
-            <div className="rounded-xl border border-border/50 bg-muted/5 p-3 flex items-center gap-2">
-              <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <p className="text-[11px] text-muted-foreground">
-                Shared DLR endpoint for all profiles: <code className="bg-muted px-1 rounded font-mono">POST /api/bhaoo/dlr</code> — use this URL in every HTTP profile in your REVE dashboard.
-              </p>
-            </div>
+            <DlrUrlBox />
           </div>
         )}
 

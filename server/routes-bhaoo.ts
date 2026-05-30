@@ -118,6 +118,9 @@ export function registerBhaooRoutes(app: Express) {
   // ── DLR webhook — shared handler (GET or POST) ──────────────────────────────
   async function handleDlrPush(data: Record<string, any>, res: any) {
     try {
+      if (!data || Object.keys(data).length === 0) {
+        console.warn('[bhaoo-dlr] WARNING: received empty DLR push body — check REVE profile DLR URL (must be the deployed URL, not dev URL)');
+      }
       const payload = parseDlrPush(data);
 
       await db.insert(smsDlrEvents).values({
