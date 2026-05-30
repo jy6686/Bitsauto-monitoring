@@ -275,7 +275,7 @@ export function registerBhaooRoutes(app: Express) {
       const { apikey, secretkey, to, from, smsText, type, transactionId } = req.query as Record<string, string>;
 
       if (!to || !smsText) {
-        return res.json({ status: -1, message_id: '', error: 'to and smsText are required' });
+        return res.json({ status: -1, Text: 'REJECTD', message_id: '', error: 'to and smsText are required' });
       }
 
       // Validate credentials against stored profile
@@ -285,7 +285,7 @@ export function registerBhaooRoutes(app: Express) {
 
       if (!matched && !envMatch) {
         console.warn(`[bhaoo-receive] Auth failed — apikey=${apikey}`);
-        return res.json({ status: -42, message_id: '', error: 'Authentication failed' });
+        return res.json({ status: -42, Text: 'REJECTD', message_id: '', error: 'Authentication failed' });
       }
 
       // Extract OTP: first 4–8 digit sequence in the message
@@ -335,10 +335,10 @@ export function registerBhaooRoutes(app: Express) {
         console.warn(`[bhaoo-receive] No OTP found in smsText: "${smsText}" — call not triggered`);
       }
 
-      res.json({ status: 0, message_id: msgId });
+      res.json({ status: 0, Text: 'ACCEPTD', message_id: msgId });
     } catch (err: any) {
       console.error('[bhaoo-receive] error:', err.message);
-      res.json({ status: -1, message_id: '', error: err.message });
+      res.json({ status: -1, Text: 'REJECTD', message_id: '', error: err.message });
     }
   });
 
