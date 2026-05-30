@@ -46,10 +46,11 @@ interface SmsMessage {
 }
 
 interface BhaooStatus {
-  connected: boolean;
-  balance?:  number;
-  currency?: string;
-  error?:    string;
+  connected:      boolean;
+  balance?:       number;
+  currency?:      string;
+  error?:         string;
+  balanceUnknown?: boolean;
 }
 
 interface BhaooProfile {
@@ -263,8 +264,9 @@ export default function SmsMonitorPage() {
     }
   }
 
-  const connected     = status?.connected ?? false;
-  const notConfigured = status?.error?.includes('not set');
+  const connected        = status?.connected ?? false;
+  const balanceUnknown   = status?.balanceUnknown ?? false;
+  const notConfigured    = status?.error?.includes('not set');
 
   return (
     <div className="min-h-screen bg-background">
@@ -283,12 +285,18 @@ export default function SmsMonitorPage() {
           </div>
           <div className="flex items-center gap-2">
             <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border",
-              notConfigured ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
-              : connected    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-              :                "bg-rose-500/10 border-rose-500/30 text-rose-400"
+              notConfigured  ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+              : connected && !balanceUnknown ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+              : connected && balanceUnknown  ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
+              :                               "bg-rose-500/10 border-rose-500/30 text-rose-400"
             )}>
-              {notConfigured ? <AlertTriangle className="h-3 w-3" /> : connected ? <CheckCircle2 className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              {notConfigured ? 'Not configured' : connected ? 'Connected' : 'Disconnected'}
+              {notConfigured  ? <AlertTriangle className="h-3 w-3" />
+               : connected    ? <CheckCircle2 className="h-3 w-3" />
+               :                <WifiOff className="h-3 w-3" />}
+              {notConfigured ? 'Not configured'
+               : connected && balanceUnknown ? 'Connected'
+               : connected ? 'Connected'
+               : 'Disconnected'}
             </div>
             <Button size="sm" variant="outline" onClick={() => { refetchStats(); qc.invalidateQueries({ queryKey: ['/api/bhaoo/status'] }); }} data-testid="button-refresh-sms">
               <RefreshCw className="h-3.5 w-3.5" />

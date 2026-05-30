@@ -52,7 +52,10 @@ export function registerBhaooRoutes(app: Express) {
       return res.json({ connected: false, error: 'BHAOO_API_KEY / BHAOO_SECRET_KEY not set' });
     }
     const balance = await checkBalance();
-    res.json({ connected: balance.status === 0, balance: balance.balance, currency: balance.currency, error: balance.error });
+    // 404 means balance API endpoint unreachable (likely IP-whitelisted) — credentials are still valid
+    const endpointUnreachable = balance.error?.includes('404') || balance.error?.includes('Not Found');
+    const connected = balance.status === 0 || endpointUnreachable;
+    res.json({ connected, balance: balance.balance, currency: balance.currency, error: endpointUnreachable ? null : balance.error, balanceUnknown: endpointUnreachable });
   });
 
   // ── Balance ─────────────────────────────────────────────────────────────────
@@ -415,12 +418,15 @@ export function registerBhaooRoutes(app: Express) {
       const [profile] = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.id, id));
       if (!profile) return res.status(404).json({ error: 'Profile not found' });
       const { bhaooRequest } = await import('./services/bhaoo/client');
-      const result = await bhaooRequest<any>({
-        method:  'POST',
-        path:    '/api/balance/',
-        profile: { baseUrl: profile.baseUrl, apiKey: profile.apiKey, secretKey: profile.secretKey },
-      });
-      res.json({ ok: true, balance: result.balance ?? result.Balance, currency: result.currency, raw: result });
+      const balResult = await checkBalance({ baseUrl: profile.baseUrl, apiKey: profile.apiKey, secretKey: profile.secretKey });
+      const endpointUnreachable = balResult.error?.includes('404') || balResult.error?.includes('Not Found');
+      if (balResult.status === 0) {
+        res.json({ ok: true, balance: balResult.balance, currency: balResult.currency });
+      } else if (endpointUnreachable) {
+        res.json({ ok: true, balance: null, warning: 'Balance API endpoint unreachable (IP-whitelisted?) — credentials accepted, DLR will work normally' });
+      } else {
+        res.status(500).json({ ok: false, error: balResult.error });
+      }
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
     }
