@@ -10,18 +10,23 @@ function cfg() {
     port:      Number(process.env.ASTERISK_AMI_PORT ?? 5038),
     username:  process.env.ASTERISK_AMI_USER  ?? 'bitsauto',
     secret:    process.env.ASTERISK_AMI_SECRET ?? '',
-    // PJSIP (modern FreePBX) vs SIP (legacy chan_sip)
-    // PJSIP format: PJSIP/number@trunk  |  SIP format: SIP/trunk/number
-    chanTech:  (process.env.ASTERISK_CHAN_TECH ?? 'SIP').toUpperCase() as 'SIP' | 'PJSIP',
-    trunkName: process.env.ASTERISK_TRUNK_NAME ?? 'Sippy',
+    // Channel tech modes:
+    //   SIP        → SIP/trunk/number        (legacy chan_sip, named peer)
+    //   PJSIP      → PJSIP/number@trunk      (modern res_pjsip, named endpoint)
+    //   DIRECT_SIP → SIP/number@host         (direct to Sippy IP, bypasses FreePBX trunk)
+    chanTech:   (process.env.ASTERISK_CHAN_TECH  ?? 'DIRECT_SIP').toUpperCase() as 'SIP' | 'PJSIP' | 'DIRECT_SIP',
+    trunkName:  process.env.ASTERISK_TRUNK_NAME  ?? 'Sippy',
+    sippySipIp: process.env.SIPPY_SIP_IP         ?? '191.101.30.107',
   };
 }
 
-/** Build the correct Asterisk channel string based on driver (SIP vs PJSIP) */
-function buildChannel(chanTech: 'SIP' | 'PJSIP', trunkName: string, number: string): string {
-  return chanTech === 'PJSIP'
-    ? `PJSIP/${number}@${trunkName}`   // modern res_pjsip
-    : `SIP/${trunkName}/${number}`;    // legacy chan_sip
+/** Build the correct Asterisk channel string based on mode */
+function buildChannel(chanTech: 'SIP' | 'PJSIP' | 'DIRECT_SIP', trunkName: string, sippyIp: string, number: string): string {
+  switch (chanTech) {
+    case 'PJSIP':       return `PJSIP/${number}@${trunkName}`;   // modern res_pjsip endpoint
+    case 'DIRECT_SIP':  return `SIP/${number}@${sippyIp}`;       // direct to Sippy SIP IP — no trunk needed
+    default:            return `SIP/${trunkName}/${number}`;      // legacy chan_sip named peer
+  }
 }
 
 export function isAmiConfigured(): boolean {
@@ -121,7 +126,7 @@ export function originateOtpCall(params: OriginateParams): Promise<OriginateResu
         if (!loggedIn && msg.includes('ActionID: ami-login')) {
           if (msg.includes('Response: Success')) {
             loggedIn = true;
-            const channel = buildChannel(config.chanTech, trunkName, to);
+            const channel = buildChannel(config.chanTech, trunkName, config.sippySipIp, to);
             // Using Application:SayDigits bypasses any FreePBX dialplan requirement
             console.log(`[ami] logged in — sending originate: Channel=${channel} Application=SayDigits Data=${otp} (tech=${config.chanTech})`);
             originateSent = true;
