@@ -1,5 +1,6 @@
 /**
  * BhaooSMS — DLR query + push payload parser
+ * REVE SMS V5 uses GET /api/report/dlr with query params.
  */
 
 import { bhaooRequest } from './client';
@@ -7,9 +8,9 @@ import { DlrQueryResponse, DlrPushPayload, BHAOO_DLR_CODES } from './types';
 
 export async function queryDlr(messageId: string): Promise<DlrQueryResponse> {
   const raw: any = await bhaooRequest({
-    method: 'POST',
-    path:   '/api/dlr/',
-    body:   { message_id: messageId },
+    method: 'GET',
+    path:   '/api/report/dlr',
+    params: { transactionId: messageId },
   });
 
   const status = Number(raw?.status ?? raw?.Status ?? 1);
