@@ -23,22 +23,36 @@ description: REVE SMS V5.3.0 integration — service layer, routes, DB tables, S
 - `GET /api/bhaoo/balance/history` — balance history
 - `POST /api/sms/send` — single SMS send
 - `POST /api/sms/send-bulk` — bulk SMS (max 100)
-- `POST /api/bhaoo/dlr` — DLR webhook receiver (no auth — BhaooSMS calls this)
+- `GET /api/bhaoo/receive` — inbound SMS webhook (REVE calls this)
+- `POST /api/bhaoo/dlr` — DLR webhook receiver
 - `GET /api/bhaoo/dlr/:messageId` — query delivery status
 - `GET /api/bhaoo/messages` — message log
 - `GET /api/bhaoo/stats` — delivery analytics (last 24h)
 - `POST /api/bhaoo/recharge` — account recharge
 
+## REVE Inbound Webhook (/api/bhaoo/receive) — CONFIRMED WORKING
+- REVE HTTP profile: R.Testing1 (profile 35002), client TR_JUNCTIONZ_HQ
+- Method: GET (Query mode) — REVE does NOT send apikey/secretkey in Query mode
+- Auth: IP-based trust — `REVE_ALLOWED_IPS=149.20.185.6` env var → trusted IPs bypass credential check
+- REVE's confirmed outbound IP: `149.20.185.6` (same as its SMS server)
+- x-forwarded-for chain: `149.20.185.6, 34.117.33.233, <GCP node>, <GCP node>`
+- REVE Configure Params (Variable type): to=REPLACE_TO, smsText=REPLACE_MESSAGE, from=REPLACE_FROM, transactionId=REPLACE_ID
+- REVE Submit Response: Response Type=json, Status Field=Text, Message ID Field=message_id, Success Status=ACCEPTED
+- Our response: `{"status":0,"Text":"ACCEPTED","message_id":"..."}` (note: ACCEPTED not ACCEPTD)
+
+**Why GET/Query mode has no credentials:** REVE only enables API Key/Secret Key auth fields when POST method is selected. GET/Query mode hides those fields entirely. IP whitelisting is the correct security model for this case.
+
 ## DLR Webhook
-Configure in BhaooSMS HTTP profile: `POST https://<yourdomain>/api/bhaoo/dlr`
-This endpoint has no auth guard (public) so BhaooSMS can push delivery reports.
+Configure in BhaooSMS HTTP profile: `GET https://<yourdomain>/api/bhaoo/dlr`
 
 ## Environment Variables
 - `BHAOO_API_KEY` — BhaooSMS API key
 - `BHAOO_SECRET_KEY` — BhaooSMS secret key
 - `BHAOO_BASE_URL` — optional override (default: http://149.20.185.6/BhaooSMSV5)
+- `REVE_ALLOWED_IPS` — comma-separated trusted IPs (default * = open); set to `149.20.185.6` in production
 
-## Voice OTP (Asterisk AMI)
+## Voice OTP (Asterisk AMI) — CONFIRMED WORKING END-TO-END
+- Flow: REVE SMS → /api/bhaoo/receive → OTP extracted → AMI → Asterisk → Sippy → Carrier → call answered
 - Service: `server/services/asterisk/ami.ts` + `index.ts`
 - Routes: `server/routes-voice-otp.ts` → registered via `registerVoiceOtpRoutes()`
 - DB table: `voice_otp_calls` (created via direct SQL)
@@ -47,5 +61,6 @@ This endpoint has no auth guard (public) so BhaooSMS can push delivery reports.
 - AMI user: `bitsauto` — secret in `ASTERISK_AMI_SECRET`
 - Dialplan context: `otp-playback` in `/etc/asterisk/extensions_custom.conf`
 - CallerID name carries OTP digits; `SayDigits(${CALLERID(name)})` speaks them
+- Channel format: `SIP/22211{rawNumber}@191.101.30.107` (DIRECT_SIP, SIPPY_TECH_PREFIX=22211)
 
 **Why:** API path pattern is `/api/` for send, `/api/balance/` for balance, `/api/dlr/` for DLR query — REVE V5 standard paths.
