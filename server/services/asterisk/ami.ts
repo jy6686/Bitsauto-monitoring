@@ -108,15 +108,16 @@ export function originateOtpCall(params: OriginateParams): Promise<OriginateResu
           if (msg.includes('Response: Success')) {
             loggedIn = true;
             const channel = `SIP/${trunk}/${to}`;
-            console.log(`[ami] logged in — sending originate: Channel=${channel} Context=otp-playback CallerID="${otp}"`);
+            // Build digit sequence for SayDigits — plays each OTP digit aloud
+            // Using Application instead of Context bypasses any FreePBX dialplan requirement
+            console.log(`[ami] logged in — sending originate: Channel=${channel} Application=SayDigits Data=${otp}`);
             originateSent = true;
             socket.write([
               'Action: Originate',
               `Channel: ${channel}`,
-              'Context: otp-playback',
-              'Exten: s',
-              'Priority: 1',
-              `CallerID: "${otp}" <${otp}>`,
+              `Application: SayDigits`,
+              `Data: ${otp}`,
+              `CallerID: "OTP Service" <${otp}>`,
               `Timeout: ${callTimeout}`,
               'Async: true',
               `ActionID: ${actionId}`,
