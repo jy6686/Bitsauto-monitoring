@@ -29,6 +29,11 @@ async function throwIfResNotOk(res: Response) {
       throw new Error("Session expired. Redirecting to sign in…");
     }
 
+    if (res.status === 403 && text?.includes("<!doctype")) {
+      handleSessionExpired();
+      throw new Error("Session expired. Redirecting to sign in…");
+    }
+
     throw new Error(`${res.status}: ${text || res.statusText}`);
   }
 }
