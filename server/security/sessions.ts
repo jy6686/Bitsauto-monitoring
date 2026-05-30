@@ -4,14 +4,14 @@ import { eq, and, desc, gt } from "drizzle-orm";
 import type { RequestHandler } from "express";
 
 const IDLE_TIMEOUT_MS: Record<string, number> = {
-  admin:       30 * 60 * 1000,
-  super_admin: 30 * 60 * 1000,
-  finance:     30 * 60 * 1000,
-  noc:         30 * 60 * 1000,
-  management:  60 * 60 * 1000,
-  team_lead:   60 * 60 * 1000,
-  kam:         60 * 60 * 1000,
-  viewer:      120 * 60 * 1000,
+  admin:       8 * 60 * 60 * 1000,
+  super_admin: 8 * 60 * 60 * 1000,
+  finance:     4 * 60 * 60 * 1000,
+  noc:         4 * 60 * 60 * 1000,
+  management:  8 * 60 * 60 * 1000,
+  team_lead:   4 * 60 * 60 * 1000,
+  kam:         4 * 60 * 60 * 1000,
+  viewer:      2 * 60 * 60 * 1000,
 };
 
 function getClientIp(req: any): string {

@@ -1,9 +1,35 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+function handleSessionExpired() {
+  const isLoginPage = window.location.pathname === "/login" ||
+                      window.location.pathname === "/api/login";
+  if (!isLoginPage) {
+    sessionStorage.setItem("session_expired", "1");
+    window.location.href = "/api/login";
+  }
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let text: string;
+    try {
+      text = await res.text();
+    } catch {
+      text = res.statusText;
+    }
+
+    if (res.status === 401) {
+      let body: any = {};
+      try { body = JSON.parse(text); } catch { /* ignore */ }
+      if (body?.code === "IDLE_TIMEOUT") {
+        handleSessionExpired();
+        throw new Error("Your session expired due to inactivity. Redirecting to sign in…");
+      }
+      handleSessionExpired();
+      throw new Error("Session expired. Redirecting to sign in…");
+    }
+
+    throw new Error(`${res.status}: ${text || res.statusText}`);
   }
 }
 
@@ -35,6 +61,17 @@ export const getQueryFn: <T>(options: {
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
+    }
+
+    if (res.status === 401) {
+      let body: any = {};
+      try { body = await res.clone().json(); } catch { /* ignore */ }
+      if (body?.code === "IDLE_TIMEOUT") {
+        handleSessionExpired();
+        throw new Error("Your session expired due to inactivity.");
+      }
+      handleSessionExpired();
+      throw new Error("Session expired.");
     }
 
     await throwIfResNotOk(res);
