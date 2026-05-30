@@ -20,9 +20,10 @@ function cfg() {
     // CLI that Sippy IP auth rule expects as the SIP From: number (e.g. 2221192)
     sippyCli:        process.env.SIPPY_CLI            ?? '',
     // Tech prefix prepended to CLD before sending to Sippy.
-    // Sippy strips exactly 4 digits from the CLD via its translation rule.
-    // e.g. SIPPY_TECH_PREFIX=2221 → 923219286686 becomes 2221923219286686
-    //      Sippy strips "2221" → CLD to carrier = 923219286686 (valid E.164)
+    // Format: 4 product digits (e.g. "2221") + 1 product digit → carrier sees 1XXXXXXXXXX
+    // e.g. SIPPY_TECH_PREFIX=22211 → 923219286686 becomes 22211923219286686
+    //      Sippy strips "2221" (4 digits) → CLD to carrier = 1923219286686
+    //      Digits 1,2,6,7 encode the product/routing class.
     sippyTechPrefix: process.env.SIPPY_TECH_PREFIX    ?? '',
   };
 }
