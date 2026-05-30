@@ -17,8 +17,11 @@ function cfg() {
     chanTech:   (process.env.ASTERISK_CHAN_TECH  ?? 'DIRECT_SIP').toUpperCase() as 'SIP' | 'PJSIP' | 'DIRECT_SIP',
     trunkName:  process.env.ASTERISK_TRUNK_NAME  ?? 'Sippy',
     sippySipIp: process.env.SIPPY_SIP_IP         ?? '191.101.30.107',
-    // CLI that Sippy IP auth rule expects as the SIP From: number (e.g. 22211192)
-    sippyCli:   process.env.SIPPY_CLI            ?? '',
+    // CLI that Sippy IP auth rule expects as the SIP From: number (e.g. 2221192)
+    sippyCli:        process.env.SIPPY_CLI            ?? '',
+    // Tech prefix prepended to CLD before sending to Sippy: 4-digit prefix + 1 + CC + national
+    // e.g. SIPPY_TECH_PREFIX=22211 → 923219286686 becomes 22211923219286686
+    sippyTechPrefix: process.env.SIPPY_TECH_PREFIX    ?? '',
   };
 }
 
@@ -78,7 +81,10 @@ export function originateOtpCall(params: OriginateParams): Promise<OriginateResu
   const { otp, timeout: callTimeout = 45000 } = params;
   const trunkName = params.trunk ?? config.trunkName;
   // Strip leading '+' — chan_sip and PJSIP both prefer plain E.164 digits
-  const to = params.to.replace(/^\+/, '');
+  const rawTo = params.to.replace(/^\+/, '');
+  // Apply tech prefix if configured: e.g. "22211" + "923219286686" = "22211923219286686"
+  // Sippy dial pattern: 4-digit prefix + 1 + CC + national (e.g. 2221 + 1 + 92 + 3219286686)
+  const to = config.sippyTechPrefix ? `${config.sippyTechPrefix}${rawTo}` : rawTo;
   const actionId = `bitsauto-${Date.now()}`;
 
   return new Promise((resolve) => {
