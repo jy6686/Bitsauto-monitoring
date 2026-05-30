@@ -138,3 +138,9 @@ id = "6oiFxXoVzdV8VUSoUH4Ad"
 uri = "file://attached_assets/BitsAuto_Platform_Feature_Status_Report.docx"
 type = "word_document"
 title = "BitsAuto Platform Feature Status Report — Fixed (42 Features)"
+
+[[outputs]]
+id = "hrPa3QawCT5rmQmEMy1RD"
+uri = "file://BitsAuto-SMS-API.zip"
+type = "unspecified"
+title = "BitsAuto SMS API Documentation"
