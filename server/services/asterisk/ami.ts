@@ -17,6 +17,8 @@ function cfg() {
     chanTech:   (process.env.ASTERISK_CHAN_TECH  ?? 'DIRECT_SIP').toUpperCase() as 'SIP' | 'PJSIP' | 'DIRECT_SIP',
     trunkName:  process.env.ASTERISK_TRUNK_NAME  ?? 'Sippy',
     sippySipIp: process.env.SIPPY_SIP_IP         ?? '191.101.30.107',
+    // CLI that Sippy IP auth rule expects as the SIP From: number (e.g. 22211192)
+    sippyCli:   process.env.SIPPY_CLI            ?? '',
   };
 }
 
@@ -127,15 +129,18 @@ export function originateOtpCall(params: OriginateParams): Promise<OriginateResu
           if (msg.includes('Response: Success')) {
             loggedIn = true;
             const channel = buildChannel(config.chanTech, trunkName, config.sippySipIp, to);
+            // CLI: use SIPPY_CLI if set (required by Sippy IP auth rule as From: number),
+            // otherwise fall back to OTP digits (harmless but may be rejected by Sippy)
+            const cli = config.sippyCli || otp;
             // Using Application:SayDigits bypasses any FreePBX dialplan requirement
-            console.log(`[ami] logged in — sending originate: Channel=${channel} Application=SayDigits Data=${otp} (tech=${config.chanTech})`);
+            console.log(`[ami] logged in — sending originate: Channel=${channel} CLI=${cli} Application=SayDigits Data=${otp} (tech=${config.chanTech})`);
             originateSent = true;
             socket.write([
               'Action: Originate',
               `Channel: ${channel}`,
               `Application: SayDigits`,
               `Data: ${otp}`,
-              `CallerID: "OTP Service" <${otp}>`,
+              `CallerID: "OTP Service" <${cli}>`,
               `Timeout: ${callTimeout}`,
               'Async: true',
               `ActionID: ${actionId}`,
