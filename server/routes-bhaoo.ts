@@ -272,6 +272,17 @@ export function registerBhaooRoutes(app: Express) {
   // GET /api/bhaoo/receive?apikey=...&secretkey=...&to=...&from=...&smsText=...&transactionId=...
   app.get('/api/bhaoo/receive', async (req: any, res: any) => {
     try {
+      // IP whitelist — only allow requests from known REVE/BhaooSMS server IPs
+      const allowedIps = (process.env.REVE_ALLOWED_IPS ?? '149.20.185.6')
+        .split(',').map(s => s.trim()).filter(Boolean);
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+        ?? req.socket?.remoteAddress ?? '';
+      if (allowedIps.length > 0 && !allowedIps.includes('*') && !allowedIps.includes(clientIp)) {
+        console.warn(`[bhaoo-receive] Blocked request from unauthorized IP: ${clientIp} (allowed: ${allowedIps.join(', ')})`);
+        return res.status(403).json({ status: -403, Text: 'REJECTD', error: 'Forbidden' });
+      }
+      console.log(`[bhaoo-receive] Request from IP: ${clientIp}`);
+
       const { apikey, secretkey, to, from, smsText, type, transactionId } = req.query as Record<string, string>;
 
       if (!to || !smsText) {

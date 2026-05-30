@@ -62,6 +62,7 @@ function reasonText(code: number): string {
   const map: Record<number, string> = {
     0: 'No such extension/number',
     1: 'No answer (timeout)',
+    3: 'User busy / call cancelled',
     4: 'Answered',
     5: 'No answer / Alerting (not answered)',
     7: 'Failed/Error',
