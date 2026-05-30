@@ -9128,7 +9128,7 @@ export async function registerRoutes(
   });
 
   // PATCH /api/sippy/accounts/:id/settings — update core account settings (max_sessions, max_calls_per_second, etc.)
-  // Body: { maxSessions?, maxCallsPerSecond?, maxSessionTime?, blocked?, iCustomer? }
+  // Body: { maxSessions?, maxCallsPerSecond?, maxSessionTime?, blocked?, iCustomer?, iRoutingGroup? }
   // Uses Sippy XML-RPC updateAccount() — docs 107312+. Admin credentials required.
   app.patch('/api/sippy/accounts/:id/settings', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
     try {
@@ -9145,6 +9145,7 @@ export async function registerRoutes(
         maxCreditTime:     req.body.maxSessionTime       !== undefined ? Number(req.body.maxSessionTime)    : undefined,
         blocked:           req.body.blocked             !== undefined ? Boolean(req.body.blocked)          : undefined,
         iCustomer:         req.body.iCustomer           !== undefined ? Number(req.body.iCustomer)         : undefined,
+        iRoutingGroup:     req.body.iRoutingGroup       !== undefined ? Number(req.body.iRoutingGroup)     : undefined,
       };
       if (Object.values(opts).every(v => v === undefined)) {
         return res.status(400).json({ success: false, message: 'No settings to update.' });
@@ -9153,6 +9154,35 @@ export async function registerRoutes(
       const result = await sippy.updateAccountSettings(username, password, portalUrl, iAccount, opts);
       if (!result.success) return res.status(422).json(result);
       res.json(result);
+    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
+  // PATCH /api/sippy/accounts/:id/routing-group — assign a routing group to an account
+  // Body: { iRoutingGroup: number }
+  // Dedicated endpoint — calls updateAccount(i_account, i_routing_group).
+  app.patch('/api/sippy/accounts/:id/routing-group', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, message: 'Invalid i_account.' });
+      const iRoutingGroup = req.body.iRoutingGroup !== undefined ? Number(req.body.iRoutingGroup) : undefined;
+      if (iRoutingGroup === undefined || isNaN(iRoutingGroup)) {
+        return res.status(400).json({ success: false, message: 'iRoutingGroup (integer) is required.' });
+      }
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      if (!portalUrl) return res.status(503).json({ success: false, message: 'Sippy not configured.' });
+
+      const result = await sippy.updateAccountSettings(username, password, portalUrl, iAccount, { iRoutingGroup });
+      if (!result.success) return res.status(422).json(result);
+
+      writeAudit({
+        category: 'sippy', action: 'ACCOUNT_ROUTING_GROUP_UPDATED',
+        actor: (req as any).user?.claims?.sub ?? 'unknown', actorType: 'user',
+        targetType: 'account', targetId: String(iAccount), severity: 'medium',
+        metadata: { iAccount, iRoutingGroup },
+      });
+      res.json({ ...result, iAccount, iRoutingGroup });
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
 

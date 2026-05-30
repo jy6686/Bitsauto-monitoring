@@ -8255,6 +8255,7 @@ export async function updateAccountSettings(
     blocked?: boolean;
     iCustomer?: number;
     creditLimit?: number;
+    iRoutingGroup?: number;
   },
 ): Promise<{ success: boolean; message: string; method?: string }> {
   const apiUrl = `${sippyBase(portalUrl)}/xmlapi/xmlapi`;
@@ -8266,6 +8267,7 @@ export async function updateAccountSettings(
   if (opts.blocked            !== undefined) params.blocked               = opts.blocked ? 1 : 0;
   if (opts.iCustomer          !== undefined) params.i_customer            = opts.iCustomer;
   if (opts.creditLimit        !== undefined) params.credit_limit          = opts.creditLimit;
+  if (opts.iRoutingGroup      !== undefined) params.i_routing_group       = opts.iRoutingGroup;
 
   const lastErrors: string[] = [];
 
