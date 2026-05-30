@@ -255,7 +255,7 @@ export function registerBhaooRoutes(app: Express) {
         }
       }
 
-      res.json({ ok: true, status: 0, text: 'ACCEPTD', Message_ID: payload.messageId });
+      res.json({ ok: true, status: 0, text: 'ACCEPTED', Message_ID: payload.messageId });
     } catch (err: any) {
       console.error('[bhaoo-dlr] error:', err.message);
       res.status(500).json({ ok: false, status: -1, text: 'REJECTD', error: err.message });
@@ -349,7 +349,7 @@ export function registerBhaooRoutes(app: Express) {
         console.warn(`[bhaoo-receive] No OTP found in smsText: "${smsText}" — call not triggered`);
       }
 
-      res.json({ status: 0, Text: 'ACCEPTD', message_id: msgId });
+      res.json({ status: 0, Text: 'ACCEPTED', message_id: msgId });
     } catch (err: any) {
       console.error('[bhaoo-receive] error:', err.message);
       res.json({ status: -1, Text: 'REJECTD', message_id: '', error: err.message });

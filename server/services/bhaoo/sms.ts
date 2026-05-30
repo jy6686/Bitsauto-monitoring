@@ -8,7 +8,7 @@ import { SmsSendRequest, SmsSendResponse, BHAOO_SUBMIT_ERRORS } from './types';
 
 function normalizeResponse(raw: any, internalId?: string): SmsSendResponse {
   const status    = Number(raw?.status   ?? raw?.Status   ?? -62);
-  const text      = String(raw?.text     ?? raw?.Text     ?? (status === 0 ? 'ACCEPTD' : 'REJECTD'));
+  const text      = String(raw?.text     ?? raw?.Text     ?? (status === 0 ? 'ACCEPTED' : 'REJECTD'));
   const messageId = String(raw?.message_id ?? raw?.messageId ?? raw?.MessageId ?? raw?.Message_ID ?? (status === 0 ? '' : '-1'));
   const error     = status !== 0 ? (BHAOO_SUBMIT_ERRORS[String(status)] ?? text) : undefined;
   return { status, text, messageId, internalId, error };
