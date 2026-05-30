@@ -342,7 +342,7 @@ export function registerBhaooRoutes(app: Express) {
     }
   });
 
-  // ── Public API documentation — no auth required (for REVE / third-party setup) ─
+  // ── Public SMS API documentation — no auth required (for REVE / third-party setup) ─
   app.get('/api/bhaoo/docs', (_req: any, res: any) => {
     const base = 'https://vo-ip-watcher--junaid70.replit.app';
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -351,162 +351,233 @@ export function registerBhaooRoutes(app: Express) {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>BitsAuto Voice OTP — Webhook API Documentation</title>
+<title>BitsAuto SMS API Documentation</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;line-height:1.6;padding:32px 16px}
   .wrap{max-width:860px;margin:0 auto}
   h1{font-size:1.8rem;font-weight:700;color:#f8fafc;margin-bottom:4px}
   .subtitle{color:#94a3b8;font-size:.95rem;margin-bottom:36px}
-  h2{font-size:1.1rem;font-weight:600;color:#f1f5f9;margin:32px 0 12px;border-bottom:1px solid #1e293b;padding-bottom:8px}
-  h3{font-size:.95rem;font-weight:600;color:#cbd5e1;margin:20px 0 8px}
-  p{color:#94a3b8;margin-bottom:12px;font-size:.9rem}
-  .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:700;margin-right:8px}
+  h2{font-size:1.05rem;font-weight:700;color:#f1f5f9;margin:0 0 14px;display:flex;align-items:center;gap:10px}
+  h3{font-size:.9rem;font-weight:600;color:#cbd5e1;margin:18px 0 8px;text-transform:uppercase;letter-spacing:.06em;font-size:.78rem}
+  p{color:#94a3b8;margin-bottom:12px;font-size:.88rem}
+  .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:4px;font-size:.72rem;font-weight:700;letter-spacing:.04em;flex-shrink:0}
   .get{background:#1e3a5f;color:#60a5fa}
   .post{background:#1c3529;color:#34d399}
-  .url{font-family:'Courier New',monospace;background:#1e293b;padding:12px 16px;border-radius:8px;font-size:.85rem;color:#7dd3fc;word-break:break-all;margin:8px 0 16px;border:1px solid #334155}
-  table{width:100%;border-collapse:collapse;font-size:.85rem;margin:12px 0}
-  th{background:#1e293b;color:#94a3b8;text-align:left;padding:8px 12px;font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em}
-  td{padding:8px 12px;border-bottom:1px solid #1e293b;vertical-align:top}
+  .url{font-family:'Courier New',monospace;background:#1e293b;padding:11px 14px;border-radius:7px;font-size:.82rem;color:#7dd3fc;word-break:break-all;margin:8px 0 14px;border:1px solid #334155}
+  table{width:100%;border-collapse:collapse;font-size:.83rem;margin:10px 0}
+  th{background:#1e293b;color:#64748b;text-align:left;padding:8px 12px;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
+  td{padding:8px 12px;border-bottom:1px solid #1e293b;vertical-align:top;color:#94a3b8}
   td:first-child{font-family:'Courier New',monospace;color:#a5b4fc;white-space:nowrap}
-  .req{color:#fb923c;font-size:.75rem;font-weight:600}
-  .opt{color:#64748b;font-size:.75rem}
-  .code{font-family:'Courier New',monospace;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:14px 16px;font-size:.82rem;color:#e2e8f0;white-space:pre;overflow-x:auto;margin:8px 0 16px}
+  .req{color:#fb923c;font-size:.72rem;font-weight:700}
+  .opt{color:#475569;font-size:.72rem;font-weight:600}
+  .code{font-family:'Courier New',monospace;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:13px 15px;font-size:.8rem;color:#e2e8f0;white-space:pre;overflow-x:auto;margin:8px 0 14px;line-height:1.5}
   .green{color:#4ade80}
   .red{color:#f87171}
-  .yellow{color:#fbbf24}
-  .note{background:#1c2e1a;border-left:3px solid #4ade80;padding:12px 16px;border-radius:0 6px 6px 0;margin:12px 0;font-size:.85rem;color:#86efac}
-  .warn{background:#2d1f08;border-left:3px solid #fbbf24;padding:12px 16px;border-radius:0 6px 6px 0;margin:12px 0;font-size:.85rem;color:#fcd34d}
-  .section{background:#0f1f33;border:1px solid #1e293b;border-radius:10px;padding:24px;margin-bottom:24px}
-  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0;font-size:.85rem}
-  .step{background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 14px;color:#e2e8f0}
-  .arrow{color:#475569;font-size:1.1rem}
+  .note{background:#1c2e1a;border-left:3px solid #4ade80;padding:11px 15px;border-radius:0 6px 6px 0;margin:12px 0;font-size:.83rem;color:#86efac}
+  .warn{background:#2d1f08;border-left:3px solid #fbbf24;padding:11px 15px;border-radius:0 6px 6px 0;margin:12px 0;font-size:.83rem;color:#fcd34d}
+  .section{background:#0f1f33;border:1px solid #1e293b;border-radius:10px;padding:22px 24px;margin-bottom:20px}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:28px}
+  .toc a{background:#1e293b;color:#94a3b8;text-decoration:none;padding:5px 13px;border-radius:20px;font-size:.8rem;border:1px solid #334155;transition:color .15s}
+  .toc a:hover{color:#e2e8f0}
+  code{font-family:'Courier New',monospace;background:#1e293b;padding:1px 5px;border-radius:3px;font-size:.82em;color:#a5b4fc}
+  .divider{border:none;border-top:1px solid #1e293b;margin:28px 0}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<h1>📞 BitsAuto Voice OTP — Webhook API</h1>
-<p class="subtitle">Integration guide for REVE SMS / BhaooSMS V5 &nbsp;·&nbsp; Version 1.0 &nbsp;·&nbsp; Base: <code style="color:#7dd3fc">${base}</code></p>
+<h1>💬 BitsAuto SMS API</h1>
+<p class="subtitle">Integration reference for REVE SMS / BhaooSMS V5 &nbsp;·&nbsp; v1.0 &nbsp;·&nbsp; Base URL: <code style="color:#7dd3fc;background:none;padding:0">${base}</code></p>
 
-<div class="section">
-<h2>Overview</h2>
-<p>When REVE sends an OTP SMS to a subscriber, it also calls this webhook. BitsAuto extracts the OTP digits from the SMS text and immediately places a voice call to the same number via Asterisk → Sippy → Carrier, speaking the OTP digits aloud.</p>
-<div class="flow">
-  <span class="step">REVE sends OTP SMS</span><span class="arrow">→</span>
-  <span class="step">BitsAuto /receive webhook</span><span class="arrow">→</span>
-  <span class="step">Extract OTP digits</span><span class="arrow">→</span>
-  <span class="step">Asterisk AMI</span><span class="arrow">→</span>
-  <span class="step">Sippy SoftSwitch</span><span class="arrow">→</span>
-  <span class="step">Carrier → Phone rings</span>
-</div>
+<div class="toc">
+  <a href="#receive">Inbound Webhook</a>
+  <a href="#dlr">DLR Push</a>
+  <a href="#send">Send SMS</a>
+  <a href="#bulk">Send Bulk</a>
+  <a href="#numbers">Number Format</a>
+  <a href="#reve-config">REVE Config</a>
+  <a href="#health">Health Check</a>
 </div>
 
-<div class="section">
-<h2><span class="badge get">GET</span> Inbound SMS Webhook (Submit URL)</h2>
-<p>Configure this as the <strong>Submit URL</strong> in your REVE HTTP profile. REVE calls this endpoint every time an SMS is dispatched.</p>
-
+<!-- ═══ INBOUND RECEIVE ════════════════════════════════════════════ -->
+<div class="section" id="receive">
+<h2><span class="badge get">GET</span> Inbound SMS Webhook</h2>
+<p>Set this as the <strong>Submit URL</strong> in your REVE HTTP profile. REVE calls this endpoint for every outgoing SMS, allowing BitsAuto to log and track the message.</p>
 <div class="url">${base}/api/bhaoo/receive</div>
 
 <h3>Query Parameters</h3>
 <table>
-  <tr><th>Parameter</th><th>Required</th><th>Description</th></tr>
-  <tr><td>apikey</td><td><span class="req">REQUIRED</span></td><td>API key issued by BitsAuto for this REVE profile</td></tr>
-  <tr><td>secretkey</td><td><span class="req">REQUIRED</span></td><td>Secret key paired with the API key</td></tr>
-  <tr><td>to</td><td><span class="req">REQUIRED</span></td><td>Destination phone number in E.164 format without + (e.g. <code>923219286686</code>)</td></tr>
-  <tr><td>from</td><td><span class="opt">optional</span></td><td>Sender ID or originating number</td></tr>
-  <tr><td>smsText</td><td><span class="req">REQUIRED</span></td><td>Full SMS message body. Must contain the OTP as a 4–8 digit sequence (e.g. <em>"Your OTP is 847261"</em>)</td></tr>
-  <tr><td>transactionId</td><td><span class="opt">optional</span></td><td>REVE's unique message ID for deduplication and DLR correlation</td></tr>
-  <tr><td>type</td><td><span class="opt">optional</span></td><td>Message type (default: <code>text</code>)</td></tr>
+  <tr><th>Parameter</th><th>Required</th><th>Type</th><th>Description</th></tr>
+  <tr><td>apikey</td><td><span class="req">REQUIRED</span></td><td>string</td><td>API key provided by BitsAuto</td></tr>
+  <tr><td>secretkey</td><td><span class="req">REQUIRED</span></td><td>string</td><td>Secret key paired with the API key</td></tr>
+  <tr><td>to</td><td><span class="req">REQUIRED</span></td><td>string</td><td>Destination MSISDN in E.164 without <code>+</code> (e.g. <code>923219286686</code>)</td></tr>
+  <tr><td>smsText</td><td><span class="req">REQUIRED</span></td><td>string</td><td>Full SMS body text (URL-encoded)</td></tr>
+  <tr><td>from</td><td><span class="opt">OPTIONAL</span></td><td>string</td><td>Sender ID or originating CLI</td></tr>
+  <tr><td>transactionId</td><td><span class="opt">OPTIONAL</span></td><td>string</td><td>REVE's unique message ID — used for DLR correlation</td></tr>
+  <tr><td>type</td><td><span class="opt">OPTIONAL</span></td><td>string</td><td>Message type. Default: <code>text</code></td></tr>
 </table>
 
 <h3>Example Request</h3>
 <div class="code">GET ${base}/api/bhaoo/receive
-  ?apikey=YOUR_API_KEY
-  &amp;secretkey=YOUR_SECRET_KEY
-  &amp;to=923219286686
-  &amp;from=BitsOTP
-  &amp;smsText=Your+OTP+is+847261.+Valid+for+5+minutes.
-  &amp;transactionId=TX-20260530-00123
-  &amp;type=text</div>
+    ?apikey=YOUR_API_KEY
+    &amp;secretkey=YOUR_SECRET_KEY
+    &amp;to=923219286686
+    &amp;from=BitsOTP
+    &amp;smsText=Your+verification+code+is+847261
+    &amp;transactionId=TX-20260530-00123</div>
 
-<h3>Success Response — <span class="green">HTTP 200</span></h3>
+<h3>Responses</h3>
+<table>
+  <tr><th>status</th><th>Text</th><th>Meaning</th></tr>
+  <tr><td>0</td><td><span class="green">ACCEPTD</span></td><td>Message accepted and logged successfully</td></tr>
+  <tr><td>-42</td><td><span class="red">REJECTD</span></td><td>Authentication failed — wrong <code>apikey</code> or <code>secretkey</code></td></tr>
+  <tr><td>-1</td><td><span class="red">REJECTD</span></td><td>Missing required field or internal error</td></tr>
+</table>
+
+<div class="code"><span class="green">// Success
+{ "status": 0, "Text": "ACCEPTD", "message_id": "TX-20260530-00123" }
+
+// Auth failure
+{ "status": -42, "Text": "REJECTD", "error": "Authentication failed" }</span></div>
+
+<div class="note">✅ Response is returned immediately — message processing is asynchronous.</div>
+</div>
+
+<!-- ═══ DLR PUSH ═══════════════════════════════════════════════════ -->
+<div class="section" id="dlr">
+<h2><span class="badge post">POST</span><span class="badge get" style="margin-left:4px">GET</span> DLR Push Webhook</h2>
+<p>Configure this as the <strong>DLR URL</strong> in your REVE profile. REVE calls this when a delivery receipt is received from the carrier.</p>
+<div class="url">${base}/api/bhaoo/dlr</div>
+<p>Accepts both <code>GET</code> (query string) and <code>POST</code> (JSON or form body). BitsAuto correlates the DLR with the original message using <code>message_id</code>.</p>
+
+<h3>Expected Parameters</h3>
+<table>
+  <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+  <tr><td>message_id</td><td>string</td><td>REVE message ID matching the <code>transactionId</code> sent on receive</td></tr>
+  <tr><td>status</td><td>integer</td><td>Delivery status code (see table below)</td></tr>
+  <tr><td>msisdn</td><td>string</td><td>Destination number</td></tr>
+  <tr><td>operator</td><td>string</td><td>Carrier / operator name (optional)</td></tr>
+  <tr><td>country</td><td>string</td><td>Destination country (optional)</td></tr>
+  <tr><td>error_code</td><td>string</td><td>Carrier error code if failed (optional)</td></tr>
+</table>
+
+<h3>DLR Status Codes</h3>
+<table>
+  <tr><th>status</th><th>Meaning</th></tr>
+  <tr><td>0</td><td><span class="green">Delivered</span></td></tr>
+  <tr><td>1</td><td><span class="red">Failed</span></td></tr>
+  <tr><td>2</td><td>Pending / En-route</td></tr>
+  <tr><td>4</td><td>Sent to carrier (awaiting DLR)</td></tr>
+</table>
+
+<h3>Example POST Body</h3>
+<div class="code">{
+  "message_id": "TX-20260530-00123",
+  "status": 0,
+  "msisdn": "923219286686",
+  "operator": "Zong",
+  "country": "Pakistan"
+}</div>
+
+<h3>Response</h3>
+<div class="code"><span class="green">{ "ok": true, "status": 0, "text": "ACCEPTD", "Message_ID": "TX-20260530-00123" }</span></div>
+</div>
+
+<!-- ═══ SEND SMS ═══════════════════════════════════════════════════ -->
+<div class="section" id="send">
+<h2><span class="badge post">POST</span> Send SMS</h2>
+<p>Send a single SMS message outbound via BitsAuto → BhaooSMS → Carrier.</p>
+<div class="url">${base}/api/sms/send</div>
+<p><em>Requires BitsAuto session authentication.</em></p>
+
+<h3>Request Body (JSON)</h3>
+<div class="code">{
+  "to":   "923219286686",   // <span class="req">REQUIRED</span> — destination MSISDN (E.164, no +)
+  "from": "BitsOTP",        // <span class="req">REQUIRED</span> — sender ID
+  "text": "Your code: 847261", // <span class="req">REQUIRED</span> — message body
+  "type": "text"            // optional — default "text"
+}</div>
+
+<h3>Success Response</h3>
 <div class="code"><span class="green">{
   "status": 0,
-  "Text": "ACCEPTD",
-  "message_id": "TX-20260530-00123"
+  "messageId": "BHAOO-MSG-001",
+  "internalId": "recv-1748620800-abc12"
 }</span></div>
+</div>
 
-<h3>Error Responses</h3>
+<!-- ═══ BULK SMS ════════════════════════════════════════════════════ -->
+<div class="section" id="bulk">
+<h2><span class="badge post">POST</span> Send Bulk SMS</h2>
+<p>Send up to <strong>100 messages</strong> in a single request.</p>
+<div class="url">${base}/api/sms/send-bulk</div>
+<p><em>Requires BitsAuto session authentication.</em></p>
+
+<h3>Request Body (JSON)</h3>
+<div class="code">{
+  "messages": [
+    { "to": "923219286686", "from": "BitsOTP", "text": "Code: 847261" },
+    { "to": "971501234567", "from": "BitsOTP", "text": "Code: 991234" }
+  ]
+}</div>
+
+<h3>Success Response</h3>
+<div class="code"><span class="green">{
+  "total": 2,
+  "results": [
+    { "status": 0, "messageId": "BHAOO-MSG-001" },
+    { "status": 0, "messageId": "BHAOO-MSG-002" }
+  ]
+}</span></div>
+</div>
+
+<!-- ═══ NUMBER FORMAT ══════════════════════════════════════════════ -->
+<div class="section" id="numbers">
+<h2>📱 Phone Number Format</h2>
+<p>All number fields must be plain E.164 digits — <strong>no leading <code>+</code>, no <code>00</code> prefix, no spaces or dashes.</strong></p>
 <table>
-  <tr><th>status</th><th>Text</th><th>Reason</th></tr>
-  <tr><td>-42</td><td>REJECTD</td><td>Authentication failed — wrong apikey or secretkey</td></tr>
-  <tr><td>-1</td><td>REJECTD</td><td>Missing required fields (<code>to</code> or <code>smsText</code>) or internal error</td></tr>
-  <tr><td>0</td><td>ACCEPTD</td><td>Message accepted; voice call will be triggered automatically</td></tr>
+  <tr><th>Country</th><th>✅ Correct</th><th>❌ Wrong</th></tr>
+  <tr><td>Pakistan</td><td><span class="green">923219286686</span></td><td><span class="red">+923219286686 &nbsp; 03219286686 &nbsp; 00923219286686</span></td></tr>
+  <tr><td>UAE</td><td><span class="green">971501234567</span></td><td><span class="red">+971501234567 &nbsp; 00971501234567</span></td></tr>
+  <tr><td>Saudi Arabia</td><td><span class="green">966501234567</span></td><td><span class="red">+966501234567 &nbsp; 00966501234567</span></td></tr>
+  <tr><td>Bangladesh</td><td><span class="green">8801711234567</span></td><td><span class="red">+8801711234567</span></td></tr>
 </table>
-
-<div class="note">
-  ✅ <strong>ACCEPTD</strong> is returned immediately (async) — the voice call is placed in the background. You do not need to wait for the call to complete.
-</div>
+<div class="warn">⚠️ Sending with a leading <code>+</code> will cause authentication or routing errors on the carrier side.</div>
 </div>
 
-<div class="section">
-<h2>OTP Extraction Rules</h2>
-<p>BitsAuto scans <code>smsText</code> for the first sequence of <strong>4 to 8 consecutive digits</strong> using the pattern <code>\\b(\\d{4,8})\\b</code>. The entire SMS body can contain other text.</p>
+<!-- ═══ REVE CONFIG ════════════════════════════════════════════════ -->
+<div class="section" id="reve-config">
+<h2>⚙️ REVE HTTP Profile Configuration</h2>
+<p>In REVE Admin → <strong>HTTP Profiles</strong> → create or edit a profile with the values below:</p>
 <table>
-  <tr><th>smsText</th><th>Extracted OTP</th></tr>
-  <tr><td>Your OTP is <strong>847261</strong>. Valid 5 min.</td><td><span class="green">847261</span></td></tr>
-  <tr><td>Code: <strong>1234</strong></td><td><span class="green">1234</span></td></tr>
-  <tr><td>Use <strong>99887766</strong> to verify</td><td><span class="green">99887766</span></td></tr>
-  <tr><td>Welcome to BitsAuto</td><td><span class="red">No OTP found — call not triggered</span></td></tr>
-</table>
-</div>
-
-<div class="section">
-<h2>Phone Number Format</h2>
-<p>The <code>to</code> parameter must be a plain E.164 number without the leading <code>+</code>.</p>
-<table>
-  <tr><th>Country</th><th>Correct Format</th><th>Wrong Format</th></tr>
-  <tr><td>Pakistan (Zong/Jazz/Telenor)</td><td><span class="green">923219286686</span></td><td><span class="red">+923219286686 &nbsp;/&nbsp; 03219286686</span></td></tr>
-  <tr><td>UAE</td><td><span class="green">971501234567</span></td><td><span class="red">+971501234567</span></td></tr>
-  <tr><td>Saudi Arabia</td><td><span class="green">966501234567</span></td><td><span class="red">00966501234567</span></td></tr>
-</table>
-<div class="warn">⚠️ Do not include the leading <code>+</code> or country-exit codes like <code>00</code> in the <code>to</code> field.</div>
-</div>
-
-<div class="section">
-<h2>REVE HTTP Profile Configuration</h2>
-<p>In your REVE SMS Admin → HTTP Profiles → create or edit a profile with these settings:</p>
-<table>
-  <tr><th>Field</th><th>Value</th></tr>
+  <tr><th>REVE Field</th><th>Value to enter</th></tr>
   <tr><td>Profile Type</td><td>HTTP GET</td></tr>
   <tr><td>Submit URL</td><td><code>${base}/api/bhaoo/receive</code></td></tr>
-  <tr><td>API Key parameter name</td><td><code>apikey</code></td></tr>
-  <tr><td>Secret Key parameter name</td><td><code>secretkey</code></td></tr>
-  <tr><td>Destination param name</td><td><code>to</code></td></tr>
-  <tr><td>Sender param name</td><td><code>from</code></td></tr>
-  <tr><td>Message param name</td><td><code>smsText</code></td></tr>
-  <tr><td>Transaction ID param name</td><td><code>transactionId</code></td></tr>
-  <tr><td>Success response check</td><td><code>"Text":"ACCEPTD"</code></td></tr>
+  <tr><td>API Key field name</td><td><code>apikey</code></td></tr>
+  <tr><td>Secret Key field name</td><td><code>secretkey</code></td></tr>
+  <tr><td>Destination field name</td><td><code>to</code></td></tr>
+  <tr><td>Sender field name</td><td><code>from</code></td></tr>
+  <tr><td>Message field name</td><td><code>smsText</code></td></tr>
+  <tr><td>Transaction ID field name</td><td><code>transactionId</code></td></tr>
+  <tr><td>DLR URL</td><td><code>${base}/api/bhaoo/dlr</code></td></tr>
+  <tr><td>DLR Method</td><td>POST (preferred) or GET</td></tr>
+  <tr><td>Success match string</td><td><code>ACCEPTD</code></td></tr>
 </table>
 </div>
 
-<div class="section">
-<h2><span class="badge get">GET</span> DLR Push Webhook (optional)</h2>
-<p>If REVE supports DLR callbacks, configure this URL to receive delivery reports:</p>
-<div class="url">${base}/api/bhaoo/dlr-push</div>
-<p>Accepts both GET and POST. BitsAuto correlates DLR events with previously sent messages using <code>message_id</code> / <code>transactionId</code>.</p>
+<!-- ═══ HEALTH CHECK ═══════════════════════════════════════════════ -->
+<div class="section" id="health">
+<h2>🔍 Health Check</h2>
+<p>Hit this URL to confirm the server is reachable before configuring REVE. No valid credentials required — the expected response confirms the server is live and the auth layer is active.</p>
+<div class="url">${base}/api/bhaoo/receive?apikey=ping&amp;secretkey=ping&amp;to=0&amp;smsText=test</div>
+<p>Expected response:</p>
+<div class="code">{ "status": -42, "Text": "REJECTD", "error": "Authentication failed" }</div>
+<div class="note">✅ Receiving this exact response means the webhook server is online and authentication is working correctly.</div>
 </div>
 
-<div class="section">
-<h2>Health Check</h2>
-<p>Use this to verify the webhook server is reachable before configuring REVE:</p>
-<div class="url">${base}/api/bhaoo/receive?apikey=test&secretkey=test&to=0&smsText=test</div>
-<p>Expected response: <code>{"status":-42,"Text":"REJECTD","error":"Authentication failed"}</code> — confirms the server is live and auth is working.</p>
-</div>
-
-<hr style="border-color:#1e293b;margin:32px 0"/>
-<p style="font-size:.8rem;color:#475569;text-align:center">BitsAuto Monitoring Platform &nbsp;·&nbsp; Voice OTP Integration &nbsp;·&nbsp; Confidential</p>
+<hr class="divider"/>
+<p style="font-size:.78rem;color:#334155;text-align:center">BitsAuto Monitoring Platform &nbsp;·&nbsp; SMS API Reference &nbsp;·&nbsp; Confidential</p>
 </div>
 </body>
 </html>`);
