@@ -234,7 +234,7 @@ export function registerBhaooRoutes(app: Express) {
                 status:   'initiated',
               }).returning();
 
-              originateOtpCall({ to: payload.msisdn, otp, trunk: 'Sippy' })
+              originateOtpCall({ to: payload.msisdn, otp, trunk: 'Sippy', cli: payload.msisdn })
                 .then(async (result) => {
                   await db.update(voiceOtpCalls)
                     .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? result.reasonText ?? null })
@@ -318,7 +318,7 @@ export function registerBhaooRoutes(app: Express) {
           status:   'initiated',
         }).returning();
 
-        originateOtpCall({ to: String(to), otp, trunk: 'Sippy' })
+        originateOtpCall({ to: String(to), otp, trunk: 'Sippy', cli: from ? String(from) : undefined })
           .then(async (result) => {
             const { eq: eqOp } = await import('drizzle-orm');
             await db.update(voiceOtpCalls)

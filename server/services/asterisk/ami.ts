@@ -52,6 +52,7 @@ export interface OriginateResult {
 export interface OriginateParams {
   to:        string;   // e.g. +923001112233
   otp:       string;   // e.g. 987432 — passed as CallerID name so dialplan reads it
+  cli?:      string;   // Caller ID to present to the called party — used as-is, no modification
   trunk?:    string;   // Asterisk trunk/peer name, default 'Sippy'
   timeout?:  number;   // call timeout ms, default 30000
 }
@@ -138,9 +139,9 @@ export function originateOtpCall(params: OriginateParams): Promise<OriginateResu
           if (msg.includes('Response: Success')) {
             loggedIn = true;
             const channel = buildChannel(config.chanTech, trunkName, config.sippySipIp, to);
-            // CLI: use SIPPY_CLI if set (required by Sippy IP auth rule as From: number),
-            // otherwise fall back to OTP digits (harmless but may be rejected by Sippy)
-            const cli = config.sippyCli || otp;
+            // CLI: use caller-supplied cli as-is (no modification), then SIPPY_CLI env var,
+            // then fall back to OTP digits. Never strip or add digits to the CLI.
+            const cli = params.cli ?? config.sippyCli ?? otp;
             // Using Application:SayDigits bypasses any FreePBX dialplan requirement
             console.log(`[ami] logged in — sending originate: Channel=${channel} CLI=${cli} Application=SayDigits Data=${otp} (tech=${config.chanTech})`);
             originateSent = true;

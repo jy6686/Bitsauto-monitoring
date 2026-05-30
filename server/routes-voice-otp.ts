@@ -33,7 +33,7 @@ export function registerVoiceOtpRoutes(app: Express) {
 
   // ── Initiate OTP call ────────────────────────────────────────────────────────
   app.post('/api/voice-otp', requireAuth, async (req: any, res: any) => {
-    const { to, otp, trunk } = req.body ?? {};
+    const { to, otp, trunk, cli } = req.body ?? {};
     if (!to)  return res.status(400).json({ error: '"to" (destination number) is required' });
     if (!otp) return res.status(400).json({ error: '"otp" (digits to speak) is required' });
     if (!/^\d{4,8}$/.test(String(otp))) {
@@ -52,7 +52,7 @@ export function registerVoiceOtpRoutes(app: Express) {
     }).returning();
 
     // Originate via AMI (non-blocking from client perspective)
-    originateOtpCall({ to: String(to), otp: String(otp), trunk: trunk ?? 'Sippy' })
+    originateOtpCall({ to: String(to), otp: String(otp), trunk: trunk ?? 'Sippy', cli: cli ? String(cli) : undefined })
       .then(async (result) => {
         const status = result.success ? 'answered' : 'failed';
         console.log(`[voice-otp] call outcome → status=${status} reason=${result.reasonText ?? result.error ?? 'ok'} uniqueId=${result.uniqueId ?? 'none'}`);
