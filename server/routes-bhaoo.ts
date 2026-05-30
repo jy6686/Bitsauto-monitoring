@@ -272,16 +272,19 @@ export function registerBhaooRoutes(app: Express) {
   // GET /api/bhaoo/receive?apikey=...&secretkey=...&to=...&from=...&smsText=...&transactionId=...
   app.get('/api/bhaoo/receive', async (req: any, res: any) => {
     try {
-      // IP whitelist — only allow requests from known REVE/BhaooSMS server IPs
-      const allowedIps = (process.env.REVE_ALLOWED_IPS ?? '149.20.185.6')
-        .split(',').map(s => s.trim()).filter(Boolean);
+      // IP logging — always log the real source IP for diagnostics
       const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
         ?? req.socket?.remoteAddress ?? '';
-      if (allowedIps.length > 0 && !allowedIps.includes('*') && !allowedIps.includes(clientIp)) {
-        console.warn(`[bhaoo-receive] Blocked request from unauthorized IP: ${clientIp} (allowed: ${allowedIps.join(', ')})`);
+      console.log(`[bhaoo-receive] Inbound request — IP: ${clientIp} x-forwarded-for: ${req.headers['x-forwarded-for'] ?? 'none'}`);
+
+      // IP whitelist — set REVE_ALLOWED_IPS env var to restrict (comma-separated, * = allow all)
+      // Default is * (open) until we confirm REVE's actual outbound IP from logs
+      const allowedIps = (process.env.REVE_ALLOWED_IPS ?? '*')
+        .split(',').map(s => s.trim()).filter(Boolean);
+      if (!allowedIps.includes('*') && !allowedIps.includes(clientIp)) {
+        console.warn(`[bhaoo-receive] Blocked IP: ${clientIp} (allowed: ${allowedIps.join(', ')})`);
         return res.status(403).json({ status: -403, Text: 'REJECTD', error: 'Forbidden' });
       }
-      console.log(`[bhaoo-receive] Request from IP: ${clientIp}`);
 
       const { apikey, secretkey, to, from, smsText, type, transactionId } = req.query as Record<string, string>;
 
