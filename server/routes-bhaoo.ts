@@ -277,11 +277,14 @@ export function registerBhaooRoutes(app: Express) {
         ?? req.socket?.remoteAddress ?? '';
       console.log(`[bhaoo-receive] Inbound request — IP: ${clientIp} x-forwarded-for: ${req.headers['x-forwarded-for'] ?? 'none'}`);
 
-      // IP whitelist — set REVE_ALLOWED_IPS env var to restrict (comma-separated, * = allow all)
-      // Default is * (open) until we confirm REVE's actual outbound IP from logs
+      // IP whitelist — REVE_ALLOWED_IPS env var (comma-separated, * = allow all)
+      // Whitelisted IPs are trusted and bypass apikey/secretkey credential check.
+      // Non-whitelisted callers must supply valid apikey+secretkey.
       const allowedIps = (process.env.REVE_ALLOWED_IPS ?? '*')
         .split(',').map(s => s.trim()).filter(Boolean);
-      if (!allowedIps.includes('*') && !allowedIps.includes(clientIp)) {
+      const ipTrusted = allowedIps.includes('*') || allowedIps.includes(clientIp);
+      if (!ipTrusted && !allowedIps.includes('*')) {
+        // Not in whitelist AND wildcard not set — block outright
         console.warn(`[bhaoo-receive] Blocked IP: ${clientIp} (allowed: ${allowedIps.join(', ')})`);
         return res.status(403).json({ status: -403, Text: 'REJECTD', error: 'Forbidden' });
       }
@@ -292,14 +295,18 @@ export function registerBhaooRoutes(app: Express) {
         return res.json({ status: -1, Text: 'REJECTD', message_id: '', error: 'to and smsText are required' });
       }
 
-      // Validate credentials against stored profile
-      const profiles = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.isActive, true)).limit(10);
-      const matched  = profiles.find(p => p.apiKey === apikey && p.secretKey === secretkey);
-      const envMatch = apikey === process.env.BHAOO_API_KEY && secretkey === process.env.BHAOO_SECRET_KEY;
-
-      if (!matched && !envMatch) {
-        console.warn(`[bhaoo-receive] Auth failed — apikey=${apikey}`);
-        return res.json({ status: -42, Text: 'REJECTD', message_id: '', error: 'Authentication failed' });
+      // Auth: whitelisted IPs are trusted (no credentials needed).
+      // Unknown IPs must supply valid apikey+secretkey.
+      if (!ipTrusted) {
+        const profiles = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.isActive, true)).limit(10);
+        const matched  = profiles.find(p => p.apiKey === apikey && p.secretKey === secretkey);
+        const envMatch = apikey === process.env.BHAOO_API_KEY && secretkey === process.env.BHAOO_SECRET_KEY;
+        if (!matched && !envMatch) {
+          console.warn(`[bhaoo-receive] Auth failed — apikey=${apikey} ip=${clientIp}`);
+          return res.json({ status: -42, Text: 'REJECTD', message_id: '', error: 'Authentication failed' });
+        }
+      } else {
+        console.log(`[bhaoo-receive] IP trusted — skipping credential check (ip=${clientIp})`);
       }
 
       // Extract OTP: first 4–8 digit sequence in the message
