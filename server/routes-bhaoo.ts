@@ -342,11 +342,10 @@ export function registerBhaooRoutes(app: Express) {
     }
   });
 
-  // ── Public SMS API documentation — no auth required (for REVE / third-party setup) ─
-  app.get('/api/bhaoo/docs', (_req: any, res: any) => {
+  // ── Shared HTML generator for SMS API docs ──────────────────────────────────
+  function buildSmsApiDocs(): string {
     const base = 'https://vo-ip-watcher--junaid70.replit.app';
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(`<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -382,6 +381,31 @@ export function registerBhaooRoutes(app: Express) {
   .toc a:hover{color:#e2e8f0}
   code{font-family:'Courier New',monospace;background:#1e293b;padding:1px 5px;border-radius:3px;font-size:.82em;color:#a5b4fc}
   .divider{border:none;border-top:1px solid #1e293b;margin:28px 0}
+  .dl-bar{display:flex;gap:10px;margin-bottom:28px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:8px 18px;border-radius:7px;font-size:.83rem;font-weight:600;text-decoration:none;cursor:pointer;border:none;transition:opacity .15s}
+  .btn:hover{opacity:.85}
+  .btn-pdf{background:#2563eb;color:#fff}
+  .btn-html{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+  @media print{
+    .dl-bar,.toc{display:none!important}
+    body{background:#fff!important;color:#111!important;padding:24px!important}
+    .section{background:#f8fafc!important;border:1px solid #e2e8f0!important;break-inside:avoid;page-break-inside:avoid}
+    h1{color:#111!important}h2{color:#1e293b!important}
+    .url{background:#f1f5f9!important;color:#1d4ed8!important;border:1px solid #cbd5e1!important}
+    .code{background:#f8fafc!important;color:#1e293b!important;border:1px solid #e2e8f0!important}
+    th{background:#f1f5f9!important;color:#475569!important}
+    td{color:#374151!important}
+    td:first-child{color:#6d28d9!important}
+    .green{color:#16a34a!important}.red{color:#dc2626!important}
+    .note{background:#f0fdf4!important;color:#166534!important}
+    .warn{background:#fffbeb!important;color:#92400e!important}
+    .badge.get{background:#dbeafe!important;color:#1d4ed8!important}
+    .badge.post{background:#dcfce7!important;color:#166534!important}
+    .req{color:#ea580c!important}.opt{color:#9ca3af!important}
+    .subtitle{color:#475569!important}p{color:#374151!important}
+    .divider{border-color:#e2e8f0!important}
+    h3{color:#475569!important}
+  }
 </style>
 </head>
 <body>
@@ -389,6 +413,11 @@ export function registerBhaooRoutes(app: Express) {
 
 <h1>💬 BitsAuto SMS API</h1>
 <p class="subtitle">Integration reference for REVE SMS / BhaooSMS V5 &nbsp;·&nbsp; v1.0 &nbsp;·&nbsp; Base URL: <code style="color:#7dd3fc;background:none;padding:0">${base}</code></p>
+
+<div class="dl-bar">
+  <button class="btn btn-pdf" onclick="window.print()">🖨️ Save as PDF</button>
+  <a class="btn btn-html" href="/api/bhaoo/docs/download" download="BitsAuto-SMS-API.html">⬇ Download HTML</a>
+</div>
 
 <div class="toc">
   <a href="#receive">Inbound Webhook</a>
@@ -580,7 +609,20 @@ export function registerBhaooRoutes(app: Express) {
 <p style="font-size:.78rem;color:#334155;text-align:center">BitsAuto Monitoring Platform &nbsp;·&nbsp; SMS API Reference &nbsp;·&nbsp; Confidential</p>
 </div>
 </body>
-</html>`);
+</html>`;
+  }
+
+  // ── Docs — view in browser ───────────────────────────────────────────────────
+  app.get('/api/bhaoo/docs', (_req: any, res: any) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(buildSmsApiDocs());
+  });
+
+  // ── Docs — download as HTML file ─────────────────────────────────────────────
+  app.get('/api/bhaoo/docs/download', (_req: any, res: any) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="BitsAuto-SMS-API.html"');
+    res.send(buildSmsApiDocs());
   });
 
   // ── DLR query — poll delivery status for a specific message ─────────────────
