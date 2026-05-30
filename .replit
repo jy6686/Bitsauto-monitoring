@@ -50,3 +50,5 @@ integrations = ["javascript_log_in_with_replit:2.0.0"]
 [userenv.shared]
 SIPPY_ADMIN_USERNAME = "ssp-root"
 SIPPY_ADMIN_PASSWORD = "!chiaan1"
+ASTERISK_CHAN_TECH = "PJSIP"
+ASTERISK_TRUNK_NAME = "Sippy"

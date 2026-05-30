@@ -6,11 +6,22 @@ import net from 'net';
 
 function cfg() {
   return {
-    host:     process.env.ASTERISK_HOST     ?? '159.223.32.59',
-    port:     Number(process.env.ASTERISK_AMI_PORT ?? 5038),
-    username: process.env.ASTERISK_AMI_USER ?? 'bitsauto',
-    secret:   process.env.ASTERISK_AMI_SECRET ?? '',
+    host:      process.env.ASTERISK_HOST      ?? '159.223.32.59',
+    port:      Number(process.env.ASTERISK_AMI_PORT ?? 5038),
+    username:  process.env.ASTERISK_AMI_USER  ?? 'bitsauto',
+    secret:    process.env.ASTERISK_AMI_SECRET ?? '',
+    // PJSIP (modern FreePBX) vs SIP (legacy chan_sip)
+    // PJSIP format: PJSIP/number@trunk  |  SIP format: SIP/trunk/number
+    chanTech:  (process.env.ASTERISK_CHAN_TECH ?? 'SIP').toUpperCase() as 'SIP' | 'PJSIP',
+    trunkName: process.env.ASTERISK_TRUNK_NAME ?? 'Sippy',
   };
+}
+
+/** Build the correct Asterisk channel string based on driver (SIP vs PJSIP) */
+function buildChannel(chanTech: 'SIP' | 'PJSIP', trunkName: string, number: string): string {
+  return chanTech === 'PJSIP'
+    ? `PJSIP/${number}@${trunkName}`   // modern res_pjsip
+    : `SIP/${trunkName}/${number}`;    // legacy chan_sip
 }
 
 export function isAmiConfigured(): boolean {
@@ -57,8 +68,9 @@ function reasonText(code: number): string {
  */
 export function originateOtpCall(params: OriginateParams): Promise<OriginateResult> {
   const config = cfg();
-  const { otp, trunk = 'Sippy', timeout: callTimeout = 45000 } = params;
-  // chan_sip rejects '+' in the dial string — strip it, keep digits only
+  const { otp, timeout: callTimeout = 45000 } = params;
+  const trunkName = params.trunk ?? config.trunkName;
+  // Strip leading '+' — chan_sip and PJSIP both prefer plain E.164 digits
   const to = params.to.replace(/^\+/, '');
   const actionId = `bitsauto-${Date.now()}`;
 
@@ -109,10 +121,9 @@ export function originateOtpCall(params: OriginateParams): Promise<OriginateResu
         if (!loggedIn && msg.includes('ActionID: ami-login')) {
           if (msg.includes('Response: Success')) {
             loggedIn = true;
-            const channel = `SIP/${trunk}/${to}`;
-            // Build digit sequence for SayDigits — plays each OTP digit aloud
-            // Using Application instead of Context bypasses any FreePBX dialplan requirement
-            console.log(`[ami] logged in — sending originate: Channel=${channel} Application=SayDigits Data=${otp}`);
+            const channel = buildChannel(config.chanTech, trunkName, to);
+            // Using Application:SayDigits bypasses any FreePBX dialplan requirement
+            console.log(`[ami] logged in — sending originate: Channel=${channel} Application=SayDigits Data=${otp} (tech=${config.chanTech})`);
             originateSent = true;
             socket.write([
               'Action: Originate',
