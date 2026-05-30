@@ -59,7 +59,7 @@ function reasonText(code: number): string {
     0: 'No such extension/number',
     1: 'No answer (timeout)',
     4: 'Answered',
-    5: 'Busy',
+    5: 'No answer / Alerting (not answered)',
     7: 'Failed/Error',
     8: 'Congestion',
   };

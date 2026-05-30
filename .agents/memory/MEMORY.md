@@ -12,3 +12,4 @@
 - [Workspace Navigation Architecture](workspace-nav-architecture.md) — WorkspaceShell tab-bar system; Phase 1+2 complete; 20 finance routes wrapped across 3 workspaces; db:push blocked by constraint prompt — use direct SQL for new tables.
 - [BhaooSMS Integration](bhaoo-sms-integration.md) — REVE SMS V5.3.0; service layer at server/services/bhaoo/; routes in server/routes-bhaoo.ts registered via registerBhaooRoutes(); 4 DB tables created via direct SQL; SMS Monitor at /sms-monitor.
 - [BytePlus Infrastructure Orchestration](byteplus-infra-orchestration.md) — Phase 4/5 future feature: NOC-driven node provisioning via BytePlus ECS; deferred until billing/invoicing fully complete.
+- [Voice OTP AMI dial format](voice-otp-ami-dial.md) — Sippy dial pattern needs tech prefix; DIRECT_SIP mode; chan_sip on port 5160; no FreePBX trunk needed.
