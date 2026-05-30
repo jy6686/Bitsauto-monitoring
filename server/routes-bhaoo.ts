@@ -262,7 +262,7 @@ export function registerBhaooRoutes(app: Express) {
     try {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-      const [totals] = await db.execute(sql`
+      const totalsResult = await db.execute(sql`
         SELECT
           COUNT(*)                                        AS total,
           COUNT(*) FILTER (WHERE status = 'delivered')   AS delivered,
@@ -272,16 +272,17 @@ export function registerBhaooRoutes(app: Express) {
                         OR status = 'pending')           AS pending
         FROM sms_messages
         WHERE submitted_at >= ${since}
-      `) as any[];
+      `);
+      const totalsRows = Array.isArray(totalsResult) ? totalsResult : ((totalsResult as any).rows ?? []);
 
-      const row = totals ?? {};
+      const row = (totalsRows[0] as any) ?? {};
       const total     = Number(row.total     ?? 0);
       const delivered = Number(row.delivered ?? 0);
       const failed    = Number(row.failed    ?? 0);
       const pending   = Number(row.pending   ?? 0);
       const rate      = total > 0 ? parseFloat(((delivered / total) * 100).toFixed(1)) : 0;
 
-      const operatorRows = await db.execute(sql`
+      const operatorResult = await db.execute(sql`
         SELECT operator, COUNT(*) AS sent,
                COUNT(*) FILTER (WHERE status = 'delivered') AS delivered
         FROM sms_messages
@@ -290,9 +291,10 @@ export function registerBhaooRoutes(app: Express) {
         GROUP BY operator
         ORDER BY sent DESC
         LIMIT 10
-      `) as any[];
+      `);
+      const operatorRows: any[] = Array.isArray(operatorResult) ? operatorResult : ((operatorResult as any).rows ?? []);
 
-      const operatorBreakdown = (operatorRows as any[]).map((r: any) => ({
+      const operatorBreakdown = operatorRows.map((r: any) => ({
         operator:  r.operator,
         sent:      Number(r.sent),
         delivered: Number(r.delivered),
