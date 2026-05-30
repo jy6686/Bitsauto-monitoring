@@ -21,7 +21,8 @@ export function parseDlrPush(body: Record<string, unknown>): DlrPushPayload {
   return {
     messageId:  String(
       body.message_id  ?? body.messageId  ?? body.MessageId  ??
-      body.Message_Id  ?? body.message_ID ?? body.msg_id     ?? ''
+      body.Message_Id  ?? body.Message_ID ?? body.message_ID ??
+      body.msg_id      ?? body.REPLACE_ID ?? ''
     ),
     clientRef:  body.client_ref  ? String(body.client_ref)  : undefined,
     status:     Number(body.status ?? body.Status ?? body.STATUS ?? 1),

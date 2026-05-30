@@ -253,7 +253,7 @@ export function registerBhaooRoutes(app: Express) {
         }
       }
 
-      res.json({ ok: true, status: 0, text: 'ACCEPTD', Message_Id: payload.messageId });
+      res.json({ ok: true, status: 0, text: 'ACCEPTD', Message_ID: payload.messageId });
     } catch (err: any) {
       console.error('[bhaoo-dlr] error:', err.message);
       res.status(500).json({ ok: false, status: -1, text: 'REJECTD', error: err.message });
