@@ -66,37 +66,43 @@ interface BhaooProfile {
 
 const EMPTY_PROFILE = { name: '', baseUrl: 'http://149.20.185.6/BhaooSMSV5', apiKey: '', secretKey: '', isDefault: false };
 
-function DlrUrlBox() {
+function UrlCopyRow({ label, url, testId }: { label: string; url: string; testId: string }) {
   const [copied, setCopied] = useState(false);
-  const dlrUrl = `${window.location.origin}/api/bhaoo/dlr`;
-  const isDevUrl = window.location.hostname.includes('riker.replit.dev') || window.location.hostname === 'localhost';
-
   function handleCopy() {
-    navigator.clipboard.writeText(dlrUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
-
   return (
-    <div className={`rounded-xl border p-3 space-y-2 ${isDevUrl ? 'border-amber-500/30 bg-amber-500/5' : 'border-emerald-500/20 bg-emerald-500/5'}`}>
+    <div className="space-y-1">
+      <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">{label}</p>
       <div className="flex items-center gap-2">
-        <Info className={`h-3.5 w-3.5 shrink-0 ${isDevUrl ? 'text-amber-400' : 'text-emerald-400'}`} />
-        <span className="text-[11px] font-medium text-foreground/80">
-          DLR Callback URL — copy this into every REVE HTTP profile
-        </span>
-      </div>
-      <div className="flex items-center gap-2">
-        <code className="flex-1 text-[11px] font-mono bg-muted/60 px-2 py-1.5 rounded-lg truncate text-foreground/90 select-all">
-          {dlrUrl}
-        </code>
-        <Button size="sm" variant="outline" className="h-7 px-2 shrink-0" onClick={handleCopy} data-testid="button-copy-dlr-url">
+        <code className="flex-1 text-[11px] font-mono bg-muted/60 px-2 py-1.5 rounded-lg truncate text-foreground/90 select-all">{url}</code>
+        <Button size="sm" variant="outline" className="h-7 px-2 shrink-0" onClick={handleCopy} data-testid={testId}>
           {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function DlrUrlBox() {
+  const origin    = window.location.origin;
+  const submitUrl = `${origin}/api/bhaoo/receive`;
+  const dlrUrl    = `${origin}/api/bhaoo/dlr`;
+  const isDevUrl  = window.location.hostname.includes('riker.replit.dev') || window.location.hostname === 'localhost';
+
+  return (
+    <div className={`rounded-xl border p-3 space-y-3 ${isDevUrl ? 'border-amber-500/30 bg-amber-500/5' : 'border-sky-500/20 bg-sky-500/5'}`}>
+      <div className="flex items-center gap-2">
+        <Info className={`h-3.5 w-3.5 shrink-0 ${isDevUrl ? 'text-amber-400' : 'text-sky-400'}`} />
+        <span className="text-[11px] font-medium text-foreground/80">
+          REVE HTTP Profile URLs — paste both into the R.Testing1 profile
+        </span>
+      </div>
+      <UrlCopyRow label="Submit URL (REVE → BitsAuto)" url={submitUrl} testId="button-copy-submit-url" />
+      <UrlCopyRow label="DLR Callback URL (REVE → BitsAuto)" url={dlrUrl} testId="button-copy-dlr-url" />
       {isDevUrl && (
         <p className="text-[10px] text-amber-400/80">
-          ⚠ This is the dev URL — it changes when the workspace restarts. Use the deployed app URL in REVE production profiles.
+          ⚠ Dev URL — changes on workspace restart. Use the deployed app URL in REVE production profiles.
         </p>
       )}
     </div>

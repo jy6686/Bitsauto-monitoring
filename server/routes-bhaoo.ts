@@ -11,8 +11,10 @@ import {
 } from './services/bhaoo/index';
 import {
   smsMessages, smsDlrEvents, bhaooBalanceLog, smsVendorStats, bhaooProfiles,
+  voiceOtpCalls,
 } from '@shared/schema';
 import { eq, desc, gte, sql } from 'drizzle-orm';
+import { originateOtpCall } from './services/asterisk/index';
 
 function requireAuth(req: any, res: any, next: any) {
   if (!req.isAuthenticated?.()) return res.status(401).json({ error: 'Unauthorized' });
@@ -265,6 +267,80 @@ export function registerBhaooRoutes(app: Express) {
 
   // BhaooSMS GET push (if GET method selected in BhaooSMS config)
   app.get('/api/bhaoo/dlr', (req: any, res: any) => handleDlrPush(req.query ?? {}, res));
+
+  // ── Inbound SMS receive — REVE submits here (Submit URL in HTTP profile) ─────
+  // GET /api/bhaoo/receive?apikey=...&secretkey=...&to=...&from=...&smsText=...&transactionId=...
+  app.get('/api/bhaoo/receive', async (req: any, res: any) => {
+    try {
+      const { apikey, secretkey, to, from, smsText, type, transactionId } = req.query as Record<string, string>;
+
+      if (!to || !smsText) {
+        return res.json({ status: -1, message_id: '', error: 'to and smsText are required' });
+      }
+
+      // Validate credentials against stored profile
+      const profiles = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.isActive, true)).limit(10);
+      const matched  = profiles.find(p => p.apiKey === apikey && p.secretKey === secretkey);
+      const envMatch = apikey === process.env.BHAOO_API_KEY && secretkey === process.env.BHAOO_SECRET_KEY;
+
+      if (!matched && !envMatch) {
+        console.warn(`[bhaoo-receive] Auth failed — apikey=${apikey}`);
+        return res.json({ status: -42, message_id: '', error: 'Authentication failed' });
+      }
+
+      // Extract OTP: first 4–8 digit sequence in the message
+      const otpMatch = smsText.match(/\b(\d{4,8})\b/);
+      const otp      = otpMatch?.[1] ?? '';
+
+      const msgId    = transactionId || `recv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const profileId = matched?.id ?? null;
+
+      // Log in sms_messages
+      const [msgRow] = await db.insert(smsMessages).values({
+        internalId:  msgId,
+        bhaooId:     msgId,
+        toNumber:    String(to),
+        fromId:      from ? String(from) : null,
+        messageText: String(smsText),
+        messageType: type ?? 'text',
+        status:      'submitted',
+        profileId,
+      }).returning();
+
+      console.log(`[bhaoo-receive] SMS from REVE → to=${to} otp=${otp || '(none)'} msgId=${msgId}`);
+
+      // Trigger Voice OTP call if OTP found in message
+      if (otp) {
+        const [callRow] = await db.insert(voiceOtpCalls).values({
+          toNumber: String(to),
+          otp:      otp[0] + '*'.repeat(Math.max(0, otp.length - 2)) + otp[otp.length - 1],
+          trunk:    'Sippy',
+          status:   'initiated',
+        }).returning();
+
+        originateOtpCall({ to: String(to), otp, trunk: 'Sippy' })
+          .then(async (result) => {
+            const { eq: eqOp } = await import('drizzle-orm');
+            await db.update(voiceOtpCalls)
+              .set({ status: result.success ? 'ringing' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? null })
+              .where(eqOp(voiceOtpCalls.id, callRow.id));
+            // Update sms message status based on call result
+            await db.update(smsMessages)
+              .set({ status: result.success ? 'delivered' : 'failed', fallbackTriggered: true, fallbackAt: new Date(), updatedAt: new Date() })
+              .where(eqOp(smsMessages.id, msgRow.id));
+            console.log(`[bhaoo-receive] Voice OTP call ${result.success ? 'initiated' : 'failed'}: ${result.error ?? result.uniqueId}`);
+          })
+          .catch((err) => console.error('[bhaoo-receive] AMI error:', err.message));
+      } else {
+        console.warn(`[bhaoo-receive] No OTP found in smsText: "${smsText}" — call not triggered`);
+      }
+
+      res.json({ status: 0, message_id: msgId });
+    } catch (err: any) {
+      console.error('[bhaoo-receive] error:', err.message);
+      res.json({ status: -1, message_id: '', error: err.message });
+    }
+  });
 
   // ── DLR query — poll delivery status for a specific message ─────────────────
   app.get('/api/bhaoo/dlr/:messageId', requireAuth, async (req: any, res: any) => {
