@@ -268,14 +268,16 @@ export function registerBhaooRoutes(app: Express) {
   // BhaooSMS GET push (if GET method selected in BhaooSMS config)
   app.get('/api/bhaoo/dlr', (req: any, res: any) => handleDlrPush(req.query ?? {}, res));
 
-  // ── Inbound SMS receive — REVE submits here (Submit URL in HTTP profile) ─────
-  // GET /api/bhaoo/receive?apikey=...&secretkey=...&to=...&from=...&smsText=...&transactionId=...
-  app.get('/api/bhaoo/receive', async (req: any, res: any) => {
+  // ── Inbound SMS receive — REVE submits here (GET or POST, Submit URL in HTTP profile) ──
+  // GET  /api/bhaoo/receive?to=...&smsText=...&from=...&transactionId=...
+  // POST /api/bhaoo/receive  (body or query params — REVE POST mode)
+  // Field aliases: smsText | text | message  (REVE uses different names per mode)
+  const handleReceive = async (req: any, res: any) => {
     try {
       // IP logging — always log the real source IP for diagnostics
       const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
         ?? req.socket?.remoteAddress ?? '';
-      console.log(`[bhaoo-receive] Inbound request — IP: ${clientIp} x-forwarded-for: ${req.headers['x-forwarded-for'] ?? 'none'}`);
+      console.log(`[bhaoo-receive] ${req.method} — IP: ${clientIp} x-forwarded-for: ${req.headers['x-forwarded-for'] ?? 'none'}`);
 
       // IP whitelist — REVE_ALLOWED_IPS env var (comma-separated, * = allow all)
       // Whitelisted IPs are trusted and bypass apikey/secretkey credential check.
@@ -289,7 +291,11 @@ export function registerBhaooRoutes(app: Express) {
         return res.status(403).json({ status: -403, Text: 'REJECTD', error: 'Forbidden' });
       }
 
-      const { apikey, secretkey, to, from, smsText, type, transactionId } = req.query as Record<string, string>;
+      // Merge query + body so params work in both GET and POST modes
+      const params = { ...req.query, ...req.body } as Record<string, string>;
+      const { apikey, secretkey, to, from, type, transactionId } = params;
+      // REVE uses different field names: smsText (GET), text (POST), message (older versions)
+      const smsText = params.smsText || params.text || params.message || '';
 
       if (!to || !smsText) {
         return res.json({ status: -1, Text: 'REJECTD', message_id: '', error: 'to and smsText are required' });
@@ -365,7 +371,9 @@ export function registerBhaooRoutes(app: Express) {
       console.error('[bhaoo-receive] error:', err.message);
       res.json({ status: -1, Text: 'REJECTD', message_id: '', error: err.message });
     }
-  });
+  };
+  app.get('/api/bhaoo/receive', handleReceive);
+  app.post('/api/bhaoo/receive', handleReceive);
 
   // ── Shared HTML generator for SMS API docs ──────────────────────────────────
   function buildSmsApiDocs(): string {
