@@ -87,7 +87,7 @@ export function registerVoiceOtpRoutes(app: Express) {
     try {
       const { sql } = await import('drizzle-orm');
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const [row] = await db.execute(sql`
+      const result = await db.execute(sql`
         SELECT
           COUNT(*) AS total,
           COUNT(*) FILTER (WHERE status = 'ringing' OR status = 'answered' OR status = 'completed') AS success,
@@ -95,7 +95,8 @@ export function registerVoiceOtpRoutes(app: Express) {
           COUNT(*) FILTER (WHERE status = 'initiated') AS pending
         FROM voice_otp_calls
         WHERE initiated_at >= ${since}
-      `) as any[];
+      `);
+      const row = result.rows?.[0] as any;
       res.json({
         callsToday:   Number(row?.total   ?? 0),
         successToday: Number(row?.success ?? 0),
