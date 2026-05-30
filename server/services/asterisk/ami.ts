@@ -18,9 +18,11 @@ export function isAmiConfigured(): boolean {
 }
 
 export interface OriginateResult {
-  success:   boolean;
-  uniqueId?: string;
-  error?:    string;
+  success:    boolean;
+  uniqueId?:  string;
+  error?:     string;
+  reason?:    number;   // Asterisk OriginateResponse reason code
+  reasonText?: string;  // Human-readable reason
 }
 
 export interface OriginateParams {
@@ -30,32 +32,56 @@ export interface OriginateParams {
   timeout?:  number;   // call timeout ms, default 30000
 }
 
+/** Map Asterisk OriginateResponse reason codes to text */
+function reasonText(code: number): string {
+  const map: Record<number, string> = {
+    0: 'No such extension/number',
+    1: 'No answer (timeout)',
+    4: 'Answered',
+    5: 'Busy',
+    7: 'Failed/Error',
+    8: 'Congestion',
+  };
+  return map[code] ?? `Unknown reason ${code}`;
+}
+
 /**
- * Open a short-lived AMI connection, originate one call, then disconnect.
+ * Open a short-lived AMI connection, originate one call, wait for
+ * the real OriginateResponse event, then disconnect.
+ *
+ * With Async:true, Asterisk sends:
+ *   1. Response: Success  (just means "queued", NOT that call connected)
+ *   2. Event: OriginateResponse  (the REAL outcome — answered/busy/failed)
+ *
+ * We must wait for step 2 before resolving.
  */
 export function originateOtpCall(params: OriginateParams): Promise<OriginateResult> {
   const config = cfg();
-  const { to, otp, trunk = 'Sippy', timeout: callTimeout = 30000 } = params;
+  const { to, otp, trunk = 'Sippy', timeout: callTimeout = 45000 } = params;
   const actionId = `bitsauto-${Date.now()}`;
 
   return new Promise((resolve) => {
     const socket  = new net.Socket();
     let   buffer  = '';
-    let   sentLogin    = false;
-    let   loggedIn     = false;
-    let   responded    = false;
+    let   sentLogin     = false;
+    let   loggedIn      = false;
+    let   responded     = false;
+    let   originateSent = false;
 
     const done = (result: OriginateResult) => {
       if (responded) return;
       responded = true;
       clearTimeout(connTimeout);
+      try { socket.write('Action: Logoff\r\n\r\n'); } catch (_) {}
       try { socket.destroy(); } catch (_) {}
+      console.log(`[ami] originateOtpCall → to=${to} success=${result.success} reason=${result.reasonText ?? result.error ?? 'ok'} uniqueId=${result.uniqueId ?? 'none'}`);
       resolve(result);
     };
 
+    // Overall timeout — covers both connection + call dial time
     const connTimeout = setTimeout(
-      () => done({ success: false, error: 'AMI connection timed out' }),
-      15_000,
+      () => done({ success: false, error: 'AMI timeout waiting for call outcome', reasonText: 'Timeout' }),
+      callTimeout + 20_000,
     );
 
     socket.connect(config.port, config.host);
@@ -63,7 +89,7 @@ export function originateOtpCall(params: OriginateParams): Promise<OriginateResu
     socket.on('data', (chunk) => {
       buffer += chunk.toString();
 
-      // Banner arrives as a single \r\n terminated line — send login immediately
+      // Banner line — send login immediately
       if (!sentLogin && buffer.includes('Asterisk Call Manager')) {
         sentLogin = true;
         socket.write(
@@ -77,46 +103,67 @@ export function originateOtpCall(params: OriginateParams): Promise<OriginateResu
         const msg = buffer.slice(0, boundary);
         buffer    = buffer.slice(boundary + 4);
 
-        // Login success
-        if (!loggedIn && msg.includes('ActionID: ami-login') && msg.includes('Response: Success')) {
-          loggedIn = true;
-          const channel = `SIP/${trunk}/${to}`;
-          socket.write([
-            'Action: Originate',
-            `Channel: ${channel}`,
-            'Context: otp-playback',
-            'Exten: s',
-            'Priority: 1',
-            `CallerID: "${otp}" <${otp}>`,
-            `Timeout: ${callTimeout}`,
-            'Async: true',
-            `ActionID: ${actionId}`,
-            '', '',
-          ].join('\r\n'));
-        }
-
-        // Login failure
-        if (!loggedIn && msg.includes('ActionID: ami-login') && msg.includes('Response: Error')) {
-          done({ success: false, error: 'AMI authentication failed — check ASTERISK_AMI_SECRET' });
-        }
-
-        // Originate response
-        if (loggedIn && msg.includes(`ActionID: ${actionId}`)) {
+        // ── Login response ───────────────────────────────────────────────────
+        if (!loggedIn && msg.includes('ActionID: ami-login')) {
           if (msg.includes('Response: Success')) {
-            const m = msg.match(/Uniqueid: (.+)/);
-            socket.write('Action: Logoff\r\n\r\n');
-            done({ success: true, uniqueId: m?.[1]?.trim() });
+            loggedIn = true;
+            const channel = `SIP/${trunk}/${to}`;
+            console.log(`[ami] logged in — sending originate: Channel=${channel} Context=otp-playback CallerID="${otp}"`);
+            originateSent = true;
+            socket.write([
+              'Action: Originate',
+              `Channel: ${channel}`,
+              'Context: otp-playback',
+              'Exten: s',
+              'Priority: 1',
+              `CallerID: "${otp}" <${otp}>`,
+              `Timeout: ${callTimeout}`,
+              'Async: true',
+              `ActionID: ${actionId}`,
+              '', '',
+            ].join('\r\n'));
           } else {
             const m = msg.match(/Message: (.+)/);
-            done({ success: false, error: m?.[1]?.trim() ?? 'Originate failed' });
+            done({ success: false, error: `AMI auth failed: ${m?.[1]?.trim() ?? 'bad credentials'}` });
+          }
+        }
+
+        // ── Originate queued acknowledgment (Async: true) ────────────────────
+        // This is NOT the real result — just means Asterisk accepted the command
+        if (originateSent && msg.includes(`ActionID: ${actionId}`) && msg.includes('Response:')) {
+          if (msg.includes('Response: Error')) {
+            const m = msg.match(/Message: (.+)/);
+            done({ success: false, error: `Originate rejected by Asterisk: ${m?.[1]?.trim() ?? 'unknown'}` });
+          }
+          // Response: Success here = queued — keep waiting for OriginateResponse event
+        }
+
+        // ── OriginateResponse event — the REAL call outcome ───────────────────
+        if (msg.includes('Event: OriginateResponse') && msg.includes(`ActionID: ${actionId}`)) {
+          const responseLine = msg.match(/Response: (.+)/)?.[1]?.trim() ?? '';
+          const reasonCode   = Number(msg.match(/Reason: (\d+)/)?.[1] ?? -1);
+          const uniqueId     = msg.match(/Uniqueid: (.+)/)?.[1]?.trim();
+
+          console.log(`[ami] OriginateResponse → Response=${responseLine} Reason=${reasonCode}(${reasonText(reasonCode)}) Uniqueid=${uniqueId ?? 'none'}`);
+
+          if (responseLine === 'Success' || reasonCode === 4) {
+            done({ success: true, uniqueId, reason: reasonCode, reasonText: reasonText(reasonCode) });
+          } else {
+            done({
+              success:    false,
+              uniqueId,
+              reason:     reasonCode,
+              reasonText: reasonText(reasonCode),
+              error:      `Call ${responseLine}: ${reasonText(reasonCode)}`,
+            });
           }
         }
       }
     });
 
-    socket.on('error', (err) => done({ success: false, error: err.message }));
+    socket.on('error', (err) => done({ success: false, error: `AMI socket error: ${err.message}` }));
     socket.on('close', () => {
-      if (!responded) done({ success: false, error: 'AMI connection closed unexpectedly' });
+      if (!responded) done({ success: false, error: 'AMI connection closed before call outcome received' });
     });
   });
 }

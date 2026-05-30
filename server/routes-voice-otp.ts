@@ -54,11 +54,13 @@ export function registerVoiceOtpRoutes(app: Express) {
     // Originate via AMI (non-blocking from client perspective)
     originateOtpCall({ to: String(to), otp: String(otp), trunk: trunk ?? 'Sippy' })
       .then(async (result) => {
+        const status = result.success ? 'answered' : 'failed';
+        console.log(`[voice-otp] call outcome → status=${status} reason=${result.reasonText ?? result.error ?? 'ok'} uniqueId=${result.uniqueId ?? 'none'}`);
         await db.update(voiceOtpCalls)
           .set({
-            status:      result.success ? 'ringing' : 'failed',
-            asteriskId:  result.uniqueId ?? null,
-            errorMessage: result.error ?? null,
+            status,
+            asteriskId:   result.uniqueId ?? null,
+            errorMessage: result.error ?? result.reasonText ?? null,
           })
           .where(require('drizzle-orm').eq(voiceOtpCalls.id, row.id));
       })
@@ -90,7 +92,7 @@ export function registerVoiceOtpRoutes(app: Express) {
       const result = await db.execute(sql`
         SELECT
           COUNT(*) AS total,
-          COUNT(*) FILTER (WHERE status = 'ringing' OR status = 'answered' OR status = 'completed') AS success,
+          COUNT(*) FILTER (WHERE status = 'answered' OR status = 'completed') AS success,
           COUNT(*) FILTER (WHERE status = 'failed')    AS failed,
           COUNT(*) FILTER (WHERE status = 'initiated') AS pending
         FROM voice_otp_calls

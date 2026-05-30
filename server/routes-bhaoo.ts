@@ -237,7 +237,7 @@ export function registerBhaooRoutes(app: Express) {
               originateOtpCall({ to: payload.msisdn, otp, trunk: 'Sippy' })
                 .then(async (result) => {
                   await db.update(voiceOtpCalls)
-                    .set({ status: result.success ? 'ringing' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? null })
+                    .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? result.reasonText ?? null })
                     .where(eqOp(voiceOtpCalls.id, callRow.id));
                 })
                 .catch((err) => console.error('[bhaoo-dlr] Voice OTP fallback error:', err.message));
@@ -322,7 +322,7 @@ export function registerBhaooRoutes(app: Express) {
           .then(async (result) => {
             const { eq: eqOp } = await import('drizzle-orm');
             await db.update(voiceOtpCalls)
-              .set({ status: result.success ? 'ringing' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? null })
+              .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? result.reasonText ?? null })
               .where(eqOp(voiceOtpCalls.id, callRow.id));
             // Update sms message status based on call result
             await db.update(smsMessages)
