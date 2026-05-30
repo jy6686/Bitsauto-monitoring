@@ -297,16 +297,20 @@ export function registerBhaooRoutes(app: Express) {
 
       // Auth: whitelisted IPs are trusted (no credentials needed).
       // Unknown IPs must supply valid apikey+secretkey.
+      let matchedProfile: { id: number } | undefined;
       if (!ipTrusted) {
         const profiles = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.isActive, true)).limit(10);
-        const matched  = profiles.find(p => p.apiKey === apikey && p.secretKey === secretkey);
+        matchedProfile = profiles.find(p => p.apiKey === apikey && p.secretKey === secretkey);
         const envMatch = apikey === process.env.BHAOO_API_KEY && secretkey === process.env.BHAOO_SECRET_KEY;
-        if (!matched && !envMatch) {
+        if (!matchedProfile && !envMatch) {
           console.warn(`[bhaoo-receive] Auth failed — apikey=${apikey} ip=${clientIp}`);
           return res.json({ status: -42, Text: 'REJECTD', message_id: '', error: 'Authentication failed' });
         }
       } else {
         console.log(`[bhaoo-receive] IP trusted — skipping credential check (ip=${clientIp})`);
+        // For trusted IPs use the default active profile
+        const profiles = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.isActive, true)).limit(1);
+        matchedProfile = profiles[0];
       }
 
       // Extract OTP: first 4–8 digit sequence in the message
@@ -314,7 +318,7 @@ export function registerBhaooRoutes(app: Express) {
       const otp      = otpMatch?.[1] ?? '';
 
       const msgId    = transactionId || `recv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const profileId = matched?.id ?? null;
+      const profileId = matchedProfile?.id ?? null;
 
       // Log in sms_messages
       const [msgRow] = await db.insert(smsMessages).values({
