@@ -41,8 +41,13 @@ export async function bhaooRequest<T = unknown>(opts: RequestOptions): Promise<T
   const timeoutMs = opts.timeoutMs ?? 15_000;
   let url = `${baseUrl}${opts.path}`;
 
-  if (method === 'GET' && opts.params) {
-    const qs = new URLSearchParams({ ...opts.params, key: apiKey, secret: secretKey });
+  if (method === 'GET') {
+    // REVE SMS V5 uses lowercase apikey/secretkey as query params
+    const qs = new URLSearchParams({
+      ...(opts.params ?? {}),
+      apikey:    apiKey,
+      secretkey: secretKey,
+    });
     url = `${url}?${qs.toString()}`;
   }
 
