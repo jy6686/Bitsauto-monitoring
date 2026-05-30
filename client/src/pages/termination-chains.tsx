@@ -264,10 +264,10 @@ export default function TerminationChainsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label className="text-xs">BhaooSMS HTTP Profile</Label>
-                  <Select value={form.reveProfileId} onValueChange={v => setForm(f => ({ ...f, reveProfileId: v }))}>
+                  <Select value={form.reveProfileId || '__none__'} onValueChange={v => setForm(f => ({ ...f, reveProfileId: v === '__none__' ? '' : v }))}>
                     <SelectTrigger data-testid="select-reve-profile"><SelectValue placeholder="Select profile…" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="__none__">None</SelectItem>
                       {profiles.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -301,15 +301,16 @@ export default function TerminationChainsPage() {
                 <div className="space-y-1.5">
                   <Label className="text-xs">Sippy Account</Label>
                   <Select
-                    value={form.sippyClientAccountId}
+                    value={form.sippyClientAccountId || '__none__'}
                     onValueChange={v => {
-                      const acct = sippyAccounts?.accounts?.find((a: any) => String(a.iAccount) === v);
-                      setForm(f => ({ ...f, sippyClientAccountId: v, sippyClientName: acct ? (acct.id ?? acct.username ?? `Account ${v}`) : '' }));
+                      const real = v === '__none__' ? '' : v;
+                      const acct = sippyAccounts?.accounts?.find((a: any) => String(a.iAccount) === real);
+                      setForm(f => ({ ...f, sippyClientAccountId: real, sippyClientName: acct ? (acct.id ?? acct.username ?? `Account ${real}`) : '' }));
                     }}
                   >
                     <SelectTrigger data-testid="select-sippy-account"><SelectValue placeholder="Select account…" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="__none__">None</SelectItem>
                       {(sippyAccounts?.accounts ?? []).map((a: any) => (
                         <SelectItem key={a.iAccount} value={String(a.iAccount)}>
                           {a.id ?? a.username ?? `Account ${a.iAccount}`} (#{a.iAccount})
@@ -334,16 +335,17 @@ export default function TerminationChainsPage() {
                 <div className="space-y-1.5">
                   <Label className="text-xs">Sippy Vendor</Label>
                   <Select
-                    value={form.sippyVendorId}
+                    value={form.sippyVendorId || '__none__'}
                     onValueChange={v => {
-                      const vend = vendors?.vendors?.find(vv => String(vv.iVendor) === v);
-                      setForm(f => ({ ...f, sippyVendorId: v, sippyVendorName: vend?.name ?? '', sippyConnectionId: '', sippyConnectionName: '' }));
-                      fetchConnections(v);
+                      const real = v === '__none__' ? '' : v;
+                      const vend = vendors?.vendors?.find(vv => String(vv.iVendor) === real);
+                      setForm(f => ({ ...f, sippyVendorId: real, sippyVendorName: vend?.name ?? '', sippyConnectionId: '', sippyConnectionName: '' }));
+                      if (real) fetchConnections(real);
                     }}
                   >
                     <SelectTrigger data-testid="select-sippy-vendor"><SelectValue placeholder="Select vendor…" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="__none__">None</SelectItem>
                       {(vendors?.vendors ?? []).map(v => (
                         <SelectItem key={v.iVendor} value={String(v.iVendor)}>{v.name}</SelectItem>
                       ))}
@@ -353,16 +355,17 @@ export default function TerminationChainsPage() {
                 <div className="space-y-1.5">
                   <Label className="text-xs">Vendor Connection {loadingConns && <Loader2 className="inline h-3 w-3 animate-spin ml-1" />}</Label>
                   <Select
-                    value={form.sippyConnectionId}
+                    value={form.sippyConnectionId || '__none__'}
                     onValueChange={v => {
-                      const conn = vendorConns.find(c => String(c.iConnection) === v);
-                      setForm(f => ({ ...f, sippyConnectionId: v, sippyConnectionName: conn?.name ?? '' }));
+                      const real = v === '__none__' ? '' : v;
+                      const conn = vendorConns.find(c => String(c.iConnection) === real);
+                      setForm(f => ({ ...f, sippyConnectionId: real, sippyConnectionName: conn?.name ?? '' }));
                     }}
                     disabled={!form.sippyVendorId || loadingConns}
                   >
                     <SelectTrigger data-testid="select-sippy-connection"><SelectValue placeholder={form.sippyVendorId ? 'Select connection…' : 'Pick vendor first'} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="__none__">None</SelectItem>
                       {vendorConns.map(c => (
                         <SelectItem key={c.iConnection} value={String(c.iConnection)}>{c.name}</SelectItem>
                       ))}
@@ -372,12 +375,12 @@ export default function TerminationChainsPage() {
                 <div className="space-y-1.5">
                   <Label className="text-xs">Routing Group</Label>
                   <Select
-                    value={form.sippyRoutingGroupId}
-                    onValueChange={v => setForm(f => ({ ...f, sippyRoutingGroupId: v }))}
+                    value={form.sippyRoutingGroupId || '__none__'}
+                    onValueChange={v => setForm(f => ({ ...f, sippyRoutingGroupId: v === '__none__' ? '' : v }))}
                   >
                     <SelectTrigger data-testid="select-routing-group"><SelectValue placeholder="Select group…" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="__none__">None</SelectItem>
                       {(routingGroups?.routingGroups ?? []).map((rg: any) => (
                         <SelectItem key={rg.iRoutingGroup} value={String(rg.iRoutingGroup)}>{rg.name}</SelectItem>
                       ))}
