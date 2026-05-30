@@ -57,7 +57,9 @@ function reasonText(code: number): string {
  */
 export function originateOtpCall(params: OriginateParams): Promise<OriginateResult> {
   const config = cfg();
-  const { to, otp, trunk = 'Sippy', timeout: callTimeout = 45000 } = params;
+  const { otp, trunk = 'Sippy', timeout: callTimeout = 45000 } = params;
+  // chan_sip rejects '+' in the dial string — strip it, keep digits only
+  const to = params.to.replace(/^\+/, '');
   const actionId = `bitsauto-${Date.now()}`;
 
   return new Promise((resolve) => {
