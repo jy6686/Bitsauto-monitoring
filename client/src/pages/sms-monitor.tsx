@@ -5,7 +5,7 @@ import {
   MessageSquare, CheckCircle2, AlertTriangle, XCircle, RefreshCw,
   Clock, BarChart3, Send, Wallet, Activity, ChevronDown, ChevronRight, Loader2,
   WifiOff, Info, Plus, Trash2, Phone, PhoneOff, Settings2, Eye, EyeOff,
-  FlipHorizontal, CheckCheck, Plug, Copy, Check, Zap, PhoneCall,
+  FlipHorizontal, CheckCheck, Plug, Copy, Check, Zap, PhoneCall, Pin, PinOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -350,6 +350,9 @@ export default function SmsMonitorPage() {
   const [channelFilter, setChannelFilter]   = useState<ChannelFilter>('all');
   const [voiceOtpOpen, setVoiceOtpOpen]     = useState(false);
   const [now, setNow]                       = useState(() => Date.now());
+  const [voiceOtpPinned, setVoiceOtpPinned] = useState<boolean>(() => {
+    try { return localStorage.getItem('voiceOtpRowPinned') === 'true'; } catch { return false; }
+  });
 
   const { data: status } = useQuery<BhaooStatus>({
     queryKey: ['/api/bhaoo/status'],
@@ -697,10 +700,11 @@ export default function SmsMonitorPage() {
               </div>
             ) : null}
 
-            {/* Voice OTP stats row — shown only when there are calls today */}
-            {voiceStats && voiceStats.callsToday > 0 && (() => {
-              const successRate = voiceStats.callsToday > 0
-                ? Math.round((voiceStats.successToday / voiceStats.callsToday) * 100)
+            {/* Voice OTP stats row — shown when there are calls today, or when pinned */}
+            {(voiceStats && voiceStats.callsToday > 0) || voiceOtpPinned ? (() => {
+              const hasCalls = voiceStats && voiceStats.callsToday > 0;
+              const successRate = hasCalls
+                ? Math.round((voiceStats!.successToday / voiceStats!.callsToday) * 100)
                 : 0;
               return (
                 <div className="space-y-1.5">
@@ -708,97 +712,130 @@ export default function SmsMonitorPage() {
                     <PhoneCall className="h-3.5 w-3.5 text-violet-400" />
                     <span className="font-medium text-foreground/70">Voice OTP</span>
                     <span className="text-muted-foreground/50">— today</span>
+                    {!hasCalls && voiceOtpPinned && (
+                      <span className="text-[10px] text-muted-foreground/60 italic ml-1">no calls yet</span>
+                    )}
+                    <button
+                      onClick={() => {
+                        const next = !voiceOtpPinned;
+                        setVoiceOtpPinned(next);
+                        try { localStorage.setItem('voiceOtpRowPinned', String(next)); } catch {}
+                      }}
+                      title={voiceOtpPinned ? 'Unpin row (hide when 0 calls)' : 'Pin row (keep visible even at 0 calls)'}
+                      data-testid="button-voice-otp-pin"
+                      className={cn(
+                        "ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors",
+                        voiceOtpPinned
+                          ? "text-violet-400 hover:text-violet-300"
+                          : "text-muted-foreground/50 hover:text-muted-foreground"
+                      )}
+                    >
+                      {voiceOtpPinned
+                        ? <><Pin className="h-3 w-3" /> Pinned</>
+                        : <><PinOff className="h-3 w-3" /> Pin row</>}
+                    </button>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <StatCard
-                      label="Calls Today"
-                      value={voiceStats.callsToday.toLocaleString()}
-                      color="text-violet-400"
-                    />
-                    <StatCard
-                      label="Answered"
-                      value={voiceStats.successToday.toLocaleString()}
-                      color="text-emerald-400"
-                    />
-                    <StatCard
-                      label="Failed"
-                      value={voiceStats.failedToday.toLocaleString()}
-                      color={voiceStats.failedToday > 0 ? 'text-rose-400' : 'text-muted-foreground'}
-                    />
-                    <StatCard
-                      label="Success Rate"
-                      value={`${successRate}%`}
-                      color={successRate >= 90 ? 'text-emerald-400' : successRate >= 70 ? 'text-amber-400' : 'text-rose-400'}
-                    />
-                  </div>
-
-                  {/* Hourly success-rate sparkline */}
-                  {voiceHourly && voiceHourly.length > 0 && (
-                    <div className="bg-muted/20 border border-border/50 rounded-lg p-3 space-y-1.5" data-testid="voice-otp-hourly-chart">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">Success Rate — last 24 h (hourly)</span>
-                        <span className="text-[10px] text-muted-foreground">{voiceHourly.length} hour{voiceHourly.length !== 1 ? 's' : ''} of data</span>
+                  {hasCalls ? (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <StatCard
+                          label="Calls Today"
+                          value={voiceStats!.callsToday.toLocaleString()}
+                          color="text-violet-400"
+                        />
+                        <StatCard
+                          label="Answered"
+                          value={voiceStats!.successToday.toLocaleString()}
+                          color="text-emerald-400"
+                        />
+                        <StatCard
+                          label="Failed"
+                          value={voiceStats!.failedToday.toLocaleString()}
+                          color={voiceStats!.failedToday > 0 ? 'text-rose-400' : 'text-muted-foreground'}
+                        />
+                        <StatCard
+                          label="Success Rate"
+                          value={`${successRate}%`}
+                          color={successRate >= 90 ? 'text-emerald-400' : successRate >= 70 ? 'text-amber-400' : 'text-rose-400'}
+                        />
                       </div>
-                      <ResponsiveContainer width="100%" height={56}>
-                        <AreaChart data={voiceHourly} margin={{ top: 2, right: 2, left: -28, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="voiceOtpRateGrad" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%"  stopColor="#a78bfa" stopOpacity={0.35} />
-                              <stop offset="95%" stopColor="#a78bfa" stopOpacity={0.02} />
-                            </linearGradient>
-                          </defs>
-                          <XAxis
-                            dataKey="hour"
-                            tickFormatter={(v: string) => {
-                              const d = new Date(v);
-                              return `${d.getHours().toString().padStart(2,'0')}h`;
-                            }}
-                            tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }}
-                            tickLine={false}
-                            axisLine={false}
-                            interval="preserveStartEnd"
-                          />
-                          <YAxis
-                            domain={[0, 100]}
-                            tickFormatter={(v: number) => `${v}%`}
-                            tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }}
-                            tickLine={false}
-                            axisLine={false}
-                            ticks={[0, 50, 100]}
-                          />
-                          <Tooltip
-                            contentStyle={{
-                              background: 'hsl(var(--card))',
-                              border: '1px solid hsl(var(--border))',
-                              borderRadius: '6px',
-                              fontSize: '11px',
-                              padding: '6px 10px',
-                            }}
-                            labelFormatter={(v: string) => {
-                              const d = new Date(v);
-                              return `${d.getHours().toString().padStart(2,'0')}:00`;
-                            }}
-                            formatter={(val: number, _name: string, props: any) => {
-                              const { total, success } = props.payload;
-                              return [`${val}% (${success}/${total})`, 'Success rate'];
-                            }}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="rate"
-                            stroke="#a78bfa"
-                            strokeWidth={1.5}
-                            fill="url(#voiceOtpRateGrad)"
-                            dot={false}
-                            activeDot={{ r: 3, fill: '#a78bfa', strokeWidth: 0 }}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
+
+                      {/* Hourly success-rate sparkline */}
+                      {voiceHourly && voiceHourly.length > 0 && (
+                        <div className="bg-muted/20 border border-border/50 rounded-lg p-3 space-y-1.5" data-testid="voice-otp-hourly-chart">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">Success Rate — last 24 h (hourly)</span>
+                            <span className="text-[10px] text-muted-foreground">{voiceHourly.length} hour{voiceHourly.length !== 1 ? 's' : ''} of data</span>
+                          </div>
+                          <ResponsiveContainer width="100%" height={56}>
+                            <AreaChart data={voiceHourly} margin={{ top: 2, right: 2, left: -28, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="voiceOtpRateGrad" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%"  stopColor="#a78bfa" stopOpacity={0.35} />
+                                  <stop offset="95%" stopColor="#a78bfa" stopOpacity={0.02} />
+                                </linearGradient>
+                              </defs>
+                              <XAxis
+                                dataKey="hour"
+                                tickFormatter={(v: string) => {
+                                  const d = new Date(v);
+                                  return `${d.getHours().toString().padStart(2,'0')}h`;
+                                }}
+                                tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }}
+                                tickLine={false}
+                                axisLine={false}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis
+                                domain={[0, 100]}
+                                tickFormatter={(v: number) => `${v}%`}
+                                tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }}
+                                tickLine={false}
+                                axisLine={false}
+                                ticks={[0, 50, 100]}
+                              />
+                              <Tooltip
+                                contentStyle={{
+                                  background: 'hsl(var(--card))',
+                                  border: '1px solid hsl(var(--border))',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  padding: '6px 10px',
+                                }}
+                                labelFormatter={(v: string) => {
+                                  const d = new Date(v);
+                                  return `${d.getHours().toString().padStart(2,'0')}:00`;
+                                }}
+                                formatter={(val: number, _name: string, props: any) => {
+                                  const { total, success } = props.payload;
+                                  return [`${val}% (${success}/${total})`, 'Success rate'];
+                                }}
+                              />
+                              <Area
+                                type="monotone"
+                                dataKey="rate"
+                                stroke="#a78bfa"
+                                strokeWidth={1.5}
+                                fill="url(#voiceOtpRateGrad)"
+                                dot={false}
+                                activeDot={{ r: 3, fill: '#a78bfa', strokeWidth: 0 }}
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <StatCard label="Calls Today"  value="0" color="text-muted-foreground" />
+                      <StatCard label="Answered"     value="0" color="text-muted-foreground" />
+                      <StatCard label="Failed"       value="0" color="text-muted-foreground" />
+                      <StatCard label="Success Rate" value="—" color="text-muted-foreground" />
                     </div>
                   )}
                 </div>
               );
-            })()}
+            })() : null}
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               {/* Operator breakdown */}
