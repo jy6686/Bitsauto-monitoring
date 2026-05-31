@@ -12,4 +12,8 @@ psql "$DATABASE_URL" -c "
     ADD COLUMN IF NOT EXISTS latency_ms INTEGER;
   ALTER TABLE settings
     ADD COLUMN IF NOT EXISTS otp_channel_policy TEXT;
+  -- Task #2: WhatsApp OTP retry intelligence
+  ALTER TABLE sms_messages
+    ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ;
 " 2>&1 || true

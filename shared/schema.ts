@@ -3162,6 +3162,8 @@ export const smsMessages = pgTable("sms_messages", {
   provider:      varchar("provider",      { length: 32  }),                   // callmebot | ultramsg | bhaoo | asterisk
   fallbackFrom:  integer("fallback_from"),                                    // id of the original sms_messages row that triggered this fallback
   latencyMs:     integer("latency_ms"),                                       // ms from dispatch to first delivery confirmation
+  retryCount:    integer("retry_count").notNull().default(0),                 // number of retry attempts made so far
+  nextRetryAt:   timestamp("next_retry_at"),                                  // when the next retry should fire (null = no retry scheduled)
 });
 export type SmsMessage       = typeof smsMessages.$inferSelect;
 export type InsertSmsMessage = typeof smsMessages.$inferInsert;

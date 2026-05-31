@@ -60,6 +60,8 @@ interface SmsMessage {
   provider?:          string;
   latencyMs?:         number;
   messageType?:       string;
+  retryCount?:        number;
+  nextRetryAt?:       string;
 }
 
 interface BhaooStatus {
@@ -82,8 +84,10 @@ interface BhaooProfile {
 }
 
 interface OtpPolicy {
-  primary:  string;
-  fallback: string[];
+  primary:               string;
+  fallback:              string[];
+  whatsappMaxRetries?:   number;
+  whatsappRetryAfterMin?: number;
 }
 
 interface VoiceOtpCall {
@@ -345,7 +349,12 @@ export default function SmsMonitorPage() {
   });
 
   const policyMutation = useMutation({
-    mutationFn: (body: OtpPolicy) => apiRequest('PATCH', '/api/messaging/policy', body),
+    mutationFn: (body: OtpPolicy) => apiRequest('PATCH', '/api/messaging/policy', {
+      primary:               body.primary,
+      fallback:              body.fallback,
+      whatsappMaxRetries:    body.whatsappMaxRetries    ?? 2,
+      whatsappRetryAfterMin: body.whatsappRetryAfterMin ?? 3,
+    }),
     onSuccess: () => {
       toast({ title: 'Policy updated' });
       qc.invalidateQueries({ queryKey: ['/api/messaging/policy'] });
@@ -748,6 +757,11 @@ export default function SmsMonitorPage() {
                                 <Zap className="h-2.5 w-2.5" /> Fallback
                               </Badge>
                             )}
+                            {(msg.retryCount != null && msg.retryCount > 0) && (
+                              <Badge variant="outline" className="text-[10px] text-orange-400 border-orange-500/30 bg-orange-500/10 gap-1" data-testid={`retry-count-${msg.id}`}>
+                                <RefreshCw className="h-2.5 w-2.5" /> {msg.retryCount} {msg.retryCount === 1 ? 'retry' : 'retries'}
+                              </Badge>
+                            )}
                           </div>
                           {msg.messageText && (
                             <p className="text-[11px] text-muted-foreground truncate max-w-xs">{msg.messageText}</p>
@@ -755,6 +769,13 @@ export default function SmsMonitorPage() {
                           <div className="flex items-center gap-3 text-[10px] text-muted-foreground/60">
                             {msg.operator && <span>{msg.operator}</span>}
                             {msg.latencyMs && <span>{msg.latencyMs}ms</span>}
+                            {msg.nextRetryAt && msg.status === 'sent' && (
+                              <span className="text-orange-400/70" data-testid={`next-retry-${msg.id}`}>
+                                Next retry {new Date(msg.nextRetryAt) > new Date()
+                                  ? `in ${Math.max(0, Math.round((new Date(msg.nextRetryAt).getTime() - Date.now()) / 60_000))}m`
+                                  : 'pending'}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="text-[10px] text-muted-foreground/60 whitespace-nowrap shrink-0">
@@ -990,6 +1011,51 @@ export default function SmsMonitorPage() {
                   {effectivePolicy.fallback.length === 0 && (
                     <span className="text-xs text-muted-foreground/60 py-2">No fallback — primary channel only</span>
                   )}
+                </div>
+              </div>
+
+              {/* WhatsApp retry settings */}
+              <div className="space-y-3 pt-2 border-t border-border">
+                <div>
+                  <Label className="text-sm font-medium flex items-center gap-2">
+                    <RefreshCw className="h-3.5 w-3.5 text-orange-400" />
+                    WhatsApp OTP Retry Intelligence
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    If a WhatsApp OTP stays in <span className="text-blue-400 font-medium">Sent</span> (unconfirmed) after the retry window, the retry engine automatically triggers the fallback channel and logs a new delivery attempt.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Max retries</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={effectivePolicy.whatsappMaxRetries ?? 2}
+                      onChange={e => setLocalPolicy({ ...effectivePolicy, whatsappMaxRetries: Math.max(0, Math.min(10, Number(e.target.value))) })}
+                      data-testid="input-whatsapp-max-retries"
+                      className="h-8"
+                    />
+                    <p className="text-[10px] text-muted-foreground">0 = disabled</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Retry after (minutes)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={effectivePolicy.whatsappRetryAfterMin ?? 3}
+                      onChange={e => setLocalPolicy({ ...effectivePolicy, whatsappRetryAfterMin: Math.max(1, Math.min(60, Number(e.target.value))) })}
+                      data-testid="input-whatsapp-retry-after"
+                      className="h-8"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Minutes before first retry fires</p>
+                  </div>
+                </div>
+                <div className="rounded-lg bg-orange-500/5 border border-orange-500/20 p-3 text-[11px] text-muted-foreground space-y-1">
+                  <p className="text-orange-400 font-medium">How it works</p>
+                  <p>When WhatsApp primary is active: OTP is sent → if still <span className="text-blue-400">Sent</span> after <span className="text-foreground/80">{effectivePolicy.whatsappRetryAfterMin ?? 3} min</span>, retry engine fires up to <span className="text-foreground/80">{effectivePolicy.whatsappMaxRetries ?? 2}x</span> using the configured fallback channel. Each retry is logged as a new row in the stream with a <span className="text-amber-400">Fallback</span> badge.</p>
                 </div>
               </div>
 

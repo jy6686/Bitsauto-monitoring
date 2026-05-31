@@ -13,7 +13,7 @@ import {
   smsMessages, smsDlrEvents, bhaooBalanceLog, smsVendorStats, bhaooProfiles,
   voiceOtpCalls,
 } from '@shared/schema';
-import { eq, desc, gte, sql } from 'drizzle-orm';
+import { eq, desc, gte, sql, lte, and, isNotNull } from 'drizzle-orm';
 import { originateOtpCall } from './services/asterisk/index';
 import { sendWhatsAppMessage } from './whatsapp';
 import { storage } from './storage';
@@ -46,8 +46,162 @@ async function seedDefaultProfile() {
   }
 }
 
+async function runSmsMessagesMigrations() {
+  try {
+    await db.execute(sql`
+      ALTER TABLE sms_messages
+        ADD COLUMN IF NOT EXISTS retry_count  INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ
+    `);
+    console.log('[bhaoo] sms_messages retry columns ensured');
+  } catch (err: any) {
+    console.warn('[bhaoo] sms_messages migration skipped:', err.message);
+  }
+}
+
+// ── WhatsApp OTP retry engine ────────────────────────────────────────────────
+// Polls every 60s for WhatsApp OTPs stuck in 'sent' state past their nextRetryAt.
+// On each qualifying row: if retryCount < maxRetries → trigger fallback channel and
+// increment retryCount + schedule next retry. If exhausted → mark failed.
+async function tickWhatsAppRetryEngine() {
+  try {
+    const settingsRow = await storage.getSettings();
+    let policy: { primary: string; fallback: string[]; whatsappMaxRetries?: number; whatsappRetryAfterMin?: number } =
+      { primary: 'voice', fallback: [], whatsappMaxRetries: 2, whatsappRetryAfterMin: 3 };
+    try { policy = JSON.parse((settingsRow as any).otpChannelPolicy ?? '{}'); } catch {}
+
+    const maxRetries     = policy.whatsappMaxRetries     ?? 2;
+    const retryAfterMin  = policy.whatsappRetryAfterMin  ?? 3;
+
+    if (maxRetries <= 0) return; // retry disabled
+
+    const now = new Date();
+
+    // Find WhatsApp OTPs that are stuck in 'sent' and due for retry
+    const candidates = await db
+      .select()
+      .from(smsMessages)
+      .where(
+        and(
+          eq(smsMessages.status,      'sent'),
+          eq(smsMessages.channel,     'whatsapp'),
+          isNotNull(smsMessages.nextRetryAt),
+          lte(smsMessages.nextRetryAt, now),
+        )
+      )
+      .limit(20);
+
+    if (candidates.length === 0) return;
+
+    console.log(`[wa-retry] ${candidates.length} WhatsApp OTP(s) due for retry check`);
+
+    const fallbackChannel = (policy.fallback ?? []).find(f => f !== 'whatsapp') ?? 'voice';
+
+    for (const msg of candidates) {
+      const retryCount = msg.retryCount ?? 0;
+
+      if (retryCount >= maxRetries) {
+        // Exhausted — mark as failed
+        await db.update(smsMessages)
+          .set({ status: 'failed', nextRetryAt: null, updatedAt: new Date(), errorMessage: `WhatsApp delivery unconfirmed after ${maxRetries} retries` })
+          .where(eq(smsMessages.id, msg.id));
+        console.log(`[wa-retry] msg#${msg.id} retries exhausted → marked failed`);
+        continue;
+      }
+
+      // Schedule next retry (or null if this is the last attempt)
+      const nextCount = retryCount + 1;
+      const nextRetry = nextCount < maxRetries
+        ? new Date(now.getTime() + retryAfterMin * 60_000)
+        : null;
+
+      // Trigger fallback channel
+      if (fallbackChannel === 'voice') {
+        try {
+          const { originateOtpCall: oCall, isAmiConfigured } = await import('./services/asterisk/index');
+          if (isAmiConfigured() && msg.toNumber) {
+            let otp = '000000';
+            if (msg.messageText) { const m = msg.messageText.match(/\b(\d{4,8})\b/); if (m) otp = m[1]; }
+
+            const [callRow] = await db.insert(voiceOtpCalls).values({
+              toNumber: msg.toNumber,
+              otp:      otp[0] + '*'.repeat(Math.max(0, otp.length - 2)) + otp[otp.length - 1],
+              trunk:    'Sippy',
+              status:   'initiated',
+            }).returning();
+
+            const voiceMsgId = `wa-retry-voice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            await db.insert(smsMessages).values({
+              internalId:   voiceMsgId,
+              toNumber:     msg.toNumber,
+              messageText:  `Voice OTP fallback (WA retry #${nextCount})`,
+              messageType:  'voice_otp',
+              status:       'submitted',
+              channel:      'voice' as any,
+              provider:     'asterisk' as any,
+              fallbackFrom: msg.id,
+              profileId:    msg.profileId,
+            } as any);
+
+            oCall({ to: msg.toNumber, otp, trunk: 'Sippy' })
+              .then(async (result) => {
+                const { eq: eqOp } = await import('drizzle-orm');
+                await db.update(voiceOtpCalls)
+                  .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? null })
+                  .where(eqOp(voiceOtpCalls.id, callRow.id));
+              })
+              .catch((e: any) => console.error('[wa-retry] voice call error:', e.message));
+
+            console.log(`[wa-retry] msg#${msg.id} → voice fallback dispatched (attempt ${nextCount}/${maxRetries})`);
+          }
+        } catch (e: any) {
+          console.error('[wa-retry] voice fallback error:', e.message);
+        }
+      } else if (fallbackChannel === 'sms') {
+        // SMS fallback — log a placeholder row; actual send would need SMS API
+        const smsMsgId = `wa-retry-sms-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        await db.insert(smsMessages).values({
+          internalId:   smsMsgId,
+          toNumber:     msg.toNumber,
+          messageText:  msg.messageText ?? 'Your OTP code',
+          messageType:  'text',
+          status:       'submitted',
+          channel:      'sms' as any,
+          provider:     'bhaoo' as any,
+          fallbackFrom: msg.id,
+          profileId:    msg.profileId,
+        } as any);
+        console.log(`[wa-retry] msg#${msg.id} → SMS fallback queued (attempt ${nextCount}/${maxRetries})`);
+      }
+
+      // Update original row: increment retryCount, schedule next window or clear
+      await db.update(smsMessages)
+        .set({
+          retryCount:  nextCount,
+          nextRetryAt: nextRetry,
+          fallbackTriggered: true,
+          fallbackAt:  fallbackChannel ? now : undefined,
+          updatedAt:   now,
+        })
+        .where(eq(smsMessages.id, msg.id));
+    }
+  } catch (err: any) {
+    console.error('[wa-retry] engine error:', err.message);
+  }
+}
+
+let _retryEngineTimer: ReturnType<typeof setInterval> | null = null;
+
+function startWhatsAppRetryEngine() {
+  if (_retryEngineTimer) return;
+  _retryEngineTimer = setInterval(() => { tickWhatsAppRetryEngine(); }, 60_000);
+  console.log('[wa-retry] WhatsApp OTP retry engine started (60s interval)');
+}
+
 export function registerBhaooRoutes(app: Express) {
   seedDefaultProfile();
+  runSmsMessagesMigrations();
+  startWhatsAppRetryEngine();
 
   // ── Connection status ────────────────────────────────────────────────────────
   app.get('/api/bhaoo/status', requireAuth, async (_req: any, res: any) => {
@@ -343,7 +497,7 @@ export function registerBhaooRoutes(app: Express) {
       console.log(`[bhaoo-receive] SMS from REVE → to=${to} otp=${otp || '(none)'} msgId=${msgId}`);
 
       // Resolve OTP channel policy
-      let otpPolicy: { primary: string; fallback: string[] } = { primary: 'voice', fallback: [] };
+      let otpPolicy: { primary: string; fallback: string[]; whatsappMaxRetries?: number; whatsappRetryAfterMin?: number } = { primary: 'voice', fallback: [], whatsappMaxRetries: 2, whatsappRetryAfterMin: 3 };
       try {
         const settingsRow = await storage.getSettings();
         const raw = (settingsRow as any).otpChannelPolicy ?? '{"primary":"voice","fallback":[]}';
@@ -359,6 +513,15 @@ export function registerBhaooRoutes(app: Express) {
           const result = await sendWhatsAppMessage(String(to).startsWith('+') ? String(to) : `+${to}`, waText);
           const latencyMs = Date.now() - t0;
           const waMsgId = `wa-otp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+          // Compute nextRetryAt for retry engine: schedule first retry if send succeeded (message is 'sent' but not yet 'delivered')
+          let nextRetryAt: Date | null = null;
+          if (result.success) {
+            let retryAfterMin = 3;
+            try { retryAfterMin = otpPolicy.whatsappRetryAfterMin ?? 3; } catch {}
+            nextRetryAt = new Date(Date.now() + retryAfterMin * 60_000);
+          }
+
           await db.insert(smsMessages).values({
             internalId:   waMsgId,
             toNumber:     String(to),
@@ -372,8 +535,9 @@ export function registerBhaooRoutes(app: Express) {
             provider:     'whatsapp' as any,
             fallbackFrom: parentId,
             latencyMs,
+            nextRetryAt:  nextRetryAt ?? undefined,
           } as any);
-          console.log(`[bhaoo-receive] WhatsApp OTP ${result.success ? 'sent' : 'failed'} to ${to}: ${result.error ?? 'ok'}`);
+          console.log(`[bhaoo-receive] WhatsApp OTP ${result.success ? 'sent' : 'failed'} to ${to}: ${result.error ?? 'ok'}${nextRetryAt ? ` (retry scheduled at ${nextRetryAt.toISOString()})` : ''}`);
           return result.success;
         };
 

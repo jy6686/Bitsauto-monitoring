@@ -20110,17 +20110,26 @@ export async function registerRoutes(
   app.get('/api/messaging/policy', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
     try {
       const s = await storage.getSettings();
-      let policy = { primary: 'voice', fallback: [] as string[] };
+      let policy: { primary: string; fallback: string[]; whatsappMaxRetries?: number; whatsappRetryAfterMin?: number } =
+        { primary: 'voice', fallback: [], whatsappMaxRetries: 2, whatsappRetryAfterMin: 3 };
       try { policy = JSON.parse(s.otpChannelPolicy ?? '{"primary":"voice","fallback":[]}'); } catch {}
+      // Ensure defaults for new fields
+      if (policy.whatsappMaxRetries    === undefined) policy.whatsappMaxRetries    = 2;
+      if (policy.whatsappRetryAfterMin === undefined) policy.whatsappRetryAfterMin = 3;
       res.json(policy);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // PATCH /api/messaging/policy — update OTP channel policy
   app.patch('/api/messaging/policy', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
-    const { primary, fallback } = req.body ?? {};
+    const { primary, fallback, whatsappMaxRetries, whatsappRetryAfterMin } = req.body ?? {};
     if (!primary) return res.status(400).json({ error: 'primary is required' });
-    const policy = { primary, fallback: Array.isArray(fallback) ? fallback : [] };
+    const policy = {
+      primary,
+      fallback:              Array.isArray(fallback) ? fallback : [],
+      whatsappMaxRetries:    typeof whatsappMaxRetries    === 'number' ? Math.max(0, Math.min(10, whatsappMaxRetries))    : 2,
+      whatsappRetryAfterMin: typeof whatsappRetryAfterMin === 'number' ? Math.max(1, Math.min(60, whatsappRetryAfterMin)) : 3,
+    };
     try {
       await storage.updateSettings({ otpChannelPolicy: JSON.stringify(policy) } as any);
       res.json({ ok: true, policy });
