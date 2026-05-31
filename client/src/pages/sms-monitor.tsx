@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useNocWebSocket } from "@/hooks/use-noc-ws";
 
 // ── WhatsApp icon (simple SVG) ─────────────────────────────────────────────
 function WaIcon({ className }: { className?: string }) {
@@ -333,6 +334,7 @@ function filterMessages(msgs: SmsMessage[], filter: ChannelFilter): SmsMessage[]
 export default function SmsMonitorPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { lastVoiceOtpUpdate } = useNocWebSocket();
 
   const [activeTab, setActiveTab]         = useState<'monitor' | 'profiles' | 'settings'>('monitor');
   const [showSendPanel, setShowSendPanel]   = useState(false);
@@ -381,8 +383,14 @@ export default function SmsMonitorPage() {
 
   const { data: voiceCalls, isLoading: voiceLoading } = useQuery<VoiceOtpCall[]>({
     queryKey: ['/api/voice-otp/calls'],
-    refetchInterval: 15_000,
+    refetchInterval: 3_000,
   });
+
+  useEffect(() => {
+    if (!lastVoiceOtpUpdate) return;
+    qc.invalidateQueries({ queryKey: ['/api/voice-otp/calls'] });
+    qc.invalidateQueries({ queryKey: ['/api/voice-otp/stats'] });
+  }, [lastVoiceOtpUpdate, qc]);
 
   const hasInitiatedCalls = voiceOtpOpen && voiceCalls?.some(c => c.status === 'initiated');
   useEffect(() => {

@@ -6,13 +6,22 @@ export interface NocTickData {
   updatedAt: string;
 }
 
+export interface VoiceOtpUpdateEvent {
+  callId: number;
+  status: string;
+  asteriskId?: string | null;
+  errorMessage?: string | null;
+}
+
 interface UseNocWebSocketResult {
   lastTick: NocTickData | null;
+  lastVoiceOtpUpdate: VoiceOtpUpdateEvent | null;
   connected: boolean;
 }
 
 export function useNocWebSocket(): UseNocWebSocketResult {
   const [lastTick, setLastTick] = useState<NocTickData | null>(null);
+  const [lastVoiceOtpUpdate, setLastVoiceOtpUpdate] = useState<VoiceOtpUpdateEvent | null>(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,6 +45,13 @@ export function useNocWebSocket(): UseNocWebSocketResult {
           const data = JSON.parse(event.data as string);
           if (data.type === "noc_tick") {
             setLastTick({ callCount: data.callCount, alertCount: data.alertCount, updatedAt: data.updatedAt });
+          } else if (data.type === "voice_otp_update") {
+            setLastVoiceOtpUpdate({
+              callId: data.callId,
+              status: data.status,
+              asteriskId: data.asteriskId ?? null,
+              errorMessage: data.errorMessage ?? null,
+            });
           }
         } catch { /* ignore malformed messages */ }
       };
@@ -63,5 +79,5 @@ export function useNocWebSocket(): UseNocWebSocketResult {
     };
   }, [connect]);
 
-  return { lastTick, connected };
+  return { lastTick, lastVoiceOtpUpdate, connected };
 }

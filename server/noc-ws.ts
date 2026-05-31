@@ -24,6 +24,23 @@ export function broadcastNocTick(data: NocTickData): void {
   }
 }
 
+export interface VoiceOtpUpdateData {
+  callId: number;
+  status: string;
+  asteriskId?: string | null;
+  errorMessage?: string | null;
+}
+
+export function broadcastVoiceOtpUpdate(data: VoiceOtpUpdateData): void {
+  if (nocClients.size === 0) return;
+  const payload = JSON.stringify({ type: "voice_otp_update", ...data });
+  for (const client of nocClients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      try { client.ws.send(payload); } catch { /* ignore send errors */ }
+    }
+  }
+}
+
 export function setupNocWebSocket(httpServer: Server): void {
   const wss = new WebSocketServer({ server: httpServer, path: "/ws/noc" });
 

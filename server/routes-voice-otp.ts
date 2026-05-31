@@ -9,6 +9,7 @@ import { db } from './db';
 import { voiceOtpCalls } from '@shared/schema';
 import { originateOtpCall, pingAmi, isAmiConfigured } from './services/asterisk/index';
 import { desc } from 'drizzle-orm';
+import { broadcastVoiceOtpUpdate } from './noc-ws';
 
 function requireAuth(req: any, res: any, next: any) {
   if (!req.isAuthenticated?.()) return res.status(401).json({ error: 'Unauthorized' });
@@ -56,13 +57,12 @@ export function registerVoiceOtpRoutes(app: Express) {
       .then(async (result) => {
         const status = result.success ? 'answered' : 'failed';
         console.log(`[voice-otp] call outcome → status=${status} reason=${result.reasonText ?? result.error ?? 'ok'} uniqueId=${result.uniqueId ?? 'none'}`);
+        const asteriskId   = result.uniqueId ?? null;
+        const errorMessage = result.error ?? result.reasonText ?? null;
         await db.update(voiceOtpCalls)
-          .set({
-            status,
-            asteriskId:   result.uniqueId ?? null,
-            errorMessage: result.error ?? result.reasonText ?? null,
-          })
+          .set({ status, asteriskId, errorMessage })
           .where(require('drizzle-orm').eq(voiceOtpCalls.id, row.id));
+        broadcastVoiceOtpUpdate({ callId: row.id, status, asteriskId, errorMessage });
       })
       .catch((err) => {
         console.error('[voice-otp] AMI error:', err.message);
