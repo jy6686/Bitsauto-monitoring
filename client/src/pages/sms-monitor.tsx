@@ -948,7 +948,7 @@ export default function SmsMonitorPage() {
                           <div className="flex items-center gap-3 text-[10px] text-muted-foreground/60">
                             {msg.operator && <span>{msg.operator}</span>}
                             {msg.latencyMs && <span>{msg.latencyMs}ms</span>}
-                            {msg.nextRetryAt && msg.status === 'sent' && (
+                            {msg.nextRetryAt && new Date(msg.nextRetryAt).getTime() > Date.now() && (
                               <RetryCountdown nextRetryAt={msg.nextRetryAt} msgId={msg.id} />
                             )}
                           </div>
