@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, CheckCircle2, AlertTriangle, XCircle, RefreshCw,
@@ -87,6 +88,13 @@ interface VoiceOtpStats {
   successToday: number;
   failedToday:  number;
   pendingToday: number;
+}
+
+interface VoiceOtpHourlyPoint {
+  hour:    string;
+  total:   number;
+  success: number;
+  rate:    number;
 }
 
 interface SmsMessage {
@@ -350,6 +358,11 @@ export default function SmsMonitorPage() {
 
   const { data: voiceStats } = useQuery<VoiceOtpStats>({
     queryKey: ['/api/voice-otp/stats'],
+    refetchInterval: 30_000,
+  });
+
+  const { data: voiceHourly } = useQuery<VoiceOtpHourlyPoint[]>({
+    queryKey: ['/api/voice-otp/stats/hourly'],
     refetchInterval: 30_000,
   });
 
@@ -707,6 +720,71 @@ export default function SmsMonitorPage() {
                       color={successRate >= 90 ? 'text-emerald-400' : successRate >= 70 ? 'text-amber-400' : 'text-rose-400'}
                     />
                   </div>
+
+                  {/* Hourly success-rate sparkline */}
+                  {voiceHourly && voiceHourly.length > 0 && (
+                    <div className="bg-muted/20 border border-border/50 rounded-lg p-3 space-y-1.5" data-testid="voice-otp-hourly-chart">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-muted-foreground font-medium tracking-wide uppercase">Success Rate — last 24 h (hourly)</span>
+                        <span className="text-[10px] text-muted-foreground">{voiceHourly.length} hour{voiceHourly.length !== 1 ? 's' : ''} of data</span>
+                      </div>
+                      <ResponsiveContainer width="100%" height={56}>
+                        <AreaChart data={voiceHourly} margin={{ top: 2, right: 2, left: -28, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="voiceOtpRateGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%"  stopColor="#a78bfa" stopOpacity={0.35} />
+                              <stop offset="95%" stopColor="#a78bfa" stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
+                          <XAxis
+                            dataKey="hour"
+                            tickFormatter={(v: string) => {
+                              const d = new Date(v);
+                              return `${d.getHours().toString().padStart(2,'0')}h`;
+                            }}
+                            tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }}
+                            tickLine={false}
+                            axisLine={false}
+                            interval="preserveStartEnd"
+                          />
+                          <YAxis
+                            domain={[0, 100]}
+                            tickFormatter={(v: number) => `${v}%`}
+                            tick={{ fontSize: 9, fill: 'hsl(var(--muted-foreground))' }}
+                            tickLine={false}
+                            axisLine={false}
+                            ticks={[0, 50, 100]}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'hsl(var(--card))',
+                              border: '1px solid hsl(var(--border))',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              padding: '6px 10px',
+                            }}
+                            labelFormatter={(v: string) => {
+                              const d = new Date(v);
+                              return `${d.getHours().toString().padStart(2,'0')}:00`;
+                            }}
+                            formatter={(val: number, _name: string, props: any) => {
+                              const { total, success } = props.payload;
+                              return [`${val}% (${success}/${total})`, 'Success rate'];
+                            }}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="rate"
+                            stroke="#a78bfa"
+                            strokeWidth={1.5}
+                            fill="url(#voiceOtpRateGrad)"
+                            dot={false}
+                            activeDot={{ r: 3, fill: '#a78bfa', strokeWidth: 0 }}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
                 </div>
               );
             })()}

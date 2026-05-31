@@ -110,5 +110,37 @@ export function registerVoiceOtpRoutes(app: Express) {
     }
   });
 
+  // ── Hourly success-rate trend (last 24 h) ────────────────────────────────
+  app.get('/api/voice-otp/stats/hourly', requireAuth, async (_req: any, res: any) => {
+    try {
+      const { sql } = await import('drizzle-orm');
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const result = await db.execute(sql`
+        SELECT
+          date_trunc('hour', initiated_at) AS hour,
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE status = 'answered' OR status = 'completed') AS success
+        FROM voice_otp_calls
+        WHERE initiated_at >= ${since}
+        GROUP BY 1
+        ORDER BY 1 ASC
+      `);
+      const rows = (result.rows ?? []) as { hour: string; total: string; success: string }[];
+      const points = rows.map(r => {
+        const total   = Number(r.total);
+        const success = Number(r.success);
+        return {
+          hour:    r.hour,
+          total,
+          success,
+          rate: total > 0 ? Math.round((success / total) * 100) : 0,
+        };
+      });
+      res.json(points);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log('[voice-otp] Routes registered');
 }
