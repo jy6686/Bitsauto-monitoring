@@ -4,7 +4,7 @@ import {
   MessageSquare, CheckCircle2, AlertTriangle, XCircle, RefreshCw,
   Clock, BarChart3, Send, Wallet, Activity, ChevronDown, ChevronRight, Loader2,
   WifiOff, Info, Plus, Trash2, Phone, PhoneOff, Settings2, Eye, EyeOff,
-  FlipHorizontal, CheckCheck, Plug, Copy, Check, Zap,
+  FlipHorizontal, CheckCheck, Plug, Copy, Check, Zap, PhoneCall,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +70,13 @@ interface Stats {
   balanceError?:   string;
   operatorBreakdown:  { operator: string; sent: number; delivered: number; rate: number }[];
   channelBreakdown:   { channel: string; sent: number; delivered: number; failed: number; rate: number }[];
+}
+
+interface VoiceOtpStats {
+  callsToday:   number;
+  successToday: number;
+  failedToday:  number;
+  pendingToday: number;
 }
 
 interface SmsMessage {
@@ -327,6 +334,11 @@ export default function SmsMonitorPage() {
 
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useQuery<Stats>({
     queryKey: ['/api/bhaoo/stats'],
+    refetchInterval: 30_000,
+  });
+
+  const { data: voiceStats } = useQuery<VoiceOtpStats>({
+    queryKey: ['/api/voice-otp/stats'],
     refetchInterval: 30_000,
   });
 
@@ -641,6 +653,44 @@ export default function SmsMonitorPage() {
                 />
               </div>
             ) : null}
+
+            {/* Voice OTP stats row — shown only when there are calls today */}
+            {voiceStats && voiceStats.callsToday > 0 && (() => {
+              const successRate = voiceStats.callsToday > 0
+                ? Math.round((voiceStats.successToday / voiceStats.callsToday) * 100)
+                : 0;
+              return (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-0.5">
+                    <PhoneCall className="h-3.5 w-3.5 text-violet-400" />
+                    <span className="font-medium text-foreground/70">Voice OTP</span>
+                    <span className="text-muted-foreground/50">— today</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <StatCard
+                      label="Calls Today"
+                      value={voiceStats.callsToday.toLocaleString()}
+                      color="text-violet-400"
+                    />
+                    <StatCard
+                      label="Answered"
+                      value={voiceStats.successToday.toLocaleString()}
+                      color="text-emerald-400"
+                    />
+                    <StatCard
+                      label="Failed"
+                      value={voiceStats.failedToday.toLocaleString()}
+                      color={voiceStats.failedToday > 0 ? 'text-rose-400' : 'text-muted-foreground'}
+                    />
+                    <StatCard
+                      label="Success Rate"
+                      value={`${successRate}%`}
+                      color={successRate >= 90 ? 'text-emerald-400' : successRate >= 70 ? 'text-amber-400' : 'text-rose-400'}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               {/* Operator breakdown */}
