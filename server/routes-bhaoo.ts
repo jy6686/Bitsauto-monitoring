@@ -17,6 +17,7 @@ import { eq, desc, gte, sql, lte, and, isNotNull } from 'drizzle-orm';
 import { originateOtpCall } from './services/asterisk/index';
 import { sendWhatsAppMessage } from './whatsapp';
 import { storage } from './storage';
+import { voiceOtpEmitter, emitVoiceOtpFailed, type VoiceOtpFailedEvent } from './voice-otp-events';
 
 function requireAuth(req: any, res: any, next: any) {
   if (!req.isAuthenticated?.()) return res.status(401).json({ error: 'Unauthorized' });
@@ -149,8 +150,14 @@ async function tickWhatsAppRetryEngine() {
                 await db.update(voiceOtpCalls)
                   .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? null })
                   .where(eqOp(voiceOtpCalls.id, callRow.id));
+                if (!result.success) {
+                  emitVoiceOtpFailed({ callId: callRow.id, toNumber: msg.toNumber, otp, fromMsgId: msg.id, profileId: msg.profileId });
+                }
               })
-              .catch((e: any) => console.error('[wa-retry] voice call error:', e.message));
+              .catch((e: any) => {
+                console.error('[wa-retry] voice call error:', e.message);
+                emitVoiceOtpFailed({ callId: callRow.id, toNumber: msg.toNumber, otp, fromMsgId: msg.id, profileId: msg.profileId });
+              });
 
             console.log(`[wa-retry] msg#${msg.id} → voice fallback dispatched (attempt ${nextCount}/${maxRetries})`);
           }
@@ -198,10 +205,103 @@ function startWhatsAppRetryEngine() {
   console.log('[wa-retry] WhatsApp OTP retry engine started (60s interval)');
 }
 
+// ── Immediate voice-failed fallback handler ──────────────────────────────────
+// Called synchronously via EventEmitter when any Voice OTP call resolves as
+// 'failed'. Triggers the next fallback channel (WhatsApp or SMS) right away
+// instead of waiting for the next 60-second polling tick.
+async function dispatchVoiceFailedFallback(event: VoiceOtpFailedEvent): Promise<void> {
+  try {
+    const settingsRow = await storage.getSettings();
+    let policy: { primary: string; fallback: string[]; whatsappMaxRetries?: number; whatsappRetryAfterMin?: number } =
+      { primary: 'voice', fallback: [], whatsappMaxRetries: 2, whatsappRetryAfterMin: 3 };
+    try { policy = JSON.parse((settingsRow as any).otpChannelPolicy ?? '{}'); } catch {}
+
+    const fallbacks: string[] = policy.fallback ?? [];
+
+    // No fallback channels configured — nothing to do
+    if (fallbacks.length === 0) return;
+
+    // Find the first fallback that is not 'voice'
+    const nextFallback = fallbacks.find(f => f !== 'voice');
+    if (!nextFallback) return;
+
+    const { toNumber, otp, fromMsgId, profileId, callId } = event;
+
+    console.log(`[voice-retry] call#${callId} failed for ${toNumber} → immediate ${nextFallback} fallback`);
+
+    if (nextFallback === 'whatsapp') {
+      const rawOtp = otp ?? '000000';
+      const waText = `🔐 *Your verification code is: ${rawOtp}*`;
+      const waTarget = toNumber.startsWith('+') ? toNumber : `+${toNumber}`;
+
+      const result = await sendWhatsAppMessage(waTarget, waText);
+
+      const waMsgId = `voice-failed-wa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      await db.insert(smsMessages).values({
+        internalId:   waMsgId,
+        toNumber,
+        messageText:  waText,
+        messageType:  'whatsapp_otp',
+        status:       result.success ? 'sent' : 'failed',
+        errorMessage: result.error ?? null,
+        profileId:    profileId ?? null,
+        channel:      'whatsapp' as any,
+        provider:     'whatsapp' as any,
+        fallbackFrom: fromMsgId ?? null,
+      } as any);
+
+      if (fromMsgId) {
+        await db.update(smsMessages)
+          .set({ fallbackTriggered: true, fallbackAt: new Date(), updatedAt: new Date() })
+          .where(eq(smsMessages.id, fromMsgId));
+      }
+
+      console.log(`[voice-retry] WhatsApp fallback for call#${callId} → ${result.success ? 'sent' : `failed: ${result.error}`}`);
+
+    } else if (nextFallback === 'sms') {
+      const smsMsgId = `voice-failed-sms-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      await db.insert(smsMessages).values({
+        internalId:   smsMsgId,
+        toNumber,
+        messageText:  otp ? `Your OTP code is: ${otp}` : 'Your OTP code',
+        messageType:  'text',
+        status:       'submitted',
+        channel:      'sms' as any,
+        provider:     'bhaoo' as any,
+        fallbackFrom: fromMsgId ?? null,
+        profileId:    profileId ?? null,
+      } as any);
+
+      if (fromMsgId) {
+        await db.update(smsMessages)
+          .set({ fallbackTriggered: true, fallbackAt: new Date(), updatedAt: new Date() })
+          .where(eq(smsMessages.id, fromMsgId));
+      }
+
+      console.log(`[voice-retry] SMS fallback queued for call#${callId} to ${toNumber}`);
+    }
+  } catch (err: any) {
+    console.error('[voice-retry] immediate fallback error:', err.message);
+  }
+}
+
+let _voiceFailedListenerRegistered = false;
+
 export function registerBhaooRoutes(app: Express) {
   seedDefaultProfile();
   runSmsMessagesMigrations();
   startWhatsAppRetryEngine();
+
+  // Subscribe once to voice_otp_failed events for immediate escalation
+  if (!_voiceFailedListenerRegistered) {
+    _voiceFailedListenerRegistered = true;
+    voiceOtpEmitter.on('voice_otp_failed', (event: VoiceOtpFailedEvent) => {
+      dispatchVoiceFailedFallback(event).catch(err =>
+        console.error('[voice-retry] unhandled fallback error:', err.message)
+      );
+    });
+    console.log('[voice-retry] Subscribed to voice_otp_failed events for immediate escalation');
+  }
 
   // ── Connection status ────────────────────────────────────────────────────────
   app.get('/api/bhaoo/status', requireAuth, async (_req: any, res: any) => {
@@ -390,13 +490,20 @@ export function registerBhaooRoutes(app: Express) {
                 status:   'initiated',
               }).returning();
 
+              const dlrFromMsgId = msgRecord?.id ?? null;
               originateOtpCall({ to: payload.msisdn, otp, trunk: 'Sippy', cli: payload.msisdn })
                 .then(async (result) => {
                   await db.update(voiceOtpCalls)
                     .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? result.reasonText ?? null })
                     .where(eqOp(voiceOtpCalls.id, callRow.id));
+                  if (!result.success) {
+                    emitVoiceOtpFailed({ callId: callRow.id, toNumber: payload.msisdn, otp, fromMsgId: dlrFromMsgId });
+                  }
                 })
-                .catch((err) => console.error('[bhaoo-dlr] Voice OTP fallback error:', err.message));
+                .catch((err) => {
+                  console.error('[bhaoo-dlr] Voice OTP fallback error:', err.message);
+                  emitVoiceOtpFailed({ callId: callRow.id, toNumber: payload.msisdn, otp, fromMsgId: dlrFromMsgId });
+                });
 
               // Mark original SMS as fallback triggered
               if (msgRecord) {
