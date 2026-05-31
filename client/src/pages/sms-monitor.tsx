@@ -1107,6 +1107,17 @@ export default function SmsMonitorPage() {
                                     Resolving…
                                   </span>
                                 )}
+                                {isInitiated && elapsedSec !== null && (
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center text-[10px] font-mono tabular-nums font-semibold",
+                                      isRingingTooLong ? "text-rose-400" : "text-amber-400"
+                                    )}
+                                    data-testid={`voice-call-elapsed-badge-${call.id}`}
+                                  >
+                                    {elapsedSec}s
+                                  </span>
+                                )}
                                 {call.trunk && (
                                   <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
                                     {call.trunk}
