@@ -808,6 +808,27 @@ export function registerBhaooRoutes(app: Express) {
         rate:      Number(r.sent) > 0 ? parseFloat((Number(r.delivered) / Number(r.sent) * 100).toFixed(1)) : 0,
       }));
 
+      const channelResult = await db.execute(sql`
+        SELECT
+          COALESCE(channel, 'sms')                               AS channel,
+          COUNT(*)                                               AS sent,
+          COUNT(*) FILTER (WHERE status = 'delivered')          AS delivered,
+          COUNT(*) FILTER (WHERE status = 'failed')             AS failed
+        FROM sms_messages
+        WHERE submitted_at >= ${since}
+        GROUP BY COALESCE(channel, 'sms')
+        ORDER BY sent DESC
+      `);
+      const channelRows: any[] = Array.isArray(channelResult) ? channelResult : ((channelResult as any).rows ?? []);
+
+      const channelBreakdown = channelRows.map((r: any) => ({
+        channel:   r.channel as string,
+        sent:      Number(r.sent),
+        delivered: Number(r.delivered),
+        failed:    Number(r.failed),
+        rate:      Number(r.sent) > 0 ? parseFloat((Number(r.delivered) / Number(r.sent) * 100).toFixed(1)) : 0,
+      }));
+
       const balance = await checkBalance();
 
       res.json({
@@ -820,6 +841,7 @@ export function registerBhaooRoutes(app: Express) {
         currency:       balance.currency ?? 'USD',
         balanceError:   balance.error,
         operatorBreakdown,
+        channelBreakdown,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

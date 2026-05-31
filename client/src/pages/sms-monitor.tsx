@@ -36,7 +36,8 @@ interface Stats {
   balance:         number;
   currency:        string;
   balanceError?:   string;
-  operatorBreakdown: { operator: string; sent: number; delivered: number; rate: number }[];
+  operatorBreakdown:  { operator: string; sent: number; delivered: number; rate: number }[];
+  channelBreakdown:   { channel: string; sent: number; delivered: number; failed: number; rate: number }[];
 }
 
 interface SmsMessage {
@@ -581,7 +582,7 @@ export default function SmsMonitorPage() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               {/* Operator breakdown */}
               <div className="bg-card border border-border rounded-xl p-5 space-y-4">
                 <div className="flex items-center gap-2">
@@ -610,6 +611,56 @@ export default function SmsMonitorPage() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Channel breakdown */}
+              <div className="bg-card border border-border rounded-xl p-5 space-y-4" data-testid="channel-breakdown-card">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-sky-400" />
+                  <p className="text-sm font-semibold">By Channel</p>
+                  <span className="text-[10px] text-muted-foreground ml-auto">Last 24h</span>
+                </div>
+                {!stats || stats.channelBreakdown.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-4">No channel data yet</p>
+                ) : (
+                  <div className="space-y-3">
+                    {stats.channelBreakdown.map(ch => {
+                      const label = ch.channel === 'sms' ? 'SMS'
+                                  : ch.channel === 'voice' ? 'Voice OTP'
+                                  : ch.channel === 'whatsapp' ? 'WhatsApp'
+                                  : ch.channel;
+                      const barColor = ch.channel === 'voice'     ? 'bg-violet-500'
+                                     : ch.channel === 'whatsapp'  ? 'bg-emerald-500'
+                                     : 'bg-sky-500';
+                      const textColor = ch.channel === 'voice'    ? 'text-violet-400'
+                                      : ch.channel === 'whatsapp' ? 'text-emerald-400'
+                                      : 'text-sky-400';
+                      const dotColor  = ch.channel === 'voice'    ? 'bg-violet-400'
+                                      : ch.channel === 'whatsapp' ? 'bg-emerald-400'
+                                      : 'bg-sky-400';
+                      return (
+                        <div key={ch.channel} className="space-y-1" data-testid={`channel-row-${ch.channel}`}>
+                          <div className="flex justify-between text-xs items-center">
+                            <span className="flex items-center gap-1.5 font-medium">
+                              <span className={cn("inline-block w-1.5 h-1.5 rounded-full", dotColor)} />
+                              {label}
+                            </span>
+                            <span className={cn("font-mono", textColor)}>{ch.rate}%</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-muted/30 rounded-full overflow-hidden">
+                              <div
+                                className={cn("h-full rounded-full", barColor)}
+                                style={{ width: `${ch.rate}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-muted-foreground w-20 text-right">{ch.delivered}/{ch.sent}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
