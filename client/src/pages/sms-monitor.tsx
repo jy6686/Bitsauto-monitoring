@@ -326,6 +326,7 @@ export default function SmsMonitorPage() {
   const [testingId, setTestingId]           = useState<number | null>(null);
   const [channelFilter, setChannelFilter]   = useState<ChannelFilter>('all');
   const [voiceOtpOpen, setVoiceOtpOpen]     = useState(false);
+  const [now, setNow]                       = useState(() => Date.now());
 
   const { data: status } = useQuery<BhaooStatus>({
     queryKey: ['/api/bhaoo/status'],
@@ -359,6 +360,14 @@ export default function SmsMonitorPage() {
     queryKey: ['/api/voice-otp/calls'],
     refetchInterval: 15_000,
   });
+
+  const hasInitiatedCalls = voiceOtpOpen && voiceCalls?.some(c => c.status === 'initiated');
+  useEffect(() => {
+    if (!hasInitiatedCalls) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [hasInitiatedCalls]);
 
   const sendMutation = useMutation({
     mutationFn: (body: typeof sendForm) => apiRequest('POST', '/api/sms/send', body),
@@ -917,10 +926,17 @@ export default function SmsMonitorPage() {
                         <span className="w-24 text-right">Time</span>
                       </div>
                       {voiceCalls.map(call => {
-                        const isAnswered = call.status === 'answered' || call.status === 'completed';
-                        const isFailed   = call.status === 'failed';
-                        const durationSec = call.answeredAt && call.completedAt
-                          ? Math.round((new Date(call.completedAt).getTime() - new Date(call.answeredAt).getTime()) / 1000)
+                        const isAnswered  = call.status === 'answered' || call.status === 'completed';
+                        const isFailed    = call.status === 'failed';
+                        const isInitiated = call.status === 'initiated';
+                        const durationSec = call.completedAt
+                          ? Math.round(
+                              (new Date(call.completedAt).getTime() -
+                               new Date(call.answeredAt ?? call.initiatedAt).getTime()) / 1000
+                            )
+                          : null;
+                        const elapsedSec = isInitiated
+                          ? Math.floor((now - new Date(call.initiatedAt).getTime()) / 1000)
                           : null;
                         return (
                           <div
@@ -959,8 +975,14 @@ export default function SmsMonitorPage() {
                             </div>
 
                             {/* Duration */}
-                            <div className="w-20 text-center text-xs font-mono text-muted-foreground">
-                              {durationSec != null ? `${durationSec}s` : '—'}
+                            <div className="w-20 text-center text-xs font-mono" data-testid={`voice-call-duration-${call.id}`}>
+                              {durationSec != null ? (
+                                <span className="text-muted-foreground">{durationSec}s</span>
+                              ) : elapsedSec != null ? (
+                                <span className="text-amber-400 tabular-nums">{elapsedSec}s</span>
+                              ) : (
+                                <span className="text-muted-foreground/40">—</span>
+                              )}
                             </div>
 
                             {/* Asterisk ID */}
