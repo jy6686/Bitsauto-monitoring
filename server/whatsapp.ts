@@ -1,5 +1,6 @@
 
 import { storage } from './storage';
+import { sendMetaDirectText, sendMetaOtpTemplate } from './services/meta-cloud-api/index';
 
 export type WaAlertType = 'fas' | 'balance' | 'traffic' | 'auth' | 'outage' | 'quality' | 'test';
 
@@ -125,18 +126,44 @@ export function formatOutageAlert(opts: { event: 'down' | 'recovered'; host: str
 // ── Direct message sender (no alert-type filtering) ────────────────────────
 // Used for OTP dispatch and manual sends from Messaging Intelligence Center.
 
+// Extract a bare OTP code (4–8 consecutive digits) from a message string.
+// Returns the first match or null.
+function extractOtpCode(message: string): string | null {
+  const m = message.match(/\b(\d{4,8})\b/);
+  return m ? m[1] : null;
+}
+
 export async function sendWhatsAppMessage(
   phone: string,
   message: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; wamid?: string }> {
   const settings = await storage.getSettings();
   const provider   = settings.whatsappProvider ?? 'callmebot';
   const apiKey     = settings.whatsappApiKey ?? '';
   const instanceId = settings.whatsappInstanceId ?? '';
 
-  if (!apiKey) return { success: false, error: 'WhatsApp API key not configured' };
-
   try {
+    if (provider === 'meta_cloud_api') {
+      const phoneNumberId = (settings as any).metaPhoneNumberId ?? '';
+      const accessToken   = (settings as any).metaAccessToken   ?? '';
+      if (!phoneNumberId || !accessToken) {
+        return { success: false, error: 'Meta Cloud API: Phone Number ID and Access Token are required' };
+      }
+      const useTemplate  = (settings as any).metaUseOtpTemplate !== false;
+      const otpCode      = useTemplate ? extractOtpCode(message) : null;
+      if (otpCode) {
+        const templateName = (settings as any).metaOtpTemplateName     ?? 'otp_verification';
+        const langCode     = (settings as any).metaOtpTemplateLanguage ?? 'en_us';
+        const { wamid } = await sendMetaOtpTemplate(phone, otpCode, templateName, langCode, phoneNumberId, accessToken);
+        return { success: true, wamid };
+      } else {
+        const { wamid } = await sendMetaDirectText(phone, message, phoneNumberId, accessToken);
+        return { success: true, wamid };
+      }
+    }
+
+    if (!apiKey) return { success: false, error: 'WhatsApp API key not configured' };
+
     if (provider === 'callmebot') {
       await sendCallMeBot(phone, message, apiKey);
     } else {
@@ -173,7 +200,12 @@ export async function sendWhatsAppAlert(
   for (const phone of phones) {
     let errorMsg: string | null = null;
     try {
-      if (provider === 'callmebot') {
+      if (provider === 'meta_cloud_api') {
+        const phoneNumberId = (settings as any).metaPhoneNumberId ?? '';
+        const accessToken   = (settings as any).metaAccessToken   ?? '';
+        if (!phoneNumberId || !accessToken) throw new Error('Meta Cloud API credentials not configured');
+        await sendMetaDirectText(phone, message, phoneNumberId, accessToken);
+      } else if (provider === 'callmebot') {
         await sendCallMeBot(phone, message, apiKey);
       } else {
         await sendUltraMsg(phone, message, instanceId, apiKey);

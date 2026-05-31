@@ -58,6 +58,19 @@ async function runSmsMessagesMigrations() {
   } catch (err: any) {
     console.warn('[bhaoo] sms_messages migration skipped:', err.message);
   }
+  try {
+    await db.execute(sql`
+      ALTER TABLE settings
+        ADD COLUMN IF NOT EXISTS meta_phone_number_id       VARCHAR(64),
+        ADD COLUMN IF NOT EXISTS meta_access_token          VARCHAR(512),
+        ADD COLUMN IF NOT EXISTS meta_otp_template_name     VARCHAR(128) DEFAULT 'otp_verification',
+        ADD COLUMN IF NOT EXISTS meta_otp_template_language VARCHAR(16)  DEFAULT 'en_us',
+        ADD COLUMN IF NOT EXISTS meta_use_otp_template      BOOLEAN      DEFAULT true
+    `);
+    console.log('[bhaoo] settings meta_cloud_api columns ensured');
+  } catch (err: any) {
+    console.warn('[bhaoo] settings meta migration skipped:', err.message);
+  }
 }
 
 // ── WhatsApp OTP retry engine ────────────────────────────────────────────────
@@ -1246,6 +1259,70 @@ export function registerBhaooRoutes(app: Express) {
     try {
       const result = await rechargeAccount(Number(amount), clientId);
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Meta Cloud API — get settings ────────────────────────────────────────────
+  app.get('/api/whatsapp/meta/settings', requireAuth, async (_req: any, res: any) => {
+    try {
+      const s = await storage.getSettings();
+      res.json({
+        provider:                s.whatsappProvider ?? 'callmebot',
+        metaPhoneNumberId:       (s as any).metaPhoneNumberId       ?? '',
+        metaAccessToken:         (s as any).metaAccessToken         ?? '',
+        metaOtpTemplateName:     (s as any).metaOtpTemplateName     ?? 'otp_verification',
+        metaOtpTemplateLanguage: (s as any).metaOtpTemplateLanguage ?? 'en_us',
+        metaUseOtpTemplate:      (s as any).metaUseOtpTemplate      !== false,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Meta Cloud API — save settings ───────────────────────────────────────────
+  app.post('/api/whatsapp/meta/settings', requireAuth, async (req: any, res: any) => {
+    try {
+      const {
+        metaPhoneNumberId, metaAccessToken,
+        metaOtpTemplateName, metaOtpTemplateLanguage, metaUseOtpTemplate,
+      } = req.body ?? {};
+      await storage.updateSettings({
+        whatsappProvider: 'meta_cloud_api',
+        ...(metaPhoneNumberId       !== undefined && { metaPhoneNumberId }),
+        ...(metaAccessToken         !== undefined && { metaAccessToken }),
+        ...(metaOtpTemplateName     !== undefined && { metaOtpTemplateName }),
+        ...(metaOtpTemplateLanguage !== undefined && { metaOtpTemplateLanguage }),
+        ...(metaUseOtpTemplate      !== undefined && { metaUseOtpTemplate }),
+      } as any);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Meta Cloud API — test send ────────────────────────────────────────────────
+  app.post('/api/whatsapp/meta/test', requireAuth, async (req: any, res: any) => {
+    try {
+      const { sendMetaDirectText } = await import('./services/meta-cloud-api/index');
+      const settingsRow = await storage.getSettings();
+      const phoneNumberId = (settingsRow as any).metaPhoneNumberId ?? '';
+      const accessToken   = (settingsRow as any).metaAccessToken   ?? '';
+      const testTo        = req.body?.to ?? phoneNumberId;
+      if (!phoneNumberId || !accessToken) {
+        return res.status(400).json({ error: 'Meta Cloud API credentials not configured' });
+      }
+      if (!testTo) {
+        return res.status(400).json({ error: 'No recipient number provided' });
+      }
+      const { wamid } = await sendMetaDirectText(
+        String(testTo).startsWith('+') ? String(testTo) : `+${testTo}`,
+        `BitsAuto test — Meta Cloud API connected ✓ (${new Date().toUTCString()})`,
+        phoneNumberId,
+        accessToken,
+      );
+      res.json({ ok: true, wamid });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

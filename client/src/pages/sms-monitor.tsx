@@ -340,6 +340,11 @@ export default function SmsMonitorPage() {
   const { lastVoiceOtpUpdate } = useNocWebSocket();
 
   const [activeTab, setActiveTab]         = useState<'monitor' | 'profiles' | 'settings'>('monitor');
+  const [metaForm, setMetaForm] = useState({
+    metaPhoneNumberId: '', metaAccessToken: '', metaOtpTemplateName: 'otp_verification',
+    metaOtpTemplateLanguage: 'en_us', metaUseOtpTemplate: true,
+  });
+  const [showMetaToken, setShowMetaToken] = useState(false);
   const [showSendPanel, setShowSendPanel]   = useState(false);
   const [showWaSendPanel, setShowWaSendPanel] = useState(false);
   const [sendForm, setSendForm]             = useState({ to: '', from: 'BitsAuto', text: '', type: 'text' });
@@ -386,6 +391,24 @@ export default function SmsMonitorPage() {
   const { data: otpPolicy, isLoading: policyLoading } = useQuery<OtpPolicy>({
     queryKey: ['/api/messaging/policy'],
   });
+
+  const { data: metaSettings } = useQuery<{
+    provider: string; metaPhoneNumberId: string; metaAccessToken: string;
+    metaOtpTemplateName: string; metaOtpTemplateLanguage: string; metaUseOtpTemplate: boolean;
+  }>({
+    queryKey: ['/api/whatsapp/meta/settings'],
+  });
+
+  useEffect(() => {
+    if (!metaSettings) return;
+    setMetaForm({
+      metaPhoneNumberId:       metaSettings.metaPhoneNumberId       ?? '',
+      metaAccessToken:         metaSettings.metaAccessToken         ?? '',
+      metaOtpTemplateName:     metaSettings.metaOtpTemplateName     ?? 'otp_verification',
+      metaOtpTemplateLanguage: metaSettings.metaOtpTemplateLanguage ?? 'en_us',
+      metaUseOtpTemplate:      metaSettings.metaUseOtpTemplate      !== false,
+    });
+  }, [metaSettings]);
 
   const { data: voiceCalls, isLoading: voiceLoading } = useQuery<VoiceOtpCall[]>({
     queryKey: ['/api/voice-otp/calls'],
@@ -436,6 +459,28 @@ export default function SmsMonitorPage() {
       }
     },
     onError: (err: any) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
+  });
+
+  const metaSaveMutation = useMutation({
+    mutationFn: (body: typeof metaForm) => apiRequest('POST', '/api/whatsapp/meta/settings', body),
+    onSuccess: () => {
+      toast({ title: 'Meta Cloud API saved', description: 'Provider set to Meta WhatsApp Cloud API' });
+      qc.invalidateQueries({ queryKey: ['/api/whatsapp/meta/settings'] });
+    },
+    onError: (err: any) => toast({ title: 'Save failed', description: err.message, variant: 'destructive' }),
+  });
+
+  const metaTestMutation = useMutation({
+    mutationFn: (to: string) => apiRequest('POST', '/api/whatsapp/meta/test', { to }),
+    onSuccess: async (res: any) => {
+      const data = await res.json?.() ?? res;
+      if (data.ok) {
+        toast({ title: 'Test sent', description: `wamid: ${data.wamid?.slice(0, 32) ?? 'ok'}` });
+      } else {
+        toast({ title: 'Test failed', description: data.error ?? 'Unknown error', variant: 'destructive' });
+      }
+    },
+    onError: (err: any) => toast({ title: 'Test failed', description: err.message, variant: 'destructive' }),
   });
 
   const policyMutation = useMutation({
@@ -1348,23 +1393,151 @@ export default function SmsMonitorPage() {
               </div>
             </div>
 
-            {/* WhatsApp provider info */}
-            <div className="bg-card border border-emerald-500/20 rounded-xl p-5 space-y-3">
+            {/* WhatsApp provider config */}
+            <div className="bg-card border border-emerald-500/20 rounded-xl p-5 space-y-4">
               <div className="flex items-center gap-2">
                 <WaIcon className="h-4 w-4 text-emerald-400" />
                 <p className="text-sm font-semibold">WhatsApp Provider</p>
+                {metaSettings?.provider === 'meta_cloud_api' && (
+                  <span className="ml-auto text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Meta Cloud API active</span>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                WhatsApp messages are sent via the configured provider (UltraMsg or CallMeBot). Configure the provider in <strong>Settings → WhatsApp Alerts</strong>.
-              </p>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="rounded-lg bg-muted/30 border border-border p-3 space-y-1">
-                  <p className="font-medium">CallMeBot</p>
-                  <p className="text-muted-foreground">Free, personal use, requires opt-in per number</p>
+
+              {/* Provider cards */}
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                {[
+                  { id: 'callmebot',     label: 'CallMeBot',       desc: 'Free · personal use · per-number opt-in required' },
+                  { id: 'ultramsg',      label: 'UltraMsg',        desc: 'Paid · business use · no opt-in needed' },
+                  { id: 'meta_cloud_api',label: 'Meta Cloud API',  desc: 'Official · OTP templates · enterprise-grade' },
+                ].map(p => (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "rounded-lg border p-3 space-y-1 cursor-default",
+                      metaSettings?.provider === p.id
+                        ? "border-emerald-500/50 bg-emerald-500/8"
+                        : "border-border bg-muted/20",
+                    )}
+                  >
+                    <p className={cn("font-medium", metaSettings?.provider === p.id ? "text-emerald-400" : "")}>{p.label}</p>
+                    <p className="text-muted-foreground leading-snug">{p.desc}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Meta Cloud API config form */}
+              <div className="space-y-4 pt-1 border-t border-border">
+                <div>
+                  <p className="text-xs font-medium text-emerald-400 flex items-center gap-1.5">
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                    Meta WhatsApp Cloud API
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Official Meta API. Requires a WhatsApp Business Account and System User token from{' '}
+                    <a href="https://developers.facebook.com/apps/" target="_blank" rel="noreferrer" className="underline hover:text-foreground">developers.facebook.com</a>.
+                  </p>
                 </div>
-                <div className="rounded-lg bg-muted/30 border border-border p-3 space-y-1">
-                  <p className="font-medium">UltraMsg</p>
-                  <p className="text-muted-foreground">Paid, business use, no per-number opt-in needed</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Phone Number ID</Label>
+                    <Input
+                      placeholder="e.g. 123456789012345"
+                      value={metaForm.metaPhoneNumberId}
+                      onChange={e => setMetaForm(f => ({ ...f, metaPhoneNumberId: e.target.value }))}
+                      data-testid="input-meta-phone-id"
+                      className="h-8 text-xs font-mono"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Found in Meta Dev Portal → WhatsApp → API Setup</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Access Token (System User)</Label>
+                    <div className="relative">
+                      <Input
+                        type={showMetaToken ? 'text' : 'password'}
+                        placeholder="EAAxxxxxxxxxxxxxxx..."
+                        value={metaForm.metaAccessToken}
+                        onChange={e => setMetaForm(f => ({ ...f, metaAccessToken: e.target.value }))}
+                        data-testid="input-meta-access-token"
+                        className="h-8 text-xs font-mono pr-8"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowMetaToken(v => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        data-testid="button-toggle-meta-token"
+                      >
+                        {showMetaToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* OTP Template config */}
+                <div className="rounded-lg bg-muted/20 border border-border p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium">OTP Authentication Template</p>
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={metaForm.metaUseOtpTemplate}
+                        onChange={e => setMetaForm(f => ({ ...f, metaUseOtpTemplate: e.target.checked }))}
+                        className="rounded"
+                        data-testid="toggle-meta-use-template"
+                      />
+                      <span className="text-muted-foreground">Use template for OTP</span>
+                    </label>
+                  </div>
+                  {metaForm.metaUseOtpTemplate && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Template Name</Label>
+                        <Input
+                          placeholder="otp_verification"
+                          value={metaForm.metaOtpTemplateName}
+                          onChange={e => setMetaForm(f => ({ ...f, metaOtpTemplateName: e.target.value }))}
+                          data-testid="input-meta-template-name"
+                          className="h-8 text-xs font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Language Code</Label>
+                        <Input
+                          placeholder="en_us"
+                          value={metaForm.metaOtpTemplateLanguage}
+                          onChange={e => setMetaForm(f => ({ ...f, metaOtpTemplateLanguage: e.target.value }))}
+                          data-testid="input-meta-template-lang"
+                          className="h-8 text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <div className="rounded bg-blue-500/5 border border-blue-500/20 p-2 text-[10px] text-muted-foreground">
+                    <span className="text-blue-400 font-medium">Note: </span>
+                    Authentication templates must be pre-approved in Meta Business Manager (category: AUTHENTICATION) before use. BitsAuto auto-detects 4–8 digit OTP codes and uses the template for those; all other messages use direct text.
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    disabled={metaSaveMutation.isPending || !metaForm.metaPhoneNumberId || !metaForm.metaAccessToken}
+                    onClick={() => metaSaveMutation.mutate(metaForm)}
+                    data-testid="button-save-meta-settings"
+                  >
+                    {metaSaveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1.5" />}
+                    Save & Activate Meta Provider
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={metaTestMutation.isPending || !metaForm.metaPhoneNumberId || !metaForm.metaAccessToken}
+                    onClick={() => metaTestMutation.mutate(metaForm.metaPhoneNumberId)}
+                    data-testid="button-test-meta"
+                  >
+                    {metaTestMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1.5" />}
+                    Test Send
+                  </Button>
                 </div>
               </div>
             </div>

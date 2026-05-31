@@ -124,6 +124,12 @@ export const settings = pgTable("settings", {
   hlrApiSecret:  varchar("hlr_api_secret",  { length: 255 }),
   // OTP Channel Policy — JSON: { "primary": "voice"|"whatsapp"|"sms", "fallback": [] }
   otpChannelPolicy: text("otp_channel_policy").default('{"primary":"voice","fallback":[]}'),
+  // Meta WhatsApp Cloud API (official)
+  metaPhoneNumberId:       varchar("meta_phone_number_id",       { length: 64  }),  // From Meta Developer Portal
+  metaAccessToken:         varchar("meta_access_token",          { length: 512 }),  // System User Bearer token
+  metaOtpTemplateName:     varchar("meta_otp_template_name",     { length: 128 }).default('otp_verification'),
+  metaOtpTemplateLanguage: varchar("meta_otp_template_language", { length: 16  }).default('en_us'),
+  metaUseOtpTemplate:      boolean("meta_use_otp_template").default(true),          // true = template, false = direct text
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports
