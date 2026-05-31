@@ -46,10 +46,11 @@ const DOMAINS: Domain[] = [
     id: 'live-network', label: 'Live Network', icon: Radio, color: 'text-emerald-400',
     groups: [
       { label: 'Live Operations', desc: 'Active calls, alerts and real-time traffic', icon: Phone, badge: (s) => s.activeIncidents, items: [
-        { href: '/calls',        label: 'Live Calls',   desc: 'Active calls monitor',        icon: Phone },
-        { href: '/alerts',       label: 'Alerts',       desc: 'Platform alerts & incidents',  icon: Zap },
-        { href: '/live-traffic', label: 'Live Traffic', desc: 'Active call stream',           icon: Activity },
-        { href: '/traffic-map',  label: 'Traffic Map',  desc: 'Geographic call view',         icon: Globe },
+        { href: '/calls',           label: 'Live Calls',      desc: 'Active calls monitor',              icon: Phone },
+        { href: '/alerts',          label: 'Alerts',          desc: 'Platform alerts & incidents',        icon: Zap },
+        { href: '/live-traffic',    label: 'Live Traffic',    desc: 'Active call stream',                icon: Activity },
+        { href: '/traffic-map',     label: 'Traffic Map',     desc: 'Geographic call view',              icon: Globe },
+        { href: '/call-governance', label: 'Call Governance', desc: 'Vendor cap timer + replay engine',  icon: Shield },
       ]},
       { label: 'Command Centre', desc: 'NOC dashboards, incident management and ops console', icon: Monitor, badge: (s) => s.activeIncidents, items: [
         { href: '/noc-dashboard', label: 'NOC Dashboard',    desc: 'Network operations overview',  icon: Monitor },

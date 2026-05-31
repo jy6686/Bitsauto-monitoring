@@ -135,6 +135,7 @@ import CompliancePage from "@/pages/compliance";
 import SmsMonitorPage from "@/pages/sms-monitor";
 import VoiceOtpPage from "@/pages/voice-otp";
 import TerminationChainsPage from "@/pages/termination-chains";
+import CallGovernancePage from "@/pages/call-governance";
 import AiOpsPage from "@/pages/ai-ops";
 import CarrierIntelligencePage from "@/pages/carrier-intelligence";
 import IntelligencePage from "@/pages/intelligence";
@@ -704,6 +705,9 @@ function Router() {
       </Route>
       <Route path="/call-recordings">
         {() => <ProtectedRoute component={CallRecordingsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/call-governance">
+        {() => <ProtectedRoute component={CallGovernancePage} requiredRoles={['admin','management','noc_operator','super_admin']} />}
       </Route>
       <Route path="/portal/:token">
         {(params) => <PortalViewPage />}

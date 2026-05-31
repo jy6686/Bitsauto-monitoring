@@ -3221,3 +3221,53 @@ export const voiceOtpCalls = pgTable("voice_otp_calls", {
   completedAt:  timestamp("completed_at"),
 });
 export type VoiceOtpCall = typeof voiceOtpCalls.$inferSelect;
+
+// ── Call Governance ───────────────────────────────────────────────────────────
+
+export const callGovernanceRules = pgTable("call_governance_rules", {
+  id:             serial("id").primaryKey(),
+  connectionName: varchar("connection_name", { length: 128 }).notNull(),
+  channelPattern: varchar("channel_pattern", { length: 255 }),
+  capSec:         integer("cap_sec").notNull().default(120),
+  jitterSec:      integer("jitter_sec").notNull().default(15),
+  enabled:        boolean("enabled").notNull().default(false),
+  action:         varchar("action",   { length: 32 }).notNull().default('cap_and_replay'),
+  scenario:       varchar("scenario", { length: 32 }).notNull().default('time_cap'),
+  notes:          text("notes"),
+  createdAt:      timestamp("created_at").defaultNow(),
+  updatedAt:      timestamp("updated_at").defaultNow(),
+});
+export type CallGovernanceRule = typeof callGovernanceRules.$inferSelect;
+export type InsertCallGovernanceRule = typeof callGovernanceRules.$inferInsert;
+export const insertCallGovernanceRuleSchema = createInsertSchema(callGovernanceRules)
+  .omit({ id: true, createdAt: true, updatedAt: true });
+
+export const governedCalls = pgTable("governed_calls", {
+  id:                serial("id").primaryKey(),
+  uniqueId:          varchar("unique_id",       { length: 128 }),
+  channelA:          varchar("channel_a",        { length: 255 }),
+  channelB:          varchar("channel_b",        { length: 255 }),
+  caller:            varchar("caller",           { length: 64  }),
+  callee:            varchar("callee",           { length: 64  }),
+  connectionName:    varchar("connection_name",  { length: 128 }),
+  ruleId:            integer("rule_id").references(() => callGovernanceRules.id),
+  capSec:            integer("cap_sec"),
+  startTime:         timestamp("start_time").defaultNow(),
+  byeSentAt:         timestamp("bye_sent_at"),
+  playbackStartedAt: timestamp("playback_started_at"),
+  completedAt:       timestamp("completed_at"),
+  recordingPath:     varchar("recording_path", { length: 512 }),
+  triggerReason:     varchar("trigger_reason", { length: 64  }),
+  status:            varchar("status",         { length: 32  }).notNull().default('active'),
+});
+export type GovernedCall = typeof governedCalls.$inferSelect;
+
+export const callGovernanceLogs = pgTable("call_governance_log", {
+  id:             serial("id").primaryKey(),
+  governedCallId: integer("governed_call_id").references(() => governedCalls.id),
+  eventType:      varchar("event_type", { length: 64 }).notNull(),
+  channel:        varchar("channel",    { length: 255 }),
+  details:        text("details"),
+  createdAt:      timestamp("created_at").defaultNow(),
+});
+export type CallGovernanceLog = typeof callGovernanceLogs.$inferSelect;

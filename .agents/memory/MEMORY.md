@@ -13,3 +13,4 @@
 - [BhaooSMS Integration](bhaoo-sms-integration.md) — REVE SMS V5.3.0; service layer at server/services/bhaoo/; routes in server/routes-bhaoo.ts registered via registerBhaooRoutes(); 4 DB tables created via direct SQL; SMS Monitor at /sms-monitor.
 - [BytePlus Infrastructure Orchestration](byteplus-infra-orchestration.md) — Phase 4/5 future feature: NOC-driven node provisioning via BytePlus ECS; deferred until billing/invoicing fully complete.
 - [Voice OTP AMI dial format](voice-otp-ami-dial.md) — Sippy dial pattern needs tech prefix; DIRECT_SIP mode; chan_sip on port 5160; no FreePBX trunk needed.
+- [Call Governance AMI architecture](call-governance-ami.md) — persistent AmiGovernanceListener at server/services/asterisk/ami-governance.ts; reconnects every 15s; emits bridge/hangup events; vendor-leg channel matched by regex pattern per rule; existing /call-recordings page is Sippy recording-server based — keep separate.
