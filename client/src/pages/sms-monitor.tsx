@@ -27,23 +27,23 @@ function WaIcon({ className }: { className?: string }) {
 
 // ── RetryCountdown ─────────────────────────────────────────────────────────
 function RetryCountdown({ nextRetryAt, msgId }: { nextRetryAt: string; msgId: number }) {
-  const getLabel = () => {
+  const getState = () => {
     const ms = new Date(nextRetryAt).getTime() - Date.now();
-    if (ms <= 0) return "Retry pending…";
+    if (ms <= 0) return { label: "Retry pending…", imminent: false, pending: true };
     const totalSec = Math.ceil(ms / 1000);
     const m = Math.floor(totalSec / 60);
     const s = totalSec % 60;
-    if (m > 0) return `Next retry in ${m}m ${s.toString().padStart(2, "0")}s`;
-    return `Next retry in ${s}s`;
+    const label = m > 0 ? `Next retry in ${m}m ${s.toString().padStart(2, "0")}s` : `Next retry in ${s}s`;
+    return { label, imminent: totalSec < 30, pending: false };
   };
 
-  const [label, setLabel] = useState(getLabel);
+  const [state, setState] = useState(getState);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    setLabel(getLabel());
+    setState(getState());
     timerRef.current = setInterval(() => {
-      setLabel(getLabel());
+      setState(getState());
     }, 1000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -51,8 +51,18 @@ function RetryCountdown({ nextRetryAt, msgId }: { nextRetryAt: string; msgId: nu
   }, [nextRetryAt]);
 
   return (
-    <span className="text-orange-400/70" data-testid={`next-retry-${msgId}`}>
-      {label}
+    <span
+      className={cn(
+        "transition-colors duration-300",
+        state.pending
+          ? "text-orange-400/70"
+          : state.imminent
+          ? "text-orange-400 animate-pulse"
+          : "text-orange-400/70"
+      )}
+      data-testid={`next-retry-${msgId}`}
+    >
+      {state.label}
     </span>
   );
 }
