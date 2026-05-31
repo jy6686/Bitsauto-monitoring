@@ -98,6 +98,9 @@ interface VoiceOtpHourlyPoint {
   rate:    number;
 }
 
+/** Calls ringing for longer than this many seconds are flagged with a warning */
+const RINGING_TOO_LONG_THRESHOLD_SEC = 30;
+
 interface SmsMessage {
   id:                 number;
   internalId?:        string;
@@ -1034,10 +1037,14 @@ export default function SmsMonitorPage() {
                         const elapsedSec = isInitiated
                           ? Math.floor((now - new Date(call.initiatedAt).getTime()) / 1000)
                           : null;
+                        const isRingingTooLong = isInitiated && elapsedSec !== null && elapsedSec >= RINGING_TOO_LONG_THRESHOLD_SEC;
                         return (
                           <div
                             key={call.id}
-                            className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 items-center py-2.5 px-2 border-b border-border/40 last:border-0"
+                            className={cn(
+                              "grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 items-center py-2.5 px-2 border-b border-border/40 last:border-0 rounded-lg transition-colors",
+                              isRingingTooLong && "border border-orange-500/50 bg-orange-500/5 last:border last:border-orange-500/50"
+                            )}
                             data-testid={`voice-call-${call.id}`}
                           >
                             {/* Status icon */}
@@ -1059,6 +1066,11 @@ export default function SmsMonitorPage() {
                                     {call.trunk}
                                   </Badge>
                                 )}
+                                {isRingingTooLong && (
+                                  <Badge variant="outline" className="text-[10px] text-orange-400 border-orange-500/40 bg-orange-500/10 gap-1" data-testid={`warning-ringing-too-long-${call.id}`}>
+                                    <AlertTriangle className="h-2.5 w-2.5" /> Ringing too long
+                                  </Badge>
+                                )}
                               </div>
                               {call.errorMessage && (
                                 <p className="text-[10px] text-rose-400/80 truncate">{call.errorMessage}</p>
@@ -1075,7 +1087,7 @@ export default function SmsMonitorPage() {
                               {durationSec != null ? (
                                 <span className="text-muted-foreground">{durationSec}s</span>
                               ) : elapsedSec != null ? (
-                                <span className="text-amber-400 tabular-nums">{elapsedSec}s</span>
+                                <span className={cn("tabular-nums", isRingingTooLong ? "text-rose-400 font-semibold" : "text-amber-400")} data-testid={`voice-call-elapsed-${call.id}`}>{elapsedSec}s</span>
                               ) : (
                                 <span className="text-muted-foreground/40">—</span>
                               )}
