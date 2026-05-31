@@ -1098,6 +1098,15 @@ export default function SmsMonitorPage() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-xs font-mono text-foreground/80">{call.toNumber}</span>
                                 <StatusBadge status={call.status} />
+                                {isInitiated && (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[10px] text-violet-400/80 animate-pulse"
+                                    data-testid={`voice-call-resolving-${call.id}`}
+                                  >
+                                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                    Resolving…
+                                  </span>
+                                )}
                                 {call.trunk && (
                                   <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
                                     {call.trunk}
