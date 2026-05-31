@@ -122,6 +122,32 @@ export function formatOutageAlert(opts: { event: 'down' | 'recovered'; host: str
   ].join('\n');
 }
 
+// ── Direct message sender (no alert-type filtering) ────────────────────────
+// Used for OTP dispatch and manual sends from Messaging Intelligence Center.
+
+export async function sendWhatsAppMessage(
+  phone: string,
+  message: string,
+): Promise<{ success: boolean; error?: string }> {
+  const settings = await storage.getSettings();
+  const provider   = settings.whatsappProvider ?? 'callmebot';
+  const apiKey     = settings.whatsappApiKey ?? '';
+  const instanceId = settings.whatsappInstanceId ?? '';
+
+  if (!apiKey) return { success: false, error: 'WhatsApp API key not configured' };
+
+  try {
+    if (provider === 'callmebot') {
+      await sendCallMeBot(phone, message, apiKey);
+    } else {
+      await sendUltraMsg(phone, message, instanceId, apiKey);
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message ?? String(err) };
+  }
+}
+
 // ── Core dispatcher ────────────────────────────────────────────────────────
 
 export async function sendWhatsAppAlert(

@@ -347,6 +347,13 @@ export async function runSafeMigrations(): Promise<void> {
       )
     `);
 
+    // ── Messaging Intelligence Center: WhatsApp channel columns ───────────
+    await client.query(`ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS channel      TEXT NOT NULL DEFAULT 'sms'`);
+    await client.query(`ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS provider     TEXT`);
+    await client.query(`ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS fallback_from INTEGER`);
+    await client.query(`ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS latency_ms   INTEGER`);
+    await client.query(`ALTER TABLE settings     ADD COLUMN IF NOT EXISTS otp_channel_policy TEXT`);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

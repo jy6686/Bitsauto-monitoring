@@ -15,6 +15,8 @@ import {
 } from '@shared/schema';
 import { eq, desc, gte, sql } from 'drizzle-orm';
 import { originateOtpCall } from './services/asterisk/index';
+import { sendWhatsAppMessage } from './whatsapp';
+import { storage } from './storage';
 
 function requireAuth(req: any, res: any, next: any) {
   if (!req.isAuthenticated?.()) return res.status(401).json({ error: 'Unauthorized' });
@@ -340,30 +342,113 @@ export function registerBhaooRoutes(app: Express) {
 
       console.log(`[bhaoo-receive] SMS from REVE → to=${to} otp=${otp || '(none)'} msgId=${msgId}`);
 
-      // Trigger Voice OTP call if OTP found in message
-      if (otp) {
-        const [callRow] = await db.insert(voiceOtpCalls).values({
-          toNumber: String(to),
-          otp:      otp[0] + '*'.repeat(Math.max(0, otp.length - 2)) + otp[otp.length - 1],
-          trunk:    'Sippy',
-          status:   'initiated',
-        }).returning();
+      // Resolve OTP channel policy
+      let otpPolicy: { primary: string; fallback: string[] } = { primary: 'voice', fallback: [] };
+      try {
+        const settingsRow = await storage.getSettings();
+        const raw = (settingsRow as any).otpChannelPolicy ?? '{"primary":"voice","fallback":[]}';
+        otpPolicy = JSON.parse(raw);
+      } catch {}
 
-        originateOtpCall({ to: String(to), otp, trunk: 'Sippy', cli: from ? String(from) : undefined })
-          .then(async (result) => {
-            const { eq: eqOp } = await import('drizzle-orm');
-            await db.update(voiceOtpCalls)
-              .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? result.reasonText ?? null })
-              .where(eqOp(voiceOtpCalls.id, callRow.id));
-            // Update sms message status based on call result
-            await db.update(smsMessages)
-              .set({ status: result.success ? 'delivered' : 'failed', fallbackTriggered: true, fallbackAt: new Date(), updatedAt: new Date() })
-              .where(eqOp(smsMessages.id, msgRow.id));
-            console.log(`[bhaoo-receive] Voice OTP call ${result.success ? 'initiated' : 'failed'}: ${result.error ?? result.uniqueId}`);
-          })
-          .catch((err) => console.error('[bhaoo-receive] AMI error:', err.message));
+      // Dispatch OTP based on channel policy
+      if (otp) {
+        // Dispatch via WhatsApp — returns true on success, false on failure
+        const dispatchWhatsApp = async (parentId: number): Promise<boolean> => {
+          const waText = `🔐 *Your verification code is: ${otp}*`;
+          const t0 = Date.now();
+          const result = await sendWhatsAppMessage(String(to).startsWith('+') ? String(to) : `+${to}`, waText);
+          const latencyMs = Date.now() - t0;
+          const waMsgId = `wa-otp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          await db.insert(smsMessages).values({
+            internalId:   waMsgId,
+            toNumber:     String(to),
+            fromId:       from ? String(from) : null,
+            messageText:  waText,
+            messageType:  'whatsapp_otp',
+            status:       result.success ? 'sent' : 'failed',
+            errorMessage: result.error ?? null,
+            profileId,
+            channel:      'whatsapp' as any,
+            provider:     'whatsapp' as any,
+            fallbackFrom: parentId,
+            latencyMs,
+          } as any);
+          console.log(`[bhaoo-receive] WhatsApp OTP ${result.success ? 'sent' : 'failed'} to ${to}: ${result.error ?? 'ok'}`);
+          return result.success;
+        };
+
+        // Dispatch via Voice — accepts an optional onFailure callback that fires when the AMI call fails
+        const dispatchVoice = async (onFailure?: () => void) => {
+          const [callRow] = await db.insert(voiceOtpCalls).values({
+            toNumber: String(to),
+            otp:      otp[0] + '*'.repeat(Math.max(0, otp.length - 2)) + otp[otp.length - 1],
+            trunk:    'Sippy',
+            status:   'initiated',
+          }).returning();
+
+          const voiceMsgId = `voice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          const [voiceMsgRow] = await db.insert(smsMessages).values({
+            internalId:  voiceMsgId,
+            toNumber:    String(to),
+            fromId:      from ? String(from) : null,
+            messageText: `Voice OTP: ${otp[0]}${'*'.repeat(Math.max(0, otp.length - 2))}${otp[otp.length - 1]}`,
+            messageType: 'voice_otp',
+            status:      'submitted',
+            profileId,
+            channel:     'voice' as any,
+            provider:    'asterisk' as any,
+            fallbackFrom: msgRow.id,
+          } as any).returning();
+
+          // Fire-and-forget: updates DB when call result arrives; calls onFailure when call fails
+          originateOtpCall({ to: String(to), otp, trunk: 'Sippy', cli: from ? String(from) : undefined })
+            .then(async (result) => {
+              const { eq: eqOp } = await import('drizzle-orm');
+              await db.update(voiceOtpCalls)
+                .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? result.reasonText ?? null })
+                .where(eqOp(voiceOtpCalls.id, callRow.id));
+              await db.update(smsMessages)
+                .set({ status: result.success ? 'delivered' : 'failed', updatedAt: new Date() })
+                .where(eqOp(smsMessages.id, voiceMsgRow.id));
+              console.log(`[bhaoo-receive] Voice OTP call ${result.success ? 'succeeded' : 'failed'}: ${result.error ?? result.uniqueId}`);
+              // Trigger fallback only when voice definitively fails
+              if (!result.success && onFailure) {
+                onFailure();
+              }
+            })
+            .catch((err) => {
+              console.error('[bhaoo-receive] AMI error:', err.message);
+              if (onFailure) onFailure();
+            });
+        };
+
+        const primary = otpPolicy.primary ?? 'voice';
+        const fallbacks = otpPolicy.fallback ?? [];
+
+        if (primary === 'voice') {
+          if (fallbacks.includes('whatsapp')) {
+            // Voice first; WhatsApp only if voice call fails
+            await dispatchVoice(() => {
+              dispatchWhatsApp(msgRow.id).catch(e => console.error('[bhaoo-receive] WA fallback error:', e.message));
+            });
+          } else {
+            await dispatchVoice();
+          }
+        } else if (primary === 'whatsapp') {
+          // WhatsApp first; voice only if WhatsApp fails
+          const waOk = await dispatchWhatsApp(msgRow.id);
+          if (!waOk && fallbacks.includes('voice')) {
+            await dispatchVoice();
+          }
+        } else if (primary === 'sms') {
+          // SMS channel only — no additional OTP dispatch (REVE SMS is already logged)
+          console.log(`[bhaoo-receive] Policy=sms-only — no additional OTP dispatch`);
+        } else {
+          // Default: voice
+          await dispatchVoice();
+        }
       } else {
-        console.warn(`[bhaoo-receive] No OTP found in smsText: "${smsText}" — call not triggered`);
+        console.warn(`[bhaoo-receive] No OTP found in smsText: "${smsText}" — no OTP dispatch triggered`);
       }
 
       res.json({ status: 0, Text: 'ACCEPTED', message_id: msgId });

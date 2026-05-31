@@ -122,6 +122,8 @@ export const settings = pgTable("settings", {
   hlrProvider:   varchar("hlr_provider",    { length: 20 }).default('none'),  // 'telnyx' | 'hlrlookup' | 'none'
   hlrApiKey:     varchar("hlr_api_key",     { length: 255 }),
   hlrApiSecret:  varchar("hlr_api_secret",  { length: 255 }),
+  // OTP Channel Policy — JSON: { "primary": "voice"|"whatsapp"|"sms", "fallback": [] }
+  otpChannelPolicy: text("otp_channel_policy").default('{"primary":"voice","fallback":[]}'),
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports
@@ -3155,6 +3157,11 @@ export const smsMessages = pgTable("sms_messages", {
   dlrReceivedAt:      timestamp("dlr_received_at"),
   submittedAt:        timestamp("submitted_at").defaultNow().notNull(),
   updatedAt:          timestamp("updated_at").defaultNow().notNull(),
+  // Messaging Intelligence Center — channel orchestration fields
+  channel:       varchar("channel",       { length: 16  }).default('sms'),   // sms | voice | whatsapp
+  provider:      varchar("provider",      { length: 32  }),                   // callmebot | ultramsg | bhaoo | asterisk
+  fallbackFrom:  integer("fallback_from"),                                    // id of the original sms_messages row that triggered this fallback
+  latencyMs:     integer("latency_ms"),                                       // ms from dispatch to first delivery confirmation
 });
 export type SmsMessage       = typeof smsMessages.$inferSelect;
 export type InsertSmsMessage = typeof smsMessages.$inferInsert;

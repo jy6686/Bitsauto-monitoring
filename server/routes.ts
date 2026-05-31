@@ -20071,11 +20071,59 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
+  // POST /api/whatsapp/message — manual WhatsApp send (Messaging Intelligence Center)
+  // Body: { to: string, message: string }
+  app.post('/api/whatsapp/message', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    const { to, message } = req.body ?? {};
+    if (!to || !message) return res.status(400).json({ error: 'to and message are required' });
+    const t0 = Date.now();
+    try {
+      const result = await waSvc.sendWhatsAppMessage(to, message);
+      const latencyMs = Date.now() - t0;
+      // Log into sms_messages with channel=whatsapp
+      const { db: dbConn } = await import('./db');
+      const { smsMessages: smsMsg } = await import('@shared/schema');
+      const msgId = `wa-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const [row] = await dbConn.insert(smsMsg).values({
+        internalId:  msgId,
+        toNumber:    to,
+        messageText: message,
+        messageType: 'text',
+        status:      result.success ? 'sent' : 'failed',
+        errorMessage: result.error ?? null,
+        channel:     'whatsapp' as any,
+        latencyMs,
+      } as any).returning();
+      res.json({ ok: result.success, error: result.error, id: row?.id, latencyMs });
+    } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
   // GET /api/whatsapp/logs — delivery log
   app.get('/api/whatsapp/logs', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
     try {
       const logs = await storage.getWhatsappAlertLogs(200);
       res.json(logs);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/messaging/policy — get current OTP channel policy
+  app.get('/api/messaging/policy', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const s = await storage.getSettings();
+      let policy = { primary: 'voice', fallback: [] as string[] };
+      try { policy = JSON.parse(s.otpChannelPolicy ?? '{"primary":"voice","fallback":[]}'); } catch {}
+      res.json(policy);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/messaging/policy — update OTP channel policy
+  app.patch('/api/messaging/policy', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    const { primary, fallback } = req.body ?? {};
+    if (!primary) return res.status(400).json({ error: 'primary is required' });
+    const policy = { primary, fallback: Array.isArray(fallback) ? fallback : [] };
+    try {
+      await storage.updateSettings({ otpChannelPolicy: JSON.stringify(policy) } as any);
+      res.json({ ok: true, policy });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
