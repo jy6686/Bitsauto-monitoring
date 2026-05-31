@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   MessageSquare, CheckCircle2, AlertTriangle, XCircle, RefreshCw,
-  Clock, BarChart3, Send, Wallet, Activity, ChevronDown, Loader2,
-  WifiOff, Info, Plus, Trash2, Phone, Settings2, Eye, EyeOff,
+  Clock, BarChart3, Send, Wallet, Activity, ChevronDown, ChevronRight, Loader2,
+  WifiOff, Info, Plus, Trash2, Phone, PhoneOff, Settings2, Eye, EyeOff,
   FlipHorizontal, CheckCheck, Plug, Copy, Check, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,19 @@ interface BhaooProfile {
 interface OtpPolicy {
   primary:  string;
   fallback: string[];
+}
+
+interface VoiceOtpCall {
+  id:           number;
+  toNumber:     string;
+  otp:          string;
+  trunk?:       string;
+  asteriskId?:  string;
+  status:       string;
+  errorMessage?: string;
+  initiatedAt:  string;
+  answeredAt?:  string;
+  completedAt?: string;
 }
 
 const EMPTY_PROFILE = { name: '', baseUrl: 'http://149.20.185.6/BhaooSMSV5', apiKey: '', secretKey: '', isDefault: false };
@@ -269,6 +282,7 @@ export default function SmsMonitorPage() {
   const [showAddForm, setShowAddForm]       = useState(false);
   const [testingId, setTestingId]           = useState<number | null>(null);
   const [channelFilter, setChannelFilter]   = useState<ChannelFilter>('all');
+  const [voiceOtpOpen, setVoiceOtpOpen]     = useState(false);
 
   const { data: status } = useQuery<BhaooStatus>({
     queryKey: ['/api/bhaoo/status'],
@@ -291,6 +305,11 @@ export default function SmsMonitorPage() {
 
   const { data: otpPolicy, isLoading: policyLoading } = useQuery<OtpPolicy>({
     queryKey: ['/api/messaging/policy'],
+  });
+
+  const { data: voiceCalls, isLoading: voiceLoading } = useQuery<VoiceOtpCall[]>({
+    queryKey: ['/api/voice-otp/calls'],
+    refetchInterval: 15_000,
   });
 
   const sendMutation = useMutation({
@@ -678,7 +697,7 @@ export default function SmsMonitorPage() {
                   {CHANNEL_FILTERS.map(f => (
                     <button
                       key={f.key}
-                      onClick={() => setChannelFilter(f.key)}
+                      onClick={() => { setChannelFilter(f.key); if (f.key === 'voice') setVoiceOtpOpen(true); }}
                       data-testid={`filter-${f.key}`}
                       className={cn(
                         "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors",
@@ -746,6 +765,123 @@ export default function SmsMonitorPage() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* ── Voice OTP Stream ─────────────────────────────────────────────── */}
+            <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="voice-otp-section">
+              <button
+                className="w-full flex items-center gap-3 px-5 py-4 hover:bg-muted/20 transition-colors"
+                onClick={() => setVoiceOtpOpen(v => !v)}
+                data-testid="button-toggle-voice-otp"
+              >
+                <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                  <Phone className="h-3.5 w-3.5 text-violet-400" />
+                </div>
+                <span className="text-sm font-semibold text-foreground">Voice OTP</span>
+                {voiceLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                {!voiceLoading && voiceCalls && voiceCalls.length > 0 && (
+                  <Badge variant="outline" className="text-[10px] text-violet-400 border-violet-500/30 bg-violet-500/10 ml-1">
+                    {voiceCalls.length}
+                  </Badge>
+                )}
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  {voiceOtpOpen ? 'Collapse' : 'Expand'} call stream
+                </span>
+                {voiceOtpOpen
+                  ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+              </button>
+
+              {voiceOtpOpen && (
+                <div className="border-t border-border px-5 pb-5 pt-4 space-y-3">
+                  {voiceLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="h-12 bg-muted/30 rounded-lg animate-pulse" />
+                      ))}
+                    </div>
+                  ) : !voiceCalls || voiceCalls.length === 0 ? (
+                    <div className="text-center py-8 space-y-2">
+                      <Phone className="h-8 w-8 text-muted-foreground/30 mx-auto" />
+                      <p className="text-sm text-muted-foreground">No Voice OTP calls yet</p>
+                      <p className="text-xs text-muted-foreground/60">Calls initiated via the Voice OTP launcher will appear here</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {/* Header row */}
+                      <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 px-2 text-[10px] text-muted-foreground/60 font-medium uppercase tracking-wide">
+                        <span className="w-5" />
+                        <span>Number</span>
+                        <span className="w-16 text-center">OTP</span>
+                        <span className="w-20 text-center">Duration</span>
+                        <span className="w-24">Asterisk ID</span>
+                        <span className="w-24 text-right">Time</span>
+                      </div>
+                      {voiceCalls.map(call => {
+                        const isAnswered = call.status === 'answered' || call.status === 'completed';
+                        const isFailed   = call.status === 'failed';
+                        const durationSec = call.answeredAt && call.completedAt
+                          ? Math.round((new Date(call.completedAt).getTime() - new Date(call.answeredAt).getTime()) / 1000)
+                          : null;
+                        return (
+                          <div
+                            key={call.id}
+                            className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 items-center py-2.5 px-2 border-b border-border/40 last:border-0"
+                            data-testid={`voice-call-${call.id}`}
+                          >
+                            {/* Status icon */}
+                            <div className="w-5 shrink-0">
+                              {isAnswered
+                                ? <Phone className="h-4 w-4 text-emerald-400" />
+                                : isFailed
+                                ? <PhoneOff className="h-4 w-4 text-rose-400" />
+                                : <Phone className="h-4 w-4 text-amber-400 animate-pulse" />}
+                            </div>
+
+                            {/* Number + status badges */}
+                            <div className="min-w-0 space-y-0.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-mono text-foreground/80">{call.toNumber}</span>
+                                <StatusBadge status={call.status} />
+                                {call.trunk && (
+                                  <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
+                                    {call.trunk}
+                                  </Badge>
+                                )}
+                              </div>
+                              {call.errorMessage && (
+                                <p className="text-[10px] text-rose-400/80 truncate">{call.errorMessage}</p>
+                              )}
+                            </div>
+
+                            {/* OTP (masked) */}
+                            <div className="w-16 text-center">
+                              <span className="text-xs font-mono bg-muted/40 px-1.5 py-0.5 rounded text-foreground/70">{call.otp}</span>
+                            </div>
+
+                            {/* Duration */}
+                            <div className="w-20 text-center text-xs font-mono text-muted-foreground">
+                              {durationSec != null ? `${durationSec}s` : '—'}
+                            </div>
+
+                            {/* Asterisk ID */}
+                            <div className="w-24">
+                              {call.asteriskId
+                                ? <span className="text-[10px] font-mono text-muted-foreground/70 truncate block">{call.asteriskId}</span>
+                                : <span className="text-[10px] text-muted-foreground/40">—</span>}
+                            </div>
+
+                            {/* Initiated time */}
+                            <div className="w-24 text-right text-[10px] text-muted-foreground/60 whitespace-nowrap">
+                              {new Date(call.initiatedAt).toLocaleTimeString()}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Balance alert */}
