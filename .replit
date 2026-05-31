@@ -55,3 +55,7 @@ ASTERISK_CHAN_TECH = "DIRECT_SIP"
 SIPPY_CLI = "2221192"
 SIPPY_TECH_PREFIX = "22211"
 REVE_ALLOWED_IPS = "149.20.185.6"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
