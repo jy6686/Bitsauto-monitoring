@@ -11,6 +11,7 @@ import {
 } from '@shared/schema';
 import { eq, desc, gte, and, sql } from 'drizzle-orm';
 import { amiGovernance } from './services/asterisk/ami-governance';
+import { storage } from './storage';
 
 // ── Auth helpers ───────────────────────────────────────────────────────────────
 
@@ -18,9 +19,13 @@ function requireAuth(req: any, res: any, next: any) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   next();
 }
-function requireAdmin(req: any, res: any, next: any) {
+async function requireAdmin(req: any, res: any, next: any) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-  if (!['admin', 'super_admin'].includes(req.user.role)) return res.status(403).json({ error: 'Insufficient permissions' });
+  const userId = req.user.claims?.sub ?? req.user.id ?? req.user.userId;
+  const role = await storage.getUserRole(userId).catch(() => null);
+  if (!role || !['admin', 'super_admin'].includes(role)) {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
   next();
 }
 

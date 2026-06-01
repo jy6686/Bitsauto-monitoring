@@ -108,12 +108,6 @@ export const settings = pgTable("settings", {
   whatsappApiKey:      varchar("whatsapp_api_key",     { length: 255 }), // CallMeBot apikey OR UltraMsg token
   whatsappInstanceId:  varchar("whatsapp_instance_id", { length: 128 }), // UltraMsg instance ID only
   whatsappAlertTypes:  text("whatsapp_alert_types").default('fas,balance,traffic,outage,auth'), // CSV
-  // Meta WhatsApp Cloud API (official Meta-hosted, provider = 'meta_cloud_api')
-  metaPhoneNumberId:       varchar("meta_phone_number_id",       { length: 64  }),  // Meta WhatsApp Phone Number ID
-  metaAccessToken:         varchar("meta_access_token",          { length: 512 }),  // System user Bearer token
-  metaOtpTemplateName:     varchar("meta_otp_template_name",     { length: 128 }).default('otp_verification'),
-  metaOtpTemplateLanguage: varchar("meta_otp_template_language", { length: 16  }).default('en_us'),
-  metaUseOtpTemplate:      boolean("meta_use_otp_template").default(true),          // if false, sends direct text even for OTP
   // Call Recordings
   recordingServerUrl:  varchar("recording_server_url", { length: 512 }), // Base URL of recording server, e.g. https://rec.example.com
   // Grafana embed

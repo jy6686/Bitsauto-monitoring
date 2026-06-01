@@ -36,6 +36,7 @@ class AmiGovernanceListener extends EventEmitter {
   private connected        = false;
   private loggedIn         = false;
   private reconnectTimer:  NodeJS.Timeout | null = null;
+  private keepaliveTimer:  NodeJS.Timeout | null = null;
   private actionCounter    = 0;
   private started          = false;
 
@@ -80,6 +81,7 @@ class AmiGovernanceListener extends EventEmitter {
     this.socket.on('close', () => {
       this.connected = false;
       this.loggedIn  = false;
+      if (this.keepaliveTimer) { clearInterval(this.keepaliveTimer); this.keepaliveTimer = null; }
       console.log('[ami-governance] Connection closed — reconnecting in 15s');
       this.scheduleReconnect();
     });
@@ -119,6 +121,13 @@ class AmiGovernanceListener extends EventEmitter {
       if (f['response'] === 'Success') {
         this.loggedIn = true;
         console.log('[ami-governance] Logged in — listening for Bridge/Hangup events');
+        // Send a Ping every 20s to keep the connection alive
+        if (this.keepaliveTimer) clearInterval(this.keepaliveTimer);
+        this.keepaliveTimer = setInterval(() => {
+          if (this.connected && this.loggedIn && this.socket) {
+            this.socket.write(`Action: Ping\r\nActionID: gov-keepalive\r\n\r\n`);
+          }
+        }, 20_000);
       } else {
         console.error('[ami-governance] Login failed:', f['message']);
       }
