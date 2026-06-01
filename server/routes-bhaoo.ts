@@ -590,7 +590,7 @@ export function registerBhaooRoutes(app: Express) {
 
       // Merge query + body so params work in both GET and POST modes
       const params = { ...req.query, ...req.body } as Record<string, string>;
-      const { apikey, secretkey, to, from, type, transactionId } = params;
+      const { apikey, secretkey, to, from, type, transactionId, userId: paramUserId } = params;
       // REVE uses different field names: smsText (GET), text (POST), message (older versions)
       const smsText = params.smsText || params.text || params.message || '';
 
@@ -697,12 +697,15 @@ export function registerBhaooRoutes(app: Express) {
               } as any).returning();
               messageId = flowMsgRow?.id ?? null;
 
-              // Store session keyed by flowToken — webhook will mark delivered
+              // Store session keyed by flowToken — webhook will mark delivered.
+              // Bind to the initiating user (Bitsauto login/MFA) or null for REVE/Sippy gateway calls.
+              const sessionUserId = (req.user as any)?.claims?.sub ?? (req.user as any)?.id ?? paramUserId ?? null;
               storeOtpSession(flowToken, {
                 code:      otp,
                 expiresAt: Date.now() + 5 * 60_000,
                 messageId: messageId ?? 0,
                 toNumber:  String(to),
+                userId:    sessionUserId,
               });
               console.log(`[bhaoo-receive] Meta Flow OTP sent to ${to} (flow_token=${flowToken.slice(0, 8)}...)`);
               return true;

@@ -27,6 +27,7 @@ import {
   sendOtpFlow,
   storeOtpSession,
   isFlowTokenVerified,
+  consumeFlowTokenVerified,
   handleFlowWebhookPayload,
   type EncryptedFlowBody,
 } from './services/meta-flows/index';
@@ -330,7 +331,10 @@ export function registerMetaFlowsRoutes(app: Express) {
   // ── GET /api/flows/otp/poll-verified ──────────────────────────────────────
   // Lets the Bitsauto frontend (or any server-side auth gate) check whether a
   // given flow_token was successfully verified by the user in WhatsApp.
-  // Non-destructive — the record stays in the registry for 10 minutes.
+  //
+  // This is a ONE-SHOT endpoint: on the first confirmed verification the record
+  // is consumed (deleted) so the frontend can complete the login and redirect.
+  // Unverified polls return { verified: false } without side-effects.
   //
   // Ownership rules:
   //   • Admin can poll any token.
@@ -345,16 +349,24 @@ export function registerMetaFlowsRoutes(app: Express) {
     const callerRole   = (req.user as any)?.role ?? '';
     const isAdmin      = callerRole === 'admin';
 
-    const record = isFlowTokenVerified(flowToken);
-    if (!record) {
+    // Peek without consuming first — enforce ownership before we remove the record
+    const peeked = isFlowTokenVerified(flowToken);
+    if (!peeked) {
       return res.json({ verified: false });
     }
 
     // Enforce ownership: non-admin callers can only see their own sessions
     if (!isAdmin) {
-      if (!record.userId || record.userId !== callerUserId) {
+      if (!peeked.userId || peeked.userId !== callerUserId) {
         return res.status(403).json({ error: 'Forbidden: token not owned by caller' });
       }
+    }
+
+    // Ownership confirmed — consume the record (one-shot login gate)
+    const record = consumeFlowTokenVerified(flowToken);
+    if (!record) {
+      // Raced with another consumer — treat as not yet verified
+      return res.json({ verified: false });
     }
 
     res.json({
