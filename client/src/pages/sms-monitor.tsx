@@ -70,6 +70,45 @@ function RetryCountdown({ nextRetryAt, msgId }: { nextRetryAt: string; msgId: nu
   );
 }
 
+// ── KeyRotationCountdown ────────────────────────────────────────────────────
+function KeyRotationCountdown({ expiresAt }: { expiresAt: number }) {
+  const getState = () => {
+    const ms = expiresAt - Date.now();
+    if (ms <= 0) return { label: 'Grace period ended', done: true };
+    const totalSec = Math.ceil(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return { label: `${m}m ${s.toString().padStart(2, '0')}s`, done: false };
+  };
+
+  const [state, setState] = useState(getState);
+
+  useEffect(() => {
+    setState(getState());
+    const id = setInterval(() => setState(getState()), 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+
+  if (state.done) return null;
+
+  return (
+    <div
+      className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5"
+      data-testid="banner-key-rotation-grace"
+    >
+      <Clock className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
+      <div className="space-y-0.5">
+        <p className="text-[11px] font-medium text-amber-400">Key rotation in progress</p>
+        <p className="text-[10px] text-amber-400/80">
+          The previous key is still accepted for in-flight sessions.
+          Old key retires in{' '}
+          <span className="font-mono font-semibold" data-testid="text-grace-countdown">{state.label}</span>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface Stats {
@@ -414,6 +453,20 @@ export default function SmsMonitorPage() {
     enabled: activeTab === 'settings',
   });
 
+  const { data: keyRotationStatus } = useQuery<{
+    inGracePeriod:   boolean;
+    gracePeriodMs:   number;
+    oldKeyExpiresAt: number | null;
+    remainingMs:     number | null;
+  }>({
+    queryKey: ['/api/flows/otp/key-rotation-status'],
+    enabled: activeTab === 'settings',
+    refetchInterval: (query) => {
+      const d = query.state.data as any;
+      return d?.inGracePeriod ? 5_000 : 30_000;
+    },
+  });
+
   const { data: voiceCalls, isLoading: voiceLoading } = useQuery<VoiceOtpCall[]>({
     queryKey: ['/api/voice-otp/calls'],
     refetchInterval: 3_000,
@@ -574,6 +627,7 @@ export default function SmsMonitorPage() {
         }
         qc.invalidateQueries({ queryKey: ['/api/flows/otp/public-key'] });
         qc.invalidateQueries({ queryKey: ['/api/meta-flows/settings'] });
+        qc.invalidateQueries({ queryKey: ['/api/flows/otp/key-rotation-status'] });
       } else {
         toast({ title: 'Key generation failed', description: data.error, variant: 'destructive' });
       }
@@ -1908,6 +1962,11 @@ export default function SmsMonitorPage() {
                   </div>
                 )}
 
+                {/* Grace-period countdown — shown after a rotation until the old key expires */}
+                {keyRotationStatus?.inGracePeriod && keyRotationStatus.oldKeyExpiresAt && (
+                  <KeyRotationCountdown expiresAt={keyRotationStatus.oldKeyExpiresAt} />
+                )}
+
                 <div className="flex gap-2 flex-wrap">
                   <Button
                     size="sm"
@@ -1917,7 +1976,7 @@ export default function SmsMonitorPage() {
                     data-testid="button-generate-rsa-keys"
                   >
                     {generateKeysMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Key className="h-3.5 w-3.5 mr-1.5" />}
-                    {metaSettings?.hasPublicKey ? 'Regenerate Keys' : 'Generate Keys'}
+                    {metaSettings?.hasPublicKey ? 'Rotate Keys' : 'Generate Keys'}
                   </Button>
                   {!publicKeyData?.hasPrivateKey && metaSettings?.hasPublicKey && !pendingPrivateKey && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 text-[10px] text-amber-400">

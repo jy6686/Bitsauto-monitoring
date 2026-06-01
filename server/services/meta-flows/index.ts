@@ -200,6 +200,75 @@ export function handleFlowWebhookPayload(payload: DecryptedFlowPayload): FlowWeb
   };
 }
 
+// ── RSA Key Rotation ─────────────────────────────────────────────────────────
+// When an operator rotates keys, the old private key is kept in memory for
+// a configurable grace period so in-flight encrypted Flow sessions can still
+// be decrypted. The new key is tried first; the old key(s) are fallbacks.
+
+export const GRACE_PERIOD_MS = 5 * 60_000; // 5 minutes (configurable via env)
+
+interface GraceKey {
+  privateKeyPem: string;
+  retiredAt:     number;
+  expiresAt:     number;
+}
+
+let _graceKeys: GraceKey[] = [];
+
+/**
+ * Call this when issuing a new RSA key pair.
+ * Moves the current process.env key into the grace store, then sets the new key.
+ */
+export function rotateToNewKey(newPrivateKeyPem: string): void {
+  const oldKey = process.env.FLOWS_RSA_PRIVATE_KEY;
+  const gracePeriodMs = parseInt(process.env.FLOWS_KEY_GRACE_PERIOD_MS ?? '', 10) || GRACE_PERIOD_MS;
+  const now = Date.now();
+
+  if (oldKey) {
+    _graceKeys.push({ privateKeyPem: oldKey, retiredAt: now, expiresAt: now + gracePeriodMs });
+  }
+  // Purge already-expired grace keys while we're here
+  _graceKeys = _graceKeys.filter(k => k.expiresAt > now);
+  process.env.FLOWS_RSA_PRIVATE_KEY = newPrivateKeyPem;
+}
+
+/**
+ * Returns all private keys that should be tried for decryption, newest first.
+ * The current key is first; grace-period keys follow in reverse-retirement order.
+ */
+export function getKeysForDecryption(): string[] {
+  const now = Date.now();
+  _graceKeys = _graceKeys.filter(k => k.expiresAt > now);
+  const current = process.env.FLOWS_RSA_PRIVATE_KEY;
+  const graceKeyPems = [..._graceKeys].reverse().map(k => k.privateKeyPem);
+  return current ? [current, ...graceKeyPems] : graceKeyPems;
+}
+
+/**
+ * Returns the current rotation status for the operator UI countdown.
+ */
+export function getKeyRotationStatus(): {
+  inGracePeriod:  boolean;
+  gracePeriodMs:  number;
+  oldKeyExpiresAt: number | null;
+  remainingMs:     number | null;
+} {
+  const now = Date.now();
+  _graceKeys = _graceKeys.filter(k => k.expiresAt > now);
+  const gracePeriodMs = parseInt(process.env.FLOWS_KEY_GRACE_PERIOD_MS ?? '', 10) || GRACE_PERIOD_MS;
+  if (_graceKeys.length === 0) {
+    return { inGracePeriod: false, gracePeriodMs, oldKeyExpiresAt: null, remainingMs: null };
+  }
+  // Report the latest-expiring grace key (i.e. the one most recently rotated)
+  const latest = _graceKeys.reduce((a, b) => (a.expiresAt > b.expiresAt ? a : b));
+  return {
+    inGracePeriod:   true,
+    gracePeriodMs,
+    oldKeyExpiresAt: latest.expiresAt,
+    remainingMs:     latest.expiresAt - now,
+  };
+}
+
 // ── RSA Key Generation ───────────────────────────────────────────────────────
 
 export function generateRsaKeyPair(): { privateKeyPem: string; publicKeyPem: string; fingerprint: string } {

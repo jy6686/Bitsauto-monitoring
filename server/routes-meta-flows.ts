@@ -29,6 +29,9 @@ import {
   isFlowTokenVerified,
   consumeFlowTokenVerified,
   handleFlowWebhookPayload,
+  rotateToNewKey,
+  getKeysForDecryption,
+  getKeyRotationStatus,
   type EncryptedFlowBody,
 } from './services/meta-flows/index';
 
@@ -78,15 +81,22 @@ export function registerMetaFlowsRoutes(app: Express) {
     }
   });
 
+  // ── GET /api/flows/otp/key-rotation-status ────────────────────────────────
+  // Returns how much grace-period time remains for the previous private key.
+  app.get('/api/flows/otp/key-rotation-status', requireAuth, (req: any, res: any) => {
+    res.json(getKeyRotationStatus());
+  });
+
   // ── POST /api/flows/otp/generate-keys ────────────────────────────────────
   // Generates a new RSA 2048-bit key pair. Private key stored in env, public key in DB.
+  // The previous key is kept in memory for a grace period so active sessions continue to work.
   // Attempts to auto-persist the private key to Replit Secrets so no manual copy-paste is needed.
   app.post('/api/flows/otp/generate-keys', requireAdmin, async (req: any, res: any) => {
     try {
       const { privateKeyPem, publicKeyPem, fingerprint } = generateRsaKeyPair();
 
-      // Activate the key in the current process immediately — no restart required for this session.
-      process.env.FLOWS_RSA_PRIVATE_KEY = privateKeyPem;
+      // Rotate: keeps the old key in a grace-period store, activates the new key immediately.
+      rotateToNewKey(privateKeyPem);
 
       // Store public key in DB settings.
       await storage.updateSettings({ metaFlowsPublicKey: publicKeyPem } as any);
@@ -211,16 +221,18 @@ export function registerMetaFlowsRoutes(app: Express) {
   // ── POST /api/flows/otp/webhook ───────────────────────────────────────────
   // Meta calls this endpoint for every Flow interaction (data_exchange action).
   // Payload is end-to-end encrypted using RSA + AES-128-GCM.
+  // During key rotation, the webhook tries the new key first, then any grace-period keys.
   app.post('/api/flows/otp/webhook', async (req: any, res: any) => {
-    const privateKeyPem = process.env.FLOWS_RSA_PRIVATE_KEY;
+    const availableKeys = getKeysForDecryption();
 
-    if (!privateKeyPem) {
-      console.error('[meta-flows] FLOWS_RSA_PRIVATE_KEY env not set — cannot process webhook');
+    if (availableKeys.length === 0) {
+      console.error('[meta-flows] No RSA private key available — cannot process webhook');
       return res.status(500).json({ error: 'RSA private key not configured' });
     }
 
     let aesKey: Buffer | null = null;
     let iv:     Buffer | null = null;
+    let usedKey: string | null = null;
 
     try {
       const body = req.body as EncryptedFlowBody;
@@ -229,12 +241,30 @@ export function registerMetaFlowsRoutes(app: Express) {
         return res.status(400).json({ error: 'Missing encrypted payload fields' });
       }
 
-      // Extract AES key + IV before decryption — needed for encrypting the response
-      aesKey = extractAesKey(body.encrypted_aes_key, privateKeyPem);
-      iv     = Buffer.from(body.initial_vector, 'base64');
+      iv = Buffer.from(body.initial_vector, 'base64');
 
-      // Decrypt and hand off to the core handler (session lookup, attempt tracking, lockout)
-      const payload = decryptFlowPayload(body, privateKeyPem);
+      // Try each key in order (newest first, then grace-period fallbacks)
+      for (let i = 0; i < availableKeys.length; i++) {
+        try {
+          aesKey  = extractAesKey(body.encrypted_aes_key, availableKeys[i]);
+          usedKey = availableKeys[i];
+          if (i > 0) {
+            console.log(`[meta-flows] webhook — decrypted with grace-period key (index ${i})`);
+          }
+          break;
+        } catch {
+          if (i === availableKeys.length - 1) {
+            throw new Error('RSA decryption failed with all available keys — key mismatch');
+          }
+        }
+      }
+
+      if (!usedKey || !aesKey) {
+        throw new Error('No key succeeded for RSA decryption');
+      }
+
+      // Decrypt the payload using the key that successfully decrypted the AES key
+      const payload   = decryptFlowPayload(body, usedKey);
       const flowToken = payload.flow_token;
       console.log(`[meta-flows] webhook — screen=${payload.screen} action=${payload.action} token=${flowToken?.slice(0, 8)}...`);
 
