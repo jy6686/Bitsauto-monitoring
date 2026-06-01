@@ -30,15 +30,25 @@ export interface HangupEvent {
   cause:    string;
 }
 
+interface BridgeLeg {
+  channel:     string;
+  uniqueId:    string;
+  callerIdNum: string;
+}
+
 class AmiGovernanceListener extends EventEmitter {
-  private socket:          net.Socket | null = null;
-  private buffer           = '';
-  private connected        = false;
-  private loggedIn         = false;
-  private reconnectTimer:  NodeJS.Timeout | null = null;
-  private keepaliveTimer:  NodeJS.Timeout | null = null;
-  private actionCounter    = 0;
-  private started          = false;
+  private socket:             net.Socket | null = null;
+  private buffer              = '';
+  private connected           = false;
+  private loggedIn            = false;
+  private reconnectTimer:     NodeJS.Timeout | null = null;
+  private keepaliveTimer:     NodeJS.Timeout | null = null;
+  private actionCounter       = 0;
+  private started             = false;
+  // BridgeEnter fires once per channel — accumulate until both legs present
+  private bridgePending = new Map<string, BridgeLeg[]>();
+  // channel → bridgeId for cleanup on hangup
+  private channelToBridge = new Map<string, string>();
 
   start() {
     if (this.started) return;
@@ -147,8 +157,8 @@ class AmiGovernanceListener extends EventEmitter {
       return;
     }
 
-    // Bridge event (two channels bridged together)
-    if (f['event'] === 'Bridge' || f['event'] === 'BridgeEnter') {
+    // Bridge event (chan_sip style — both channels in one event)
+    if (f['event'] === 'Bridge') {
       const evt: BridgeEvent = {
         uniqueId1:    f['uniqueid1'] || f['uniqueid'] || '',
         uniqueId2:    f['uniqueid2'] || '',
@@ -160,10 +170,52 @@ class AmiGovernanceListener extends EventEmitter {
       if (evt.channel1 && evt.channel2) this.emit('bridge', evt);
     }
 
-    // Hangup event
+    // BridgeEnter (PJSIP style — fires once per channel leg)
+    // Accumulate by bridgeUniqueid; emit when both legs have arrived.
+    if (f['event'] === 'BridgeEnter') {
+      const bridgeId  = f['bridgeuniqueid'] || '';
+      const channel   = f['channel']        || '';
+      const uniqueId  = f['uniqueid']        || '';
+      const callerIdNum = f['calleridnum']   || '';
+      if (!bridgeId || !channel) return;
+
+      this.channelToBridge.set(channel, bridgeId);
+
+      const legs = this.bridgePending.get(bridgeId) ?? [];
+      legs.push({ channel, uniqueId, callerIdNum });
+      this.bridgePending.set(bridgeId, legs);
+
+      if (legs.length >= 2) {
+        this.bridgePending.delete(bridgeId);
+        const evt: BridgeEvent = {
+          uniqueId1:    legs[0].uniqueId,
+          uniqueId2:    legs[1].uniqueId,
+          channel1:     legs[0].channel,
+          channel2:     legs[1].channel,
+          callerIdNum1: legs[0].callerIdNum,
+          callerIdNum2: legs[1].callerIdNum,
+        };
+        console.log(`[ami-governance] Bridge: ${evt.channel1} ↔ ${evt.channel2}`);
+        this.emit('bridge', evt);
+      }
+    }
+
+    // Hangup event — clean up pending bridge state
     if (f['event'] === 'Hangup') {
+      const channel = f['channel'] || '';
+      const bridgeId = this.channelToBridge.get(channel);
+      if (bridgeId) {
+        const legs = this.bridgePending.get(bridgeId);
+        if (legs) {
+          this.bridgePending.set(bridgeId, legs.filter(l => l.channel !== channel));
+          if ((this.bridgePending.get(bridgeId)?.length ?? 0) === 0) {
+            this.bridgePending.delete(bridgeId);
+          }
+        }
+        this.channelToBridge.delete(channel);
+      }
       const evt: HangupEvent = {
-        channel:  f['channel']  || '',
+        channel:  channel,
         uniqueId: f['uniqueid'] || '',
         cause:    f['cause']    || '',
       };
