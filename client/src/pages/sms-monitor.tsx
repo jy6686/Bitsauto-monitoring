@@ -117,6 +117,7 @@ function FlowVerificationBadge({ flowToken, initialVerifiedAt, msgId }: {
 }) {
   const [verifiedAt, setVerifiedAt] = useState<string | null>(initialVerifiedAt ?? null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (verifiedAt) return;
@@ -129,6 +130,7 @@ function FlowVerificationBadge({ flowToken, initialVerifiedAt, msgId }: {
         if (data.verified && data.verifiedAt) {
           setVerifiedAt(data.verifiedAt);
           if (intervalRef.current) clearInterval(intervalRef.current);
+          queryClient.invalidateQueries({ queryKey: ['/api/bhaoo/messages'] });
         }
       } catch { /* ignore */ }
     };
