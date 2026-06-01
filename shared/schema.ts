@@ -3180,6 +3180,8 @@ export const smsMessages = pgTable("sms_messages", {
   latencyMs:     integer("latency_ms"),                                       // ms from dispatch to first delivery confirmation
   retryCount:    integer("retry_count").notNull().default(0),                 // number of retry attempts made so far
   nextRetryAt:   timestamp("next_retry_at"),                                  // when the next retry should fire (null = no retry scheduled)
+  flowToken:     varchar("flow_token",    { length: 64  }),                   // Meta WhatsApp Flow token (meta_flow provider only)
+  verifiedAt:    timestamp("verified_at"),                                    // timestamp of OTP verification via Flow webhook
 });
 export type SmsMessage       = typeof smsMessages.$inferSelect;
 export type InsertSmsMessage = typeof smsMessages.$inferInsert;

@@ -55,7 +55,8 @@ async function runSmsMessagesMigrations() {
       ALTER TABLE sms_messages
         ADD COLUMN IF NOT EXISTS retry_count  INTEGER NOT NULL DEFAULT 0,
         ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ,
-        ADD COLUMN IF NOT EXISTS verified_at   TIMESTAMPTZ
+        ADD COLUMN IF NOT EXISTS verified_at   TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS flow_token    VARCHAR(64)
     `);
     console.log('[bhaoo] sms_messages retry columns ensured');
   } catch (err: any) {
@@ -694,6 +695,7 @@ export function registerBhaooRoutes(app: Express) {
                 provider:     'meta_flow' as any,
                 fallbackFrom: parentId,
                 latencyMs:    Date.now() - t0,
+                flowToken:    flowToken,
               } as any).returning();
               messageId = flowMsgRow?.id ?? null;
 

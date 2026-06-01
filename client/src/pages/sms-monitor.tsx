@@ -109,6 +109,59 @@ function KeyRotationCountdown({ expiresAt }: { expiresAt: number }) {
   );
 }
 
+// ── FlowVerificationBadge ──────────────────────────────────────────────────
+function FlowVerificationBadge({ flowToken, initialVerifiedAt, msgId }: {
+  flowToken:         string;
+  initialVerifiedAt?: string;
+  msgId:             number;
+}) {
+  const [verifiedAt, setVerifiedAt] = useState<string | null>(initialVerifiedAt ?? null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (verifiedAt) return;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/flows/otp/poll-verified?token=${encodeURIComponent(flowToken)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.verified && data.verifiedAt) {
+          setVerifiedAt(data.verifiedAt);
+          if (intervalRef.current) clearInterval(intervalRef.current);
+        }
+      } catch { /* ignore */ }
+    };
+
+    poll();
+    intervalRef.current = setInterval(poll, 5_000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [flowToken, verifiedAt]);
+
+  if (verifiedAt) {
+    const t = new Date(verifiedAt).toLocaleTimeString();
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] font-medium text-emerald-400 border-emerald-500/40 bg-emerald-500/10 gap-1"
+        data-testid={`flow-verified-${msgId}`}
+      >
+        <CheckCheck className="h-2.5 w-2.5" /> Verified ✓ {t}
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge
+      variant="outline"
+      className="text-[10px] font-medium text-amber-400 border-amber-500/30 bg-amber-500/10 gap-1 animate-pulse"
+      data-testid={`flow-pending-${msgId}`}
+    >
+      <Loader2 className="h-2.5 w-2.5 animate-spin" /> Waiting for verification…
+    </Badge>
+  );
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface Stats {
@@ -163,6 +216,8 @@ interface SmsMessage {
   messageType?:       string;
   retryCount?:        number;
   nextRetryAt?:       string;
+  flowToken?:         string;
+  verifiedAt?:        string;
 }
 
 interface BhaooStatus {
@@ -1228,6 +1283,13 @@ export default function SmsMonitorPage() {
                               <Badge variant="outline" className="text-[10px] text-orange-400 border-orange-500/30 bg-orange-500/10 gap-1" data-testid={`retry-count-${msg.id}`}>
                                 <RefreshCw className="h-2.5 w-2.5" /> {msg.retryCount} {msg.retryCount === 1 ? 'retry' : 'retries'}
                               </Badge>
+                            )}
+                            {msg.provider === 'meta_flow' && msg.flowToken && (
+                              <FlowVerificationBadge
+                                flowToken={msg.flowToken}
+                                initialVerifiedAt={msg.verifiedAt ?? undefined}
+                                msgId={msg.id}
+                              />
                             )}
                           </div>
                           {msg.messageText && (
