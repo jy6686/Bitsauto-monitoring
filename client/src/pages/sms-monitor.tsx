@@ -518,6 +518,38 @@ export default function SmsMonitorPage() {
     onError: (err: any) => toast({ title: 'Test failed', description: err.message, variant: 'destructive' }),
   });
 
+  const [pendingPrivateKey, setPendingPrivateKey] = useState<string | null>(null);
+  const [privateKeyCopied, setPrivateKeyCopied] = useState(false);
+  const [privateKeySecondsLeft, setPrivateKeySecondsLeft] = useState(60);
+  const privateKeyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const dismissPendingPrivateKey = () => {
+    if (privateKeyTimerRef.current) {
+      clearInterval(privateKeyTimerRef.current);
+      privateKeyTimerRef.current = null;
+    }
+    setPendingPrivateKey(null);
+    setPrivateKeyCopied(false);
+    setPrivateKeySecondsLeft(60);
+  };
+
+  useEffect(() => {
+    if (!pendingPrivateKey) return;
+    setPrivateKeySecondsLeft(60);
+    privateKeyTimerRef.current = setInterval(() => {
+      setPrivateKeySecondsLeft(prev => {
+        if (prev <= 1) {
+          dismissPendingPrivateKey();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => {
+      if (privateKeyTimerRef.current) clearInterval(privateKeyTimerRef.current);
+    };
+  }, [pendingPrivateKey]);
+
   const generateKeysMutation = useMutation({
     mutationFn: () => apiRequest('POST', '/api/flows/otp/generate-keys', {}),
     onSuccess: async (res: any) => {
@@ -529,15 +561,16 @@ export default function SmsMonitorPage() {
             description: 'Private key saved to Replit Secrets automatically. Restart the server to re-activate after the next deploy.',
           });
         } else {
+          if (data.privateKey) {
+            setPendingPrivateKey(data.privateKey);
+            setPrivateKeyCopied(false);
+          }
           toast({
             title: 'RSA Key Pair Generated',
             description: data.privateKey
-              ? 'Key is active for this session. Copy the private key and add it to Replit Secrets as FLOWS_RSA_PRIVATE_KEY to persist after restart.'
+              ? 'Secrets API unavailable — copy the private key from the panel below before it disappears.'
               : 'Public key saved. Add FLOWS_RSA_PRIVATE_KEY to Replit Secrets to activate.',
           });
-          if (data.privateKey) {
-            try { navigator.clipboard.writeText(data.privateKey); } catch {}
-          }
         }
         qc.invalidateQueries({ queryKey: ['/api/flows/otp/public-key'] });
         qc.invalidateQueries({ queryKey: ['/api/meta-flows/settings'] });
@@ -1886,13 +1919,61 @@ export default function SmsMonitorPage() {
                     {generateKeysMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Key className="h-3.5 w-3.5 mr-1.5" />}
                     {metaSettings?.hasPublicKey ? 'Regenerate Keys' : 'Generate Keys'}
                   </Button>
-                  {!publicKeyData?.hasPrivateKey && metaSettings?.hasPublicKey && (
+                  {!publicKeyData?.hasPrivateKey && metaSettings?.hasPublicKey && !pendingPrivateKey && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 text-[10px] text-amber-400">
                       <AlertTriangle className="h-3 w-3 shrink-0" />
                       Generate Keys — the private key will be stored automatically
                     </div>
                   )}
                 </div>
+
+                {pendingPrivateKey && (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/8 p-3 space-y-2" data-testid="panel-pending-private-key">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-semibold text-amber-400 flex items-center gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        Private key — copy before it disappears
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-amber-400/70" data-testid="text-private-key-countdown">
+                          {privateKeySecondsLeft}s
+                        </span>
+                        <button
+                          onClick={dismissPendingPrivateKey}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          data-testid="button-dismiss-private-key"
+                          aria-label="Dismiss"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="rounded bg-black/30 border border-amber-500/20 px-2.5 py-2 font-mono text-[10px] text-amber-300/80 break-all select-all leading-relaxed" data-testid="text-private-key-value">
+                      {pendingPrivateKey.slice(0, 64)}…{pendingPrivateKey.slice(-32)}
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[11px] border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                        onClick={() => {
+                          navigator.clipboard.writeText(pendingPrivateKey).then(() => {
+                            setPrivateKeyCopied(true);
+                            setTimeout(() => setPrivateKeyCopied(false), 2000);
+                          }).catch(() => {});
+                        }}
+                        data-testid="button-copy-private-key"
+                      >
+                        {privateKeyCopied
+                          ? <><Check className="h-3.5 w-3.5 mr-1.5 text-emerald-400" />Copied!</>
+                          : <><Copy className="h-3.5 w-3.5 mr-1.5" />Copy private key</>}
+                      </Button>
+                      <p className="text-[10px] text-muted-foreground">
+                        Add as <code className="bg-muted px-1 rounded">FLOWS_RSA_PRIVATE_KEY</code> in Replit Secrets
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Flow Provisioning */}
