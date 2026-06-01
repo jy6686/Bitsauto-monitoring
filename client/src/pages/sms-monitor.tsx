@@ -6,6 +6,7 @@ import {
   Clock, BarChart3, Send, Wallet, Activity, ChevronDown, ChevronRight, Loader2,
   WifiOff, Info, Plus, Trash2, Phone, PhoneOff, Settings2, Eye, EyeOff,
   FlipHorizontal, CheckCheck, Plug, Copy, Check, Zap, PhoneCall, Pin, PinOff,
+  Key, Shield, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -340,11 +341,6 @@ export default function SmsMonitorPage() {
   const { lastVoiceOtpUpdate } = useNocWebSocket();
 
   const [activeTab, setActiveTab]         = useState<'monitor' | 'profiles' | 'settings'>('monitor');
-  const [metaForm, setMetaForm] = useState({
-    metaPhoneNumberId: '', metaAccessToken: '', metaOtpTemplateName: 'otp_verification',
-    metaOtpTemplateLanguage: 'en_us', metaUseOtpTemplate: true,
-  });
-  const [showMetaToken, setShowMetaToken] = useState(false);
   const [showSendPanel, setShowSendPanel]   = useState(false);
   const [showWaSendPanel, setShowWaSendPanel] = useState(false);
   const [sendForm, setSendForm]             = useState({ to: '', from: 'BitsAuto', text: '', type: 'text' });
@@ -392,23 +388,31 @@ export default function SmsMonitorPage() {
     queryKey: ['/api/messaging/policy'],
   });
 
-  const { data: metaSettings } = useQuery<{
-    provider: string; metaPhoneNumberId: string; metaAccessToken: string;
-    metaOtpTemplateName: string; metaOtpTemplateLanguage: string; metaUseOtpTemplate: boolean;
+  const { data: metaSettings, refetch: refetchMetaSettings } = useQuery<{
+    metaPhoneNumberId: string;
+    metaWabaId: string;
+    metaFlowId: string;
+    metaFlowsEnabled: boolean;
+    hasAccessToken: boolean;
+    hasPublicKey: boolean;
+    fingerprint: string | null;
+    metaOtpTemplateName: string;
+    metaOtpTemplateLanguage: string;
+    metaUseOtpTemplate: boolean;
+    provider?: string;
   }>({
-    queryKey: ['/api/whatsapp/meta/settings'],
+    queryKey: ['/api/meta-flows/settings'],
+    enabled: activeTab === 'settings',
   });
 
-  useEffect(() => {
-    if (!metaSettings) return;
-    setMetaForm({
-      metaPhoneNumberId:       metaSettings.metaPhoneNumberId       ?? '',
-      metaAccessToken:         metaSettings.metaAccessToken         ?? '',
-      metaOtpTemplateName:     metaSettings.metaOtpTemplateName     ?? 'otp_verification',
-      metaOtpTemplateLanguage: metaSettings.metaOtpTemplateLanguage ?? 'en_us',
-      metaUseOtpTemplate:      metaSettings.metaUseOtpTemplate      !== false,
-    });
-  }, [metaSettings]);
+  const { data: publicKeyData, refetch: refetchPublicKey } = useQuery<{
+    publicKey: string | null;
+    fingerprint: string | null;
+    hasPrivateKey: boolean;
+  }>({
+    queryKey: ['/api/flows/otp/public-key'],
+    enabled: activeTab === 'settings',
+  });
 
   const { data: voiceCalls, isLoading: voiceLoading } = useQuery<VoiceOtpCall[]>({
     queryKey: ['/api/voice-otp/calls'],
@@ -420,6 +424,21 @@ export default function SmsMonitorPage() {
     qc.invalidateQueries({ queryKey: ['/api/voice-otp/calls'] });
     qc.invalidateQueries({ queryKey: ['/api/voice-otp/stats'] });
   }, [lastVoiceOtpUpdate, qc]);
+  const [metaFormDirty, setMetaFormDirty] = useState(false);
+
+  useEffect(() => {
+    if (!metaSettings || metaFormDirty) return;
+    setMetaForm(prev => ({
+      ...prev,
+      metaPhoneNumberId:       metaSettings.metaPhoneNumberId       ?? '',
+      metaWabaId:              metaSettings.metaWabaId              ?? '',
+      metaFlowId:              metaSettings.metaFlowId              ?? '',
+      metaFlowsEnabled:        metaSettings.metaFlowsEnabled        ?? false,
+      metaOtpTemplateName:     metaSettings.metaOtpTemplateName     ?? 'otp_verification',
+      metaOtpTemplateLanguage: metaSettings.metaOtpTemplateLanguage ?? 'en_us',
+      metaUseOtpTemplate:      metaSettings.metaUseOtpTemplate      !== false,
+    }));
+  }, [metaSettings, metaFormDirty]);
 
   const hasInitiatedCalls = voiceOtpOpen && voiceCalls?.some(c => c.status === 'initiated');
   useEffect(() => {
@@ -461,13 +480,29 @@ export default function SmsMonitorPage() {
     onError: (err: any) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
   });
 
-  const metaSaveMutation = useMutation({
-    mutationFn: (body: typeof metaForm) => apiRequest('POST', '/api/whatsapp/meta/settings', body),
-    onSuccess: () => {
-      toast({ title: 'Meta Cloud API saved', description: 'Provider set to Meta WhatsApp Cloud API' });
-      qc.invalidateQueries({ queryKey: ['/api/whatsapp/meta/settings'] });
+  const metaSettingsMutation = useMutation({
+    mutationFn: (body: typeof metaForm) => {
+      const payload: Record<string, any> = {
+        metaPhoneNumberId: body.metaPhoneNumberId,
+        metaWabaId:        body.metaWabaId,
+        metaFlowId:        body.metaFlowId,
+        metaFlowsEnabled:  body.metaFlowsEnabled,
+        metaOtpTemplateName: body.metaOtpTemplateName,
+        metaOtpTemplateLanguage: body.metaOtpTemplateLanguage,
+        metaUseOtpTemplate: body.metaUseOtpTemplate,
+      };
+      // Only send the access token when the user has explicitly typed something
+      if (body.metaAccessToken && body.metaAccessToken.trim() !== '') {
+        payload.metaAccessToken = body.metaAccessToken.trim();
+      }
+      return apiRequest('PATCH', '/api/meta-flows/settings', payload);
     },
-    onError: (err: any) => toast({ title: 'Save failed', description: err.message, variant: 'destructive' }),
+    onSuccess: () => {
+      toast({ title: 'Meta settings saved' });
+      setMetaFormDirty(false);
+      qc.invalidateQueries({ queryKey: ['/api/meta-flows/settings'] });
+    },
+    onError: (err: any) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
   });
 
   const metaTestMutation = useMutation({
@@ -481,6 +516,55 @@ export default function SmsMonitorPage() {
       }
     },
     onError: (err: any) => toast({ title: 'Test failed', description: err.message, variant: 'destructive' }),
+  });
+
+  const generateKeysMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/flows/otp/generate-keys', {}),
+    onSuccess: async (res: any) => {
+      const data = await res.json?.() ?? res;
+      if (data.ok) {
+        toast({
+          title: 'RSA Key Pair Generated',
+          description: 'Public key saved. Copy the private key and store it as FLOWS_RSA_PRIVATE_KEY in Replit Secrets, then restart.',
+        });
+        qc.invalidateQueries({ queryKey: ['/api/flows/otp/public-key'] });
+        qc.invalidateQueries({ queryKey: ['/api/meta-flows/settings'] });
+        if (data.privateKey) {
+          try { navigator.clipboard.writeText(data.privateKey); } catch {}
+        }
+      } else {
+        toast({ title: 'Key generation failed', description: data.error, variant: 'destructive' });
+      }
+    },
+    onError: (err: any) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
+  });
+
+  const provisionFlowMutation = useMutation({
+    mutationFn: (body: { wabaId: string }) => apiRequest('POST', '/api/flows/otp/provision', body),
+    onSuccess: async (res: any) => {
+      const data = await res.json?.() ?? res;
+      if (data.ok) {
+        toast({ title: 'Flow Provisioned', description: `Flow ID: ${data.flowId}` });
+        setMetaForm(f => ({ ...f, metaFlowId: data.flowId }));
+        qc.invalidateQueries({ queryKey: ['/api/meta-flows/settings'] });
+      } else {
+        toast({ title: 'Provision Failed', description: data.error, variant: 'destructive' });
+      }
+    },
+    onError: (err: any) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
+  });
+
+  const testFlowMutation = useMutation({
+    mutationFn: (body: { to: string }) => apiRequest('POST', '/api/flows/otp/test', body),
+    onSuccess: async (res: any) => {
+      const data = await res.json?.() ?? res;
+      if (data.ok) {
+        toast({ title: 'Test Flow Sent', description: `Flow message sent. Test OTP is ${data.testOtp}` });
+      } else {
+        toast({ title: 'Test Failed', description: data.error, variant: 'destructive' });
+      }
+    },
+    onError: (err: any) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
   });
 
   const policyMutation = useMutation({
@@ -543,6 +627,21 @@ export default function SmsMonitorPage() {
 
   const [localPolicy, setLocalPolicy] = useState<OtpPolicy | null>(null);
   const effectivePolicy = localPolicy ?? otpPolicy ?? { primary: 'voice', fallback: [] };
+
+  // Meta Cloud API settings state
+  const [metaForm, setMetaForm] = useState({
+    metaPhoneNumberId:       '',
+    metaWabaId:              '',
+    metaAccessToken:         '',
+    metaFlowId:              '',
+    metaFlowsEnabled:        false,
+    metaOtpTemplateName:     'otp_verification',
+    metaOtpTemplateLanguage: 'en_us',
+    metaUseOtpTemplate:      true,
+  });
+  const [showMetaToken, setShowMetaToken] = useState(false);
+  const [testFlowTo, setTestFlowTo] = useState('');
+  const [copiedKey, setCopiedKey] = useState(false);
 
   const connected        = status?.connected ?? false;
   const balanceUnknown   = status?.balanceUnknown ?? false;
@@ -1521,11 +1620,11 @@ export default function SmsMonitorPage() {
                 <div className="flex gap-2 pt-1">
                   <Button
                     size="sm"
-                    disabled={metaSaveMutation.isPending || !metaForm.metaPhoneNumberId || !metaForm.metaAccessToken}
-                    onClick={() => metaSaveMutation.mutate(metaForm)}
+                    disabled={metaSettingsMutation.isPending || !metaForm.metaPhoneNumberId || !metaForm.metaAccessToken}
+                    onClick={() => metaSettingsMutation.mutate(metaForm)}
                     data-testid="button-save-meta-settings"
                   >
-                    {metaSaveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1.5" />}
+                    {metaSettingsMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1.5" />}
                     Save & Activate Meta Provider
                   </Button>
                   <Button
@@ -1543,6 +1642,333 @@ export default function SmsMonitorPage() {
                   <p className="font-medium flex items-center gap-1">Meta Cloud API <span className="text-[9px] bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded px-1">Official</span></p>
                   <p className="text-muted-foreground">Meta-hosted, authentication templates for OTP, delivery receipts</p>
                 </div>
+              </div>
+            </div>
+
+            {/* ── Meta Cloud API (Flows) ── */}
+            <div className="bg-card border border-violet-500/20 rounded-xl p-5 space-y-5">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                    <Shield className="h-4 w-4 text-violet-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Meta Cloud API — WhatsApp Flows OTP</p>
+                    <p className="text-xs text-muted-foreground">Interactive native OTP screen inside WhatsApp — eliminates copy-paste errors</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                    <div
+                      onClick={() => { setMetaForm(f => ({ ...f, metaFlowsEnabled: !f.metaFlowsEnabled })); setMetaFormDirty(true); }}
+                      data-testid="toggle-meta-flows-enabled"
+                      className={cn(
+                        "w-9 h-5 rounded-full border transition-colors cursor-pointer relative",
+                        metaForm.metaFlowsEnabled
+                          ? "bg-violet-500 border-violet-400"
+                          : "bg-muted/40 border-border"
+                      )}
+                    >
+                      <div className={cn(
+                        "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all",
+                        metaForm.metaFlowsEnabled ? "left-4" : "left-0.5"
+                      )} />
+                    </div>
+                    <span className={metaForm.metaFlowsEnabled ? "text-violet-400 font-medium" : "text-muted-foreground"}>
+                      {metaForm.metaFlowsEnabled ? "Enabled" : "Disabled"}
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Status badges */}
+              <div className="flex flex-wrap gap-2">
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border",
+                  metaSettings?.hasAccessToken
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                    : "bg-muted/30 border-border text-muted-foreground"
+                )}>
+                  <Key className="h-3 w-3" />
+                  Access Token: {metaSettings?.hasAccessToken ? "Configured" : "Not set"}
+                </div>
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border",
+                  metaSettings?.hasPublicKey
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                    : "bg-muted/30 border-border text-muted-foreground"
+                )}>
+                  <Shield className="h-3 w-3" />
+                  RSA Key: {metaSettings?.fingerprint ? `···${metaSettings.fingerprint}` : "Not generated"}
+                </div>
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border",
+                  metaSettings?.metaFlowId
+                    ? "bg-violet-500/10 border-violet-500/30 text-violet-400"
+                    : "bg-muted/30 border-border text-muted-foreground"
+                )}>
+                  <Zap className="h-3 w-3" />
+                  Flow: {metaSettings?.metaFlowId ? `ID ${metaSettings.metaFlowId.slice(0, 12)}…` : "Not provisioned"}
+                </div>
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border",
+                  publicKeyData?.hasPrivateKey
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                    : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                )}>
+                  {publicKeyData?.hasPrivateKey ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                  Private Key: {publicKeyData?.hasPrivateKey ? "In env" : "Missing"}
+                </div>
+              </div>
+
+              {/* Credentials */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">WABA ID (WhatsApp Business Account ID)</Label>
+                  <Input
+                    placeholder="e.g. 123456789012345"
+                    value={metaForm.metaWabaId}
+                    onChange={e => { setMetaForm(f => ({ ...f, metaWabaId: e.target.value })); setMetaFormDirty(true); }}
+                    data-testid="input-meta-waba-id"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Phone Number ID</Label>
+                  <Input
+                    placeholder="e.g. 100123456789"
+                    value={metaForm.metaPhoneNumberId}
+                    onChange={e => { setMetaForm(f => ({ ...f, metaPhoneNumberId: e.target.value })); setMetaFormDirty(true); }}
+                    data-testid="input-meta-phone-number-id"
+                  />
+                </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label className="text-xs">Access Token (permanent system user token)</Label>
+                  <div className="relative">
+                    <Input
+                      type={showMetaToken ? 'text' : 'password'}
+                      placeholder="EAAxxxx…"
+                      value={metaForm.metaAccessToken}
+                      onChange={e => { setMetaForm(f => ({ ...f, metaAccessToken: e.target.value })); setMetaFormDirty(true); }}
+                      className="pr-10"
+                      data-testid="input-meta-access-token"
+                    />
+                    <button
+                      onClick={() => setShowMetaToken(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showMetaToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Generate at developers.facebook.com → System Users → Generate Token with <code className="bg-muted px-1 rounded">whatsapp_business_messaging</code> scope</p>
+                </div>
+                <div className="space-y-1.5 md:col-span-2">
+                  <Label className="text-xs">Flow ID (auto-filled after provisioning)</Label>
+                  <Input
+                    placeholder="Will be auto-filled after Provision Flow"
+                    value={metaForm.metaFlowId}
+                    onChange={e => { setMetaForm(f => ({ ...f, metaFlowId: e.target.value })); setMetaFormDirty(true); }}
+                    data-testid="input-meta-flow-id"
+                  />
+                </div>
+
+                <div className="space-y-4 md:col-span-2 pt-4 border-t border-border/50">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-xs font-semibold">Standard OTP Template</Label>
+                      <p className="text-[10px] text-muted-foreground">Use a standard template instead of an interactive Flow</p>
+                    </div>
+                    <button
+                      onClick={() => { setMetaForm(f => ({ ...f, metaUseOtpTemplate: !f.metaUseOtpTemplate })); setMetaFormDirty(true); }}
+                      className={cn(
+                        "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                        metaForm.metaUseOtpTemplate ? "bg-sky-500" : "bg-muted"
+                      )}
+                    >
+                      <span className={cn(
+                        "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out",
+                        metaForm.metaUseOtpTemplate ? "translate-x-4" : "translate-x-0"
+                      )} />
+                    </button>
+                  </div>
+
+                  {metaForm.metaUseOtpTemplate && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-1">
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] uppercase tracking-wider text-muted-foreground font-bold">Template Name</Label>
+                        <Input
+                          placeholder="e.g. otp_template"
+                          value={metaForm.metaOtpTemplateName}
+                          onChange={e => { setMetaForm(f => ({ ...f, metaOtpTemplateName: e.target.value })); setMetaFormDirty(true); }}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] uppercase tracking-wider text-muted-foreground font-bold">Language Code</Label>
+                        <Input
+                          placeholder="e.g. en_US"
+                          value={metaForm.metaOtpTemplateLanguage}
+                          onChange={e => { setMetaForm(f => ({ ...f, metaOtpTemplateLanguage: e.target.value })); setMetaFormDirty(true); }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  disabled={metaSettingsMutation.isPending || !metaFormDirty}
+                  onClick={() => metaSettingsMutation.mutate(metaForm)}
+                  data-testid="button-save-meta-settings"
+                >
+                  {metaSettingsMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1.5" />}
+                  Save Settings
+                </Button>
+                {metaFormDirty && (
+                  <Button size="sm" variant="outline" onClick={() => { setMetaFormDirty(false); refetchMetaSettings(); }} data-testid="button-reset-meta-settings">
+                    Reset
+                  </Button>
+                )}
+              </div>
+
+              {/* RSA Key Pair */}
+              <div className="border-t border-border pt-4 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold flex items-center gap-1.5">
+                    <Key className="h-3.5 w-3.5 text-violet-400" />
+                    RSA Key Pair (End-to-End Encryption)
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Meta requires a 2048-bit RSA key pair for encrypted Flow webhook payloads. Generate once — the private key stays in Replit Secrets.
+                  </p>
+                </div>
+
+                {metaSettings?.fingerprint && (
+                  <div className="rounded-lg bg-muted/30 border border-border p-3 space-y-1">
+                    <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Public Key Fingerprint</p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-[11px] font-mono text-violet-400">{metaSettings.fingerprint}</code>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 shrink-0"
+                        onClick={() => {
+                          if (publicKeyData?.publicKey) {
+                            navigator.clipboard.writeText(publicKeyData.publicKey).then(() => { setCopiedKey(true); setTimeout(() => setCopiedKey(false), 2000); });
+                          }
+                        }}
+                        data-testid="button-copy-public-key"
+                      >
+                        {copiedKey ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">Register this public key on your Flow in Meta's developer console.</p>
+                  </div>
+                )}
+
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={generateKeysMutation.isPending}
+                    onClick={() => generateKeysMutation.mutate()}
+                    data-testid="button-generate-rsa-keys"
+                  >
+                    {generateKeysMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Key className="h-3.5 w-3.5 mr-1.5" />}
+                    {metaSettings?.hasPublicKey ? 'Regenerate Keys' : 'Generate Keys'}
+                  </Button>
+                  {!publicKeyData?.hasPrivateKey && metaSettings?.hasPublicKey && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 text-[10px] text-amber-400">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      Add FLOWS_RSA_PRIVATE_KEY to Replit Secrets and restart the server
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Flow Provisioning */}
+              <div className="border-t border-border pt-4 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold flex items-center gap-1.5">
+                    <Zap className="h-3.5 w-3.5 text-violet-400" />
+                    Flow Provisioning
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Provisions and publishes the OTP Flow on your Meta Business account. Requires WABA ID, Access Token, and RSA public key to be configured first.
+                  </p>
+                </div>
+
+                <div className="rounded-lg bg-muted/10 border border-border p-3 space-y-2 text-[11px] text-muted-foreground">
+                  <p className="text-foreground/80 font-medium text-xs">Before provisioning:</p>
+                  <ol className="list-decimal list-inside space-y-0.5 pl-1">
+                    <li>Create a Meta Business account at <span className="text-violet-400">business.facebook.com</span></li>
+                    <li>Add a WhatsApp Business phone number to your account</li>
+                    <li>Generate a System User token with <code className="bg-muted px-1 rounded">whatsapp_business_messaging</code></li>
+                    <li>Save credentials above, then click "Provision Flow" below</li>
+                  </ol>
+                  <p className="text-[10px] text-muted-foreground/70 mt-1">Steps 4–6 (Flow creation, key registration, publish) are automated by BitsAuto.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Webhook URL (register this in your Meta developer console)</Label>
+                  <UrlCopyRow
+                    label="Flow Webhook URL"
+                    url={`${window.location.origin}/api/flows/otp/webhook`}
+                    testId="button-copy-webhook-url"
+                  />
+                </div>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-violet-500/40 text-violet-400 hover:bg-violet-500/10"
+                  disabled={provisionFlowMutation.isPending || !metaForm.metaWabaId || !metaSettings?.hasAccessToken}
+                  onClick={() => provisionFlowMutation.mutate({ wabaId: metaForm.metaWabaId })}
+                  data-testid="button-provision-flow"
+                >
+                  {provisionFlowMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1.5" />}
+                  {metaSettings?.metaFlowId ? 'Re-provision Flow' : 'Provision Flow'}
+                </Button>
+              </div>
+
+              {/* Test Flow */}
+              <div className="border-t border-border pt-4 space-y-3">
+                <p className="text-xs font-semibold flex items-center gap-1.5">
+                  <Send className="h-3.5 w-3.5 text-violet-400" />
+                  Test Flow Message
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="+923001234567"
+                    value={testFlowTo}
+                    onChange={e => setTestFlowTo(e.target.value)}
+                    className="h-8 text-xs flex-1 max-w-xs"
+                    data-testid="input-test-flow-to"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={testFlowMutation.isPending || !testFlowTo || !metaSettings?.metaFlowId}
+                    onClick={() => testFlowMutation.mutate({ to: testFlowTo })}
+                    data-testid="button-send-test-flow"
+                  >
+                    {testFlowMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1.5" />}
+                    Test Flow
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Sends a test Flow message with OTP code 123456 to the given WhatsApp number.</p>
+              </div>
+
+              {/* Docs link */}
+              <div className="border-t border-border pt-3">
+                <a
+                  href="https://developers.facebook.com/docs/whatsapp/flows"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-[11px] text-violet-400/70 hover:text-violet-400 transition-colors"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  WhatsApp Flows documentation — developers.facebook.com
+                </a>
               </div>
             </div>
           </div>

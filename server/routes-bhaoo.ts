@@ -14,8 +14,10 @@ import {
   voiceOtpCalls,
 } from '@shared/schema';
 import { eq, desc, gte, sql, lte, and, isNotNull } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
 import { originateOtpCall } from './services/asterisk/index';
 import { sendWhatsAppMessage } from './whatsapp';
+import { sendOtpFlow, storeOtpSession } from './services/meta-flows/index';
 import { storage } from './storage';
 import { voiceOtpEmitter, emitVoiceOtpFailed, type VoiceOtpFailedEvent } from './voice-otp-events';
 
@@ -646,9 +648,89 @@ export function registerBhaooRoutes(app: Express) {
       if (otp) {
         // Dispatch via WhatsApp — returns true on success, false on failure
         const dispatchWhatsApp = async (parentId: number): Promise<boolean> => {
-          const waText = `🔐 *Your verification code is: ${otp}*`;
           const t0 = Date.now();
-          const result = await sendWhatsAppMessage(String(to).startsWith('+') ? String(to) : `+${to}`, waText);
+          const waSettings = await storage.getSettings() as any;
+          const toE164 = String(to).startsWith('+') ? String(to) : `+${to}`;
+
+          // Determine if we should use Meta Cloud API Flows
+          const useMetaFlows = waSettings.whatsappProvider === 'meta_cloud_api'
+            && waSettings.metaFlowsEnabled
+            && waSettings.metaPhoneNumberId
+            && waSettings.metaAccessToken
+            && waSettings.metaFlowId;
+
+          let result: { success: boolean; error?: string };
+          let provider: string;
+          let messageText: string;
+          let messageId: number | null = null;
+
+          if (useMetaFlows) {
+            // Use interactive Flow message — delivery confirmed via webhook
+            const flowToken = randomUUID();
+            const flowResult = await sendOtpFlow(
+              waSettings.metaPhoneNumberId,
+              waSettings.metaAccessToken,
+              waSettings.metaFlowId,
+              toE164,
+              flowToken,
+            );
+            result    = flowResult;
+            provider  = 'meta_flow';
+            messageText = `[Flow OTP] Code sent via WhatsApp Flow — user must enter in the interactive screen`;
+
+            if (flowResult.success) {
+              // Insert sms_messages row first so we have the ID for the session
+              const waMsgId = `wa-flow-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+              const [flowMsgRow] = await db.insert(smsMessages).values({
+                internalId:   waMsgId,
+                toNumber:     String(to),
+                fromId:       from ? String(from) : null,
+                messageText,
+                messageType:  'whatsapp_otp',
+                status:       'sent',
+                profileId,
+                channel:      'whatsapp' as any,
+                provider:     'meta_flow' as any,
+                fallbackFrom: parentId,
+                latencyMs:    Date.now() - t0,
+              } as any).returning();
+              messageId = flowMsgRow?.id ?? null;
+
+              // Store session keyed by flowToken — webhook will mark delivered
+              storeOtpSession(flowToken, {
+                code:      otp,
+                expiresAt: Date.now() + 5 * 60_000,
+                messageId: messageId ?? 0,
+                toNumber:  String(to),
+              });
+              console.log(`[bhaoo-receive] Meta Flow OTP sent to ${to} (flow_token=${flowToken.slice(0, 8)}...)`);
+              return true;
+            } else {
+              await db.insert(smsMessages).values({
+                internalId:   `wa-flow-fail-${Date.now()}`,
+                toNumber:     String(to),
+                fromId:       from ? String(from) : null,
+                messageText,
+                messageType:  'whatsapp_otp',
+                status:       'failed',
+                errorMessage: flowResult.error ?? null,
+                profileId,
+                channel:      'whatsapp' as any,
+                provider:     'meta_flow' as any,
+                fallbackFrom: parentId,
+                latencyMs:    Date.now() - t0,
+              } as any);
+              console.log(`[bhaoo-receive] Meta Flow OTP failed to ${to}: ${flowResult.error}`);
+              return false;
+            }
+          } else {
+            // Legacy plain-text WhatsApp (CallMeBot / UltraMsg)
+            const waText = `🔐 *Your verification code is: ${otp}*`;
+            result = await sendWhatsAppMessage(toE164, waText);
+            provider = 'whatsapp';
+            messageText = waText;
+          }
+
           const latencyMs = Date.now() - t0;
           const waMsgId = `wa-otp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -665,13 +747,13 @@ export function registerBhaooRoutes(app: Express) {
             bhaooId:      result.wamid ?? null,
             toNumber:     String(to),
             fromId:       from ? String(from) : null,
-            messageText:  waText,
+            messageText,
             messageType:  'whatsapp_otp',
             status:       result.success ? 'sent' : 'failed',
             errorMessage: result.error ?? null,
             profileId,
             channel:      'whatsapp' as any,
-            provider:     'whatsapp' as any,
+            provider:     provider as any,
             fallbackFrom: parentId,
             latencyMs,
             nextRetryAt:  nextRetryAt ?? undefined,

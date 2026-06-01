@@ -19,6 +19,17 @@ psql "$DATABASE_URL" -c "
 " 2>&1 || true
 
 psql "$DATABASE_URL" -c "
+  -- Task #33: Meta WhatsApp Flows — OTP Verification (Phase 1)
+  ALTER TABLE settings
+    ADD COLUMN IF NOT EXISTS meta_phone_number_id VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS meta_access_token VARCHAR(512),
+    ADD COLUMN IF NOT EXISTS meta_flow_id VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS meta_waba_id VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS meta_flows_enabled BOOLEAN DEFAULT false,
+    ADD COLUMN IF NOT EXISTS meta_flows_public_key TEXT;
+" 2>&1 || true
+
+psql "$DATABASE_URL" -c "
   -- Call Governance: AMI-triggered vendor BYE + replay engine
   CREATE TABLE IF NOT EXISTS call_governance_rules (
     id SERIAL PRIMARY KEY,

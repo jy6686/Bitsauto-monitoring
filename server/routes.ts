@@ -4,6 +4,7 @@ import { registerBhaooRoutes } from './routes-bhaoo';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
+import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { createServer, type Server } from "http";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import * as net from "net";
@@ -20122,6 +20123,38 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/meta-flows/settings — return current Meta Flows settings (non-sensitive)
+  app.get('/api/meta-flows/settings', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const s = await storage.getSettings() as any;
+      res.json({
+        metaPhoneNumberId: s.metaPhoneNumberId ?? '',
+        metaWabaId:        s.metaWabaId ?? '',
+        metaFlowId:        s.metaFlowId ?? '',
+        metaFlowsEnabled:  s.metaFlowsEnabled ?? false,
+        hasAccessToken:    !!(s.metaAccessToken),
+        hasPublicKey:      !!(s.metaFlowsPublicKey),
+        fingerprint:       s.metaFlowsPublicKey ? require('crypto').createHash('sha256').update(Buffer.from(s.metaFlowsPublicKey.replace(/-----[^-]+-----/g, '').replace(/\s/g, ''), 'base64')).digest('hex').slice(0, 16).toUpperCase() : null,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/meta-flows/settings — update Meta Cloud API settings
+  app.patch('/api/meta-flows/settings', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { metaPhoneNumberId, metaWabaId, metaAccessToken, metaFlowId, metaFlowsEnabled } = req.body ?? {};
+      const patch: Record<string, any> = {};
+      if (metaPhoneNumberId !== undefined) patch.metaPhoneNumberId = metaPhoneNumberId;
+      if (metaWabaId        !== undefined) patch.metaWabaId        = metaWabaId;
+      // Only overwrite the access token when a non-empty value is explicitly provided
+      if (metaAccessToken && typeof metaAccessToken === 'string' && metaAccessToken.trim() !== '') patch.metaAccessToken = metaAccessToken.trim();
+      if (metaFlowId        !== undefined) patch.metaFlowId        = metaFlowId;
+      if (metaFlowsEnabled  !== undefined) patch.metaFlowsEnabled  = metaFlowsEnabled;
+      await storage.updateSettings(patch as any);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // PATCH /api/messaging/policy — update OTP channel policy
   app.patch('/api/messaging/policy', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
     const { primary, fallback, whatsappMaxRetries, whatsappRetryAfterMin } = req.body ?? {};
@@ -30126,6 +30159,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // ── Voice OTP / Asterisk AMI routes ───────────────────────────────────────
   registerVoiceOtpRoutes(app);
   registerTerminationRoutes(app);
+
+  // ── Meta WhatsApp Flows routes ─────────────────────────────────────────────
+  registerMetaFlowsRoutes(app);
 
   return httpServer;
 }
