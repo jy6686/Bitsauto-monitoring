@@ -66,6 +66,19 @@ class AmiGovernanceListener extends EventEmitter {
 
     this.socket.on('data', (chunk) => {
       this.buffer += chunk.toString();
+
+      // AMI banner arrives as a single line ending \r\n (not \r\n\r\n).
+      // Detect and handle it immediately so login is sent before authtimeout.
+      if (!this.loggedIn && this.buffer.includes('Asterisk Call Manager')) {
+        const lineEnd = this.buffer.indexOf('\r\n');
+        if (lineEnd !== -1) {
+          const bannerLine = this.buffer.slice(0, lineEnd);
+          this.buffer = this.buffer.slice(lineEnd + 2);
+          this.handleMessage(bannerLine);
+        }
+      }
+
+      // Standard AMI messages are terminated by \r\n\r\n
       let boundary: number;
       while ((boundary = this.buffer.indexOf('\r\n\r\n')) !== -1) {
         const msg  = this.buffer.slice(0, boundary);
