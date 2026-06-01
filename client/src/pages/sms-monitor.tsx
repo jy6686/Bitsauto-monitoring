@@ -1539,6 +1539,10 @@ export default function SmsMonitorPage() {
                     Test Send
                   </Button>
                 </div>
+                <div className={`rounded-lg border p-3 space-y-1 transition-colors ${metaSettings?.provider === 'meta_cloud_api' ? 'bg-blue-500/10 border-blue-500/40' : 'bg-muted/30 border-border'}`}>
+                  <p className="font-medium flex items-center gap-1">Meta Cloud API <span className="text-[9px] bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded px-1">Official</span></p>
+                  <p className="text-muted-foreground">Meta-hosted, authentication templates for OTP, delivery receipts</p>
+                </div>
               </div>
             </div>
           </div>

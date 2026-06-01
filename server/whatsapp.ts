@@ -123,15 +123,15 @@ export function formatOutageAlert(opts: { event: 'down' | 'recovered'; host: str
   ].join('\n');
 }
 
-// ── Direct message sender (no alert-type filtering) ────────────────────────
-// Used for OTP dispatch and manual sends from Messaging Intelligence Center.
-
-// Extract a bare OTP code (4–8 consecutive digits) from a message string.
-// Returns the first match or null.
+// ── OTP code extractor ────────────────────────────────────────────────────
+// Finds the first 4-8 digit numeric code in the message (e.g. "Your OTP is 482193")
 function extractOtpCode(message: string): string | null {
   const m = message.match(/\b(\d{4,8})\b/);
   return m ? m[1] : null;
 }
+
+// ── Direct message sender (no alert-type filtering) ────────────────────────
+// Used for OTP dispatch and manual sends from Messaging Intelligence Center.
 
 export async function sendWhatsAppMessage(
   phone: string,
@@ -144,16 +144,16 @@ export async function sendWhatsAppMessage(
 
   try {
     if (provider === 'meta_cloud_api') {
-      const phoneNumberId = (settings as any).metaPhoneNumberId ?? '';
-      const accessToken   = (settings as any).metaAccessToken   ?? '';
+      const phoneNumberId = settings.metaPhoneNumberId ?? '';
+      const accessToken   = settings.metaAccessToken   ?? '';
       if (!phoneNumberId || !accessToken) {
         return { success: false, error: 'Meta Cloud API: Phone Number ID and Access Token are required' };
       }
-      const useTemplate  = (settings as any).metaUseOtpTemplate !== false;
+      const useTemplate  = settings.metaUseOtpTemplate !== false;
       const otpCode      = useTemplate ? extractOtpCode(message) : null;
-      if (otpCode) {
-        const templateName = (settings as any).metaOtpTemplateName     ?? 'otp_verification';
-        const langCode     = (settings as any).metaOtpTemplateLanguage ?? 'en_us';
+      if (useTemplate && otpCode) {
+        const templateName = settings.metaOtpTemplateName     ?? 'otp_verification';
+        const langCode     = settings.metaOtpTemplateLanguage ?? 'en_us';
         const { wamid } = await sendMetaOtpTemplate(phone, otpCode, templateName, langCode, phoneNumberId, accessToken);
         return { success: true, wamid };
       } else {
@@ -201,8 +201,8 @@ export async function sendWhatsAppAlert(
     let errorMsg: string | null = null;
     try {
       if (provider === 'meta_cloud_api') {
-        const phoneNumberId = (settings as any).metaPhoneNumberId ?? '';
-        const accessToken   = (settings as any).metaAccessToken   ?? '';
+        const phoneNumberId = settings.metaPhoneNumberId ?? '';
+        const accessToken   = settings.metaAccessToken   ?? '';
         if (!phoneNumberId || !accessToken) throw new Error('Meta Cloud API credentials not configured');
         await sendMetaDirectText(phone, message, phoneNumberId, accessToken);
       } else if (provider === 'callmebot') {

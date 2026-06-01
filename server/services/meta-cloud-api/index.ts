@@ -6,7 +6,7 @@
 const META_API_BASE = 'https://graph.facebook.com/v23.0';
 
 interface MetaApiError {
-  error?: { message?: string; code?: number; error_data?: unknown };
+  error?: { message?: string; type?: string; code?: number; fbtrace_id?: string; error_data?: unknown };
 }
 
 async function metaPost(

@@ -354,6 +354,13 @@ export async function runSafeMigrations(): Promise<void> {
     await client.query(`ALTER TABLE sms_messages ADD COLUMN IF NOT EXISTS latency_ms   INTEGER`);
     await client.query(`ALTER TABLE settings     ADD COLUMN IF NOT EXISTS otp_channel_policy TEXT`);
 
+    // ── Meta WhatsApp Cloud API provider columns ───────────────────────────
+    await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS meta_phone_number_id       VARCHAR(64)`);
+    await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS meta_access_token          VARCHAR(512)`);
+    await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS meta_otp_template_name     VARCHAR(128) DEFAULT 'otp_verification'`);
+    await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS meta_otp_template_language VARCHAR(16)  DEFAULT 'en_us'`);
+    await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS meta_use_otp_template      BOOLEAN      DEFAULT true`);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
