@@ -523,15 +523,24 @@ export default function SmsMonitorPage() {
     onSuccess: async (res: any) => {
       const data = await res.json?.() ?? res;
       if (data.ok) {
-        toast({
-          title: 'RSA Key Pair Generated',
-          description: 'Public key saved. Copy the private key and store it as FLOWS_RSA_PRIVATE_KEY in Replit Secrets, then restart.',
-        });
+        if (data.secretStored) {
+          toast({
+            title: 'Key generated and stored',
+            description: 'Private key saved to Replit Secrets automatically. Restart the server to re-activate after the next deploy.',
+          });
+        } else {
+          toast({
+            title: 'RSA Key Pair Generated',
+            description: data.privateKey
+              ? 'Key is active for this session. Copy the private key and add it to Replit Secrets as FLOWS_RSA_PRIVATE_KEY to persist after restart.'
+              : 'Public key saved. Add FLOWS_RSA_PRIVATE_KEY to Replit Secrets to activate.',
+          });
+          if (data.privateKey) {
+            try { navigator.clipboard.writeText(data.privateKey); } catch {}
+          }
+        }
         qc.invalidateQueries({ queryKey: ['/api/flows/otp/public-key'] });
         qc.invalidateQueries({ queryKey: ['/api/meta-flows/settings'] });
-        if (data.privateKey) {
-          try { navigator.clipboard.writeText(data.privateKey); } catch {}
-        }
       } else {
         toast({ title: 'Key generation failed', description: data.error, variant: 'destructive' });
       }
@@ -1880,7 +1889,7 @@ export default function SmsMonitorPage() {
                   {!publicKeyData?.hasPrivateKey && metaSettings?.hasPublicKey && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 text-[10px] text-amber-400">
                       <AlertTriangle className="h-3 w-3 shrink-0" />
-                      Add FLOWS_RSA_PRIVATE_KEY to Replit Secrets and restart the server
+                      Generate Keys — the private key will be stored automatically
                     </div>
                   )}
                 </div>

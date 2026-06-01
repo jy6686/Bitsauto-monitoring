@@ -79,21 +79,58 @@ export function registerMetaFlowsRoutes(app: Express) {
 
   // ── POST /api/flows/otp/generate-keys ────────────────────────────────────
   // Generates a new RSA 2048-bit key pair. Private key stored in env, public key in DB.
+  // Attempts to auto-persist the private key to Replit Secrets so no manual copy-paste is needed.
   app.post('/api/flows/otp/generate-keys', requireAdmin, async (req: any, res: any) => {
     try {
       const { privateKeyPem, publicKeyPem, fingerprint } = generateRsaKeyPair();
 
-      // Store private key as env secret instruction (we can't set env secrets via API,
-      // so we return the private key for the operator to store in Replit Secrets as FLOWS_RSA_PRIVATE_KEY)
-      // Store public key in settings
+      // Activate the key in the current process immediately — no restart required for this session.
+      process.env.FLOWS_RSA_PRIVATE_KEY = privateKeyPem;
+
+      // Store public key in DB settings.
       await storage.updateSettings({ metaFlowsPublicKey: publicKeyPem } as any);
 
+      // Attempt to persist the private key as a Replit Secret so it survives server restarts.
+      let secretStored = false;
+      try {
+        const replId     = process.env.REPL_ID;
+        const replitToken = process.env.REPLIT_TOKEN;
+        if (replId && replitToken) {
+          const apiRes = await fetch(
+            `https://replit.com/api/v1/repls/${encodeURIComponent(replId)}/secrets`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${replitToken}`,
+                'Content-Type':  'application/json',
+              },
+              body: JSON.stringify({ key: 'FLOWS_RSA_PRIVATE_KEY', value: privateKeyPem }),
+            },
+          );
+          secretStored = apiRes.ok;
+          if (!apiRes.ok) {
+            const text = await apiRes.text().catch(() => '');
+            console.warn(`[meta-flows] Replit Secrets API ${apiRes.status}: ${text}`);
+          } else {
+            console.log('[meta-flows] FLOWS_RSA_PRIVATE_KEY auto-stored in Replit Secrets');
+          }
+        } else {
+          console.warn('[meta-flows] REPL_ID or REPLIT_TOKEN not available — skipping auto-secret storage');
+        }
+      } catch (apiErr: any) {
+        console.warn('[meta-flows] Could not auto-store private key in Replit Secrets:', apiErr.message);
+      }
+
       res.json({
-        ok: true,
-        publicKey:   publicKeyPem,
-        privateKey:  privateKeyPem,
+        ok:             true,
+        publicKey:      publicKeyPem,
+        privateKey:     privateKeyPem,   // always returned so operator can manually store if needed
         fingerprint,
-        instruction: 'Store the privateKey value in Replit Secrets as FLOWS_RSA_PRIVATE_KEY, then reload the server.',
+        secretStored,
+        secretActiveNow: true,
+        instruction: secretStored
+          ? 'Key generated and stored as a Replit Secret — restart the server to re-activate after the next deploy.'
+          : 'Key is active for this session. Add FLOWS_RSA_PRIVATE_KEY to Replit Secrets to persist after restart.',
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
