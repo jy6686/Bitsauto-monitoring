@@ -6540,51 +6540,80 @@ export async function registerRoutes(
   function sippy_reconstructDialog(cdr: sippy.SippyCDR) {
     type SipEv = { ts: string; method: string; code?: number; from: string; to: string; direction: 'lr' | 'rl'; detail: string };
     const events: SipEv[] = [];
-    const startMs    = cdr.startTime      ? new Date(cdr.startTime).getTime()      : Date.now();
-    const connectMs  = cdr.connectTime    ? new Date(cdr.connectTime).getTime()    : null;
+    const startMs      = cdr.startTime      ? new Date(cdr.startTime).getTime()      : Date.now();
+    const connectMs    = cdr.connectTime    ? new Date(cdr.connectTime).getTime()    : null;
     const disconnectMs = cdr.disconnectTime ? new Date(cdr.disconnectTime).getTime() : null;
-    const ua         = cdr.remoteIp || 'UA';
+    const ua           = cdr.remoteIp || 'UA';
     const fmtTs = (ms: number) => new Date(ms).toISOString().slice(11, 23);
 
-    // INVITE (UA → Sippy)
-    events.push({ ts: fmtTs(startMs), method: 'INVITE', from: ua, to: 'Sippy', direction: 'lr',
-      detail: `INVITE sip:${cdr.callee}@sippy SIP/2.0\nFrom: <sip:${cdr.caller}@${ua}>\nTo: <sip:${cdr.callee}@sippy>\nCall-ID: ${cdr.callId}${cdr.userAgent ? `\nUser-Agent: ${cdr.userAgent}` : ''}` });
+    // Vendor-leg CDRs: Sippy originates INVITE → vendor (Asterisk/carrier).
+    // Customer-leg CDRs: customer (UA) originates INVITE → Sippy.
+    // Detect by presence of vendor/connection info on the CDR.
+    const isVendorLeg = !!(cdr.vendor || cdr.connection);
 
-    // 100 Trying (Sippy → UA) — almost immediate
-    events.push({ ts: fmtTs(startMs + 50), method: '100', code: 100, from: 'Sippy', to: ua, direction: 'rl',
+    // For vendor-leg: left=Sippy, right=vendor(ua). Directions are flipped.
+    // For customer-leg: left=ua(customer), right=Sippy. Standard lr/rl.
+    const inviteFrom  = isVendorLeg ? 'Sippy' : ua;
+    const inviteTo    = isVendorLeg ? ua       : 'Sippy';
+    const inviteDir   = isVendorLeg ? 'rl'     : 'lr';   // rl = Sippy→ua column
+    const replyFrom   = isVendorLeg ? ua       : 'Sippy';
+    const replyTo     = isVendorLeg ? 'Sippy'  : ua;
+    const replyDir    = isVendorLeg ? 'lr'     : 'rl';
+
+    const vendorLabel = cdr.vendor || cdr.connection || ua;
+
+    // INVITE
+    events.push({ ts: fmtTs(startMs), method: 'INVITE', from: inviteFrom, to: inviteTo, direction: inviteDir as 'lr' | 'rl',
+      detail: isVendorLeg
+        ? `INVITE sip:${cdr.callee}@${ua} SIP/2.0\nFrom: <sip:${cdr.caller}@sippy>\nTo: <sip:${cdr.callee}@${ua}>\nCall-ID: ${cdr.callId}\nVia: SIP/2.0/UDP sippy\nVendor: ${vendorLabel}`
+        : `INVITE sip:${cdr.callee}@sippy SIP/2.0\nFrom: <sip:${cdr.caller}@${ua}>\nTo: <sip:${cdr.callee}@sippy>\nCall-ID: ${cdr.callId}${cdr.userAgent ? `\nUser-Agent: ${cdr.userAgent}` : ''}` });
+
+    // 100 Trying — almost immediate
+    events.push({ ts: fmtTs(startMs + 50), method: '100', code: 100, from: replyFrom, to: replyTo, direction: replyDir as 'lr' | 'rl',
       detail: 'SIP/2.0 100 Trying' });
 
     // 180 Ringing — only if we have PDD timing
     const pdd1xxMs = cdr.pdd1xx ? cdr.pdd1xx * 1000 : (cdr.pdd ? cdr.pdd * 400 : 0);
     if (pdd1xxMs > 100) {
-      events.push({ ts: fmtTs(startMs + pdd1xxMs), method: '180', code: 180, from: 'Sippy', to: ua, direction: 'rl',
+      events.push({ ts: fmtTs(startMs + pdd1xxMs), method: '180', code: 180, from: replyFrom, to: replyTo, direction: replyDir as 'lr' | 'rl',
         detail: `SIP/2.0 180 Ringing\nRinging time: ${(pdd1xxMs / 1000).toFixed(2)}s` });
     }
 
     const isAnswered = ((cdr.totalDuration ?? cdr.duration ?? 0) > 0) && connectMs !== null;
     if (isAnswered && connectMs) {
       const pddTotal = cdr.pdd ? cdr.pdd * 1000 : (connectMs - startMs);
-      events.push({ ts: fmtTs(connectMs), method: '200', code: 200, from: 'Sippy', to: ua, direction: 'rl',
+      // 200 OK for INVITE
+      events.push({ ts: fmtTs(connectMs), method: '200', code: 200, from: replyFrom, to: replyTo, direction: replyDir as 'lr' | 'rl',
         detail: `SIP/2.0 200 OK\nPDD: ${(pddTotal / 1000).toFixed(2)}s\nConnect-Time: ${cdr.connectTime}` });
-      events.push({ ts: fmtTs(connectMs + 10), method: 'ACK', from: ua, to: 'Sippy', direction: 'lr',
-        detail: `ACK sip:${cdr.callee}@sippy SIP/2.0` });
+      // ACK
+      events.push({ ts: fmtTs(connectMs + 10), method: 'ACK', from: inviteFrom, to: inviteTo, direction: inviteDir as 'lr' | 'rl',
+        detail: isVendorLeg ? `ACK sip:${cdr.callee}@${ua} SIP/2.0` : `ACK sip:${cdr.callee}@sippy SIP/2.0` });
       if (disconnectMs) {
+        // BYE direction: if release source is destination (vendor side) it originates from vendor for vendor-leg, or Sippy for customer-leg
         const releaseIsDestination = (cdr.releaseSource || '').toLowerCase().includes('dest');
-        const byeFrom = releaseIsDestination ? 'Sippy' : ua;
+        // For vendor-leg: releaseIsDestination means vendor sent BYE → direction lr (vendor→Sippy)
+        // For customer-leg: releaseIsDestination means Sippy sent BYE → direction rl
+        const byeFromVendorLeg  = releaseIsDestination ? ua       : 'Sippy';
+        const byeFromCustomerLeg = releaseIsDestination ? 'Sippy' : ua;
+        const byeFrom = isVendorLeg ? byeFromVendorLeg : byeFromCustomerLeg;
         const byeTo   = byeFrom === ua ? 'Sippy' : ua;
-        events.push({ ts: fmtTs(disconnectMs - 20), method: 'BYE', from: byeFrom, to: byeTo, direction: byeFrom === ua ? 'lr' : 'rl',
-          detail: `BYE sip:sippy SIP/2.0\nRelease-Source: ${cdr.releaseSource || 'unknown'}\nCall-Duration: ${((disconnectMs - connectMs) / 1000).toFixed(1)}s` });
-        events.push({ ts: fmtTs(disconnectMs), method: '200', code: 200, from: byeTo, to: byeFrom, direction: byeTo === ua ? 'lr' : 'rl',
+        const byeDir  = isVendorLeg
+          ? (byeFrom === ua ? 'lr' : 'rl')
+          : (byeFrom === ua ? 'lr' : 'rl');
+        events.push({ ts: fmtTs(disconnectMs - 20), method: 'BYE', from: byeFrom, to: byeTo, direction: byeDir as 'lr' | 'rl',
+          detail: `BYE SIP/2.0\nRelease-Source: ${cdr.releaseSource || 'unknown'}\nCall-Duration: ${((disconnectMs - connectMs) / 1000).toFixed(1)}s` });
+        const ackDir = byeDir === 'lr' ? 'rl' : 'lr';
+        events.push({ ts: fmtTs(disconnectMs), method: '200', code: 200, from: byeTo, to: byeFrom, direction: ackDir as 'lr' | 'rl',
           detail: 'SIP/2.0 200 OK' });
       }
     } else {
       const sipErr = sippy_resultToSipCode(cdr.result);
       const errMs  = startMs + Math.max(pdd1xxMs || 0, connectMs ? connectMs - startMs : 1500);
-      events.push({ ts: fmtTs(errMs), method: String(sipErr.code), code: sipErr.code, from: 'Sippy', to: ua, direction: 'rl',
+      events.push({ ts: fmtTs(errMs), method: String(sipErr.code), code: sipErr.code, from: replyFrom, to: replyTo, direction: replyDir as 'lr' | 'rl',
         detail: `SIP/2.0 ${sipErr.code} ${sipErr.phrase}\nDisconnect-Reason: ${cdr.result}` });
       if (sipErr.code >= 400) {
-        events.push({ ts: fmtTs(errMs + 10), method: 'ACK', from: ua, to: 'Sippy', direction: 'lr',
-          detail: 'ACK sip:sippy SIP/2.0' });
+        events.push({ ts: fmtTs(errMs + 10), method: 'ACK', from: inviteFrom, to: inviteTo, direction: inviteDir as 'lr' | 'rl',
+          detail: isVendorLeg ? `ACK sip:${cdr.callee}@${ua} SIP/2.0` : 'ACK sip:sippy SIP/2.0' });
       }
     }
     return events;
