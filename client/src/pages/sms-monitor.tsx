@@ -112,18 +112,47 @@ function KeyRotationCountdown({ expiresAt }: { expiresAt: number }) {
 // ── FlowVerificationBadge ──────────────────────────────────────────────────
 const FLOW_OTP_TTL_MS = 10 * 60 * 1_000;
 
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return '0s';
+  const totalSec = Math.ceil(ms / 1_000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return m > 0 ? `${m}m ${s.toString().padStart(2, '0')}s` : `${s}s`;
+}
+
 function FlowVerificationBadge({ flowToken, initialVerifiedAt, submittedAt, msgId }: {
   flowToken:          string;
   initialVerifiedAt?: string;
   submittedAt:        string;
   msgId:              number;
 }) {
-  const isExpired = () => Date.now() - new Date(submittedAt).getTime() > FLOW_OTP_TTL_MS;
+  const expiresAt = new Date(submittedAt).getTime() + FLOW_OTP_TTL_MS;
+  const getRemainingMs = () => Math.max(0, expiresAt - Date.now());
+  const isExpired = () => getRemainingMs() === 0;
 
-  const [verifiedAt, setVerifiedAt] = useState<string | null>(initialVerifiedAt ?? null);
-  const [expired, setExpired]       = useState<boolean>(isExpired);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [verifiedAt, setVerifiedAt]     = useState<string | null>(initialVerifiedAt ?? null);
+  const [expired, setExpired]           = useState<boolean>(isExpired);
+  const [remainingMs, setRemainingMs]   = useState<number>(getRemainingMs);
+  const intervalRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownRef   = useRef<ReturnType<typeof setInterval> | null>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (verifiedAt || expired) return;
+    if (isExpired()) { setExpired(true); return; }
+
+    countdownRef.current = setInterval(() => {
+      const rem = getRemainingMs();
+      setRemainingMs(rem);
+      if (rem === 0) {
+        setExpired(true);
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        if (intervalRef.current)  clearInterval(intervalRef.current);
+      }
+    }, 1_000);
+
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+  }, [verifiedAt, expired]);
 
   useEffect(() => {
     if (verifiedAt) return;
@@ -141,7 +170,8 @@ function FlowVerificationBadge({ flowToken, initialVerifiedAt, submittedAt, msgI
         const data = await res.json();
         if (data.verified && data.verifiedAt) {
           setVerifiedAt(data.verifiedAt);
-          if (intervalRef.current) clearInterval(intervalRef.current);
+          if (intervalRef.current)  clearInterval(intervalRef.current);
+          if (countdownRef.current) clearInterval(countdownRef.current);
           queryClient.invalidateQueries({ queryKey: ['/api/bhaoo/messages'] });
         }
       } catch { /* ignore */ }
@@ -183,7 +213,7 @@ function FlowVerificationBadge({ flowToken, initialVerifiedAt, submittedAt, msgI
       className="text-[10px] font-medium text-amber-400 border-amber-500/30 bg-amber-500/10 gap-1 animate-pulse"
       data-testid={`flow-pending-${msgId}`}
     >
-      <Loader2 className="h-2.5 w-2.5 animate-spin" /> Waiting for verification…
+      <Loader2 className="h-2.5 w-2.5 animate-spin" /> Waiting · <span className="font-mono" data-testid={`flow-countdown-${msgId}`}>{formatCountdown(remainingMs)}</span> left
     </Badge>
   );
 }
