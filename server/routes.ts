@@ -6537,7 +6537,7 @@ export async function registerRoutes(
   }
 
   // ── CDR Trace: reconstruct SIP dialog from CDR timing fields ─────────────
-  function sippy_reconstructDialog(cdr: sippy.SippyCDR) {
+  function sippy_reconstructDialog(cdr: sippy.SippyCDR, forceVendorLeg = false) {
     type SipEv = { ts: string; method: string; code?: number; from: string; to: string; direction: 'lr' | 'rl'; detail: string };
     const events: SipEv[] = [];
     const startMs      = cdr.startTime      ? new Date(cdr.startTime).getTime()      : Date.now();
@@ -6548,8 +6548,9 @@ export async function registerRoutes(
 
     // Vendor-leg CDRs: Sippy originates INVITE → vendor (Asterisk/carrier).
     // Customer-leg CDRs: customer (UA) originates INVITE → Sippy.
-    // Detect by presence of vendor/connection info on the CDR.
-    const isVendorLeg = !!(cdr.vendor || cdr.connection);
+    // Detect by presence of vendor/connection info on the CDR,
+    // OR by the caller being a Sippy internal IP (remoteIp is a known vendor IP).
+    const isVendorLeg = !!(cdr.vendor || cdr.connection || forceVendorLeg);
 
     // For vendor-leg: left=Sippy, right=vendor(ua). Directions are flipped.
     // For customer-leg: left=ua(customer), right=Sippy. Standard lr/rl.
@@ -6713,7 +6714,11 @@ export async function registerRoutes(
       vendorName: (cdr as any).vendorName || connectionVendorCache.get(String((cdr as any).iConnection ?? '')) || (cdr as any).vendor || undefined,
     };
 
-    res.json({ cdr: enriched, sipEvents: sippy_reconstructDialog(cdr) });
+    // Detect vendor-leg by IP even when vendor/connection fields are absent (portal-scraped CDRs).
+    // connectionIpToNameCache maps known vendor peer IPs → connection names.
+    const remoteIp = cdr.remoteIp || '';
+    const ipIsVendor = !!(connectionIpToNameCache.get(remoteIp) || connectionIpCache.get(remoteIp));
+    res.json({ cdr: enriched, sipEvents: sippy_reconstructDialog(cdr, ipIsVendor) });
   });
 
   // GET /api/sippy/cdr — CDR records from Sippy
