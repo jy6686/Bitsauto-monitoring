@@ -110,19 +110,31 @@ function KeyRotationCountdown({ expiresAt }: { expiresAt: number }) {
 }
 
 // ── FlowVerificationBadge ──────────────────────────────────────────────────
-function FlowVerificationBadge({ flowToken, initialVerifiedAt, msgId }: {
-  flowToken:         string;
+const FLOW_OTP_TTL_MS = 10 * 60 * 1_000;
+
+function FlowVerificationBadge({ flowToken, initialVerifiedAt, submittedAt, msgId }: {
+  flowToken:          string;
   initialVerifiedAt?: string;
-  msgId:             number;
+  submittedAt:        string;
+  msgId:              number;
 }) {
+  const isExpired = () => Date.now() - new Date(submittedAt).getTime() > FLOW_OTP_TTL_MS;
+
   const [verifiedAt, setVerifiedAt] = useState<string | null>(initialVerifiedAt ?? null);
+  const [expired, setExpired]       = useState<boolean>(isExpired);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (verifiedAt) return;
+    if (isExpired()) { setExpired(true); return; }
 
     const poll = async () => {
+      if (isExpired()) {
+        setExpired(true);
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        return;
+      }
       try {
         const res = await fetch(`/api/flows/otp/poll-verified?token=${encodeURIComponent(flowToken)}`);
         if (!res.ok) return;
@@ -149,6 +161,18 @@ function FlowVerificationBadge({ flowToken, initialVerifiedAt, msgId }: {
         data-testid={`flow-verified-${msgId}`}
       >
         <CheckCheck className="h-2.5 w-2.5" /> Verified ✓ {t}
+      </Badge>
+    );
+  }
+
+  if (expired) {
+    return (
+      <Badge
+        variant="outline"
+        className="text-[10px] font-medium text-muted-foreground border-border gap-1"
+        data-testid={`flow-expired-${msgId}`}
+      >
+        Expired
       </Badge>
     );
   }
@@ -1290,6 +1314,7 @@ export default function SmsMonitorPage() {
                               <FlowVerificationBadge
                                 flowToken={msg.flowToken}
                                 initialVerifiedAt={msg.verifiedAt ?? undefined}
+                                submittedAt={msg.submittedAt}
                                 msgId={msg.id}
                               />
                             )}
