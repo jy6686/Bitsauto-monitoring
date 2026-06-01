@@ -26,8 +26,8 @@ import {
   provisionOtpFlow,
   sendOtpFlow,
   storeOtpSession,
-  lookupOtpSession,
-  deleteOtpSession,
+  isFlowTokenVerified,
+  handleFlowWebhookPayload,
   type EncryptedFlowBody,
 } from './services/meta-flows/index';
 
@@ -185,13 +185,15 @@ export function registerMetaFlowsRoutes(app: Express) {
 
       const flowToken = randomUUID();
       const testOtp   = '123456';
+      const callerUserId = (req.user as any)?.claims?.sub ?? (req.user as any)?.id ?? null;
 
-      // Store session
+      // Store session — bind to the requesting operator so poll-verified enforces ownership
       storeOtpSession(flowToken, {
         code:      testOtp,
         expiresAt: Date.now() + 5 * 60_000,
         messageId: 0,
         toNumber:  to,
+        userId:    callerUserId,
       });
 
       const result = await sendOtpFlow(phoneNumberId, accessToken, flowId, to, flowToken);
@@ -226,101 +228,141 @@ export function registerMetaFlowsRoutes(app: Express) {
         return res.status(400).json({ error: 'Missing encrypted payload fields' });
       }
 
-      // Extract AES key for response encryption (done before decryption to reuse)
+      // Extract AES key + IV before decryption — needed for encrypting the response
       aesKey = extractAesKey(body.encrypted_aes_key, privateKeyPem);
       iv     = Buffer.from(body.initial_vector, 'base64');
 
-      // Decrypt the payload
+      // Decrypt and hand off to the core handler (session lookup, attempt tracking, lockout)
       const payload = decryptFlowPayload(body, privateKeyPem);
-      console.log(`[meta-flows] webhook — screen=${payload.screen} action=${payload.action} token=${payload.flow_token?.slice(0, 8)}...`);
+      const flowToken = payload.flow_token;
+      console.log(`[meta-flows] webhook — screen=${payload.screen} action=${payload.action} token=${flowToken?.slice(0, 8)}...`);
 
-      // Handle health-check ping from Meta (sent as a decrypted action)
-      if (payload.action === 'ping') {
-        const responseData = { data: { status: 'active' } };
-        const encrypted    = encryptFlowResponse(responseData, aesKey, iv);
+      const result = handleFlowWebhookPayload(payload);
+
+      // ── Handle each outcome ──────────────────────────────────────────────
+
+      if (result.action === 'ping') {
+        const encrypted = encryptFlowResponse({ data: { status: 'active' } }, aesKey, iv);
         return res.json({ encrypted_flow_data: encrypted });
       }
 
-      // Handle OTP submission
-      if (payload.screen === 'VERIFY' && payload.action === 'data_exchange') {
-        const submittedCode = String(payload.data?.otp_code ?? '').trim();
-        const flowToken     = payload.flow_token;
+      // Base DLR fields (some may be null for unknown/ping paths)
+      const dlrBase = {
+        messageId:  result.messageId ? String(result.messageId) : null,
+        clientRef:  flowToken,
+        msisdn:     result.toNumber ?? null,
+        operator:   'meta_cloud_api',
+        rawPayload: { screen: payload.screen, action: payload.action } as any,
+      };
 
-        const session = lookupOtpSession(flowToken);
-
-        // Log the submission attempt as a DLR event
-        const dlrBase = {
-          messageId:  session?.messageId ? String(session.messageId) : null,
-          clientRef:  flowToken,
-          msisdn:     session?.toNumber ?? null,
-          operator:   'meta_cloud_api',
-          rawPayload: { screen: payload.screen, action: payload.action } as any,
-        };
-
-        if (!session) {
-          // Session expired or not found
-          await db.insert(smsDlrEvents).values({ ...dlrBase, status: 4, statusText: 'expired', errorCode: 'SESSION_EXPIRED' }).catch(() => {});
-          const responseData = {
-            screen: 'VERIFY',
-            data: { error_message: 'Session expired. Please request a new code.' },
-          };
-          const encrypted = encryptFlowResponse(responseData, aesKey, iv);
-          return res.json({ encrypted_flow_data: encrypted });
-        }
-
-        // Log that the Flow OTP screen was opened/submitted
-        await db.insert(smsDlrEvents).values({ ...dlrBase, status: 2, statusText: 'submitted' }).catch(() => {});
-
-        if (submittedCode !== session.code) {
-          // Wrong code — keep session alive for retry; log failed attempt
-          await db.insert(smsDlrEvents).values({ ...dlrBase, status: 1, statusText: 'failed', errorCode: 'INVALID_CODE' }).catch(() => {});
-          const responseData = {
-            screen: 'VERIFY',
-            data: { error_message: 'Invalid code. Please try again.' },
-          };
-          const encrypted = encryptFlowResponse(responseData, aesKey, iv);
-          return res.json({ encrypted_flow_data: encrypted });
-        }
-
-        // ✅ Code is correct — mark as delivered and clear session
-        deleteOtpSession(flowToken);
-        await db.insert(smsDlrEvents).values({ ...dlrBase, status: 0, statusText: 'delivered' }).catch(() => {});
-
-        if (session.messageId > 0) {
-          try {
-            await db.update(smsMessages)
-              .set({ status: 'delivered', updatedAt: new Date() })
-              .where(eq(smsMessages.id, session.messageId));
-          } catch (dbErr: any) {
-            console.error('[meta-flows] DB update failed:', dbErr.message);
-          }
-        }
-
-        const responseData = { screen: 'SUCCESS' };
-        const encrypted    = encryptFlowResponse(responseData, aesKey, iv);
-        console.log(`[meta-flows] OTP verified for ${session.toNumber} (token ${flowToken.slice(0, 8)}...)`);
+      if (result.action === 'expired') {
+        await db.insert(smsDlrEvents).values({
+          ...dlrBase, status: 4, statusText: 'expired', errorCode: 'SESSION_EXPIRED',
+        }).catch(() => {});
+        const encrypted = encryptFlowResponse({
+          screen: 'VERIFY',
+          data:   { error_message: 'Session expired. Please request a new code.' },
+        }, aesKey, iv);
         return res.json({ encrypted_flow_data: encrypted });
       }
 
-      // Unknown action — return a generic success screen
-      const responseData = { screen: 'SUCCESS' };
-      const encrypted    = encryptFlowResponse(responseData, aesKey, iv);
+      if (result.action === 'invalid_code') {
+        await db.insert(smsDlrEvents).values({
+          ...dlrBase, status: 1, statusText: 'failed', errorCode: 'INVALID_CODE',
+        }).catch(() => {});
+        const encrypted = encryptFlowResponse({
+          screen: 'VERIFY',
+          data:   { error_message: 'Invalid code. Please try again.' },
+        }, aesKey, iv);
+        return res.json({ encrypted_flow_data: encrypted });
+      }
+
+      if (result.action === 'locked_out') {
+        await db.insert(smsDlrEvents).values({
+          ...dlrBase, status: 1, statusText: 'locked_out', errorCode: 'MAX_ATTEMPTS_EXCEEDED',
+        }).catch(() => {});
+        console.warn(`[meta-flows] OTP locked out for ${result.toNumber} after max attempts (token ${flowToken?.slice(0, 8)}...)`);
+        const encrypted = encryptFlowResponse({
+          screen: 'VERIFY',
+          data:   { error_message: 'Too many incorrect attempts. Please request a new code.' },
+        }, aesKey, iv);
+        return res.json({ encrypted_flow_data: encrypted });
+      }
+
+      if (result.action === 'verified') {
+        // ✅ Correct code — write DLR delivered event and update the message row
+        await db.insert(smsDlrEvents).values({
+          ...dlrBase, status: 0, statusText: 'delivered',
+        }).catch(() => {});
+
+        if (result.messageId && result.messageId > 0) {
+          // Stamp both status='delivered' and verified_at as the explicit auth artifact
+          await db.update(smsMessages)
+            .set({ status: 'delivered', updatedAt: new Date(), verifiedAt: new Date() } as any)
+            .where(eq(smsMessages.id, result.messageId))
+            .catch((dbErr: any) => console.error('[meta-flows] DB update failed:', dbErr.message));
+        }
+
+        console.log(`[meta-flows] OTP verified for ${result.toNumber}${result.userId ? ` (user: ${result.userId})` : ''} (token ${flowToken?.slice(0, 8)}...)`);
+        const encrypted = encryptFlowResponse({ screen: 'SUCCESS' }, aesKey, iv);
+        return res.json({ encrypted_flow_data: encrypted });
+      }
+
+      // Unknown screen/action — return a terminal screen so the Flow closes cleanly
+      const encrypted = encryptFlowResponse({ screen: 'SUCCESS' }, aesKey, iv);
       return res.json({ encrypted_flow_data: encrypted });
 
     } catch (err: any) {
       console.error('[meta-flows] webhook error:', err.message);
-      // If we have the AES key, return an encrypted error response so Meta doesn't retry
       if (aesKey && iv) {
         try {
-          const responseData = {
+          const encrypted = encryptFlowResponse({
             screen: 'VERIFY',
-            data: { error_message: 'Server error. Please try again.' },
-          };
-          const encrypted = encryptFlowResponse(responseData, aesKey, iv);
+            data:   { error_message: 'Server error. Please try again.' },
+          }, aesKey, iv);
           return res.json({ encrypted_flow_data: encrypted });
         } catch { /* fall through */ }
       }
       return res.status(500).json({ error: 'Internal server error' });
     }
+  });
+
+  // ── GET /api/flows/otp/poll-verified ──────────────────────────────────────
+  // Lets the Bitsauto frontend (or any server-side auth gate) check whether a
+  // given flow_token was successfully verified by the user in WhatsApp.
+  // Non-destructive — the record stays in the registry for 10 minutes.
+  //
+  // Ownership rules:
+  //   • Admin can poll any token.
+  //   • Non-admin callers may only poll tokens that were bound to their own userId
+  //     at session creation time. Tokens with userId=null (externally initiated by
+  //     REVE/Sippy) are admin-only because no operator owns them.
+  app.get('/api/flows/otp/poll-verified', requireAuth, async (req: any, res: any) => {
+    const flowToken = String(req.query.token ?? '').trim();
+    if (!flowToken) return res.status(400).json({ error: 'token query param is required' });
+
+    const callerUserId = (req.user as any)?.claims?.sub ?? (req.user as any)?.id ?? null;
+    const callerRole   = (req.user as any)?.role ?? '';
+    const isAdmin      = callerRole === 'admin';
+
+    const record = isFlowTokenVerified(flowToken);
+    if (!record) {
+      return res.json({ verified: false });
+    }
+
+    // Enforce ownership: non-admin callers can only see their own sessions
+    if (!isAdmin) {
+      if (!record.userId || record.userId !== callerUserId) {
+        return res.status(403).json({ error: 'Forbidden: token not owned by caller' });
+      }
+    }
+
+    res.json({
+      verified:   true,
+      toNumber:   record.toNumber,
+      userId:     record.userId,
+      messageId:  record.messageId,
+      verifiedAt: record.verifiedAt,
+    });
   });
 }

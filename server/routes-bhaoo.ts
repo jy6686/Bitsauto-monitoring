@@ -54,7 +54,8 @@ async function runSmsMessagesMigrations() {
     await db.execute(sql`
       ALTER TABLE sms_messages
         ADD COLUMN IF NOT EXISTS retry_count  INTEGER NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ
+        ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS verified_at   TIMESTAMPTZ
     `);
     console.log('[bhaoo] sms_messages retry columns ensured');
   } catch (err: any) {

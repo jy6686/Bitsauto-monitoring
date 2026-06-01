@@ -1,6 +1,13 @@
 /**
- * Unit tests for Meta Flows encrypt/decrypt helpers.
- * These verify the RSA+AES-GCM round-trip that secures every Flow webhook call.
+ * Unit tests for Meta Flows service helpers.
+ *
+ * Covers:
+ *   - RSA key generation and fingerprinting
+ *   - encrypt/decrypt round-trips (RSA+AES-128-GCM)
+ *   - OTP session store / lookup / delete
+ *   - handleFlowWebhookPayload(): ping, unknown, expired, correct code,
+ *     wrong-code attempt counting, lockout after MAX_ATTEMPTS (3)
+ *   - isFlowTokenVerified / consumeFlowTokenVerified lifecycle
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -13,6 +20,9 @@ import {
   storeOtpSession,
   lookupOtpSession,
   deleteOtpSession,
+  handleFlowWebhookPayload,
+  isFlowTokenVerified,
+  consumeFlowTokenVerified,
   type EncryptedFlowBody,
   type DecryptedFlowPayload,
 } from './index.js';
@@ -21,6 +31,7 @@ import {
   createCipheriv,
   createDecipheriv,
   randomBytes,
+  randomUUID,
   constants,
 } from 'crypto';
 
@@ -30,29 +41,23 @@ function buildEncryptedPayload(
   publicKeyPem: string,
   payload: DecryptedFlowPayload,
 ): { body: EncryptedFlowBody; aesKey: Buffer; iv: Buffer } {
-  // Generate a random 16-byte AES-128 key + 12-byte IV (GCM standard)
   const aesKey = randomBytes(16);
   const iv     = randomBytes(12);
 
-  // Encrypt AES key with RSA-OAEP (SHA-256) — what Meta actually does
   const encryptedAesKey = publicEncrypt(
     { key: publicKeyPem, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
     aesKey,
   );
 
-  // Encrypt payload with AES-128-GCM
-  const plaintext = Buffer.from(JSON.stringify(payload), 'utf-8');
-  const cipher    = createCipheriv('aes-128-gcm', aesKey, iv);
+  const plaintext  = Buffer.from(JSON.stringify(payload), 'utf-8');
+  const cipher     = createCipheriv('aes-128-gcm', aesKey, iv);
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-  const authTag   = cipher.getAuthTag();
-
-  // Meta appends the 16-byte auth tag to the ciphertext
-  const encryptedData = Buffer.concat([ciphertext, authTag]);
+  const authTag    = cipher.getAuthTag();
 
   return {
     body: {
       encrypted_aes_key:   encryptedAesKey.toString('base64'),
-      encrypted_flow_data: encryptedData.toString('base64'),
+      encrypted_flow_data: Buffer.concat([ciphertext, authTag]).toString('base64'),
       initial_vector:      iv.toString('base64'),
     },
     aesKey,
@@ -60,7 +65,28 @@ function buildEncryptedPayload(
   };
 }
 
-// ── Test suite ───────────────────────────────────────────────────────────────
+function makePayload(overrides: Partial<DecryptedFlowPayload> = {}): DecryptedFlowPayload {
+  return {
+    screen:     'VERIFY',
+    action:     'data_exchange',
+    flow_token: randomUUID(),
+    version:    '3.1',
+    data:       { otp_code: '123456' },
+    ...overrides,
+  };
+}
+
+function freshSession(code = '123456', userId: string | null = null) {
+  return {
+    code,
+    expiresAt: Date.now() + 5 * 60_000,
+    messageId: 42,
+    toNumber:  '+15550001234',
+    userId,
+  };
+}
+
+// ── Crypto helpers ────────────────────────────────────────────────────────────
 
 describe('generateRsaKeyPair', () => {
   it('returns a private key, public key, and fingerprint', () => {
@@ -135,7 +161,6 @@ describe('decryptFlowPayload', () => {
     };
     const { body } = buildEncryptedPayload(publicKeyPem, original);
 
-    // Corrupt the encrypted AES key
     const badAesKey = Buffer.from(body.encrypted_aes_key, 'base64');
     badAesKey[0] ^= 0xff;
     const badBody = { ...body, encrypted_aes_key: badAesKey.toString('base64') };
@@ -149,7 +174,6 @@ describe('decryptFlowPayload', () => {
     };
     const { body } = buildEncryptedPayload(publicKeyPem, original);
 
-    // Flip a byte in the ciphertext (which includes the auth tag at the end)
     const badData = Buffer.from(body.encrypted_flow_data, 'base64');
     badData[badData.length - 1] ^= 0xff;
     const badBody = { ...body, encrypted_flow_data: badData.toString('base64') };
@@ -171,33 +195,20 @@ describe('extractAesKey', () => {
 });
 
 describe('encryptFlowResponse', () => {
-  let privateKeyPem: string;
-  let publicKeyPem: string;
-
-  beforeAll(() => {
-    ({ privateKeyPem, publicKeyPem } = generateRsaKeyPair());
-  });
-
   it('produces a non-empty base64 string', () => {
     const aesKey = randomBytes(16);
     const iv     = randomBytes(12);
     const result = encryptFlowResponse({ screen: 'SUCCESS' }, aesKey, iv);
     expect(typeof result).toBe('string');
     expect(result.length).toBeGreaterThan(0);
-    // Must be valid base64
     expect(() => Buffer.from(result, 'base64')).not.toThrow();
   });
 
-  it('uses a bit-flipped IV so request and response IVs differ', () => {
-    // Two calls with the same key+iv but different data should produce different ciphertexts
-    // (they both use the flipped IV, so this also verifies determinism of the flip)
+  it('is deterministic for the same key/iv/plaintext', () => {
     const aesKey = randomBytes(16);
     const iv     = randomBytes(12);
-
     const r1 = encryptFlowResponse({ screen: 'SUCCESS' }, aesKey, iv);
     const r2 = encryptFlowResponse({ screen: 'SUCCESS' }, aesKey, iv);
-
-    // Same inputs → same output (deterministic for same key/iv/plaintext)
     expect(r1).toBe(r2);
   });
 
@@ -209,7 +220,6 @@ describe('encryptFlowResponse', () => {
     const encrypted = encryptFlowResponse(payload, aesKey, iv);
     const raw       = Buffer.from(encrypted, 'base64');
 
-    // Reproduce the flipped IV
     const responseIv = Buffer.alloc(iv.length);
     for (let i = 0; i < iv.length; i++) responseIv[i] = ~iv[i] & 0xff;
 
@@ -218,13 +228,15 @@ describe('encryptFlowResponse', () => {
 
     const decipher = createDecipheriv('aes-128-gcm', aesKey, responseIv);
     decipher.setAuthTag(authTag);
-    const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const plain   = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     const decoded = JSON.parse(plain.toString('utf-8'));
 
     expect(decoded.screen).toBe('SUCCESS');
     expect(decoded.data?.verified).toBe(true);
   });
 });
+
+// ── OTP session management ────────────────────────────────────────────────────
 
 describe('OTP session management', () => {
   it('stores and retrieves a session by flow_token', () => {
@@ -247,7 +259,7 @@ describe('OTP session management', () => {
     const token = 'expired-token-' + Date.now();
     storeOtpSession(token, {
       code:      '111222',
-      expiresAt: Date.now() - 1,  // already expired
+      expiresAt: Date.now() - 1,
       messageId: 0,
       toNumber:  '+0',
     });
@@ -259,5 +271,90 @@ describe('OTP session management', () => {
     storeOtpSession(token, { code: '000000', expiresAt: Date.now() + 60_000, messageId: 0, toNumber: '+0' });
     deleteOtpSession(token);
     expect(lookupOtpSession(token)).toBeNull();
+  });
+});
+
+// ── handleFlowWebhookPayload ──────────────────────────────────────────────────
+
+describe('handleFlowWebhookPayload', () => {
+  it('ping action returns action=ping without touching sessions', () => {
+    const payload = makePayload({ action: 'ping', screen: 'VERIFY' });
+    expect(handleFlowWebhookPayload(payload).action).toBe('ping');
+  });
+
+  it('unknown screen returns action=unknown', () => {
+    const payload = makePayload({ screen: 'UNKNOWN_SCREEN', action: 'data_exchange' });
+    expect(handleFlowWebhookPayload(payload).action).toBe('unknown');
+  });
+
+  it('missing flow_token (no session) returns action=expired with SESSION_EXPIRED', () => {
+    const payload = makePayload({ flow_token: randomUUID() });
+    const result  = handleFlowWebhookPayload(payload);
+    expect(result.action).toBe('expired');
+    expect(result.errorCode).toBe('SESSION_EXPIRED');
+  });
+
+  it('expired session (past expiresAt) returns action=expired', () => {
+    const token = randomUUID();
+    storeOtpSession(token, { ...freshSession(), expiresAt: Date.now() - 1 });
+    expect(handleFlowWebhookPayload(makePayload({ flow_token: token })).action).toBe('expired');
+  });
+
+  it('correct code returns action=verified with toNumber, messageId, userId', () => {
+    const token = randomUUID();
+    storeOtpSession(token, freshSession('999888', 'user-abc'));
+    const result = handleFlowWebhookPayload(makePayload({ flow_token: token, data: { otp_code: '999888' } }));
+    expect(result.action).toBe('verified');
+    expect(result.toNumber).toBe('+15550001234');
+    expect(result.messageId).toBe(42);
+    expect(result.userId).toBe('user-abc');
+  });
+
+  it('verified token appears in isFlowTokenVerified registry', () => {
+    const token = randomUUID();
+    storeOtpSession(token, freshSession('777666'));
+    handleFlowWebhookPayload(makePayload({ flow_token: token, data: { otp_code: '777666' } }));
+    const rec = isFlowTokenVerified(token);
+    expect(rec).not.toBeNull();
+    expect(rec?.toNumber).toBe('+15550001234');
+    expect(rec?.verifiedAt).toBeGreaterThan(0);
+  });
+
+  it('wrong code returns action=invalid_code but keeps session alive for retry', () => {
+    const token = randomUUID();
+    storeOtpSession(token, freshSession('111222'));
+    const bad  = makePayload({ flow_token: token, data: { otp_code: '000000' } });
+    const r1   = handleFlowWebhookPayload(bad);
+    expect(r1.action).toBe('invalid_code');
+    expect(r1.errorCode).toBe('INVALID_CODE');
+    // Session still alive — correct code should now work
+    const good = handleFlowWebhookPayload({ ...bad, data: { otp_code: '111222' } });
+    expect(good.action).toBe('verified');
+  });
+
+  it('locks out after 3 wrong attempts (MAX_OTP_ATTEMPTS)', () => {
+    const token = randomUUID();
+    storeOtpSession(token, freshSession('ABCDEF'));
+    const bad = makePayload({ flow_token: token, data: { otp_code: '000000' } });
+
+    expect(handleFlowWebhookPayload(bad).action).toBe('invalid_code');
+    expect(handleFlowWebhookPayload(bad).action).toBe('invalid_code');
+    const r3 = handleFlowWebhookPayload(bad);
+    expect(r3.action).toBe('locked_out');
+    expect(r3.errorCode).toBe('MAX_ATTEMPTS_EXCEEDED');
+
+    // After lockout even the correct code returns expired (session deleted)
+    const good = makePayload({ flow_token: token, data: { otp_code: 'ABCDEF' } });
+    expect(handleFlowWebhookPayload(good).action).toBe('expired');
+  });
+
+  it('consumeFlowTokenVerified is one-shot — second call returns null', () => {
+    const token = randomUUID();
+    storeOtpSession(token, freshSession('ONESHOT'));
+    handleFlowWebhookPayload(makePayload({ flow_token: token, data: { otp_code: 'ONESHOT' } }));
+    const first  = consumeFlowTokenVerified(token);
+    const second = consumeFlowTokenVerified(token);
+    expect(first).not.toBeNull();
+    expect(second).toBeNull();
   });
 });

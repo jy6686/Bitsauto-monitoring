@@ -33,14 +33,31 @@ export interface DecryptedFlowPayload {
 // ── In-memory OTP session map ────────────────────────────────────────────────
 // Keyed by flow_token (UUID generated per dispatch). TTL = 5 minutes.
 
+const MAX_OTP_ATTEMPTS = 3;
+
 interface OtpSession {
   code:      string;
   expiresAt: number;
   messageId: number;
   toNumber:  string;
+  userId?:   string | null;
+  attempts:  number;
 }
 
 const otpSessions = new Map<string, OtpSession>();
+
+// ── Verified-session registry ─────────────────────────────────────────────────
+// When the user taps the correct code, the flowToken is moved here (TTL = 10 min)
+// so a polling client can confirm the identity without re-entering the session map.
+
+export interface VerifiedOtpRecord {
+  toNumber:   string;
+  userId:     string | null;
+  messageId:  number;
+  verifiedAt: number;
+}
+
+const verifiedFlowTokens = new Map<string, VerifiedOtpRecord>();
 
 // Clean expired sessions every 2 minutes
 setInterval(() => {
@@ -48,10 +65,14 @@ setInterval(() => {
   for (const [token, session] of otpSessions) {
     if (session.expiresAt < now) otpSessions.delete(token);
   }
+  const verifiedTtl = 10 * 60_000;
+  for (const [token, rec] of verifiedFlowTokens) {
+    if (rec.verifiedAt + verifiedTtl < now) verifiedFlowTokens.delete(token);
+  }
 }, 2 * 60_000);
 
-export function storeOtpSession(flowToken: string, session: OtpSession): void {
-  otpSessions.set(flowToken, session);
+export function storeOtpSession(flowToken: string, session: Omit<OtpSession, 'attempts'>): void {
+  otpSessions.set(flowToken, { ...session, attempts: 0 });
 }
 
 export function lookupOtpSession(flowToken: string): OtpSession | null {
@@ -66,6 +87,117 @@ export function lookupOtpSession(flowToken: string): OtpSession | null {
 
 export function deleteOtpSession(flowToken: string): void {
   otpSessions.delete(flowToken);
+}
+
+/**
+ * Checks whether a flow_token has been successfully verified.
+ * Returns the verified record or null if unknown/expired.
+ * Does NOT consume the record — use consumeFlowTokenVerified() for one-shot checks.
+ */
+export function isFlowTokenVerified(flowToken: string): VerifiedOtpRecord | null {
+  return verifiedFlowTokens.get(flowToken) ?? null;
+}
+
+/**
+ * One-shot verification check — returns and removes the verified record.
+ * Useful for auth gates that should only accept the confirmation once.
+ */
+export function consumeFlowTokenVerified(flowToken: string): VerifiedOtpRecord | null {
+  const rec = verifiedFlowTokens.get(flowToken) ?? null;
+  if (rec) verifiedFlowTokens.delete(flowToken);
+  return rec;
+}
+
+// ── Webhook payload handler ───────────────────────────────────────────────────
+
+export type FlowWebhookAction =
+  | 'ping'
+  | 'expired'
+  | 'invalid_code'
+  | 'locked_out'
+  | 'verified'
+  | 'unknown';
+
+export interface FlowWebhookResult {
+  action:     FlowWebhookAction;
+  toNumber?:  string;
+  userId?:    string | null;
+  messageId?: number;
+  errorCode?: string;
+}
+
+/**
+ * Core OTP verification logic — call this from the POST /api/flows/otp/webhook handler.
+ *
+ * Returns a structured result describing what happened so the route can:
+ *  1. Log the appropriate DLR event to the DB
+ *  2. Update the sms_messages row
+ *  3. Encrypt and return the correct Meta "next_screen" response
+ *
+ * Side-effects:
+ *  - Increments the attempt counter on mismatch
+ *  - Locks out (deletes) the session after MAX_OTP_ATTEMPTS failed attempts
+ *  - Moves the session to verifiedFlowTokens on success
+ */
+export function handleFlowWebhookPayload(payload: DecryptedFlowPayload): FlowWebhookResult {
+  // Health-check ping — Meta sends this to confirm the endpoint is alive
+  if (payload.action === 'ping') {
+    return { action: 'ping' };
+  }
+
+  // Only handle the VERIFY screen data_exchange action
+  if (payload.screen !== 'VERIFY' || payload.action !== 'data_exchange') {
+    return { action: 'unknown' };
+  }
+
+  const flowToken     = payload.flow_token;
+  const submittedCode = String(payload.data?.otp_code ?? '').trim();
+  const session       = lookupOtpSession(flowToken);
+
+  if (!session) {
+    return { action: 'expired', errorCode: 'SESSION_EXPIRED' };
+  }
+
+  if (submittedCode !== session.code) {
+    session.attempts += 1;
+
+    if (session.attempts >= MAX_OTP_ATTEMPTS) {
+      // Permanently lock out — delete the session so further attempts also return "expired"
+      otpSessions.delete(flowToken);
+      return {
+        action:    'locked_out',
+        toNumber:  session.toNumber,
+        userId:    session.userId ?? null,
+        messageId: session.messageId,
+        errorCode: 'MAX_ATTEMPTS_EXCEEDED',
+      };
+    }
+
+    return {
+      action:    'invalid_code',
+      toNumber:  session.toNumber,
+      userId:    session.userId ?? null,
+      messageId: session.messageId,
+      errorCode: 'INVALID_CODE',
+    };
+  }
+
+  // ✅ Correct code — move to verified registry and clean up pending session
+  const record: VerifiedOtpRecord = {
+    toNumber:   session.toNumber,
+    userId:     session.userId ?? null,
+    messageId:  session.messageId,
+    verifiedAt: Date.now(),
+  };
+  verifiedFlowTokens.set(flowToken, record);
+  otpSessions.delete(flowToken);
+
+  return {
+    action:    'verified',
+    toNumber:  session.toNumber,
+    userId:    session.userId ?? null,
+    messageId: session.messageId,
+  };
 }
 
 // ── RSA Key Generation ───────────────────────────────────────────────────────
