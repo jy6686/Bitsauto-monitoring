@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,7 +8,9 @@ import {
   ArrowRight, Activity, Timer, AlertTriangle, Zap,
   List, Grid3X3, ShieldAlert, XCircle, Shield,
   Plus, Pencil, Trash2, ExternalLink, DollarSign, CreditCard, X,
+  Power, Upload, Download, FileSpreadsheet, Building2,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { ToastAction } from "@/components/ui/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -224,6 +226,13 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
   const [, navigate] = useLocation();
   const [deleteTarget, setDeleteTarget] = useState<{ memberId: number; label: string } | null>(null);
 
+  // ── Edit member state ──
+  const [editMember,     setEditMember]     = useState<any | null>(null);
+  const [editMemberPref, setEditMemberPref] = useState("1");
+  const [editMemberWeight, setEditMemberWeight] = useState("1");
+  const [editMemberAct,  setEditMemberAct]  = useState("now");
+  const [editMemberExp,  setEditMemberExp]  = useState("never");
+
   // "Add entry" inline row state — matches Sippy UI (vendor → connection → dest set → dates → order → weight)
   const [rowVendorId, setRowVendorId] = useState<number | null>(null);
   const [rowConn,     setRowConn]     = useState("");
@@ -284,6 +293,18 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
       refetch();
     },
     onError: (e: any) => toast({ title: "Error removing entry", description: e.message, variant: "destructive" }),
+  });
+
+  const editMemberMut = useMutation({
+    mutationFn: async ({ memberId, body }: { memberId: number; body: object }) =>
+      (await apiRequest("PUT", `/api/sippy/routing-groups/${groupId}/members/${memberId}`, body)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Routing entry updated" });
+      setEditMember(null);
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error updating entry", description: e.message, variant: "destructive" }),
   });
 
   const handleAdd = () => {
@@ -373,14 +394,30 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
                   <td className={cn(cellCls, "text-center font-mono font-bold text-cyan-400")}>{m.preference ?? "—"}</td>
                   <td className={cn(cellCls, "text-center font-mono text-muted-foreground")}>{m.weight ?? "—"}</td>
                   <td className={cn(cellCls, "text-center")}>
-                    {m.iRoutingGroupMember != null && (
-                      <button
-                        data-testid={`btn-delete-member-${m.iRoutingGroupMember}`}
-                        onClick={() => setDeleteTarget({ memberId: m.iRoutingGroupMember!, label: m.connectionName ?? `#${m.iRoutingGroupMember}` })}
-                        className="text-rose-400/60 hover:text-rose-400 transition-colors"
-                        title="Remove entry"
-                      ><Trash2 className="h-3.5 w-3.5" /></button>
-                    )}
+                    <div className="flex items-center justify-center gap-1.5">
+                      {m.iRoutingGroupMember != null && (
+                        <button
+                          data-testid={`btn-edit-member-${m.iRoutingGroupMember}`}
+                          onClick={() => {
+                            setEditMember(m);
+                            setEditMemberPref(m.preference != null ? String(m.preference) : "1");
+                            setEditMemberWeight(m.weight != null ? String(m.weight) : "1");
+                            setEditMemberAct(m.activationDate ?? "now");
+                            setEditMemberExp(m.expirationDate ?? "never");
+                          }}
+                          className="text-primary/50 hover:text-primary transition-colors"
+                          title="Edit entry"
+                        ><Pencil className="h-3.5 w-3.5" /></button>
+                      )}
+                      {m.iRoutingGroupMember != null && (
+                        <button
+                          data-testid={`btn-delete-member-${m.iRoutingGroupMember}`}
+                          onClick={() => setDeleteTarget({ memberId: m.iRoutingGroupMember!, label: m.connectionName ?? `#${m.iRoutingGroupMember}` })}
+                          className="text-rose-400/60 hover:text-rose-400 transition-colors"
+                          title="Remove entry"
+                        ><Trash2 className="h-3.5 w-3.5" /></button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -483,6 +520,59 @@ function RgMembersPanel({ groupId }: { groupId: number }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Edit Member Dialog ── */}
+      <Dialog open={!!editMember} onOpenChange={o => !o && setEditMember(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Routing Entry</DialogTitle>
+            <DialogDescription>
+              Update preference, weight, and dates for{" "}
+              <strong>{editMember?.connectionName ?? `#${editMember?.iRoutingGroupMember}`}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Order / Preference</Label>
+                <Input type="number" min="1" value={editMemberPref}
+                  onChange={e => setEditMemberPref(e.target.value)}
+                  data-testid="input-edit-member-pref" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Weight</Label>
+                <Input type="number" min="1" value={editMemberWeight}
+                  onChange={e => setEditMemberWeight(e.target.value)}
+                  data-testid="input-edit-member-weight" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Activation Date</Label>
+                <Input value={editMemberAct} onChange={e => setEditMemberAct(e.target.value)}
+                  placeholder="now or YYYY-MM-DD" data-testid="input-edit-member-act" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Expiration Date</Label>
+                <Input value={editMemberExp} onChange={e => setEditMemberExp(e.target.value)}
+                  placeholder="never or YYYY-MM-DD" data-testid="input-edit-member-exp" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
+            <Button onClick={() => editMember && editMemberMut.mutate({ memberId: editMember.iRoutingGroupMember, body: {
+                preference:     parseInt(editMemberPref) || 1,
+                weight:         parseInt(editMemberWeight) || 1,
+                activationDate: editMemberAct === "now"   ? undefined : editMemberAct,
+                expirationDate: editMemberExp === "never" ? undefined : editMemberExp,
+              }})}
+              disabled={editMemberMut.isPending} data-testid="btn-confirm-edit-member">
+              {editMemberMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -503,6 +593,23 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
   const [routeInterval1, setRouteInterval1] = useState("");
   const [routeIntervalN, setRouteIntervalN] = useState("");
   const [routeForbidden, setRouteForbidden] = useState(false);
+
+  // ── Edit route state ──
+  const [editTarget, setEditTarget]       = useState<any | null>(null);
+  const [editPref,    setEditPref]         = useState("");
+  const [editHuntstop,setEditHuntstop]    = useState(false);
+  const [editTimeout, setEditTimeout]     = useState("");
+  const [editPrice1,  setEditPrice1]      = useState("");
+  const [editPriceN,  setEditPriceN]      = useState("");
+  const [editInterval1,setEditInterval1]  = useState("");
+  const [editIntervalN,setEditIntervalN]  = useState("");
+  const [editForbidden,setEditForbidden]  = useState(false);
+
+  // ── XLSX import state ──
+  const xlsxRef        = useRef<HTMLInputElement>(null);
+  const [importPreview, setImportPreview] = useState<any[] | null>(null);
+  const [importOpen,    setImportOpen]    = useState(false);
+  const [importBusy,    setImportBusy]    = useState(false);
 
   const { data, isLoading, refetch } = useQuery<DsRoutesData>({
     queryKey: ["/api/sippy/destination-sets", dsId, "routes"],
@@ -530,6 +637,97 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
     onError: (e: any) => toast({ title: "Error deleting route", description: e.message, variant: "destructive" }),
   });
 
+  const editMut = useMutation({
+    mutationFn: async ({ prefix, body }: { prefix: string; body: object }) =>
+      (await apiRequest("PATCH", `/api/sippy/destination-sets/${dsId}/routes/${encodeURIComponent(prefix)}`, body)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Route updated" });
+      setEditTarget(null);
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error updating route", description: e.message, variant: "destructive" }),
+  });
+
+  function openEdit(r: any) {
+    setEditTarget(r);
+    setEditPref(r.preference != null ? String(r.preference) : "");
+    setEditHuntstop(!!r.huntstop);
+    setEditTimeout(r.timeout != null ? String(r.timeout) : "");
+    setEditPrice1(r.price1 != null ? String(r.price1) : "");
+    setEditPriceN(r.priceN != null ? String(r.priceN) : "");
+    setEditInterval1(r.interval1 != null ? String(r.interval1) : "");
+    setEditIntervalN(r.intervalN != null ? String(r.intervalN) : "");
+    setEditForbidden(!!r.forbidden);
+  }
+
+  function exportXlsx(routes: any[]) {
+    const rows = routes.map(r => ({
+      Prefix:           r.prefix,
+      Preference:       r.preference ?? "",
+      Price1_USD_min:   r.price1     ?? "",
+      PriceN_USD_min:   r.priceN     ?? "",
+      Interval1_sec:    r.interval1  ?? "",
+      IntervalN_sec:    r.intervalN  ?? "",
+      Timeout:          r.timeout    ?? "",
+      Huntstop:         r.huntstop   ? "Yes" : "No",
+      Forbidden:        r.forbidden  ? "Yes" : "No",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Routes");
+    XLSX.writeFile(wb, `ds-${dsId}-routes.xlsx`);
+  }
+
+  function handleXlsxFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const wb = XLSX.read(ev.target?.result, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        const parsed = raw.map((r: any) => ({
+          prefix:    String(r.Prefix ?? r.prefix ?? "").replace(/^\+/, "").trim(),
+          preference: r.Preference || r.preference ? parseInt(String(r.Preference ?? r.preference)) : undefined,
+          price1:     r.Price1_USD_min || r.price1  ? parseFloat(String(r.Price1_USD_min ?? r.price1))  : undefined,
+          priceN:     r.PriceN_USD_min || r.priceN  ? parseFloat(String(r.PriceN_USD_min ?? r.priceN))  : undefined,
+          interval1:  r.Interval1_sec  || r.interval1 ? parseInt(String(r.Interval1_sec ?? r.interval1)) : undefined,
+          intervalN:  r.IntervalN_sec  || r.intervalN ? parseInt(String(r.IntervalN_sec ?? r.intervalN)) : undefined,
+          timeout:    r.Timeout        || r.timeout ? parseInt(String(r.Timeout ?? r.timeout)) : undefined,
+          huntstop:   /yes|1|true/i.test(String(r.Huntstop ?? r.huntstop ?? "")),
+          forbidden:  /yes|1|true/i.test(String(r.Forbidden ?? r.forbidden ?? "")),
+        })).filter(r => r.prefix.length > 0);
+        setImportPreview(parsed);
+        setImportOpen(true);
+      } catch {
+        toast({ title: "Could not parse XLSX", variant: "destructive" });
+      }
+      if (xlsxRef.current) xlsxRef.current.value = "";
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  async function commitImport() {
+    if (!importPreview) return;
+    setImportBusy(true);
+    let ok = 0, fail = 0;
+    for (const row of importPreview) {
+      try {
+        const { prefix, ...body } = row;
+        const res = await apiRequest("POST", `/api/sippy/destination-sets/${dsId}/routes`, { prefix, ...body });
+        const d = await res.json().catch(() => ({}));
+        if (d?.requiresApproval || d?.success !== false) ok++; else fail++;
+      } catch { fail++; }
+    }
+    setImportBusy(false);
+    setImportOpen(false);
+    setImportPreview(null);
+    toast({ title: `Import complete`, description: `${ok} route(s) submitted${fail ? `, ${fail} failed` : ""}` });
+    refetch();
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 py-3 px-4 text-xs text-muted-foreground">
@@ -543,8 +741,22 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
 
   return (
     <>
-      {/* Add Route button */}
-      <div className="px-4 pb-2 flex justify-end">
+      {/* Toolbar: Add / Import / Export */}
+      <div className="px-4 pb-2 flex justify-between items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+            onClick={() => routes.length > 0 && exportXlsx(routes)}
+            disabled={routes.length === 0}
+            data-testid="btn-export-routes-xlsx" title="Export routes to XLSX">
+            <Download className="h-3.5 w-3.5" /> Export
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+            onClick={() => xlsxRef.current?.click()}
+            data-testid="btn-import-routes-xlsx" title="Import routes from XLSX">
+            <Upload className="h-3.5 w-3.5" /> Import
+          </Button>
+          <input ref={xlsxRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
+        </div>
         <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setAddOpen(true)}
           data-testid="btn-add-ds-route">
           <Plus className="h-3.5 w-3.5" /> Add Route
@@ -606,9 +818,17 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
                         <CreditCard className="h-2.5 w-2.5" /> Rates
                       </button>
                       <button
+                        data-testid={`btn-edit-route-${r.prefix}`}
+                        onClick={() => openEdit(r)}
+                        className="text-primary/50 hover:text-primary transition-colors"
+                        title="Edit route"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
                         data-testid={`btn-delete-route-${r.prefix}`}
                         onClick={() => setDeleteTarget(r.prefix)}
-                        className="text-rose-400/60 hover:text-rose-400 transition-colors ml-1"
+                        className="text-rose-400/60 hover:text-rose-400 transition-colors"
                         title="Delete route"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -728,7 +948,591 @@ function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: st
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Edit Route Dialog ── */}
+      <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Route +{editTarget?.prefix}</DialogTitle>
+            <DialogDescription>Update pricing, intervals, and flags for this prefix.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Preference</Label>
+                <Input type="number" value={editPref} onChange={e => setEditPref(e.target.value)}
+                  placeholder="e.g. 10" data-testid="input-edit-route-pref" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Timeout (sec)</Label>
+                <Input type="number" value={editTimeout} onChange={e => setEditTimeout(e.target.value)}
+                  placeholder="e.g. 30" data-testid="input-edit-route-timeout" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Price 1 ($/min)</Label>
+                <Input type="number" step="0.0001" value={editPrice1} onChange={e => setEditPrice1(e.target.value)}
+                  placeholder="e.g. 0.012" data-testid="input-edit-route-price1" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Price N ($/min)</Label>
+                <Input type="number" step="0.0001" value={editPriceN} onChange={e => setEditPriceN(e.target.value)}
+                  placeholder="e.g. 0.010" data-testid="input-edit-route-priceN" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Interval 1 (sec)</Label>
+                <Input type="number" value={editInterval1} onChange={e => setEditInterval1(e.target.value)}
+                  placeholder="e.g. 60" data-testid="input-edit-route-interval1" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Interval N (sec)</Label>
+                <Input type="number" value={editIntervalN} onChange={e => setEditIntervalN(e.target.value)}
+                  placeholder="e.g. 6" data-testid="input-edit-route-intervalN" />
+              </div>
+            </div>
+            <div className="flex items-center gap-4 pt-1">
+              <label className="flex items-center gap-2 cursor-pointer text-sm">
+                <input type="checkbox" checked={editHuntstop} onChange={e => setEditHuntstop(e.target.checked)}
+                  className="h-4 w-4" data-testid="chk-edit-route-huntstop" />
+                Huntstop
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm">
+                <input type="checkbox" checked={editForbidden} onChange={e => setEditForbidden(e.target.checked)}
+                  className="h-4 w-4 accent-destructive" data-testid="chk-edit-route-forbidden" />
+                <span className="text-rose-400 font-medium">Forbidden</span>
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button onClick={() => editTarget && editMut.mutate({ prefix: editTarget.prefix, body: {
+                ...(editPref       ? { preference: parseInt(editPref) }       : {}),
+                ...(editHuntstop   ? { huntstop: 1 }                          : { huntstop: 0 }),
+                ...(editTimeout    ? { timeout: parseInt(editTimeout) }       : {}),
+                ...(editPrice1     ? { price1: parseFloat(editPrice1) }       : {}),
+                ...(editPriceN     ? { priceN: parseFloat(editPriceN) }       : {}),
+                ...(editInterval1  ? { interval1: parseInt(editInterval1) }   : {}),
+                ...(editIntervalN  ? { intervalN: parseInt(editIntervalN) }   : {}),
+                forbidden: editForbidden,
+              }})}
+              disabled={editMut.isPending} data-testid="btn-confirm-edit-route">
+              {editMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── XLSX Import Preview Dialog ── */}
+      <Dialog open={importOpen} onOpenChange={o => { if (!o && !importBusy) { setImportOpen(false); setImportPreview(null); } }}>
+        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+              Import Preview — {importPreview?.length ?? 0} routes
+            </DialogTitle>
+            <DialogDescription>Review the parsed routes before committing them to Sippy.</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-auto flex-1 border border-border/40 rounded-lg">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-muted/50 border-b border-border/30 sticky top-0">
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Prefix</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Pref</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Price 1</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Price N</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Int1</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">IntN</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Flags</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(importPreview ?? []).map((r, i) => (
+                  <tr key={i} className="border-t border-border/20 hover:bg-muted/20">
+                    <td className="px-3 py-1.5 font-mono font-bold text-cyan-400">+{r.prefix}</td>
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground">{r.preference ?? "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-emerald-400">{r.price1 != null ? `$${r.price1}` : "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-emerald-400">{r.priceN != null ? `$${r.priceN}` : "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground">{r.interval1 ?? "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground">{r.intervalN ?? "—"}</td>
+                    <td className="px-3 py-1.5">
+                      {r.huntstop && <Badge variant="outline" className="h-4 text-[9px] px-1 mr-1">HS</Badge>}
+                      {r.forbidden && <Badge variant="destructive" className="h-4 text-[9px] px-1">Blocked</Badge>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <DialogFooter className="mt-3">
+            <Button variant="outline" onClick={() => { setImportOpen(false); setImportPreview(null); }} disabled={importBusy}>Cancel</Button>
+            <Button onClick={commitImport} disabled={importBusy} data-testid="btn-confirm-import-routes">
+              {importBusy
+                ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Importing…</>
+                : <><Upload className="h-4 w-4 mr-2" /> Commit {importPreview?.length} Routes</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+// ── VendorHubTab ───────────────────────────────────────────────────────────────
+
+type VH_Vendor = {
+  iVendor: number; i_vendor?: number;
+  name: string; balance?: number; currency?: string;
+  blocked?: boolean; i_time_zone?: string;
+};
+type VH_Conn = {
+  iConnection?: number; i_connection?: number;
+  name: string; blocked?: boolean; host?: string;
+  protocol?: string; capacity?: number; max_calls_per_second?: number;
+};
+
+function VendorHubTab() {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const qc = useQueryClient();
+
+  const [search,          setSearch]          = useState("");
+  const [selectedId,      setSelectedId]      = useState<number | null>(null);
+
+  // ── Add vendor ──
+  const [vOpen,    setVOpen]    = useState(false);
+  const [vName,    setVName]    = useState(""); const [vLogin, setVLogin] = useState("");
+  const [vPass,    setVPass]    = useState(""); const [vCcy,   setVCcy]   = useState("USD");
+
+  // ── Edit vendor ──
+  const [evTarget, setEvTarget] = useState<VH_Vendor | null>(null);
+  const [evName,   setEvName]   = useState("");
+  const [evCcy,    setEvCcy]    = useState("USD");
+
+  // ── Delete vendor ──
+  const [dvTarget, setDvTarget] = useState<VH_Vendor | null>(null);
+
+  // ── Add connection ──
+  const [cOpen,    setCOpen]    = useState(false);
+  const [cName,    setCName]    = useState(""); const [cProto, setCProto] = useState("SIP");
+  const [cDest,    setCDest]    = useState(""); const [cUser,  setCUser]  = useState("");
+  const [cPass,    setCPass2]   = useState(""); const [cCap,   setCCap]   = useState("");
+  const [cCps,     setCCps]     = useState(""); const [cBlocked, setCBlocked] = useState(false);
+
+  // ── Edit connection ──
+  const [ecTarget, setEcTarget] = useState<VH_Conn | null>(null);
+  const [ecName,   setEcName]   = useState(""); const [ecDest, setEcDest] = useState("");
+  const [ecCap,    setEcCap]    = useState(""); const [ecCps,  setEcCps]  = useState("");
+  const [ecBlocked,setEcBlocked]= useState(false);
+
+  // ── Delete connection ──
+  const [dcTarget, setDcTarget] = useState<VH_Conn | null>(null);
+
+  const { data: vData, isLoading: vLoading } = useQuery<{ vendors: VH_Vendor[]; error?: string }>({
+    queryKey: ["/api/sippy/vendors"],
+    select: (d: any) => ({ vendors: (d.vendors ?? []).map((v: any) => ({ ...v, iVendor: v.iVendor ?? v.i_vendor })) }),
+  });
+
+  const vendors = (vData?.vendors ?? []).filter(v =>
+    !search || v.name.toLowerCase().includes(search.toLowerCase())
+  );
+  const selected = vData?.vendors?.find(v => v.iVendor === selectedId) ?? null;
+
+  const { data: cData, isLoading: cLoading } = useQuery<{ connections: VH_Conn[] }>({
+    queryKey: ["/api/sippy/vendors", selectedId, "connections"],
+    enabled: selectedId !== null,
+    select: (d: any) => ({ connections: (d.connections ?? []).map((c: any) => ({ ...c, iConnection: c.iConnection ?? c.i_connection })) }),
+  });
+  const connections = cData?.connections ?? [];
+
+  const invalidate = () => { qc.invalidateQueries({ queryKey: ["/api/sippy/vendors"] }); };
+
+  const addVMut = useMutation({
+    mutationFn: (body: object) => apiRequest("POST", "/api/sippy/vendors", body).then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error }); return; }
+      toast({ title: "Vendor created" });
+      setVOpen(false); setVName(""); setVLogin(""); setVPass(""); setVCcy("USD");
+      invalidate();
+      if (d.iVendor) { setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass2(""); setCCap(""); setCCps(""); setCBlocked(false); setSelectedId(d.iVendor); setCOpen(true); }
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const editVMut = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: object }) => apiRequest("PUT", `/api/sippy/vendors/${id}`, body).then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error }); return; }
+      toast({ title: "Vendor updated" }); setEvTarget(null); invalidate();
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const delVMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/sippy/vendors/${id}`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Vendor deleted" }); setDvTarget(null);
+      if (selectedId === dvTarget?.iVendor) setSelectedId(null);
+      invalidate();
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const addCMut = useMutation({
+    mutationFn: ({ vendorId, body }: { vendorId: number; body: object }) =>
+      apiRequest("POST", `/api/sippy/vendors/${vendorId}/connections`, body).then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error }); return; }
+      toast({ title: "Connection created" });
+      setCOpen(false); setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass2(""); setCCap(""); setCCps(""); setCBlocked(false);
+      qc.invalidateQueries({ queryKey: ["/api/sippy/vendors", selectedId, "connections"] });
+      qc.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const editCMut = useMutation({
+    mutationFn: ({ connId, body }: { connId: number; body: object }) =>
+      apiRequest("PATCH", `/api/sippy/connections/${connId}`, body).then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error }); return; }
+      const a = approvalToastOpts(d, navigate);
+      if (a) toast(a); else toast({ title: "Connection updated" });
+      setEcTarget(null);
+      qc.invalidateQueries({ queryKey: ["/api/sippy/vendors", selectedId, "connections"] });
+      qc.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const toggleCMut = useMutation({
+    mutationFn: ({ connId, blocked }: { connId: number; blocked: boolean }) =>
+      apiRequest("PATCH", `/api/sippy/connections/${connId}`, { blocked }).then(r => r.json()),
+    onSuccess: (d: any) => {
+      const a = approvalToastOpts(d, navigate);
+      if (a) toast(a); else toast({ title: "Connection updated" });
+      qc.invalidateQueries({ queryKey: ["/api/sippy/vendors", selectedId, "connections"] });
+      qc.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const delCMut = useMutation({
+    mutationFn: (connId: number) =>
+      apiRequest("DELETE", `/api/sippy/connections/${connId}`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Connection deleted" }); setDcTarget(null);
+      qc.invalidateQueries({ queryKey: ["/api/sippy/vendors", selectedId, "connections"] });
+      qc.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  return (
+    <div className="flex gap-4 h-full min-h-[500px]">
+      {/* ── Left: Vendor List ── */}
+      <div className="w-72 shrink-0 flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search vendors…" className="h-8 text-xs pl-8" data-testid="input-vendor-search" />
+          </div>
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1 shrink-0"
+            onClick={() => setVOpen(true)} data-testid="btn-add-vendor">
+            <Plus className="h-3.5 w-3.5" /> Add
+          </Button>
+        </div>
+
+        {vLoading ? (
+          <div className="flex items-center gap-2 py-4 justify-center text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+          </div>
+        ) : vendors.length === 0 ? (
+          <div className="text-xs text-muted-foreground/60 italic text-center py-6">No vendors found.</div>
+        ) : (
+          <div className="space-y-1 overflow-y-auto max-h-[560px] pr-1">
+            {vendors.map(v => (
+              <div key={v.iVendor}
+                data-testid={`vendor-card-${v.iVendor}`}
+                onClick={() => setSelectedId(v.iVendor)}
+                className={cn(
+                  "rounded-lg border p-2.5 cursor-pointer transition-colors",
+                  selectedId === v.iVendor
+                    ? "border-primary/60 bg-primary/5"
+                    : "border-border/40 bg-card/40 hover:bg-muted/30"
+                )}>
+                <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Building2 className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <span className="text-xs font-medium truncate">{v.name}</span>
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button onClick={e => { e.stopPropagation(); setEvTarget(v); setEvName(v.name); setEvCcy(v.currency ?? "USD"); }}
+                      className="p-0.5 rounded text-primary/40 hover:text-primary transition-colors"
+                      data-testid={`btn-edit-vendor-${v.iVendor}`} title="Edit vendor">
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                    <button onClick={e => { e.stopPropagation(); setDvTarget(v); }}
+                      className="p-0.5 rounded text-rose-400/40 hover:text-rose-400 transition-colors"
+                      data-testid={`btn-delete-vendor-${v.iVendor}`} title="Delete vendor">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+                {v.balance != null && (
+                  <div className="mt-1 text-[10px] text-muted-foreground font-mono">
+                    Balance: <span className={v.balance < 0 ? "text-rose-400" : "text-emerald-400"}>
+                      {v.currency ?? "USD"} {Number(v.balance).toFixed(4)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Right: Connection Panel ── */}
+      <div className="flex-1 min-w-0">
+        {!selectedId ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground/40 gap-3 border border-dashed border-border/30 rounded-xl">
+            <Wifi className="h-10 w-10" />
+            <span className="text-sm">Select a vendor to manage its connections</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Wifi className="h-4 w-4 text-cyan-400" />
+                {selected?.name ?? ""} — Connections
+              </h3>
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+                onClick={() => { setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass2(""); setCCap(""); setCCps(""); setCBlocked(false); setCOpen(true); }}
+                data-testid="btn-add-connection">
+                <Plus className="h-3.5 w-3.5" /> Add Connection
+              </Button>
+            </div>
+
+            {cLoading ? (
+              <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading connections…
+              </div>
+            ) : connections.length === 0 ? (
+              <div className="text-xs text-muted-foreground/60 italic py-4">No connections yet.</div>
+            ) : (
+              <div className="overflow-x-auto border border-border/40 rounded-lg bg-background/40">
+                <table className="w-full text-xs min-w-[540px]">
+                  <thead>
+                    <tr className="bg-muted/50 border-b border-border/30">
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Name</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Host</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Proto</th>
+                      <th className="px-3 py-2 text-center font-medium text-muted-foreground">Cap</th>
+                      <th className="px-3 py-2 text-center font-medium text-muted-foreground">Status</th>
+                      <th className="px-3 py-2 text-center font-medium text-muted-foreground">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {connections.map((c, i) => {
+                      const connId = c.iConnection ?? (c as any).i_connection;
+                      return (
+                        <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", c.blocked && "opacity-50")}>
+                          <td className="px-3 py-2 font-medium">{c.name}</td>
+                          <td className="px-3 py-2 font-mono text-muted-foreground text-[10px]">{c.host ?? "—"}</td>
+                          <td className="px-3 py-2">
+                            <Badge variant="outline" className="h-4 text-[9px] px-1">{c.protocol ?? "SIP"}</Badge>
+                          </td>
+                          <td className="px-3 py-2 text-center font-mono text-muted-foreground">{c.capacity ?? "—"}</td>
+                          <td className="px-3 py-2 text-center">
+                            {c.blocked
+                              ? <Badge variant="destructive" className="h-4 text-[9px] px-1">Blocked</Badge>
+                              : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                data-testid={`btn-toggle-conn-${connId}`}
+                                onClick={() => connId && toggleCMut.mutate({ connId, blocked: !c.blocked })}
+                                className={cn("transition-colors", c.blocked ? "text-emerald-400/60 hover:text-emerald-400" : "text-amber-400/60 hover:text-amber-400")}
+                                title={c.blocked ? "Enable connection" : "Disable connection"}
+                              ><Power className="h-3.5 w-3.5" /></button>
+                              <button
+                                data-testid={`btn-edit-conn-${connId}`}
+                                onClick={() => { setEcTarget(c); setEcName(c.name); setEcDest(c.host ?? ""); setEcCap(c.capacity != null ? String(c.capacity) : ""); setEcCps(c.max_calls_per_second != null ? String(c.max_calls_per_second) : ""); setEcBlocked(!!c.blocked); }}
+                                className="text-primary/50 hover:text-primary transition-colors"
+                                title="Edit connection"
+                              ><Pencil className="h-3.5 w-3.5" /></button>
+                              <button
+                                data-testid={`btn-delete-conn-${connId}`}
+                                onClick={() => setDcTarget(c)}
+                                className="text-rose-400/50 hover:text-rose-400 transition-colors"
+                                title="Delete connection"
+                              ><Trash2 className="h-3.5 w-3.5" /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Add Vendor Dialog ── */}
+      <Dialog open={vOpen} onOpenChange={o => !o && setVOpen(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Add Vendor</DialogTitle><DialogDescription>Create a new vendor on Sippy.</DialogDescription></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5"><Label>Name *</Label><Input value={vName} onChange={e => setVName(e.target.value)} placeholder="e.g. Tier1-US" data-testid="input-vendor-name" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Login</Label><Input value={vLogin} onChange={e => setVLogin(e.target.value)} placeholder="Optional" data-testid="input-vendor-login" /></div>
+              <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={vPass} onChange={e => setVPass(e.target.value)} data-testid="input-vendor-pass" /></div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Currency</Label>
+              <select value={vCcy} onChange={e => setVCcy(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm" data-testid="select-vendor-currency">
+                {["USD","EUR","GBP","AED","SAR","PKR","INR"].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVOpen(false)}>Cancel</Button>
+            <Button onClick={() => addVMut.mutate({ name: vName, ...(vLogin ? { login: vLogin } : {}), ...(vPass ? { password: vPass } : {}), i_currency: vCcy })}
+              disabled={!vName || addVMut.isPending} data-testid="btn-confirm-add-vendor">
+              {addVMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Vendor"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Vendor Dialog ── */}
+      <Dialog open={!!evTarget} onOpenChange={o => !o && setEvTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Edit Vendor</DialogTitle><DialogDescription>Update <strong>{evTarget?.name}</strong>.</DialogDescription></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5"><Label>Name *</Label><Input value={evName} onChange={e => setEvName(e.target.value)} data-testid="input-edit-vendor-name" /></div>
+            <div className="space-y-1.5">
+              <Label>Currency</Label>
+              <select value={evCcy} onChange={e => setEvCcy(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm" data-testid="select-edit-vendor-currency">
+                {["USD","EUR","GBP","AED","SAR","PKR","INR"].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEvTarget(null)}>Cancel</Button>
+            <Button onClick={() => evTarget && editVMut.mutate({ id: evTarget.iVendor, body: { name: evName, i_currency: evCcy } })}
+              disabled={!evName || editVMut.isPending} data-testid="btn-confirm-edit-vendor">
+              {editVMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Vendor Dialog ── */}
+      <Dialog open={!!dvTarget} onOpenChange={o => !o && setDvTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Delete Vendor?</DialogTitle><DialogDescription>Permanently delete <strong>{dvTarget?.name}</strong> and all its connections from Sippy?</DialogDescription></DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDvTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => dvTarget && delVMut.mutate(dvTarget.iVendor)}
+              disabled={delVMut.isPending} data-testid="btn-confirm-delete-vendor">
+              {delVMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete Vendor"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add Connection Dialog ── */}
+      <Dialog open={cOpen} onOpenChange={o => !o && setCOpen(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Add Connection</DialogTitle><DialogDescription>New SIP connection for {selected?.name}.</DialogDescription></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5"><Label>Name *</Label><Input value={cName} onChange={e => setCName(e.target.value)} placeholder="e.g. PRIMARY-SIP" data-testid="input-conn-name" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Protocol</Label>
+                <select value={cProto} onChange={e => setCProto(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm" data-testid="select-conn-proto">
+                  {["SIP","H323","MGCP","SIPT"].map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5"><Label>Host/IP *</Label><Input value={cDest} onChange={e => setCDest(e.target.value)} placeholder="1.2.3.4" data-testid="input-conn-dest" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Username</Label><Input value={cUser} onChange={e => setCUser(e.target.value)} data-testid="input-conn-user" /></div>
+              <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={cPass} onChange={e => setCPass2(e.target.value)} data-testid="input-conn-pass" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Capacity</Label><Input type="number" value={cCap} onChange={e => setCCap(e.target.value)} placeholder="e.g. 100" data-testid="input-conn-cap" /></div>
+              <div className="space-y-1.5"><Label>Max CPS</Label><Input type="number" value={cCps} onChange={e => setCCps(e.target.value)} placeholder="e.g. 10" data-testid="input-conn-cps" /></div>
+            </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={cBlocked} onChange={e => setCBlocked(e.target.checked)} className="h-4 w-4" data-testid="chk-conn-blocked" />
+              Start as blocked
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCOpen(false)}>Cancel</Button>
+            <Button onClick={() => selectedId && addCMut.mutate({ vendorId: selectedId, body: {
+                name: cName, protocol: cProto, destination: cDest,
+                ...(cUser  ? { username: cUser }          : {}),
+                ...(cPass  ? { password: cPass }          : {}),
+                ...(cCap   ? { capacity: parseInt(cCap) } : {}),
+                ...(cCps   ? { max_calls_per_second: parseInt(cCps) } : {}),
+                blocked: cBlocked,
+              }})}
+              disabled={!cName || !cDest || addCMut.isPending} data-testid="btn-confirm-add-conn">
+              {addCMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Connection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Connection Dialog ── */}
+      <Dialog open={!!ecTarget} onOpenChange={o => !o && setEcTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Edit Connection</DialogTitle><DialogDescription>Update <strong>{ecTarget?.name}</strong>.</DialogDescription></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5"><Label>Name *</Label><Input value={ecName} onChange={e => setEcName(e.target.value)} data-testid="input-edit-conn-name" /></div>
+            <div className="space-y-1.5"><Label>Host/IP</Label><Input value={ecDest} onChange={e => setEcDest(e.target.value)} placeholder="1.2.3.4" data-testid="input-edit-conn-dest" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Capacity</Label><Input type="number" value={ecCap} onChange={e => setEcCap(e.target.value)} data-testid="input-edit-conn-cap" /></div>
+              <div className="space-y-1.5"><Label>Max CPS</Label><Input type="number" value={ecCps} onChange={e => setEcCps(e.target.value)} data-testid="input-edit-conn-cps" /></div>
+            </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={ecBlocked} onChange={e => setEcBlocked(e.target.checked)} className="h-4 w-4 accent-destructive" data-testid="chk-edit-conn-blocked" />
+              <span className="text-rose-400/80">Blocked</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEcTarget(null)}>Cancel</Button>
+            <Button onClick={() => { const connId = ecTarget?.iConnection ?? (ecTarget as any)?.i_connection; connId && editCMut.mutate({ connId, body: { name: ecName, host: ecDest, ...(ecCap ? { capacity: parseInt(ecCap) } : {}), ...(ecCps ? { max_calls_per_second: parseInt(ecCps) } : {}), blocked: ecBlocked } }); }}
+              disabled={!ecName || editCMut.isPending} data-testid="btn-confirm-edit-conn">
+              {editCMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Connection Dialog ── */}
+      <Dialog open={!!dcTarget} onOpenChange={o => !o && setDcTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Delete Connection?</DialogTitle><DialogDescription>Remove <strong>{dcTarget?.name}</strong> from {selected?.name}?</DialogDescription></DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDcTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { const connId = dcTarget?.iConnection ?? (dcTarget as any)?.i_connection; connId && delCMut.mutate(connId); }}
+              disabled={delCMut.isPending} data-testid="btn-confirm-delete-conn">
+              {delCMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 
@@ -2755,18 +3559,19 @@ function ConnectionsTab({ highlightConnId }: { highlightConnId?: number }) {
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
-type TabId = "routing-groups" | "destination-sets" | "connections" | "qbr" | "on-net" | "policy-sim" | "impact-sim";
+type TabId = "routing-groups" | "destination-sets" | "vendors" | "connections" | "qbr" | "on-net" | "policy-sim" | "impact-sim";
 
-const VALID_TABS = new Set<TabId>(["routing-groups","destination-sets","connections","qbr","on-net","policy-sim","impact-sim"]);
+const VALID_TABS = new Set<TabId>(["routing-groups","destination-sets","vendors","connections","qbr","on-net","policy-sim","impact-sim"]);
 
 const TABS: { id: TabId; label: string; icon: typeof Route; countKey?: keyof CacheMeta }[] = [
-  { id: "routing-groups",  label: "Routing Groups",   icon: GitBranch,  countKey: "rg_count"   },
-  { id: "destination-sets",label: "Destination Sets", icon: Layers,     countKey: "ds_count"   },
-  { id: "connections",     label: "Connections",      icon: Wifi,       countKey: "conn_count" },
-  { id: "qbr",             label: "QBR Dashboard",    icon: BarChart3                          },
-  { id: "on-net",          label: "On-Net Viewer",    icon: Eye                                },
-  { id: "policy-sim",      label: "Policy Simulator", icon: Settings2                          },
-  { id: "impact-sim",      label: "Impact Simulator", icon: Activity                           },
+  { id: "routing-groups",  label: "Routing Groups",      icon: GitBranch,  countKey: "rg_count"   },
+  { id: "destination-sets",label: "Destination Sets",    icon: Layers,     countKey: "ds_count"   },
+  { id: "vendors",         label: "Vendors & Connections",icon: Building2                         },
+  { id: "connections",     label: "Connections",          icon: Wifi,       countKey: "conn_count" },
+  { id: "qbr",             label: "QBR Dashboard",        icon: BarChart3                         },
+  { id: "on-net",          label: "On-Net Viewer",        icon: Eye                               },
+  { id: "policy-sim",      label: "Policy Simulator",     icon: Settings2                         },
+  { id: "impact-sim",      label: "Impact Simulator",     icon: Activity                          },
 ];
 
 // ── QbrTab ─────────────────────────────────────────────────────────────────────
@@ -4199,6 +5004,7 @@ export default function RoutingManagerPage() {
       {/* Tab content */}
       {activeTab === "routing-groups"   && <RoutingGroupsTab />}
       {activeTab === "destination-sets" && <DestinationSetsTab />}
+      {activeTab === "vendors"          && <VendorHubTab />}
       {activeTab === "connections"      && <ConnectionsTab highlightConnId={
         parseInt((new URLSearchParams(rawSearch ?? "")).get("iConnection") ?? "", 10) || undefined
       } />}
