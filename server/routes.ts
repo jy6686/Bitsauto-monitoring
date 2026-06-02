@@ -30219,28 +30219,38 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           // B-leg cleanup fires 8s after cut → total billable window
           const estimatedBilledSec = govSec !== null ? govSec + 8 : null;
 
-          // Match CDR by CLD within ±10 minutes of startTime.
-          // CLI stored in governed_calls is often a Sippy internal number (not real CLI),
-          // so we match on CLD (destination) only and pick the closest-in-time CDR.
-          // CLI is used as a tiebreaker when multiple CDRs share the same CLD+window.
+          // Field semantics in governed_calls (from AMI bridge event):
+          //   gc.caller = callerIdNum1 = SIP/sippy channel CallerID
+          //             = Asterisk EXTEN e.g. "20602917282554" (2060 prefix + destination digits)
+          //   gc.callee = callerIdNum2 = PJSIP/sippy-endpoint CallerID
+          //             = original calling party CLI e.g. "+447795325420"
+          //
+          // Sippy CDR fields:
+          //   c.caller (CLI) = calling party  e.g. "+447795325420"
+          //   c.callee (CLD) = destination    e.g. "12917282554" (may have leading "1" prefix)
+          //
+          // Therefore: match gc.caller (destination EXTEN) vs CDR callee (CLD), last-9 digits.
+          //            use gc.callee (source CLI) vs CDR caller (CLI) as tiebreaker.
           let matchedCdr: any = null;
-          if (startMs && gc.callee) {
-            const windowMs = 10 * 60 * 1000;
-            const cldSuffix = (gc.callee || '').replace(/\D/g, '').slice(-9);
+          if (startMs && gc.caller) {
+            const windowMs  = 10 * 60 * 1000;
+            // Destination suffix: strip 2060 routing prefix if present, then take last 9 digits
+            const destDigits = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
+            const destSuffix = destDigits.slice(-9);
             const candidates = allCdrs.filter(c => {
               const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
               if (!cdrTs) return false;
               if (Math.abs(cdrTs - startMs) > windowMs) return false;
-              return (c.callee || '').replace(/\D/g, '').endsWith(cldSuffix);
+              return (c.callee || '').replace(/\D/g, '').endsWith(destSuffix);
             });
-            // Prefer CLI match if we have it, otherwise pick closest in time
             if (candidates.length > 0) {
-              const cliSuffix = (gc.caller || '').replace(/\D/g, '').slice(-7);
-              const cliMatch = candidates.find(c =>
-                (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix)
-              );
+              // Tiebreaker: source CLI (gc.callee) vs CDR caller
+              const cliSuffix = (gc.callee || '').replace(/\D/g, '').slice(-7);
+              const cliMatch  = cliSuffix.length >= 6
+                ? candidates.find(c => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
+                : null;
               matchedCdr = cliMatch ?? candidates.reduce((best, c) => {
-                const cdrTs = new Date(c.startTime).getTime();
+                const cdrTs  = new Date(c.startTime).getTime();
                 const bestTs = new Date(best.startTime).getTime();
                 return Math.abs(cdrTs - startMs!) < Math.abs(bestTs - startMs!) ? c : best;
               });
@@ -30258,10 +30268,19 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             status = customerBilledSec <= estimatedBilledSec + 15 ? 'ok' : 'check';
           }
 
+          // Decode real CLI/CLD for display:
+          //   displayCli = gc.callee = PJSIP CallerID = original calling party
+          //   displayCld = gc.caller stripped of 2060 routing prefix = real destination
+          const displayCli = gc.callee ?? gc.caller ?? null;
+          const rawDest    = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
+          const displayCld = rawDest || gc.caller || null;
+
           return {
             id:                  gc.id,
             caller:              gc.caller,
             callee:              gc.callee,
+            displayCli,
+            displayCld,
             connectionName:      gc.connectionName,
             capSec:              gc.capSec,
             triggerReason:       gc.triggerReason,

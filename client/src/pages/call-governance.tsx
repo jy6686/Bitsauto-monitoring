@@ -919,8 +919,8 @@ export default function CallGovernancePage() {
                           <td className="px-4 py-3 text-slate-500 text-xs font-mono">#{row.id}</td>
                           <td className="px-4 py-3">
                             <div className="flex flex-col gap-0.5">
-                              <span className="text-slate-200 font-mono text-xs">{row.caller ?? '—'}</span>
-                              <span className="text-slate-500 font-mono text-xs">→ {row.callee ?? '—'}</span>
+                              <span className="text-slate-200 font-mono text-xs">{(row as any).displayCli ?? row.caller ?? '—'}</span>
+                              <span className="text-slate-500 font-mono text-xs">→ {(row as any).displayCld ?? row.callee ?? '—'}</span>
                             </div>
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
@@ -961,7 +961,7 @@ export default function CallGovernancePage() {
               {/* Footer note */}
               <div className="px-4 py-2.5 border-t border-slate-800 flex items-center gap-2 text-xs text-slate-600">
                 <Info className="w-3 h-3 flex-shrink-0" />
-                CDR match: CLI+CLD within ±5 min of bridge time. Costs shown are customer-side (revenue). Vendor costs require Sippy vendor CDR access.
+                CDR match: destination number (last 9 digits) within ±10 min of bridge time, source CLI as tiebreaker. Costs shown are customer-side (revenue).
               </div>
             </div>
           )}
