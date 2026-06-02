@@ -4,7 +4,7 @@ import {
   Shield, Phone, Scissors, Clock, RefreshCw, Plus, Pencil, Trash2,
   CheckCircle2, XCircle, AlertTriangle, Wifi, WifiOff, FileAudio,
   Activity, Copy, ChevronRight, Settings2, ScrollText, Zap, Info,
-  Play, Pause, Volume2, Download, X,
+  Play, Pause, Volume2, Download, X, BarChart2, TrendingDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,6 +66,23 @@ interface Stats {
   cutsToday: number;
   totalToday: number;
   amiOnline: boolean;
+}
+
+interface BillingRow {
+  id: number;
+  caller: string | null;
+  callee: string | null;
+  connectionName: string | null;
+  capSec: number | null;
+  triggerReason: string | null;
+  startTime: string | null;
+  byeSentAt: string | null;
+  govSec: number | null;
+  estimatedBilledSec: number | null;
+  customerBilledSec: number | null;
+  customerCost: number | null;
+  vendorName: string | null;
+  status: 'ok' | 'check' | 'no_cdr';
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -380,6 +397,7 @@ const TABS = [
   { id: 'rules',     label: 'Rules',          icon: Settings2 },
   { id: 'recordings',label: 'Recordings',     icon: FileAudio },
   { id: 'log',       label: 'Audit Log',      icon: ScrollText },
+  { id: 'billing',   label: 'Billing Check',  icon: BarChart2 },
 ] as const;
 
 type Tab = typeof TABS[number]['id'];
@@ -410,6 +428,12 @@ export default function CallGovernancePage() {
     queryKey: ['/api/call-governance/log'],
     enabled: tab === 'log',
     refetchInterval: tab === 'log' ? 10_000 : false,
+  });
+
+  const billingQ = useQuery<BillingRow[]>({
+    queryKey: ['/api/call-governance/billing'],
+    enabled: tab === 'billing',
+    refetchInterval: tab === 'billing' ? 30_000 : false,
   });
 
   const addRuleMut = useMutation({
@@ -807,6 +831,138 @@ export default function CallGovernancePage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Tab: Billing Check ────────────────────────────────────────────── */}
+      {tab === 'billing' && (
+        <div className="space-y-4">
+          {/* Summary cards */}
+          {billingQ.data && billingQ.data.length > 0 && (() => {
+            const rows = billingQ.data;
+            const ok      = rows.filter(r => r.status === 'ok').length;
+            const check   = rows.filter(r => r.status === 'check').length;
+            const noCdr   = rows.filter(r => r.status === 'no_cdr').length;
+            const totalSaved = rows.reduce((s, r) => {
+              if (r.estimatedBilledSec != null) return s + r.estimatedBilledSec;
+              return s;
+            }, 0);
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-500 mb-1">Total Governed</p>
+                  <p className="text-2xl font-bold text-slate-100" data-testid="billing-total">{rows.length}</p>
+                </div>
+                <div className="bg-emerald-950/40 border border-emerald-900/40 rounded-xl p-4">
+                  <p className="text-xs text-emerald-400 mb-1">✓ OK (no loss)</p>
+                  <p className="text-2xl font-bold text-emerald-300" data-testid="billing-ok">{ok}</p>
+                </div>
+                <div className="bg-amber-950/40 border border-amber-900/40 rounded-xl p-4">
+                  <p className="text-xs text-amber-400 mb-1">⚠ Check (review)</p>
+                  <p className="text-2xl font-bold text-amber-300" data-testid="billing-check">{check}</p>
+                </div>
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-500 mb-1">No CDR yet</p>
+                  <p className="text-2xl font-bold text-slate-400" data-testid="billing-no-cdr">{noCdr}</p>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* How it works explainer */}
+          <div className="bg-slate-900/40 border border-slate-800 rounded-xl px-4 py-3 flex items-start gap-3">
+            <Info className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
+            <div className="text-xs text-slate-400 space-y-0.5">
+              <p><span className="text-slate-200 font-medium">How to read this:</span> For each governed cut, we compare what Sippy billed the customer (from CDR cache) vs. our estimated vendor charge (cut time + 8s cleanup).</p>
+              <p><span className="text-emerald-400 font-medium">OK</span> = customer billed ≤ estimated vendor + 15s buffer &nbsp;·&nbsp; <span className="text-amber-400 font-medium">Check</span> = customer billed significantly more — review in Sippy &nbsp;·&nbsp; <span className="text-slate-400 font-medium">No CDR</span> = CDR not in cache yet (may appear within 5 min)</p>
+            </div>
+          </div>
+
+          {/* Table */}
+          {billingQ.isLoading ? (
+            <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}</div>
+          ) : !billingQ.data || billingQ.data.length === 0 ? (
+            <EmptyState icon={BarChart2} title="No governed cuts yet" desc="Once calls are cut by governance rules, billing comparisons will appear here." />
+          ) : (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                <span className="text-sm font-medium text-slate-200 flex items-center gap-2">
+                  <TrendingDown className="w-4 h-4 text-emerald-400" /> Billing Reconciliation (last 7 days)
+                </span>
+                <span className="text-xs text-slate-500">{billingQ.data.length} cuts</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-xs text-slate-500">
+                      <th className="px-4 py-2.5 text-left font-medium">#</th>
+                      <th className="px-4 py-2.5 text-left font-medium">CLI → CLD</th>
+                      <th className="px-4 py-2.5 text-left font-medium">Cut At</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Gov Cut</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Est. Vendor Charge</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Customer Billed</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Cost</th>
+                      <th className="px-4 py-2.5 text-center font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {billingQ.data.map(row => {
+                      const statusCfg = {
+                        ok:     { label: 'OK',      cls: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' },
+                        check:  { label: 'Check',   cls: 'bg-amber-500/10  text-amber-300  border border-amber-500/20'  },
+                        no_cdr: { label: 'No CDR',  cls: 'bg-slate-800     text-slate-400  border border-slate-700'     },
+                      }[row.status];
+                      return (
+                        <tr key={row.id} className="hover:bg-slate-800/20" data-testid={`billing-row-${row.id}`}>
+                          <td className="px-4 py-3 text-slate-500 text-xs font-mono">#{row.id}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-slate-200 font-mono text-xs">{row.caller ?? '—'}</span>
+                              <span className="text-slate-500 font-mono text-xs">→ {row.callee ?? '—'}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
+                            {row.byeSentAt ? new Date(row.byeSentAt).toLocaleString() : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs text-slate-300 font-mono">
+                            {row.govSec != null ? `${row.govSec}s` : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs text-slate-300 font-mono">
+                            {row.estimatedBilledSec != null ? `${row.estimatedBilledSec}s` : '—'}
+                            <span className="text-slate-600 ml-1 text-[10px]">(cut+8s)</span>
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-xs">
+                            {row.customerBilledSec != null ? (
+                              <span className={cn(
+                                row.status === 'ok'    ? 'text-emerald-300' :
+                                row.status === 'check' ? 'text-amber-300'   : 'text-slate-400'
+                              )}>
+                                {row.customerBilledSec}s
+                              </span>
+                            ) : <span className="text-slate-600">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs text-slate-400 font-mono">
+                            {row.customerCost != null ? `$${row.customerCost.toFixed(4)}` : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={cn('px-2 py-0.5 rounded text-xs font-medium', statusCfg.cls)}
+                              data-testid={`billing-status-${row.id}`}>
+                              {statusCfg.label}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {/* Footer note */}
+              <div className="px-4 py-2.5 border-t border-slate-800 flex items-center gap-2 text-xs text-slate-600">
+                <Info className="w-3 h-3 flex-shrink-0" />
+                CDR match: CLI+CLD within ±5 min of bridge time. Costs shown are customer-side (revenue). Vendor costs require Sippy vendor CDR access.
+              </div>
             </div>
           )}
         </div>

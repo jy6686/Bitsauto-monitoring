@@ -30190,6 +30190,85 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   registerBhaooRoutes(app);
   registerCallGovernanceRoutes(app);
 
+  // ── Call Governance — Billing Check (needs cdrCache in scope) ────────────
+  {
+    const { governedCalls: gcTable } = await import('@shared/schema');
+    const { gte: gteOp, eq: eqOp, and: andOp } = await import('drizzle-orm');
+
+    app.get('/api/call-governance/billing', async (req: any, res: any) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+
+        // Fetch cut governed calls from the last 7 days
+        const cutoff7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const cuts = await db
+          .select()
+          .from(gcTable)
+          .where(andOp(eqOp(gcTable.status, 'cut'), gteOp(gcTable.startTime, cutoff7d)))
+          .orderBy(desc(gcTable.byeSentAt))
+          .limit(100);
+
+        // Build all CDR values once for matching
+        const allCdrs = [...cdrCache.values()] as any[];
+
+        const rows = cuts.map(gc => {
+          // How long did we actually govern (startTime → byeSentAt)
+          const startMs   = gc.startTime ? new Date(gc.startTime).getTime() : null;
+          const byeMs     = gc.byeSentAt ? new Date(gc.byeSentAt).getTime() : null;
+          const govSec    = startMs && byeMs ? Math.round((byeMs - startMs) / 1000) : null;
+          // B-leg cleanup fires 8s after cut → total billable window
+          const estimatedBilledSec = govSec !== null ? govSec + 8 : null;
+
+          // Match CDR by CLI+CLD within ±5 minutes of startTime
+          let matchedCdr: any = null;
+          if (startMs && gc.caller && gc.callee) {
+            const windowMs = 5 * 60 * 1000;
+            matchedCdr = allCdrs.find(c => {
+              const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
+              if (!cdrTs) return false;
+              if (Math.abs(cdrTs - startMs) > windowMs) return false;
+              const cliMatch = (c.caller || '').replace(/\D/g, '').endsWith(gc.caller!.replace(/\D/g, '').slice(-7));
+              const cldMatch = (c.callee || '').replace(/\D/g, '').endsWith(gc.callee!.replace(/\D/g, '').slice(-7));
+              return cliMatch && cldMatch;
+            }) ?? null;
+          }
+
+          const customerBilledSec: number | null = matchedCdr ? (Number(matchedCdr.duration) || null) : null;
+          const customerCost: number | null       = matchedCdr ? (Number(matchedCdr.cost)     || null) : null;
+          const vendorName: string | null         = matchedCdr?.vendorResolved ?? matchedCdr?.vendorName ?? null;
+
+          // Status logic
+          let status: 'ok' | 'check' | 'no_cdr' = 'no_cdr';
+          if (customerBilledSec !== null && estimatedBilledSec !== null) {
+            // Allow 15s slack for rounding / billing intervals
+            status = customerBilledSec <= estimatedBilledSec + 15 ? 'ok' : 'check';
+          }
+
+          return {
+            id:                  gc.id,
+            caller:              gc.caller,
+            callee:              gc.callee,
+            connectionName:      gc.connectionName,
+            capSec:              gc.capSec,
+            triggerReason:       gc.triggerReason,
+            startTime:           gc.startTime,
+            byeSentAt:           gc.byeSentAt,
+            govSec,
+            estimatedBilledSec,
+            customerBilledSec,
+            customerCost,
+            vendorName,
+            status,
+          };
+        });
+
+        res.json(rows);
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    });
+  }
+
   // ── Voice OTP / Asterisk AMI routes ───────────────────────────────────────
   registerVoiceOtpRoutes(app);
   registerTerminationRoutes(app);
