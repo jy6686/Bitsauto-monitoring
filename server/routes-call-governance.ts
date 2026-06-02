@@ -42,6 +42,7 @@ async function cutVendorLeg(
   channelA: string | null,
   recordingPath: string | null,
   triggerReason: string,
+  capSec: number = 30,
 ) {
   try {
     // Atomic redirect: both legs leave the bridge simultaneously.
@@ -65,10 +66,16 @@ async function cutVendorLeg(
       // is done) so it is cleaned up promptly without waiting the full 90s.
       await amiGovernance.cutAndPlayback(channelA, channelB, playbackFile);
 
-      // Delayed B-leg cleanup — fires after recording has had time to play
+      // Delayed B-leg cleanup — hang up B-leg only after recording finishes.
+      // capSec = duration of the recorded conversation (the recording length).
+      // Adding 5s buffer so Playback() has time to complete before B-leg BYE
+      // reaches Sippy and potentially causes any cascade effects.
+      const bLegCleanupMs = (capSec + 5) * 1_000;
+      console.log(`[call-governance] B-leg cleanup scheduled in ${capSec + 5}s for ${channelB}`);
       setTimeout(() => {
+        console.log(`[call-governance] B-leg cleanup firing for ${channelB}`);
         amiGovernance.hangup(channelB).catch(() => {});
-      }, 40_000);
+      }, bLegCleanupMs);
 
       await db.update(governedCalls)
         .set({ byeSentAt: new Date(), playbackStartedAt: new Date(), triggerReason, status: 'cut' })
@@ -124,7 +131,7 @@ async function scheduleGovernedCallCut(
   const capMs = capSec * 1_000;
   const timer = setTimeout(async () => {
     activeTimers.delete(gc.id);
-    await cutVendorLeg(gc.id, gc.channelB!, gc.channelA, gc.recordingPath, 'time_cap');
+    await cutVendorLeg(gc.id, gc.channelB!, gc.channelA, gc.recordingPath, 'time_cap', capSec);
   }, capMs);
   activeTimers.set(gc.id, timer);
   console.log(`[call-governance] Timer set for call ${gc.id}: ${capSec}s`);
@@ -320,7 +327,7 @@ export function registerCallGovernanceRoutes(app: Express) {
       const timer = activeTimers.get(id);
       if (timer) { clearTimeout(timer); activeTimers.delete(id); }
 
-      await cutVendorLeg(id, gc.channelB, gc.channelA, gc.recordingPath, 'manual');
+      await cutVendorLeg(id, gc.channelB, gc.channelA, gc.recordingPath, 'manual', gc.capSec ?? 30);
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
