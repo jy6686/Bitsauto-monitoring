@@ -66,12 +66,13 @@ async function cutVendorLeg(
       // is done) so it is cleaned up promptly without waiting the full 90s.
       await amiGovernance.cutAndPlayback(channelA, channelB, playbackFile);
 
-      // Delayed B-leg cleanup — hang up B-leg only after recording finishes.
-      // capSec = duration of the recorded conversation (the recording length).
-      // Adding 5s buffer so Playback() has time to complete before B-leg BYE
-      // reaches Sippy and potentially causes any cascade effects.
-      const bLegCleanupMs = (capSec + 5) * 1_000;
-      console.log(`[call-governance] B-leg cleanup scheduled in ${capSec + 5}s for ${channelB}`);
+      // Delayed B-leg cleanup — 8 seconds after cut.
+      // NOTE: Sippy is a B2BUA; when B-leg sends BYE Sippy will also send BYE
+      // to the A-leg. Keep this value >= playback length if you want the full
+      // recording to play. At 8s the carrier charges only 8 extra seconds but
+      // playback will be cut at ~8s by the Sippy cascade.
+      const bLegCleanupMs = 8_000;
+      console.log(`[call-governance] B-leg cleanup scheduled in 8s for ${channelB}`);
       setTimeout(() => {
         console.log(`[call-governance] B-leg cleanup firing for ${channelB}`);
         amiGovernance.hangup(channelB).catch(() => {});
