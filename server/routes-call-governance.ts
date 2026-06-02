@@ -136,8 +136,8 @@ export function registerCallGovernanceRoutes(app: Express) {
         // Apply jitter: capSec + random(0, jitterSec)
         const capSec = rule.capSec + Math.floor(Math.random() * (rule.jitterSec + 1));
 
-        // Recording path: Asterisk MixMonitor writes to /var/spool/asterisk/monitor/
-        const recordingPath = `/var/spool/asterisk/monitor/${event.uniqueId1}-${event.uniqueId2}.wav`;
+        // Recording path: MixMonitor uses ${UNIQUEID}.wav (A-leg uniqueid only)
+        const recordingPath = `/var/spool/asterisk/monitor/${event.uniqueId1}.wav`;
 
         const [gc] = await db.insert(governedCalls).values({
           uniqueId:       event.uniqueId1,
