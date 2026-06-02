@@ -5920,7 +5920,21 @@ export async function registerRoutes(
       cdrTimeIndex.sort((a, b) => a.ts - b.ts);
 
       cdrCacheUpdatedAt = new Date();
-      if (added > 0) console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size} idx=${cdrTimeIndex.length}`);
+      if (added > 0) {
+        console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size} idx=${cdrTimeIndex.length}`);
+        // Sample log: show callee format for 3 RECENT CDRs (last 2h) to debug billing matching
+        const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+        const recentSamples = [...cdrCache.values()]
+          .filter((c: any) => { const t = c.startTime ? new Date(c.startTime).getTime() : 0; return t > twoHoursAgo; })
+          .slice(0, 3);
+        recentSamples.forEach((c: any, i: number) => {
+          console.log(`[cdr-cache-sample${i}] callee=${c.callee} caller=${c.caller} startTime=${c.startTime} duration=${c.duration}`);
+        });
+        // Log total cache size and cdrTimeIndex span for monitoring
+        const _oldest = cdrTimeIndex.length > 0 ? new Date(cdrTimeIndex[0].ts).toISOString().slice(11,19) : '-';
+        const _newest = cdrTimeIndex.length > 0 ? new Date(cdrTimeIndex[cdrTimeIndex.length-1].ts).toISOString().slice(11,19) : '-';
+        console.log('[cdr-cache-stats] total=' + cdrCache.size + ' timespan=' + _oldest + '->' + _newest);
+      }
 
       // Warm accountNameCache for any iAccount IDs in the CDR cache not yet resolved.
       // Runs in background — does not block CDR cache completion.
@@ -30194,6 +30208,41 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   {
     const { governedCalls: gcTable } = await import('@shared/schema');
     const { gte: gteOp, eq: eqOp, and: andOp } = await import('drizzle-orm');
+
+    // Debug endpoint: inspect CDR cache matching for one governed call
+    app.get('/api/call-governance/billing-debug', async (req: any, res: any) => {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      const gcId = Number(req.query.id);
+      if (!gcId) return res.status(400).json({ error: 'id required' });
+      const { eq: eqOp2 } = await import('drizzle-orm');
+      const [gc] = await db.select().from(gcTable).where(eqOp2(gcTable.id, gcId));
+      if (!gc) return res.status(404).json({ error: 'Not found' });
+      const allCdrs = [...cdrCache.values()] as any[];
+      const startMs = gc.startTime ? new Date(gc.startTime).getTime() : null;
+      const destDigits = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
+      const destSuffix = destDigits.slice(-9);
+      const windowMs = 10 * 60 * 1000;
+      const timeMatches = startMs ? allCdrs.filter(c => {
+        const ts = c.startTime ? new Date(c.startTime).getTime() : null;
+        return ts && Math.abs(ts - startMs) <= windowMs;
+      }) : [];
+      const cldMatches = timeMatches.filter(c =>
+        (c.callee || '').replace(/\D/g, '').endsWith(destSuffix)
+      );
+      const sampleCdrs = allCdrs.slice(0, 5).map(c => ({
+        callId: c.callId, caller: c.caller, callee: c.callee,
+        startTime: c.startTime, duration: c.duration
+      }));
+      return res.json({
+        gc: { id: gc.id, caller: gc.caller, callee: gc.callee, startTime: gc.startTime },
+        derived: { destDigits, destSuffix, startMs, windowMs },
+        cdrCacheSize: allCdrs.length,
+        timeMatchCount: timeMatches.length,
+        cldMatchCount: cldMatches.length,
+        cldMatches: cldMatches.slice(0, 5).map(c => ({ callId: c.callId, caller: c.caller, callee: c.callee, startTime: c.startTime })),
+        sampleCdrs,
+      });
+    });
 
     app.get('/api/call-governance/billing', async (req: any, res: any) => {
       try {
