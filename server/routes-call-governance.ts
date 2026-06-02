@@ -165,15 +165,33 @@ export function registerCallGovernanceRoutes(app: Express) {
         if (!ch1Match && !ch2Match) continue;
 
         // Convention: channel matching vendor pattern → B-leg (to cut)
-        // The non-matching channel is A-leg (customer, kept alive)
-        const channelB = ch2Match ? event.channel2 : event.channel1;
-        const channelA = channelB === event.channel2 ? event.channel1 : event.channel2;
+        // The non-matching channel is A-leg (customer, kept alive).
+        // IMPORTANT: when both channels match (e.g. pattern "SIP/sippy" hits both
+        // SIP/sippy-XXXX AND PJSIP/sippy-endpoint-XXXX), prefer ch1Match-only or
+        // ch2Match-only.  If both match, fall back to ch1 as B-leg (SIP comes before
+        // PJSIP in bridge events from this setup).
+        let channelB: string;
+        let channelA: string;
+        if (ch1Match && !ch2Match) {
+          channelB = event.channel1; channelA = event.channel2;
+        } else if (ch2Match && !ch1Match) {
+          channelB = event.channel2; channelA = event.channel1;
+        } else {
+          // Both match — use channel type priority: SIP (plain) before PJSIP
+          const c1IsSip  = /^SIP\//i.test(event.channel1) && !/^PJSIP\//i.test(event.channel1);
+          channelB = c1IsSip ? event.channel1 : event.channel2;
+          channelA = channelB === event.channel1 ? event.channel2 : event.channel1;
+        }
+        console.log(`[call-governance] Identified A-leg=${channelA} B-leg=${channelB}`);
 
         // Apply jitter: capSec + random(0, jitterSec)
         const capSec = rule.capSec + Math.floor(Math.random() * (rule.jitterSec + 1));
 
-        // Recording path: MixMonitor uses ${UNIQUEID}.wav (A-leg uniqueid only)
-        const recordingPath = `/var/spool/asterisk/monitor/${event.uniqueId1}.wav`;
+        // Recording path: MixMonitor runs on A-leg (PJSIP) with ${UNIQUEID}.wav.
+        // Must use A-leg's uniqueId — NOT always uniqueId1 (order is non-deterministic).
+        const uniqueIdA = channelA === event.channel1 ? event.uniqueId1 : event.uniqueId2;
+        const recordingPath = `/var/spool/asterisk/monitor/${uniqueIdA}.wav`;
+        console.log(`[call-governance] Recording path: ${recordingPath}`);
 
         const [gc] = await db.insert(governedCalls).values({
           uniqueId:       event.uniqueId1,
