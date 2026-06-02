@@ -60,9 +60,14 @@ async function cutVendorLeg(
       details:   `Vendor leg cut. Trigger: ${triggerReason}`,
     });
 
-    // 4. Start playback on A-leg if recording exists
+    // 4. Wait for MixMonitor to finalise the WAV before redirecting A-leg
+    await new Promise(r => setTimeout(r, 1200));
+
+    // 5. Start playback on A-leg if recording exists
     if (recordingPath && channelA) {
-      const ok = await amiGovernance.playback(channelA, recordingPath);
+      // Strip .wav extension — Asterisk Playback() auto-selects format
+      const playbackFile = recordingPath.replace(/\.wav$/i, '');
+      const ok = await amiGovernance.playback(channelA, playbackFile);
       if (ok) {
         await db.update(governedCalls)
           .set({ playbackStartedAt: new Date() })
@@ -71,7 +76,7 @@ async function cutVendorLeg(
           governedCallId,
           eventType: 'playback_started',
           channel:   channelA,
-          details:   `120s recording playback started: ${recordingPath}`,
+          details:   `Playback started: ${playbackFile}`,
         });
       }
     }
