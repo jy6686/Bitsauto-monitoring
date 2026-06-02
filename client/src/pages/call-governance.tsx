@@ -132,8 +132,10 @@ function Countdown({ startTime, capSec }: { startTime: string | null; capSec: nu
 // ── Inline Audio Player ────────────────────────────────────────────────────────
 
 function AudioPlayer({ path, callId }: { path: string; callId: number }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying]   = useState(false);
+  const audioRef              = useRef<HTMLAudioElement>(null);
+  const [srcSet, setSrcSet]   = useState(false);   // lazy — only load on first play click
+  const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [error, setError]       = useState<string | null>(null);
@@ -143,8 +145,26 @@ function AudioPlayer({ path, callId }: { path: string; callId: number }) {
   function toggle() {
     const a = audioRef.current;
     if (!a) return;
-    if (playing) { a.pause(); setPlaying(false); }
-    else         { a.play().catch(e => setError(e.message)); setPlaying(true); }
+
+    if (playing) {
+      a.pause();
+      setPlaying(false);
+      return;
+    }
+
+    // First click — set src, then play once loaded
+    if (!srcSet) {
+      setLoading(true);
+      setError(null);
+      setSrcSet(true);
+      a.src = src;
+      a.load();
+      a.play().catch(e => { setError('Not found'); setLoading(false); setPlaying(false); });
+      setPlaying(true);
+    } else {
+      a.play().catch(e => { setError(e.message); setPlaying(false); });
+      setPlaying(true);
+    }
   }
 
   function onTimeUpdate() {
@@ -155,10 +175,17 @@ function AudioPlayer({ path, callId }: { path: string; callId: number }) {
 
   function onLoaded() {
     setDuration(audioRef.current?.duration ?? 0);
+    setLoading(false);
     setError(null);
   }
 
   function onEnded() { setPlaying(false); setProgress(100); }
+
+  function onErr() {
+    setLoading(false);
+    setPlaying(false);
+    setError('Not found on Asterisk');
+  }
 
   function seek(e: React.MouseEvent<HTMLDivElement>) {
     const a = audioRef.current;
@@ -168,55 +195,61 @@ function AudioPlayer({ path, callId }: { path: string; callId: number }) {
   }
 
   function fmt(s: number) {
-    if (!s || isNaN(s)) return '0:00';
+    if (!s || isNaN(s)) return '—';
     return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-  }
-
-  if (error) {
-    return (
-      <span className="text-xs text-rose-400 flex items-center gap-1">
-        <X className="w-3 h-3" />{error}
-      </span>
-    );
   }
 
   return (
     <div className="flex items-center gap-2 min-w-0" data-testid={`audio-player-${callId}`}>
-      <audio ref={audioRef} src={src} preload="metadata"
-        onTimeUpdate={onTimeUpdate} onLoadedMetadata={onLoaded} onEnded={onEnded}
-        onError={() => setError('Failed to load')}
+      {/* audio element — no src until first click */}
+      <audio ref={audioRef} preload="none"
+        onTimeUpdate={onTimeUpdate} onLoadedMetadata={onLoaded}
+        onEnded={onEnded} onError={onErr}
       />
-      <button
-        data-testid={`button-play-${callId}`}
-        onClick={toggle}
-        className="w-6 h-6 rounded-full bg-violet-600 hover:bg-violet-500 flex items-center justify-center flex-shrink-0 transition-colors"
-      >
-        {playing
-          ? <Pause className="w-3 h-3 text-white" />
-          : <Play  className="w-3 h-3 text-white ml-0.5" />}
-      </button>
-      <div
-        className="flex-1 h-1.5 bg-slate-700 rounded-full cursor-pointer min-w-[60px] max-w-[120px]"
-        onClick={seek}
-        data-testid={`seek-bar-${callId}`}
-      >
-        <div
-          className="h-full bg-violet-500 rounded-full transition-all"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-      <span className="text-xs text-slate-500 font-mono flex-shrink-0">
-        {fmt(duration)}
-      </span>
-      <a
-        href={src}
-        download
-        data-testid={`button-download-${callId}`}
-        className="text-slate-500 hover:text-slate-300 flex-shrink-0"
-        title="Download WAV"
-      >
-        <Download className="w-3 h-3" />
-      </a>
+
+      {error ? (
+        <>
+          <button
+            data-testid={`button-play-${callId}`}
+            onClick={() => { setError(null); setSrcSet(false); setProgress(0); setDuration(0); }}
+            title="Retry"
+            className="w-6 h-6 rounded-full bg-rose-600/40 hover:bg-rose-600/70 flex items-center justify-center flex-shrink-0 transition-colors"
+          >
+            <RefreshCw className="w-3 h-3 text-rose-300" />
+          </button>
+          <span className="text-xs text-rose-400 truncate">{error}</span>
+        </>
+      ) : (
+        <>
+          <button
+            data-testid={`button-play-${callId}`}
+            onClick={toggle}
+            disabled={loading}
+            className="w-6 h-6 rounded-full bg-violet-600 hover:bg-violet-500 disabled:opacity-50 flex items-center justify-center flex-shrink-0 transition-colors"
+          >
+            {loading
+              ? <RefreshCw className="w-3 h-3 text-white animate-spin" />
+              : playing
+                ? <Pause className="w-3 h-3 text-white" />
+                : <Play  className="w-3 h-3 text-white ml-0.5" />}
+          </button>
+
+          <div
+            className="flex-1 h-1.5 bg-slate-700 rounded-full cursor-pointer min-w-[60px] max-w-[120px]"
+            onClick={seek}
+            data-testid={`seek-bar-${callId}`}
+          >
+            <div className="h-full bg-violet-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
+          </div>
+
+          <span className="text-xs text-slate-500 font-mono flex-shrink-0">{fmt(duration)}</span>
+
+          <a href={src} download data-testid={`button-download-${callId}`}
+            className="text-slate-500 hover:text-slate-300 flex-shrink-0" title="Download WAV">
+            <Download className="w-3 h-3" />
+          </a>
+        </>
+      )}
     </div>
   );
 }

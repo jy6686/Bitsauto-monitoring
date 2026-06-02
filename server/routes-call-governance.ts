@@ -357,22 +357,32 @@ export function registerCallGovernanceRoutes(app: Express) {
     const conn = new SshClient();
     conn.on('ready', () => {
       conn.sftp((err, sftp) => {
-        if (err) { conn.end(); return res.status(500).json({ error: 'SFTP open failed: ' + err.message }); }
+        if (err) {
+          conn.end();
+          console.error(`[recording-stream] SFTP open failed: ${err.message}`);
+          return res.status(500).json({ error: 'SFTP open failed: ' + err.message });
+        }
 
         sftp.stat(filePath, (statErr, stats) => {
           if (statErr) {
             conn.end();
+            console.warn(`[recording-stream] File not found: ${filePath} — ${statErr.message}`);
             return res.status(404).json({ error: 'File not found on Asterisk: ' + filePath });
           }
 
           const fileName = filePath.split('/').pop() ?? 'recording.wav';
+          console.log(`[recording-stream] Streaming ${fileName} (${stats.size} bytes)`);
           res.setHeader('Content-Type', 'audio/wav');
           res.setHeader('Content-Length', stats.size);
           res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
           res.setHeader('Accept-Ranges', 'bytes');
 
           const stream = sftp.createReadStream(filePath);
-          stream.on('error', (e: any) => { conn.end(); if (!res.headersSent) res.status(500).end(); });
+          stream.on('error', (e: any) => {
+            console.error(`[recording-stream] Stream error: ${e.message}`);
+            conn.end();
+            if (!res.headersSent) res.status(500).end();
+          });
           stream.on('close', () => conn.end());
           stream.pipe(res);
         });
@@ -380,9 +390,11 @@ export function registerCallGovernanceRoutes(app: Express) {
     });
 
     conn.on('error', (e) => {
+      console.error(`[recording-stream] SSH connect failed to ${host}: ${e.message}`);
       if (!res.headersSent) res.status(502).json({ error: 'SSH connect failed: ' + e.message });
     });
 
+    console.log(`[recording-stream] Connecting to ${host} as ${user} for: ${filePath}`);
     conn.connect({ host, port: 22, username: user, password });
   });
 
