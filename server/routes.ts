@@ -30309,6 +30309,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           const customerBilledSec: number | null = matchedCdr ? (Number(matchedCdr.duration) || null) : null;
           const customerCost: number | null       = matchedCdr ? (Number(matchedCdr.cost)     || null) : null;
           const vendorName: string | null         = matchedCdr?.vendorResolved ?? matchedCdr?.vendorName ?? null;
+          const vendorCost: number | null         = matchedCdr ? ((matchedCdr as any).vendorCost ?? null) : null;
+          const marginAmount: number | null       = (customerCost !== null && vendorCost !== null)
+            ? parseFloat((customerCost - vendorCost).toFixed(6)) : null;
 
           // Status logic
           let status: 'ok' | 'check' | 'no_cdr' = 'no_cdr';
@@ -30339,6 +30342,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             estimatedBilledSec,
             customerBilledSec,
             customerCost,
+            vendorCost,
+            marginAmount,
             vendorName,
             status,
           };

@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import {
   Plus, Search, Trash2, Settings2, Wifi, ChevronRight, ChevronLeft,
   Building2, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
-  DollarSign, Network, ArrowLeft, Eye, EyeOff, Copy, Pencil,
+  DollarSign, Network, ArrowLeft, Eye, EyeOff, Copy, Pencil, Power,
 } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
@@ -1179,6 +1179,20 @@ function VendorConnectionsView({
     !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.destination?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const toggleBlockMut = useMutation({
+    mutationFn: async ({ id, blocked }: { id: number; blocked: boolean }) =>
+      (await apiRequest("PATCH", `/api/sippy/connections/${id}`, { blocked })).json(),
+    onSuccess: (data: any, vars) => {
+      if (data?.success || data?.ok) {
+        toast({ title: vars.blocked ? "Connection disabled" : "Connection enabled" });
+        qc.invalidateQueries({ queryKey: ["/api/sippy/vendors", vendor.iVendor, "connections"] });
+      } else {
+        toast({ title: "Failed", description: data?.message ?? "Sippy returned an error", variant: "destructive" });
+      }
+    },
+    onError: () => toast({ title: "Error", description: "Could not update connection", variant: "destructive" }),
+  });
+
   const deleteMut = useMutation({
     mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/sippy/connections/${id}`)).json(),
     onSuccess: (data: any) => {
@@ -1309,6 +1323,15 @@ function VendorConnectionsView({
                   {c.cliTranslationRule || "—"}
                 </span>
                 <div className="flex items-center justify-center gap-1">
+                  <button
+                    onClick={() => toggleBlockMut.mutate({ id: c.iConnection, blocked: !c.blocked })}
+                    disabled={toggleBlockMut.isPending}
+                    className={`p-1.5 rounded transition-colors ${c.blocked ? 'text-rose-400/60 hover:text-rose-400' : 'text-emerald-400/60 hover:text-emerald-400'}`}
+                    title={c.blocked ? "Enable Connection" : "Disable Connection"}
+                    data-testid={`btn-toggle-conn-${c.iConnection}`}
+                  >
+                    <Power className="h-3.5 w-3.5" />
+                  </button>
                   <button
                     onClick={() => setEditTarget(c)}
                     className="p-1.5 text-muted-foreground/50 hover:text-foreground rounded transition-colors"

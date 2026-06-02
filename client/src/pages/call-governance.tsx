@@ -81,6 +81,8 @@ interface BillingRow {
   estimatedBilledSec: number | null;
   customerBilledSec: number | null;
   customerCost: number | null;
+  vendorCost: number | null;
+  marginAmount: number | null;
   vendorName: string | null;
   status: 'ok' | 'check' | 'no_cdr';
 }
@@ -903,7 +905,9 @@ export default function CallGovernancePage() {
                       <th className="px-4 py-2.5 text-right font-medium">Gov Cut</th>
                       <th className="px-4 py-2.5 text-right font-medium">Est. Vendor Charge</th>
                       <th className="px-4 py-2.5 text-right font-medium">Customer Billed</th>
-                      <th className="px-4 py-2.5 text-right font-medium">Cost</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Cust. Cost</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Vendor Cost</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Margin</th>
                       <th className="px-4 py-2.5 text-center font-medium">Status</th>
                     </tr>
                   </thead>
@@ -945,6 +949,16 @@ export default function CallGovernancePage() {
                           </td>
                           <td className="px-4 py-3 text-right text-xs text-slate-400 font-mono">
                             {row.customerCost != null ? `$${row.customerCost.toFixed(4)}` : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs font-mono text-slate-400">
+                            {row.vendorCost != null ? `$${row.vendorCost.toFixed(4)}` : <span className="text-slate-700">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right text-xs font-mono">
+                            {row.marginAmount != null ? (
+                              <span className={row.marginAmount >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                {row.marginAmount >= 0 ? '+' : ''}{row.marginAmount.toFixed(4)}
+                              </span>
+                            ) : <span className="text-slate-700">—</span>}
                           </td>
                           <td className="px-4 py-3 text-center">
                             <span className={cn('px-2 py-0.5 rounded text-xs font-medium', statusCfg.cls)}

@@ -230,6 +230,36 @@ function LiveDuration({ setupTime, durationSecs }: { setupTime?: string; duratio
   return <>{formatDuration(elapsed)}</>;
 }
 
+// Live-ticking PDD cell: for routing (pre-answer) calls, shows elapsed time from
+// setupTime; for connected calls shows the static DELAY (actual ring time).
+function LivePddCell({ call }: { call: any }) {
+  const isRouting = call.callStatus !== 'connected';
+  const startTs = call.setupTime ? parseSippyTime(call.setupTime) : null;
+  const [elapsed, setElapsed] = useState<number>(() =>
+    isRouting && startTs ? Math.max(0, (Date.now() - startTs) / 1000) : 0
+  );
+
+  useEffect(() => {
+    if (!isRouting || !startTs) return;
+    const tick = () => setElapsed(Math.max(0, (Date.now() - startTs) / 1000));
+    tick();
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
+  }, [isRouting, startTs]);
+
+  if (isRouting && startTs) {
+    const s = elapsed;
+    const display = s >= 1 ? `${s.toFixed(1)}s` : `${Math.round(s * 1000)}ms`;
+    return <span className="font-mono text-xs text-amber-400" title="Time in routing">{display}</span>;
+  }
+  const pddSec = call.delay ?? 0;
+  if (pddSec > 0) {
+    const display = pddSec >= 1 ? `${pddSec.toFixed(1)}s` : `${Math.round(pddSec * 1000)}ms`;
+    return <span className="font-mono text-xs text-muted-foreground">{display}</span>;
+  }
+  return <span className="text-muted-foreground/30 text-xs">—</span>;
+}
+
 // ─── Switch Panel (per-switch live call view) ─────────────────────────────────
 
 const VALID_VIEWS = ['summary', 'details', 'quality', 'history'] as const;
@@ -817,10 +847,6 @@ function SwitchPanel({
                         const rowKey = call.id || String(i);
                         const isExpanded = expandedCallId === rowKey;
                         const dirStyle = call.direction ? DIRECTION_STYLE[call.direction] : null;
-                        const pddSec = call.delay ?? 0;
-                        const pddDisplay = pddSec > 0
-                          ? pddSec >= 1 ? `${pddSec.toFixed(1)}s` : `${Math.round(pddSec * 1000)}ms`
-                          : null;
                         const totalCols = 6 + visibleCols.size + (isPrimary ? 1 : 0);
                         return (
                         <Fragment key={rowKey}>
@@ -932,8 +958,8 @@ function SwitchPanel({
                             <td className="px-4 py-3 text-muted-foreground" data-testid={`cell-connection-${i}`}>{call.connection || <span className="text-muted-foreground/30">—</span>}</td>
                           )}
                           {col('pdd') && (
-                            <td className="px-4 py-3 text-right text-muted-foreground font-mono" data-testid={`cell-pdd-${i}`}>
-                              {pddDisplay ?? <span className="text-muted-foreground/30">—</span>}
+                            <td className="px-4 py-3 text-right" data-testid={`cell-pdd-${i}`}>
+                              <LivePddCell call={call} />
                             </td>
                           )}
                           <td className="px-4 py-3 text-right font-mono text-foreground/70" data-testid={`cell-duration-${i}`}>

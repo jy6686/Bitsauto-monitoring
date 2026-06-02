@@ -189,6 +189,7 @@ export default function CDRsPage() {
   const [callType,  setCallType]    = useState('non_zero');
   const [cli,       setCli]         = useState('');
   const [cld,       setCld]         = useState('');
+  const [sipCode,   setSipCode]     = useState('all');
   const [page,      setPage]        = useState(0);
   const [applied,   setApplied]     = useState({
     start: defaultStart, end: defaultEnd, callType: 'non_zero', cli: '', cld: '',
@@ -236,6 +237,16 @@ export default function CDRsPage() {
 
   const cdrs = data?.cdrs || [];
   const hasMore = cdrs.length === PAGE_SIZE;
+
+  const displayCdrs = sipCode === 'all' ? cdrs : cdrs.filter(c => {
+    const r = String(c.result ?? '');
+    const dur = Number(c.duration || c.totalDuration || 0);
+    if (sipCode === '200') return dur > 0;
+    if (sipCode === '4xx') return /^4\d{2}$/.test(r);
+    if (sipCode === '5xx') return /^5\d{2}$/.test(r);
+    if (sipCode === '6xx') return /^6\d{2}$/.test(r);
+    return r === sipCode;
+  });
 
   function applyFilters() {
     const s = tzDateToUTC(startInput, tz);
@@ -451,6 +462,25 @@ export default function CDRsPage() {
               </SelectContent>
             </Select>
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">SIP Code</label>
+            <Select value={sipCode} onValueChange={setSipCode}>
+              <SelectTrigger className="h-8 text-xs w-36" data-testid="select-sip-code">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Codes</SelectItem>
+                <SelectItem value="200">200 Answered</SelectItem>
+                <SelectItem value="4xx">4xx Client Error</SelectItem>
+                <SelectItem value="404">404 Not Found</SelectItem>
+                <SelectItem value="486">486 Busy Here</SelectItem>
+                <SelectItem value="488">488 Not Acceptable</SelectItem>
+                <SelectItem value="5xx">5xx Server Error</SelectItem>
+                <SelectItem value="503">503 Unavailable</SelectItem>
+                <SelectItem value="6xx">6xx Global Failure</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -607,7 +637,7 @@ export default function CDRsPage() {
                 </tr>
               )}
 
-              {!isLoading && cdrs.map((cdr, i) => {
+              {!isLoading && displayCdrs.map((cdr, i) => {
                 const status = getCdrStatus(cdr);
                 const isAnswered = status === 'answered';
                 const cldInfo = cdr.callee ? lookupCLD(cdr.callee) : null;
