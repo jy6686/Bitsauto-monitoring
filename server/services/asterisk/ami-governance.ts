@@ -223,7 +223,7 @@ class AmiGovernanceListener extends EventEmitter {
     }
   }
 
-  /** Send BYE to a specific channel (vendor leg cut) */
+  /** Send BYE to a single channel (fallback — only when no A-leg/recording available) */
   async hangup(channel: string): Promise<boolean> {
     if (!this.connected || !this.loggedIn || !this.socket) {
       console.warn('[ami-governance] Cannot hangup — not connected');
@@ -237,17 +237,33 @@ class AmiGovernanceListener extends EventEmitter {
     return true;
   }
 
-  /** Redirect customer A-leg to playback context */
-  async playback(channel: string, filename: string): Promise<boolean> {
+  /**
+   * Atomically redirect both bridge legs simultaneously:
+   *   channelA → gov-playback  (StopMixMonitor + Wait + Playback + Hangup)
+   *   channelB → gov-hangup    (immediate Hangup)
+   * This dissolves the bridge cleanly without Asterisk hanging up the A-leg
+   * as a side-effect of hanging up the B-leg.
+   */
+  async cutAndPlayback(channelA: string, channelB: string, filename: string): Promise<boolean> {
     if (!this.connected || !this.loggedIn || !this.socket) {
-      console.warn('[ami-governance] Cannot redirect for playback — not connected');
+      console.warn('[ami-governance] Cannot cut — not connected');
       return false;
     }
-    const actionId = `gov-playback-${++this.actionCounter}`;
-    console.log(`[ami-governance] Redirect for playback → channel=${channel} file=${filename}`);
+    const actionId = `gov-cut-${++this.actionCounter}`;
+    console.log(`[ami-governance] CutAndPlayback → A-leg=${channelA} B-leg=${channelB} file=${filename}`);
+    // Set the playback filename variable on the A-leg first
     this.socket.write(
-      `Action: Setvar\r\nChannel: ${channel}\r\nVariable: GOV_PLAYBACK_FILE\r\nValue: ${filename}\r\nActionID: ${actionId}-set\r\n\r\n` +
-      `Action: Redirect\r\nChannel: ${channel}\r\nContext: gov-playback\r\nExten: s\r\nPriority: 1\r\nActionID: ${actionId}\r\n\r\n`
+      `Action: Setvar\r\nChannel: ${channelA}\r\nVariable: GOV_PLAYBACK_FILE\r\nValue: ${filename}\r\nActionID: ${actionId}-var\r\n\r\n`
+    );
+    // Atomic redirect: both legs leave the bridge simultaneously
+    // channelA goes to playback, channelB goes to hangup context
+    this.socket.write(
+      `Action: Redirect\r\n` +
+      `Channel: ${channelA}\r\n` +
+      `ExtraChannel: ${channelB}\r\n` +
+      `Context: gov-playback\r\nExten: s\r\nPriority: 1\r\n` +
+      `ExtraContext: gov-hangup\r\nExtraExten: s\r\nExtraPriority: 1\r\n` +
+      `ActionID: ${actionId}\r\n\r\n`
     );
     return true;
   }

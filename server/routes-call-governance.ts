@@ -44,41 +44,49 @@ async function cutVendorLeg(
   triggerReason: string,
 ) {
   try {
-    // 1. Send BYE to vendor channel
-    await amiGovernance.hangup(channelB);
-
-    // 2. Mark governed call as cut
-    await db.update(governedCalls)
-      .set({ byeSentAt: new Date(), triggerReason, status: 'cut' })
-      .where(eq(governedCalls.id, governedCallId));
-
-    // 3. Log the event
-    await db.insert(callGovernanceLogs).values({
-      governedCallId,
-      eventType: 'vendor_bye',
-      channel:   channelB,
-      details:   `Vendor leg cut. Trigger: ${triggerReason}`,
-    });
-
-    // 4. Wait for MixMonitor to finalise the WAV before redirecting A-leg
-    await new Promise(r => setTimeout(r, 1200));
-
-    // 5. Start playback on A-leg if recording exists
-    if (recordingPath && channelA) {
-      // Strip .wav extension — Asterisk Playback() auto-selects format
+    // Atomic redirect: both legs leave the bridge simultaneously.
+    // channelA → gov-playback (StopMixMonitor + Wait(1) + Playback + Hangup)
+    // channelB → gov-hangup  (immediate Hangup)
+    // This prevents Asterisk from tearing down the A-leg as a side-effect
+    // of hanging up the B-leg while both are in a bridge.
+    if (channelA && recordingPath) {
+      // Strip .wav — Asterisk Playback() auto-selects format
       const playbackFile = recordingPath.replace(/\.wav$/i, '');
-      const ok = await amiGovernance.playback(channelA, playbackFile);
-      if (ok) {
-        await db.update(governedCalls)
-          .set({ playbackStartedAt: new Date() })
-          .where(eq(governedCalls.id, governedCallId));
-        await db.insert(callGovernanceLogs).values({
+      await amiGovernance.cutAndPlayback(channelA, channelB, playbackFile);
+
+      await db.update(governedCalls)
+        .set({ byeSentAt: new Date(), playbackStartedAt: new Date(), triggerReason, status: 'cut' })
+        .where(eq(governedCalls.id, governedCallId));
+
+      await db.insert(callGovernanceLogs).values([
+        {
+          governedCallId,
+          eventType: 'vendor_bye',
+          channel:   channelB,
+          details:   `Vendor leg cut (atomic redirect). Trigger: ${triggerReason}`,
+        },
+        {
           governedCallId,
           eventType: 'playback_started',
           channel:   channelA,
           details:   `Playback started: ${playbackFile}`,
-        });
-      }
+        },
+      ]);
+    } else {
+      // No recording or no A-leg — fall back to plain hangup on B-leg only
+      console.warn(`[call-governance] cutVendorLeg: no channelA or recordingPath — plain hangup only`);
+      await amiGovernance.hangup(channelB);
+
+      await db.update(governedCalls)
+        .set({ byeSentAt: new Date(), triggerReason, status: 'cut' })
+        .where(eq(governedCalls.id, governedCallId));
+
+      await db.insert(callGovernanceLogs).values({
+        governedCallId,
+        eventType: 'vendor_bye',
+        channel:   channelB,
+        details:   `Vendor leg cut (hangup only — no recording). Trigger: ${triggerReason}`,
+      });
     }
 
     console.log(`[call-governance] Vendor leg cut for governed call ${governedCallId} (${triggerReason})`);
