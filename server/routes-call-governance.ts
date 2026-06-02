@@ -109,18 +109,22 @@ export function registerCallGovernanceRoutes(app: Express) {
   // ── Bridge event → check governance rules ──────────────────────────────────
   amiGovernance.on('bridge', async (event) => {
     try {
+      console.log(`[call-governance] Bridge event received: ${event.channel1} ↔ ${event.channel2}`);
       const rules = await db
         .select()
         .from(callGovernanceRules)
         .where(eq(callGovernanceRules.enabled, true));
 
+      console.log(`[call-governance] Enabled rules found: ${rules.length}`);
+
       for (const rule of rules) {
-        if (!rule.channelPattern) continue;
+        if (!rule.channelPattern) { console.log(`[call-governance] Rule ${rule.id} skipped: no channelPattern`); continue; }
         let pattern: RegExp;
-        try { pattern = new RegExp(rule.channelPattern, 'i'); } catch { continue; }
+        try { pattern = new RegExp(rule.channelPattern, 'i'); } catch { console.log(`[call-governance] Rule ${rule.id} bad regex: ${rule.channelPattern}`); continue; }
 
         const ch1Match = pattern.test(event.channel1);
         const ch2Match = pattern.test(event.channel2);
+        console.log(`[call-governance] Rule ${rule.id} pattern="${rule.channelPattern}" ch1(${event.channel1})=${ch1Match} ch2(${event.channel2})=${ch2Match}`);
         if (!ch1Match && !ch2Match) continue;
 
         // Convention: channel matching vendor pattern → B-leg (to cut)
