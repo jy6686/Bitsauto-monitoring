@@ -4,6 +4,7 @@ import {
   Shield, Phone, Scissors, Clock, RefreshCw, Plus, Pencil, Trash2,
   CheckCircle2, XCircle, AlertTriangle, Wifi, WifiOff, FileAudio,
   Activity, Copy, ChevronRight, Settings2, ScrollText, Zap, Info,
+  Play, Pause, Volume2, Download, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,6 +126,98 @@ function Countdown({ startTime, capSec }: { startTime: string | null; capSec: nu
     <span className={cn("font-mono font-bold text-sm", color)} data-testid="countdown-timer">
       {fmtSec(remaining)}
     </span>
+  );
+}
+
+// ── Inline Audio Player ────────────────────────────────────────────────────────
+
+function AudioPlayer({ path, callId }: { path: string; callId: number }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying]   = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [error, setError]       = useState<string | null>(null);
+
+  const src = `/api/call-governance/recordings/stream?path=${encodeURIComponent(path)}`;
+
+  function toggle() {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) { a.pause(); setPlaying(false); }
+    else         { a.play().catch(e => setError(e.message)); setPlaying(true); }
+  }
+
+  function onTimeUpdate() {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    setProgress((a.currentTime / a.duration) * 100);
+  }
+
+  function onLoaded() {
+    setDuration(audioRef.current?.duration ?? 0);
+    setError(null);
+  }
+
+  function onEnded() { setPlaying(false); setProgress(100); }
+
+  function seek(e: React.MouseEvent<HTMLDivElement>) {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    a.currentTime = ((e.clientX - rect.left) / rect.width) * a.duration;
+  }
+
+  function fmt(s: number) {
+    if (!s || isNaN(s)) return '0:00';
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  }
+
+  if (error) {
+    return (
+      <span className="text-xs text-rose-400 flex items-center gap-1">
+        <X className="w-3 h-3" />{error}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 min-w-0" data-testid={`audio-player-${callId}`}>
+      <audio ref={audioRef} src={src} preload="metadata"
+        onTimeUpdate={onTimeUpdate} onLoadedMetadata={onLoaded} onEnded={onEnded}
+        onError={() => setError('Failed to load')}
+      />
+      <button
+        data-testid={`button-play-${callId}`}
+        onClick={toggle}
+        className="w-6 h-6 rounded-full bg-violet-600 hover:bg-violet-500 flex items-center justify-center flex-shrink-0 transition-colors"
+      >
+        {playing
+          ? <Pause className="w-3 h-3 text-white" />
+          : <Play  className="w-3 h-3 text-white ml-0.5" />}
+      </button>
+      <div
+        className="flex-1 h-1.5 bg-slate-700 rounded-full cursor-pointer min-w-[60px] max-w-[120px]"
+        onClick={seek}
+        data-testid={`seek-bar-${callId}`}
+      >
+        <div
+          className="h-full bg-violet-500 rounded-full transition-all"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <span className="text-xs text-slate-500 font-mono flex-shrink-0">
+        {fmt(duration)}
+      </span>
+      <a
+        href={src}
+        download
+        data-testid={`button-download-${callId}`}
+        className="text-slate-500 hover:text-slate-300 flex-shrink-0"
+        title="Download WAV"
+      >
+        <Download className="w-3 h-3" />
+      </a>
+    </div>
   );
 }
 
@@ -481,15 +574,9 @@ export default function CallGovernancePage() {
                         <td className="px-4 py-2 text-xs text-slate-400">{c.capSec ? `${c.capSec}s` : '—'}</td>
                         <td className="px-4 py-2 text-xs text-slate-400">{fmtTs(c.byeSentAt)}</td>
                         <td className="px-4 py-2">
-                          {c.recordingPath ? (
-                            <button
-                              className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1"
-                              onClick={() => { navigator.clipboard.writeText(c.recordingPath!); toast({ title: 'Path copied' }); }}
-                              data-testid={`button-copy-recording-${c.id}`}
-                            >
-                              <Copy className="w-3 h-3" /> Copy path
-                            </button>
-                          ) : <span className="text-slate-600 text-xs">—</span>}
+                          {c.recordingPath
+                            ? <AudioPlayer path={c.recordingPath} callId={c.id} />
+                            : <span className="text-slate-600 text-xs">—</span>}
                         </td>
                       </tr>
                     );
@@ -667,15 +754,19 @@ export default function CallGovernancePage() {
                         </td>
                         <td className="px-4 py-2.5 text-xs text-slate-400">{fmtDate(c.startTime)}</td>
                         <td className="px-4 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <code className="text-xs text-violet-300 font-mono truncate max-w-[220px]">{c.recordingPath}</code>
-                            <button
-                              data-testid={`button-copy-path-${c.id}`}
-                              onClick={() => { navigator.clipboard.writeText(c.recordingPath!); toast({ title: 'Path copied to clipboard' }); }}
-                              className="text-slate-500 hover:text-slate-300 flex-shrink-0"
-                            >
-                              <Copy className="w-3 h-3" />
-                            </button>
+                          <div className="flex flex-col gap-1.5">
+                            <AudioPlayer path={c.recordingPath!} callId={c.id} />
+                            <div className="flex items-center gap-1">
+                              <code className="text-xs text-slate-500 font-mono truncate max-w-[200px]">{c.recordingPath}</code>
+                              <button
+                                data-testid={`button-copy-path-${c.id}`}
+                                onClick={() => { navigator.clipboard.writeText(c.recordingPath!); toast({ title: 'Path copied' }); }}
+                                className="text-slate-600 hover:text-slate-400 flex-shrink-0"
+                                title="Copy path"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
                         </td>
                       </tr>

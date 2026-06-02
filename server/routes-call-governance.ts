@@ -12,6 +12,7 @@ import {
 import { eq, desc, gte, and, sql } from 'drizzle-orm';
 import { amiGovernance } from './services/asterisk/ami-governance';
 import { storage } from './storage';
+import { Client as SshClient } from 'ssh2';
 
 // ── Auth helpers ───────────────────────────────────────────────────────────────
 
@@ -333,6 +334,56 @@ export function registerCallGovernanceRoutes(app: Express) {
 
   app.get('/api/call-governance/ami-status', requireAuth, async (_req: any, res: any) => {
     res.json({ connected: amiGovernance.isConnected, activeTimers: activeTimers.size });
+  });
+
+  // ── REST: Recording stream (SFTP from Asterisk box) ────────────────────────
+  app.get('/api/call-governance/recordings/stream', requireAuth, async (req: any, res: any) => {
+    const filePath = req.query.path as string;
+    if (!filePath) return res.status(400).json({ error: 'path param required' });
+
+    // Block path traversal
+    if (filePath.includes('..') || !filePath.startsWith('/')) {
+      return res.status(400).json({ error: 'Invalid path' });
+    }
+
+    const host     = process.env.ASTERISK_HOST     ?? '159.223.32.59';
+    const user     = process.env.ASTERISK_SSH_USER ?? 'root';
+    const password = process.env.ASTERISK_SSH_PASSWORD ?? '';
+
+    if (!password) {
+      return res.status(503).json({ error: 'ASTERISK_SSH_PASSWORD env var not set' });
+    }
+
+    const conn = new SshClient();
+    conn.on('ready', () => {
+      conn.sftp((err, sftp) => {
+        if (err) { conn.end(); return res.status(500).json({ error: 'SFTP open failed: ' + err.message }); }
+
+        sftp.stat(filePath, (statErr, stats) => {
+          if (statErr) {
+            conn.end();
+            return res.status(404).json({ error: 'File not found on Asterisk: ' + filePath });
+          }
+
+          const fileName = filePath.split('/').pop() ?? 'recording.wav';
+          res.setHeader('Content-Type', 'audio/wav');
+          res.setHeader('Content-Length', stats.size);
+          res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+          res.setHeader('Accept-Ranges', 'bytes');
+
+          const stream = sftp.createReadStream(filePath);
+          stream.on('error', (e: any) => { conn.end(); if (!res.headersSent) res.status(500).end(); });
+          stream.on('close', () => conn.end());
+          stream.pipe(res);
+        });
+      });
+    });
+
+    conn.on('error', (e) => {
+      if (!res.headersSent) res.status(502).json({ error: 'SSH connect failed: ' + e.message });
+    });
+
+    conn.connect({ host, port: 22, username: user, password });
   });
 
   console.log('[call-governance] Routes registered');
