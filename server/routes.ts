@@ -30219,18 +30219,32 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           // B-leg cleanup fires 8s after cut → total billable window
           const estimatedBilledSec = govSec !== null ? govSec + 8 : null;
 
-          // Match CDR by CLI+CLD within ±5 minutes of startTime
+          // Match CDR by CLD within ±10 minutes of startTime.
+          // CLI stored in governed_calls is often a Sippy internal number (not real CLI),
+          // so we match on CLD (destination) only and pick the closest-in-time CDR.
+          // CLI is used as a tiebreaker when multiple CDRs share the same CLD+window.
           let matchedCdr: any = null;
-          if (startMs && gc.caller && gc.callee) {
-            const windowMs = 5 * 60 * 1000;
-            matchedCdr = allCdrs.find(c => {
+          if (startMs && gc.callee) {
+            const windowMs = 10 * 60 * 1000;
+            const cldSuffix = (gc.callee || '').replace(/\D/g, '').slice(-9);
+            const candidates = allCdrs.filter(c => {
               const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
               if (!cdrTs) return false;
               if (Math.abs(cdrTs - startMs) > windowMs) return false;
-              const cliMatch = (c.caller || '').replace(/\D/g, '').endsWith(gc.caller!.replace(/\D/g, '').slice(-7));
-              const cldMatch = (c.callee || '').replace(/\D/g, '').endsWith(gc.callee!.replace(/\D/g, '').slice(-7));
-              return cliMatch && cldMatch;
-            }) ?? null;
+              return (c.callee || '').replace(/\D/g, '').endsWith(cldSuffix);
+            });
+            // Prefer CLI match if we have it, otherwise pick closest in time
+            if (candidates.length > 0) {
+              const cliSuffix = (gc.caller || '').replace(/\D/g, '').slice(-7);
+              const cliMatch = candidates.find(c =>
+                (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix)
+              );
+              matchedCdr = cliMatch ?? candidates.reduce((best, c) => {
+                const cdrTs = new Date(c.startTime).getTime();
+                const bestTs = new Date(best.startTime).getTime();
+                return Math.abs(cdrTs - startMs!) < Math.abs(bestTs - startMs!) ? c : best;
+              });
+            }
           }
 
           const customerBilledSec: number | null = matchedCdr ? (Number(matchedCdr.duration) || null) : null;
