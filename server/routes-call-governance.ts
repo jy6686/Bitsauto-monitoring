@@ -52,7 +52,23 @@ async function cutVendorLeg(
     if (channelA && recordingPath) {
       // Strip .wav — Asterisk Playback() auto-selects format
       const playbackFile = recordingPath.replace(/\.wav$/i, '');
+
+      // Atomic redirect:
+      //   A-leg → gov-playback  (StopMixMonitor + Wait(1) + Playback + Hangup)
+      //   B-leg → gov-hangup    (Wait(90) + Hangup)
+      //
+      // B-leg enters Wait(90) instead of immediate Hangup so that Sippy
+      // (acting as B2BUA) does NOT receive a BYE on the outbound call leg
+      // during playback. If Sippy got that BYE it would cascade BYE to the
+      // A-leg and kill the caller before the recording plays.
+      // We send an explicit AMI Hangup to B-leg ~40s later (after playback
+      // is done) so it is cleaned up promptly without waiting the full 90s.
       await amiGovernance.cutAndPlayback(channelA, channelB, playbackFile);
+
+      // Delayed B-leg cleanup — fires after recording has had time to play
+      setTimeout(() => {
+        amiGovernance.hangup(channelB).catch(() => {});
+      }, 40_000);
 
       await db.update(governedCalls)
         .set({ byeSentAt: new Date(), playbackStartedAt: new Date(), triggerReason, status: 'cut' })
