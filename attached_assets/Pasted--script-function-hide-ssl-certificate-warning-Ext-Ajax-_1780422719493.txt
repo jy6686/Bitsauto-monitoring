@@ -1,0 +1,202 @@
+
+
+
+
+
+
+<script>
+
+function hide_ssl_certificate_warning() {
+    Ext.Ajax.request({
+        url: 'system.php',
+        params: {
+            action: 'hide_ssl_certificate_warning'
+        }
+    });
+    var d = document.getElementById('warning_ssl_certificate');
+    d.style.display = 'none';
+}
+
+<div id="warning_setup_firewall" class="security_vulnerability">
+
+Warning: For your security please review your Firewall Rulesand create rules to allow or deny access to your SoftSwitch. For somesuggestions visit our support documentation here.
+
+        <div id="cssmenu">
+        <ul>
+
+
+            <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                <ul>
+
+
+                    <li class="has-sub"><a>My Customers</a>
+                        <ul>
+
+                                    <li><a href="accounts.php">Accounts</a></li>
+    
+                                    <li><a href="subcustomers.php">Customers</a></li>
+    
+    
+                                    <li><a href="account_classes.php">Account Classes</a></li>
+    
+                                    <li><a href="access.php">Permissions</a></li>
+    
+                                    <li><a href="account_lookup.php">Account Lookup</a></li>
+    
+                        </ul>
+                    </li>
+
+
+                    <li class="has-sub"><a>
+                                            Tariffs &amp;
+                                            Currencies</a>
+                        <ul>
+                                <li><a href="tariffs.php">Tariffs</a></li>
+                                <li><a href="service_plans.php">Service Plans</a></li>
+                            <li><a href="xrates.php">Exchange Rates</a></li>
+                        </ul>
+                    </li>
+
+                    <li class="has-sub"><a>Payments</a>
+                        <ul>
+                                <li><a href="payment_processors.php">Payment Processors</a></li>
+
+
+                                <li><a href="payments_history_root.php">Payments History</a></li>
+
+                                <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                            </ul>
+                    </li>
+
+                    <li class="has-sub"><a>Invoicing</a>
+                        <ul>
+                            <li><a href="invoices.php">Invoices</a></li>
+                            <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                            <li><a href="images.php">Images</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </li>
+
+            <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                <ul>
+                        <li class="has-sub"><a>My Vendors</a>
+                        <ul>
+                            <li><a href="vendors.php">Vendors</a></li>
+                            <li><a href="registrations.php">Registrations</a></li>
+                        </ul>
+                    </li>
+                    <li class="has-sub"><a>Routing</a>
+                        <ul>
+                            <li><a href="destination_sets.php">Destination Sets</a></li>
+                            <li><a href="routing_groups.php">Routing Groups</a></li>
+                                <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                        </ul>
+                    </li>
+
+                        <li class="has-sub"><a>DID Numbers</a>
+                        <ul>
+                            <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                            <li><a href="dids.php">DID Pool</a></li>
+                        </ul>
+                    </li>
+
+                </ul>
+            </li>
+
+            <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                <ul>
+
+                    <li><a href="web_users.php">Users</a></li>
+
+                    <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                    <li><a href="destinations.php">Destinations</a></li>
+                    <li><a href="system.php">System Parameters</a></li>
+                    <li><a href="external_services.php">External Services</a></li>
+                    <li><a href="show_graphs.php">Monitoring</a></li>
+
+                    <li><a href="activecalls.php">Active Calls</a></li>
+
+                    <li><a href="system_information.php">System Information</a></li>
+
+                    <li class="has-sub"><a href="tools.php">Tools</a>
+                        <ul>
+                            <li><a href="csrs.php">CSR Generator</a></li>
+                            <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                            <li><a href="looking_glass.php">Looking Glass</a></li>
+                            <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                            <li><a href="firewall_rules.php">IP Firewall</a></li>
+                            <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                            <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                        </ul>
+                    </li>
+
+
+                </ul>
+            </li>
+            <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                <ul class="wide">
+
+                    <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                    <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                    <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                    <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                    <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                    <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                    <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                    <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                </ul>
+            </li>
+
+            <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                ssp-root
+                                            </a>
+                <ul class="wide">
+                    <li><a class="bold">Accounts balance: -2434021.3268412 USD</a></li>
+                    <li><a class="bold">Customers balance: 0.0000000 USD</a></li>
+                    <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                    <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                </ul>
+            </li>
+
+            <li id="menu_search" class="has-sub align-right">
+                <a>
+                    <input id="menu_search_pattern" type="text" name="menu_search_pattern">
+                    <i id="menu_search_icon" class="fas fa-search"></i>
+                </a>
+            </li>
+
+        </ul>
+    </div>
+
+<div style="width: auto; height: 2px; background: #ff9900;"></div>
+<div id="main">
+            
+
+<form action="routing_groups.php" method="GET" id="mainform">
+<div class="dataname" style="padding-top: 1px;">
+  <table cellspacing="0" cellpadding="0" width="175">
+   <tr>
+    <td align="left" valign="top" style="padding-top: 2px;">Name</td>
+    <td align="right">
+    <select class="sel2" style="width: 80px;" name="name_clause">
+        <option value="0">is like</option>
+        <option value="1" >is not like</option>
+    </select>
+    </td>
+   </tr>
+  </table>
+</div>
+<div class="dataval" style="width: 235px;">
+    <input type="text" name="group_name" value="" class="sel2">
+    <input type="submit" value="Filter">
+</div>
+</form>
