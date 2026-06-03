@@ -1895,6 +1895,12 @@ export default function RouteIntelligencePage() {
     refetchInterval: 90_000,
   });
 
+  const { data: rollbackSummary } = useQuery<{ success: boolean; count: number }>({
+    queryKey: ["/api/ai/route-copilot/rollback-summary"],
+    refetchInterval: 60_000,
+  });
+  const rollbackCount = rollbackSummary?.count ?? 0;
+
   const recomputeMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/carrier-scores/recompute"),
     onSuccess: () => {
@@ -1970,6 +1976,14 @@ export default function RouteIntelligencePage() {
           >
             <tab.icon className={cn("h-3.5 w-3.5", tab.key === "copilot" && "text-violet-400")} />
             {tab.label}
+            {tab.key === "history" && rollbackCount > 0 && (
+              <span
+                data-testid="rollback-count-badge"
+                className="ml-0.5 min-w-[1.1rem] h-[1.1rem] flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none px-1"
+              >
+                {rollbackCount > 99 ? "99+" : rollbackCount}
+              </span>
+            )}
           </button>
         ))}
       </div>

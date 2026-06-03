@@ -497,6 +497,33 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     },
   );
 
+  // ── GET /api/ai/route-copilot/rollback-summary ───────────────────────────
+  // Lightweight: returns count of actions rolled back in the last 24 h.
+  app.get(
+    "/api/ai/route-copilot/rollback-summary",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const { Pool } = await import("pg");
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        try {
+          const r = await pool.query(`
+            SELECT COUNT(*)::int AS count
+            FROM account_actions
+            WHERE action_type = 'ROLLBACK'
+              AND created_at >= NOW() - INTERVAL '24 hours'
+          `);
+          return res.json({ success: true, count: r.rows[0]?.count ?? 0 });
+        } finally {
+          await pool.end();
+        }
+      } catch (err: any) {
+        console.error("[ai-copilot/rollback-summary] error:", err.message);
+        return res.status(500).json({ success: false, count: 0 });
+      }
+    },
+  );
+
   // ── GET /api/ai/route-copilot/action-history ─────────────────────────────
   // Returns all non-ROLLBACK account_actions with their ROLLBACK sibling(s)
   // nested underneath. Supports ?filter=rolled_back|active, ?search=<text>,
