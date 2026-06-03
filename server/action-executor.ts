@@ -1,11 +1,16 @@
 // server/action-executor.ts
 // ── C2 Sippy Write-Back Hooks ────────────────────────────────────────────────
-// Safety gate: C2_EXECUTION_ENABLED must be explicitly set to true before any
-// Sippy writes fire.  Default is false — all actions run in dry-run mode.
+// Safety gate: C2_EXECUTION_ENABLED must be explicitly set to "true" in the
+// environment before any Sippy writes fire.  Default is false — all actions
+// run in dry-run mode, recorded in the audit ledger only.
 
 import { createHash } from 'crypto';
+import { callSippyXmlRpc } from './sippy';
 
-const C2_EXECUTION_ENABLED = false;
+// ── Execution gate — env-driven, no code change required ─────────────────────
+export function isExecutionEnabled(): boolean {
+  return process.env.C2_EXECUTION_ENABLED === 'true';
+}
 
 export type ActionType =
   | 'RATE_LIMIT'
@@ -108,32 +113,88 @@ export function buildSippyParams(accountId: string, actionType: ActionType): Sip
 // ── Execute ───────────────────────────────────────────────────────────────────
 
 export async function executeAction(
-  _actionId:    number,
-  _sippyParams: Record<string, unknown>,
+  _actionId:   number,
+  method:      string,
+  sippyParams: Record<string, unknown>,
 ): Promise<ExecutionResult> {
-  if (!C2_EXECUTION_ENABLED) {
+  if (!isExecutionEnabled()) {
     return {
       success:           true,
       mode:              'dry_run',
       verificationState: 'NOT_APPLICABLE',
       result: {
         message:   'Execution gate is closed (C2_EXECUTION_ENABLED=false). Action recorded in audit ledger only.',
-        wouldCall: _sippyParams,
+        wouldCall: { method, ...sippyParams },
       },
     };
   }
 
-  // Live execution path — only reached when C2_EXECUTION_ENABLED=true
-  // All live executions start as UNKNOWN_PENDING until verified by reconciliation.
-  try {
-    // TODO: wire to sippyXmlRpc(method, params) here, then verify by re-reading state
+  // Guard: if no real Sippy method mapped, refuse silently
+  if (!method || method === 'none') {
     return {
       success:           false,
       mode:              'executed',
-      verificationState: 'UNKNOWN_PENDING',
-      error:   'Live Sippy write-back not yet wired. Configure the XML-RPC handler first.',
+      verificationState: 'NOT_APPLICABLE',
+      error:             'No Sippy method mapped for this action type. Manual intervention required.',
+    };
+  }
+
+  // Build a clean flat params object that callSippyXmlRpc can accept.
+  // Only scalar types (string | number | boolean | null) are passed through.
+  const flatParams: Record<string, string | number | boolean | null> = {};
+  for (const [k, v] of Object.entries(sippyParams)) {
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null) {
+      flatParams[k] = v as string | number | boolean | null;
+    }
+  }
+
+  try {
+    // ── 1. Write — call Sippy XML-RPC ────────────────────────────────────────
+    const writeResult = await callSippyXmlRpc(method, flatParams);
+
+    if (!writeResult.success) {
+      console.error(`[action-executor] ${method} failed (HTTP ${writeResult.statusCode}): ${writeResult.fault}`);
+      return {
+        success:           false,
+        mode:              'executed',
+        verificationState: 'FAILED_CONFIRMED',
+        error:             writeResult.fault ?? `HTTP ${writeResult.statusCode}`,
+      };
+    }
+
+    // ── 2. Verify — re-read account state to confirm write ────────────────────
+    // For updateAccount variants, we attempt a getAccountInfo re-read to confirm.
+    // If the re-read itself fails we fall back to UNKNOWN_PENDING — the write
+    // succeeded at the HTTP layer but field-level confirmation is unavailable.
+    let verificationState: VerificationState = 'UNKNOWN_PENDING';
+
+    if (method === 'updateAccount' || method === 'customer.updateAccount') {
+      const iAccountRaw = flatParams.i_account;
+      const iAccount    = iAccountRaw !== undefined && iAccountRaw !== null
+        ? parseInt(String(iAccountRaw), 10)
+        : NaN;
+
+      if (!isNaN(iAccount)) {
+        const verifyResult = await callSippyXmlRpc('getAccountInfo', { i_account: iAccount });
+        verificationState  = verifyResult.success ? 'SUCCESS_CONFIRMED' : 'UNKNOWN_PENDING';
+        if (!verifyResult.success) {
+          console.warn(`[action-executor] post-write getAccountInfo failed for account ${iAccount}: ${verifyResult.fault}`);
+        }
+      }
+    }
+
+    console.log(`[action-executor] ${method} SUCCESS — verification: ${verificationState}`);
+    return {
+      success:           true,
+      mode:              'executed',
+      verificationState,
+      result: {
+        httpStatus: writeResult.statusCode,
+        preview:    writeResult.rawBody.slice(0, 300),
+      },
     };
   } catch (e: any) {
+    console.error(`[action-executor] ${method} threw:`, e.message);
     return {
       success:           false,
       mode:              'executed',

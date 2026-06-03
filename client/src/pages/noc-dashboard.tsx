@@ -90,11 +90,13 @@ function StripQuickApplyModal({
   onConfirm,
   onCancel,
   isPending,
+  executionEnabled,
 }: {
   rec: StripRecommendation;
   onConfirm: () => void;
   onCancel: () => void;
   isPending: boolean;
+  executionEnabled: boolean;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -161,12 +163,18 @@ function StripQuickApplyModal({
             <span className="text-muted-foreground">{rec.expectedImpact}</span>
           </div>
 
-          <div className="flex items-start gap-2 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2">
-            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-            <span>
-              Action will be recorded in the audit ledger. Live Sippy write-back only fires when the execution gate is open.
-            </span>
-          </div>
+          {/* Execution mode notice */}
+          {executionEnabled ? (
+            <div className="flex items-center gap-2 text-[11px] text-emerald-400 bg-emerald-500/8 border border-emerald-500/20 rounded-lg px-3 py-2">
+              <span className="font-bold uppercase tracking-widest text-[10px] bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-1.5 py-0.5 rounded font-mono flex-shrink-0">LIVE</span>
+              <span>Execution gate is open — this will write directly to Sippy and confirm via re-read.</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-[11px] text-amber-400 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2">
+              <span className="font-bold uppercase tracking-widest text-[10px] bg-amber-500/20 border border-amber-500/30 text-amber-400 px-1.5 py-0.5 rounded font-mono flex-shrink-0">DRY-RUN</span>
+              <span>Audit-ledger only. Set <code className="font-mono">C2_EXECUTION_ENABLED=true</code> to enable live writes.</span>
+            </div>
+          )}
         </div>
 
         <div className="px-5 pb-4 flex items-center justify-end gap-2.5">
@@ -700,6 +708,12 @@ export default function NocDashboardPage() {
     retry: 1,
   });
 
+  const { data: execModeData } = useQuery<{ enabled: boolean; mode: string }>({
+    queryKey: ["/api/ai/route-copilot/execution-mode"],
+    staleTime: 30_000,
+  });
+  const executionEnabled = execModeData?.enabled ?? false;
+
   const investigateMutation = useMutation({
     mutationFn: (id: number) =>
       apiRequest("PATCH", `/api/noc/incidents/${id}/status`, { status: "investigating" }),
@@ -870,6 +884,7 @@ export default function NocDashboardPage() {
           <StripQuickApplyModal
             rec={stripModalRec}
             isPending={stripApplyMutation.isPending}
+            executionEnabled={executionEnabled}
             onConfirm={() => stripApplyMutation.mutate(stripModalRec)}
             onCancel={() => !stripApplyMutation.isPending && setStripModalRec(null)}
           />

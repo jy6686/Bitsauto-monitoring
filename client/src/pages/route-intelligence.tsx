@@ -193,12 +193,14 @@ function ApplyModal({
   onConfirm,
   onCancel,
   isPending,
+  executionEnabled,
 }: {
   rec: AiRouteRecommendation;
   mode: CopilotMode;
   onConfirm: () => void;
   onCancel: () => void;
   isPending: boolean;
+  executionEnabled: boolean;
 }) {
   const risk = RISK_CONFIG[rec.risk];
   return (
@@ -266,13 +268,18 @@ function ApplyModal({
             <span className="text-muted-foreground">{rec.expectedImpact}</span>
           </div>
 
-          {/* Dry-run notice */}
-          <div className="flex items-start gap-2 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2">
-            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-            <span>
-              Action will be recorded in the audit ledger. Live Sippy write-back only fires when the execution gate is open.
-            </span>
-          </div>
+          {/* Execution mode notice */}
+          {executionEnabled ? (
+            <div className="flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/8 border border-emerald-500/20 rounded-lg px-3 py-2">
+              <span className="font-bold uppercase tracking-widest text-[10px] bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-1.5 py-0.5 rounded font-mono flex-shrink-0">LIVE</span>
+              <span>Execution gate is open. This action will write directly to Sippy and be confirmed by post-write re-read.</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2">
+              <span className="font-bold uppercase tracking-widest text-[10px] bg-amber-500/20 border border-amber-500/30 text-amber-400 px-1.5 py-0.5 rounded font-mono flex-shrink-0">DRY-RUN</span>
+              <span>Action recorded in audit ledger only. Set <code className="font-mono">C2_EXECUTION_ENABLED=true</code> to enable live writes.</span>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -592,6 +599,12 @@ function AiCopilotPanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cachedData]);
 
+  const { data: execModeData } = useQuery<{ enabled: boolean; mode: string }>({
+    queryKey: ["/api/ai/route-copilot/execution-mode"],
+    staleTime: 30_000,
+  });
+  const executionEnabled = execModeData?.enabled ?? false;
+
   const copilotMutation = useMutation<{ success: boolean; data: CopilotResult }, Error>({
     mutationFn: () => apiRequest("POST", "/api/ai/route-recommendations").then(r => r.json()),
     onSuccess: () => setHasRun(true),
@@ -876,6 +889,7 @@ function AiCopilotPanel() {
             rec={modalRec}
             mode={result?.mode ?? "rule_based_preview"}
             isPending={applyMutation.isPending}
+            executionEnabled={executionEnabled}
             onConfirm={() => applyMutation.mutate(modalRec)}
             onCancel={() => !applyMutation.isPending && setModalRec(null)}
           />

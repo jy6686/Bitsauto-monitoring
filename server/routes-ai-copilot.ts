@@ -18,6 +18,7 @@ import {
   buildSippyParams,
   computeIdempotencyKey,
   executeAction,
+  isExecutionEnabled,
 } from "./action-executor";
 import { db } from "./db";
 import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache } from "../shared/schema";
@@ -263,6 +264,18 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     },
   );
 
+  // ── GET /api/ai/route-copilot/execution-mode ────────────────────────────────
+  // Returns whether the C2 execution gate is open (live) or closed (dry-run).
+  // Safe for all management/noc roles — no sensitive data exposed.
+  app.get(
+    "/api/ai/route-copilot/execution-mode",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    (_req: any, res: any) => {
+      const enabled = isExecutionEnabled();
+      res.json({ enabled, mode: enabled ? "live" : "dry_run" });
+    },
+  );
+
   // ── POST /api/ai/route-copilot/apply ───────────────────────────────────────
   // Applies a route copilot recommendation: creates an action record, executes
   // it (dry-run unless C2_EXECUTION_ENABLED=true), and records it to the audit
@@ -340,7 +353,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         });
 
         // 2. Execute (dry-run gate is inside executeAction)
-        const execResult = await executeAction(action.id, sippyParams.params);
+        const execResult = await executeAction(action.id, sippyParams.method, sippyParams.params);
 
         // 3. Update the action record with execution outcome
         const newStatus = execResult.success

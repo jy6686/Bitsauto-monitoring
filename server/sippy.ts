@@ -8240,6 +8240,55 @@ export async function getAccountInfo(
 }
 
 /**
+ * Generic XML-RPC call against the current active Sippy switch.
+ * Uses the active session URL and environment-configured API credentials.
+ * Designed for C2 write-back from action-executor — all writes are logged externally.
+ *
+ * Returns { success, statusCode, rawBody, fault? }
+ */
+export async function callSippyXmlRpc(
+  method: string,
+  params: Record<string, string | number | boolean | null>,
+): Promise<{ success: boolean; statusCode: number; rawBody: string; fault?: string }> {
+  const base = activeSession?.portalUrl;
+  if (!base) {
+    return { success: false, statusCode: 0, rawBody: '', fault: 'No active Sippy session. Connect to Sippy before executing live actions.' };
+  }
+
+  // Resolve credentials from env — same vars used throughout the server
+  const username = process.env.SIPP_ADMIN_USERNAME || process.env.SIPPY_ADMIN_USERNAME || '';
+  const password = process.env.SIPP_ADMIN_PASSWORD || process.env.SIPPY_ADMIN_PASSWORD || '';
+
+  if (!username || !password) {
+    return {
+      success: false,
+      statusCode: 0,
+      rawBody: '',
+      fault: 'API credentials not configured (set SIPP_ADMIN_USERNAME and SIPP_ADMIN_PASSWORD).',
+    };
+  }
+
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
+    const isFault = resp.body.includes('<fault>');
+    const fault   = isFault
+      ? (extractFaultString(resp.body)?.replace(/<[^>]+>/g, '').trim() ?? 'XML-RPC fault')
+      : undefined;
+    console.log(`[callSippyXmlRpc] ${method} → HTTP ${resp.statusCode}${fault ? ` fault: ${fault}` : ''}`);
+    return {
+      success:    resp.statusCode === 200 && !isFault,
+      statusCode: resp.statusCode,
+      rawBody:    resp.body.slice(0, 2000),
+      fault,
+    };
+  } catch (e: any) {
+    console.error(`[callSippyXmlRpc] ${method} threw:`, e.message);
+    return { success: false, statusCode: 0, rawBody: '', fault: e.message };
+  }
+}
+
+/**
  * Update core account settings via XML-RPC updateAccount (docs 107312+).
  * Only fields explicitly passed are sent. Unknown fields are ignored by Sippy.
  */
