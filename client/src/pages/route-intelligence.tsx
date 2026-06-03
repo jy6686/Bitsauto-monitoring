@@ -565,6 +565,7 @@ function AiCopilotPanel() {
     onSuccess: (data, rec) => {
       setApplied(prev => new Set([...prev, rec.id]));
       setModalRec(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/summary"] });
       toast({
         title: data.mode === "executed" ? "Routing action applied" : "Action recorded (dry-run)",
         description: data.sippyNote ?? `Action #${data.actionId} logged to audit ledger.`,

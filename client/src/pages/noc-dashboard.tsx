@@ -8,12 +8,15 @@ import {
   Minus, BrainCircuit, Siren, Maximize2, Minimize, Moon, Sun,
   ArrowRight, RefreshCw, AlertOctagon, GitBranch, Network,
   ChevronRight, Clock, Zap, ChevronDown, ChevronUp, ExternalLink,
+  PlayCircle, Loader2, AlertCircle, BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -46,6 +49,18 @@ interface Recommendation {
 
 interface AlertRow { id: number; severity: string; resolved: boolean; acknowledgedAt: string | null; }
 
+interface StripRecommendation {
+  id: string;
+  action: string;
+  confidence: number;
+  risk: "low" | "medium" | "high";
+  expectedImpact: string;
+  currentVendor?: string;
+  targetVendor?: string;
+  reasons: string[];
+  simulate: { asrDelta: null; stabilityDelta: null; projectedAsr: null; projectedStability: null };
+}
+
 interface CopilotSummary {
   hasAlerts: boolean;
   criticalCount: number;
@@ -53,8 +68,115 @@ interface CopilotSummary {
   fraudEvents: number;
   topAction: string | null;
   topSignal: string | null;
+  topRecommendation: StripRecommendation | null;
   totalCarriers: number;
   generatedAt: string;
+}
+
+// ── Strip Quick-Apply Modal ─────────────────────────────────────────────────────
+
+const RISK_LABEL: Record<string, string> = {
+  low: "Low Risk", medium: "Medium Risk", high: "High Risk",
+};
+const RISK_CLS: Record<string, string> = {
+  low:    "bg-green-500/10 text-green-400 border-green-500/30",
+  medium: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+  high:   "bg-red-500/10 text-red-400 border-red-500/30",
+};
+
+function StripQuickApplyModal({
+  rec,
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  rec: StripRecommendation;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={!isPending ? onCancel : undefined}
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 8 }}
+        transition={{ duration: 0.18 }}
+        className="relative z-10 w-full max-w-md rounded-2xl border border-violet-500/30 bg-card shadow-2xl overflow-hidden"
+        data-testid="strip-apply-modal"
+      >
+        <div className="bg-gradient-to-r from-violet-500/10 to-cyan-500/5 border-b border-violet-500/20 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-violet-500/20 border border-violet-500/30 flex items-center justify-center flex-shrink-0">
+              <PlayCircle className="h-3.5 w-3.5 text-violet-400" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm">Apply Routing Action</h3>
+              <p className="text-[11px] text-muted-foreground">Confirm the recommended action from the Copilot strip</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div className="rounded-lg bg-muted/50 border border-border px-3.5 py-3">
+            <p className="text-xs font-semibold text-foreground leading-snug">{rec.action}</p>
+            {rec.currentVendor && (
+              <p className="text-[11px] text-muted-foreground mt-0.5 font-mono">Carrier: {rec.currentVendor}</p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={cn("text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border", RISK_CLS[rec.risk])}>
+              {RISK_LABEL[rec.risk]}
+            </span>
+            <span className="text-[10px] text-muted-foreground font-mono">
+              Confidence: <span className="font-semibold text-foreground">{rec.confidence}%</span>
+            </span>
+          </div>
+
+          <div className="flex items-start gap-2 text-xs rounded-lg bg-cyan-500/5 border border-cyan-500/15 px-3 py-2">
+            <BarChart2 className="h-3.5 w-3.5 text-cyan-500 flex-shrink-0 mt-0.5" />
+            <span className="text-muted-foreground">{rec.expectedImpact}</span>
+          </div>
+
+          <div className="flex items-start gap-2 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2">
+            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+            <span>
+              Action will be recorded in the audit ledger. Live Sippy write-back only fires when the execution gate is open.
+            </span>
+          </div>
+        </div>
+
+        <div className="px-5 pb-4 flex items-center justify-end gap-2.5">
+          <button
+            data-testid="strip-modal-cancel"
+            onClick={onCancel}
+            disabled={isPending}
+            className="text-sm font-medium px-4 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            data-testid="strip-modal-confirm"
+            onClick={onConfirm}
+            disabled={isPending}
+            className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <PlayCircle className="h-3.5 w-3.5" />
+            )}
+            {isPending ? "Applying…" : "Confirm & Apply"}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
 }
 
 // ── Copilot Alert Strip ─────────────────────────────────────────────────────────
@@ -69,7 +191,15 @@ function formatAgo(isoString: string, now: number): string {
   return `${hrs}h ago`;
 }
 
-function CopilotAlertStrip({ summary }: { summary: CopilotSummary | undefined }) {
+function CopilotAlertStrip({
+  summary,
+  canApply,
+  onQuickApply,
+}: {
+  summary: CopilotSummary | undefined;
+  canApply: boolean;
+  onQuickApply: (rec: StripRecommendation) => void;
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [now, setNow] = useState(Date.now());
 
@@ -206,11 +336,27 @@ function CopilotAlertStrip({ summary }: { summary: CopilotSummary | undefined })
               transition={{ duration: 0.18 }}
               className="px-4 pb-2"
             >
-              <div className="flex items-start gap-2 pl-6">
-                <ArrowRight className={cn("h-3 w-3 flex-shrink-0 mt-0.5", iconColor)} />
-                <span className="text-[11px] text-slate-300 font-mono leading-snug">
+              <div className="flex items-center gap-2 pl-6">
+                <ArrowRight className={cn("h-3 w-3 flex-shrink-0", iconColor)} />
+                <span className="text-[11px] text-slate-300 font-mono leading-snug flex-1">
                   {summary.topAction}
                 </span>
+                {canApply && summary.topRecommendation && (
+                  <button
+                    data-testid="copilot-strip-quick-apply"
+                    onClick={() => onQuickApply(summary.topRecommendation!)}
+                    className={cn(
+                      "flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded border transition-all flex-shrink-0",
+                      isCritical
+                        ? "border-red-500/50 text-red-300 bg-red-500/15 hover:bg-red-500/30"
+                        : "border-amber-500/50 text-amber-300 bg-amber-500/15 hover:bg-amber-500/30",
+                    )}
+                    title="Apply this recommendation directly from the NOC strip"
+                  >
+                    <PlayCircle className="h-2.5 w-2.5" />
+                    Apply
+                  </button>
+                )}
               </div>
               {summary.fraudEvents > 3 && (
                 <div className="flex items-center gap-1.5 pl-6 mt-1">
@@ -421,6 +567,9 @@ const QUICK_LINKS = [
 
 export default function NocDashboardPage() {
   const [fullscreen, setFullscreen] = useState(false);
+  const [stripModalRec, setStripModalRec] = useState<StripRecommendation | null>(null);
+  const { toast } = useToast();
+  const { isManagement } = useAuth();
 
   useEffect(() => {
     document.documentElement.classList.add('dark');
@@ -468,6 +617,31 @@ export default function NocDashboardPage() {
     mutationFn: (id: number) =>
       apiRequest("PATCH", `/api/noc/incidents/${id}/status`, { status: "investigating" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/noc/incidents"] }),
+  });
+
+  const stripApplyMutation = useMutation<
+    { success: boolean; actionId: number; mode: string; status: string; sippyNote: string },
+    Error,
+    StripRecommendation
+  >({
+    mutationFn: (rec) =>
+      apiRequest("POST", "/api/ai/route-copilot/apply", { recommendation: rec })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.success) throw new Error(data.error ?? "Apply failed");
+          return data;
+        }),
+    onSuccess: (data) => {
+      setStripModalRec(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/summary"] });
+      toast({
+        title: data.mode === "executed" ? "Routing action applied" : "Action recorded (dry-run)",
+        description: data.sippyNote ?? `Action #${data.actionId} logged to audit ledger.`,
+      });
+    },
+    onError: (err) => {
+      toast({ title: "Apply failed", description: err.message, variant: "destructive" });
+    },
   });
 
   const activeCalls       = liveSummary?.totalActiveCalls ?? 0;
@@ -594,7 +768,23 @@ export default function NocDashboardPage() {
       </div>
 
       {/* ── Copilot Alert Strip ── */}
-      <CopilotAlertStrip summary={copilotSummary} />
+      <CopilotAlertStrip
+        summary={copilotSummary}
+        canApply={isManagement}
+        onQuickApply={(rec) => setStripModalRec(rec)}
+      />
+
+      {/* ── Strip Quick-Apply Modal ── */}
+      <AnimatePresence>
+        {stripModalRec && (
+          <StripQuickApplyModal
+            rec={stripModalRec}
+            isPending={stripApplyMutation.isPending}
+            onConfirm={() => stripApplyMutation.mutate(stripModalRec)}
+            onCancel={() => !stripApplyMutation.isPending && setStripModalRec(null)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ── Main three-panel grid ── */}
       <div className="flex-1 grid grid-cols-12 gap-0 min-h-0 overflow-hidden">

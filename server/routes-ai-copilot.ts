@@ -123,17 +123,46 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
 
         const hasAlerts = criticalCarriers.length > 0 || degradedCarriers.length > 0;
 
-        // Top action text
+        // Top action text + minimal recommendation for strip quick-apply
         let topAction: string | null = null;
         let topSignal: string | null = null;
+        let topRecommendation: Record<string, unknown> | null = null;
+
         if (criticalCarriers.length > 0) {
           const worst = criticalCarriers.sort((a, b) => (a.stabilityScore ?? 100) - (b.stabilityScore ?? 100))[0];
           topAction = `Reroute traffic away from ${worst.carrierName} (stability: ${worst.stabilityScore?.toFixed(0) ?? "??"}/100)`;
           topSignal = `${criticalCarriers.length} critical carrier${criticalCarriers.length > 1 ? "s" : ""} detected`;
+          topRecommendation = {
+            id: `strip-reroute-${worst.carrierName}`,
+            action: `Reroute traffic away from ${worst.carrierName}`,
+            confidence: 82,
+            risk: "high",
+            expectedImpact: `Stability ${worst.stabilityScore?.toFixed(0) ?? "??"}/100 — rerouting will reduce failed call exposure`,
+            currentVendor: worst.carrierName,
+            reasons: [
+              worst.stabilityScore != null ? `Stability: ${worst.stabilityScore.toFixed(0)}/100 (critical threshold)` : null,
+              worst.rollingAsr != null ? `Rolling ASR: ${worst.rollingAsr.toFixed(1)}%` : null,
+              worst.trend === "degrading" ? "Trend: actively degrading" : null,
+            ].filter(Boolean),
+            simulate: { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
+          };
         } else if (degradedCarriers.length > 0) {
           const worst = degradedCarriers.sort((a, b) => (a.stabilityScore ?? 100) - (b.stabilityScore ?? 100))[0];
           topAction = `Monitor or deprioritise ${worst.carrierName} (ASR: ${worst.rollingAsr?.toFixed(1) ?? "??"}%)`;
           topSignal = `${degradedCarriers.length} degraded carrier${degradedCarriers.length > 1 ? "s" : ""}`;
+          topRecommendation = {
+            id: `strip-deprioritise-${worst.carrierName}`,
+            action: `Deprioritise ${worst.carrierName} routing by 20%`,
+            confidence: 65,
+            risk: "medium",
+            expectedImpact: `ASR ${worst.rollingAsr?.toFixed(1) ?? "?"}% — deprioritising reduces degraded traffic exposure`,
+            currentVendor: worst.carrierName,
+            reasons: [
+              worst.stabilityScore != null ? `Stability: ${worst.stabilityScore.toFixed(0)}/100` : null,
+              worst.rollingAsr != null ? `ASR: ${worst.rollingAsr.toFixed(1)}% — below acceptable threshold` : null,
+            ].filter(Boolean),
+            simulate: { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
+          };
         } else if (fraudEvents > 3) {
           topAction = `Investigate carriers for elevated fraud signals (${fraudEvents} events in 24h)`;
           topSignal = `${fraudEvents} fraud events detected`;
@@ -146,6 +175,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           fraudEvents,
           topAction,
           topSignal,
+          topRecommendation,
           totalCarriers: scores.length,
           generatedAt: new Date().toISOString(),
         };
