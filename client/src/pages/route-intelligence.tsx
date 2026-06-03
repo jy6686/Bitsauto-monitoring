@@ -5,7 +5,7 @@ import {
   Shield, Activity, BrainCircuit, RefreshCw, ChevronRight,
   Zap, Network, CheckCircle2, ArrowRight, Eye, X, Sparkles,
   ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
-  ShieldAlert,
+  ShieldAlert, PlayCircle, Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -159,20 +160,142 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
+// ── Apply Approval Modal ───────────────────────────────────────────────────────
+
+function ApplyModal({
+  rec,
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  rec: AiRouteRecommendation;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const risk = RISK_CONFIG[rec.risk];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={!isPending ? onCancel : undefined}
+      />
+      {/* Panel */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 8 }}
+        transition={{ duration: 0.18 }}
+        className="relative z-10 w-full max-w-md rounded-2xl border border-violet-500/30 bg-card shadow-2xl overflow-hidden"
+        data-testid="apply-modal"
+      >
+        {/* Header */}
+        <div className="bg-gradient-to-r from-violet-500/10 to-cyan-500/5 border-b border-violet-500/20 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-violet-500/20 border border-violet-500/30 flex items-center justify-center flex-shrink-0">
+              <PlayCircle className="h-3.5 w-3.5 text-violet-400" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm">Apply Recommendation</h3>
+              <p className="text-[11px] text-muted-foreground">Review and confirm the proposed routing change</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 space-y-3">
+          {/* Action summary */}
+          <div className="rounded-lg bg-muted/50 border border-border px-3.5 py-3">
+            <p className="text-xs font-semibold text-foreground leading-snug">{rec.action}</p>
+            {rec.destination && (
+              <p className="text-[11px] text-muted-foreground mt-0.5 font-mono">Destination: {rec.destination}</p>
+            )}
+          </div>
+
+          {/* Vendor swap */}
+          {rec.currentVendor && rec.targetVendor && (
+            <div className="flex items-center gap-2 text-xs px-1">
+              <span className="font-mono text-red-400/90 font-medium">{rec.currentVendor}</span>
+              <ArrowRight className="h-3 w-3 text-muted-foreground/40" />
+              <span className="font-mono text-green-400/90 font-medium">{rec.targetVendor}</span>
+            </div>
+          )}
+
+          {/* Meta row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={cn("text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border", risk.cls)}>
+              {risk.label}
+            </span>
+            <span className="text-[10px] text-muted-foreground font-mono">
+              Confidence: <span className="font-semibold text-foreground">{rec.confidence}%</span>
+            </span>
+          </div>
+
+          {/* Expected impact */}
+          <div className="flex items-start gap-2 text-xs rounded-lg bg-cyan-500/5 border border-cyan-500/15 px-3 py-2">
+            <BarChart2 className="h-3.5 w-3.5 text-cyan-500 flex-shrink-0 mt-0.5" />
+            <span className="text-muted-foreground">{rec.expectedImpact}</span>
+          </div>
+
+          {/* Dry-run notice */}
+          <div className="flex items-start gap-2 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2">
+            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+            <span>
+              Action will be recorded in the audit ledger. Live Sippy write-back only fires when the execution gate is open.
+            </span>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 pb-4 flex items-center justify-end gap-2.5">
+          <button
+            data-testid="apply-modal-cancel"
+            onClick={onCancel}
+            disabled={isPending}
+            className="text-sm font-medium px-4 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            data-testid="apply-modal-confirm"
+            onClick={onConfirm}
+            disabled={isPending}
+            className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <PlayCircle className="h-3.5 w-3.5" />
+            )}
+            {isPending ? "Applying…" : "Confirm & Apply"}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 // ── AI Recommendation Card ─────────────────────────────────────────────────────
 
 function AiRecCard({
   rec,
   index,
   pinned,
+  applied,
+  canApply,
   onDismiss,
   onPin,
+  onApply,
 }: {
   rec: AiRouteRecommendation;
   index: number;
   pinned: boolean;
+  applied: boolean;
+  canApply: boolean;
   onDismiss: (id: string) => void;
   onPin: (id: string) => void;
+  onApply: (rec: AiRouteRecommendation) => void;
 }) {
   const [expanded, setExpanded]   = useState(false);
   const [simulate, setSimulate]   = useState(false);
@@ -238,6 +361,15 @@ function AiRecCard({
                   {rec.fraudSignals!.fasCount + rec.fraudSignals!.irsfCount} fraud signals
                 </span>
               )}
+              {applied && (
+                <span
+                  data-testid={`ai-rec-applied-badge-${index}`}
+                  className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono text-green-500 bg-green-500/10 border border-green-500/30 px-1.5 py-0.5 rounded"
+                >
+                  <CheckCircle2 className="h-2.5 w-2.5" />
+                  Applied
+                </span>
+              )}
             </div>
 
             {/* Confidence */}
@@ -249,6 +381,16 @@ function AiRecCard({
 
           {/* Action buttons */}
           <div className="flex flex-col gap-1.5 flex-shrink-0">
+            {canApply && !applied && (
+              <button
+                data-testid={`ai-rec-apply-${index}`}
+                onClick={() => onApply(rec)}
+                title="Apply this recommendation"
+                className="p-1.5 rounded-md text-violet-400/60 hover:text-violet-400 hover:bg-violet-500/15 transition-colors"
+              >
+                <PlayCircle className="h-3.5 w-3.5" />
+              </button>
+            )}
             <button
               data-testid={`ai-rec-pin-${index}`}
               onClick={() => onPin(rec.id)}
@@ -396,16 +538,40 @@ function AiRecCard({
 // ── AI Copilot Panel ───────────────────────────────────────────────────────────
 
 function AiCopilotPanel() {
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [pinned,    setPinned]    = useState<Set<string>>(new Set());
-  const [hasRun,    setHasRun]    = useState(false);
+  const [dismissed,    setDismissed]    = useState<Set<string>>(new Set());
+  const [pinned,       setPinned]       = useState<Set<string>>(new Set());
+  const [applied,      setApplied]      = useState<Set<string>>(new Set());
+  const [hasRun,       setHasRun]       = useState(false);
+  const [modalRec,     setModalRec]     = useState<AiRouteRecommendation | null>(null);
   const { toast } = useToast();
+  const { isManagement } = useAuth();
 
   const copilotMutation = useMutation<{ success: boolean; data: CopilotResult }, Error>({
     mutationFn: () => apiRequest("POST", "/api/ai/route-recommendations").then(r => r.json()),
     onSuccess: () => setHasRun(true),
     onError: (err) => {
       toast({ title: "Copilot error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const applyMutation = useMutation<{ success: boolean; actionId: number; mode: string; status: string; sippyNote: string }, Error, AiRouteRecommendation>({
+    mutationFn: (rec) =>
+      apiRequest("POST", "/api/ai/route-copilot/apply", { recommendation: rec })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.success) throw new Error(data.error ?? "Apply failed");
+          return data;
+        }),
+    onSuccess: (data, rec) => {
+      setApplied(prev => new Set([...prev, rec.id]));
+      setModalRec(null);
+      toast({
+        title: data.mode === "executed" ? "Routing action applied" : "Action recorded (dry-run)",
+        description: data.sippyNote ?? `Action #${data.actionId} logged to audit ledger.`,
+      });
+    },
+    onError: (err) => {
+      toast({ title: "Apply failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -429,6 +595,10 @@ function AiCopilotPanel() {
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
+  }, []);
+
+  const handleApply = useCallback((rec: AiRouteRecommendation) => {
+    setModalRec(rec);
   }, []);
 
   return (
@@ -569,6 +739,7 @@ function AiCopilotPanel() {
             <p className="text-xs text-muted-foreground font-medium">
               {visible.length} recommendation{visible.length !== 1 ? "s" : ""}
               {pinned.size > 0 ? `, ${pinned.size} pinned` : ""}
+              {applied.size > 0 ? ` · ${applied.size} applied` : ""}
               {dismissed.size > 0 ? ` · ${dismissed.size} dismissed` : ""}
             </p>
             {dismissed.size > 0 && (
@@ -587,8 +758,11 @@ function AiCopilotPanel() {
                 rec={rec}
                 index={i}
                 pinned={pinned.has(rec.id)}
+                applied={applied.has(rec.id)}
+                canApply={isManagement}
                 onDismiss={handleDismiss}
                 onPin={handlePin}
+                onApply={handleApply}
               />
             ))}
           </AnimatePresence>
@@ -608,13 +782,29 @@ function AiCopilotPanel() {
         </div>
       )}
 
-      {/* Phase 1 notice */}
+      {/* Phase 2 notice */}
       {hasRun && (
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground/50 px-1">
           <Info className="h-3 w-3 flex-shrink-0" />
-          <span>Phase 1 — Observe &amp; Recommend only. All routing changes require manual operator confirmation.</span>
+          <span>
+            {isManagement
+              ? "Phase 2 — Apply recommendations via the ▶ button. Actions are logged to the audit ledger; live Sippy write-back requires the execution gate."
+              : "Phase 2 — Apply actions available to admin/management roles only."}
+          </span>
         </div>
       )}
+
+      {/* Apply approval modal */}
+      <AnimatePresence>
+        {modalRec && (
+          <ApplyModal
+            rec={modalRec}
+            isPending={applyMutation.isPending}
+            onConfirm={() => applyMutation.mutate(modalRec)}
+            onCancel={() => !applyMutation.isPending && setModalRec(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
