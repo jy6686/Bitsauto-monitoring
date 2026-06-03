@@ -607,7 +607,7 @@ export default function AuthStudioPage() {
                   <Input
                     value={fPrefix}
                     onChange={e => handlePrefixChange(e.target.value)}
-                    placeholder="e.g. 6686"
+                    placeholder=""
                     maxLength={4}
                     className="mt-1 h-7 text-xs font-mono"
                     data-testid="input-prefix"
@@ -650,9 +650,7 @@ export default function AuthStudioPage() {
                   Incoming CLD/DNIS <span className="text-violet-400">← destination prefix</span>
                 </Label>
                 <Input value={fCld} onChange={e => setFCld(e.target.value)}
-                  placeholder={fPrefix && fProductCode && selectedDest?.cc
-                    ? buildCldWildcard(fPrefix, fProductCode, selectedDest.cc)
-                    : "select destination first"}
+                  placeholder=""
                   className="mt-1 h-8 text-xs font-mono"
                   data-testid="input-incoming-cld" />
               </div>
@@ -663,9 +661,7 @@ export default function AuthStudioPage() {
                   CLD Tr. Rule <span className="text-orange-400">← auto-generated</span>
                 </Label>
                 <Input value={fCldRule} onChange={e => setFCldRule(e.target.value)}
-                  placeholder={fPrefix && fProductCode && selectedDest?.cc
-                    ? buildCldRule(fPrefix, fProductCode, selectedDest.cc)
-                    : "select destination first"}
+                  placeholder=""
                   className="mt-1 h-8 text-xs font-mono"
                   data-testid="input-cld-rule" />
               </div>
