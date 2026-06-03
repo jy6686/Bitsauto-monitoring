@@ -59,10 +59,48 @@ interface CopilotSummary {
 
 // ── Copilot Alert Strip ─────────────────────────────────────────────────────────
 
+function formatAgo(isoString: string, now: number): string {
+  const diff = Math.floor((now - new Date(isoString).getTime()) / 1000);
+  if (diff < 5) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  const mins = Math.floor(diff / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+}
+
 function CopilotAlertStrip({ summary }: { summary: CopilotSummary | undefined }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
-  if (!summary || !summary.hasAlerts) return null;
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!summary) return null;
+
+  const ageLabel = formatAgo(summary.generatedAt, now);
+
+  if (!summary.hasAlerts) {
+    return (
+      <div
+        data-testid="copilot-quiet-strip"
+        className="flex-shrink-0 border-b border-slate-800/50 bg-slate-900/20 flex items-center gap-2 px-4 py-1.5"
+      >
+        <BrainCircuit className="h-3 w-3 text-slate-600 flex-shrink-0" />
+        <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-slate-600">
+          AI Copilot
+        </span>
+        <span className="text-slate-700 flex-shrink-0">·</span>
+        <CheckCircle2 className="h-3 w-3 text-emerald-600/70 flex-shrink-0" />
+        <span className="text-[10px] font-mono text-emerald-600/70">All carriers healthy</span>
+        <span className="ml-auto text-[10px] font-mono text-slate-600 tabular-nums" data-testid="copilot-last-updated">
+          Updated {ageLabel}
+        </span>
+      </div>
+    );
+  }
 
   const isCritical = summary.criticalCount > 0;
   const borderColor = isCritical ? "border-red-500/40" : "border-amber-500/40";
@@ -123,6 +161,12 @@ function CopilotAlertStrip({ summary }: { summary: CopilotSummary | undefined })
           )}
 
           <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+            <span
+              data-testid="copilot-last-updated"
+              className="text-[10px] font-mono text-slate-500 tabular-nums"
+            >
+              Updated {ageLabel}
+            </span>
             <Link href="/route-intelligence?tab=copilot">
               <a
                 data-testid="copilot-strip-open-intel"
