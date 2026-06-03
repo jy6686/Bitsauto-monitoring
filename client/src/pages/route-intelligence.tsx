@@ -546,6 +546,21 @@ function AiCopilotPanel() {
   const { toast } = useToast();
   const { isManagement } = useAuth();
 
+  // Fetch the last cached result on mount so the page doesn't start blank
+  const { data: cachedData } = useQuery<{ success: boolean; data: CopilotResult; cached: boolean }>({
+    queryKey: ["/api/ai/route-copilot/cached"],
+    retry: false,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  // Mark hasRun when cache loads a valid result (only once, before any fresh run)
+  useEffect(() => {
+    if (cachedData?.success && cachedData.data && !hasRun && !copilotMutation.data) {
+      setHasRun(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cachedData]);
+
   const copilotMutation = useMutation<{ success: boolean; data: CopilotResult }, Error>({
     mutationFn: () => apiRequest("POST", "/api/ai/route-recommendations").then(r => r.json()),
     onSuccess: () => setHasRun(true),
@@ -576,7 +591,9 @@ function AiCopilotPanel() {
     },
   });
 
-  const result  = copilotMutation.data?.data;
+  // Fresh mutation result takes precedence over the cached pre-load
+  const result  = copilotMutation.data?.data ?? (cachedData?.success ? cachedData.data : undefined);
+  const isCachedResult = !copilotMutation.data && !!cachedData?.cached && !!result;
   const allRecs = result?.recommendations ?? [];
 
   // Pinned first, then by original rank, dismissed excluded
@@ -637,6 +654,11 @@ function AiCopilotPanel() {
                   <span className="text-[10px] text-muted-foreground/50 font-mono">
                     {new Date(result.generatedAt).toLocaleTimeString()}
                   </span>
+                  {isCachedResult && (
+                    <span className="text-[10px] font-medium text-sky-500 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded">
+                      from cache
+                    </span>
+                  )}
                 </div>
               </motion.div>
             )}

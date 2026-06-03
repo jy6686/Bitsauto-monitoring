@@ -8,6 +8,7 @@
 
 import type { Express } from "express";
 import { runRouteCopilot, AiContractError } from "./services/ai/route-copilot";
+import type { CopilotResult } from "./services/ai/route-copilot";
 import {
   createAction,
   approveAction,
@@ -35,6 +36,11 @@ export function setVendorPrefixDataProvider(fn: () => Promise<any>) {
 const SUMMARY_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 let _summaryCache: { value: object; expiresAt: number } | null = null;
 
+// ── Last CopilotResult in-memory cache (30 min) ──────────────────────────────
+// Persists the most recent successful analysis so the page pre-populates on reload.
+const COPILOT_RESULT_TTL_MS = 30 * 60 * 1000; // 30 minutes
+let _lastCopilotResult: { value: CopilotResult; expiresAt: number } | null = null;
+
 export function invalidateCopilotSummaryCache(): void {
   _summaryCache = null;
   console.debug("[copilot-summary] Cache invalidated");
@@ -58,6 +64,8 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
 
       try {
         const result = await runRouteCopilot(vendorPrefixData);
+        // Store result in the 30-min cache so reloads pre-populate the panel
+        _lastCopilotResult = { value: result, expiresAt: Date.now() + COPILOT_RESULT_TTL_MS };
         res.json({ success: true, data: result });
       } catch (err: any) {
         if (err instanceof AiContractError) {
@@ -72,6 +80,21 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         console.error("[ai-recommendations] Internal error:", err.message);
         res.status(500).json({ success: false, error: err.message ?? "Analysis failed" });
       }
+    },
+  );
+
+  // ── GET /api/ai/route-copilot/cached ────────────────────────────────────────
+  // Returns the last successful CopilotResult (within 30-min TTL) or 404.
+  // Used by the frontend to pre-populate the copilot panel on page load.
+  app.get(
+    "/api/ai/route-copilot/cached",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    (_req: any, res: any) => {
+      const now = Date.now();
+      if (_lastCopilotResult && _lastCopilotResult.expiresAt > now) {
+        return res.json({ success: true, data: _lastCopilotResult.value, cached: true });
+      }
+      return res.status(404).json({ success: false, error: "No cached result available" });
     },
   );
 
