@@ -327,6 +327,28 @@ export default function AuthStudioPage() {
     onError: (e: any) => toast({ variant: "destructive", title: "Update failed", description: e.message }),
   });
 
+  const bulkUpdateRgMut = useMutation({
+    mutationFn: async (iRoutingGroup: number) => {
+      const results = await Promise.all(
+        authRules.map(rule =>
+          apiRequest("PATCH", `/api/sippy/auth-rules/${rule.iAuthentication}`, { iRoutingGroup }).then(r => r.json())
+        )
+      );
+      return results as Array<{ success: boolean; message?: string }>;
+    },
+    onSuccess: (results) => {
+      const failed = results.filter(r => r.success === false);
+      if (failed.length > 0) {
+        toast({ variant: "destructive", title: `${failed.length} rule(s) failed`, description: failed[0]?.message });
+      } else {
+        toast({ title: `Routing group applied to all ${results.length} rule(s)` });
+      }
+      qc.invalidateQueries({ queryKey: ["/api/sippy/accounts", selectedAcct?.iAccount, "auth-rules"] });
+      refetchAuth();
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Bulk update failed", description: e.message }),
+  });
+
   const canPush = !!selectedAcct && (!!fRemoteIp || !!fCld) && !!fPrefix;
 
   const steps = [
@@ -518,7 +540,7 @@ export default function AuthStudioPage() {
                   </div>
                 ) : (
                   <>
-                    <Select value={selectedRgId} onValueChange={v => { setSelectedRgId(v); setPushResult(null); }}>
+                    <Select value={selectedRgId || undefined} onValueChange={v => { setSelectedRgId(v); setPushResult(null); }}>
                       <SelectTrigger className="h-9 text-sm" data-testid="sel-routing-group">
                         <SelectValue placeholder={
                           filteredRgs.length > 0
@@ -537,10 +559,32 @@ export default function AuthStudioPage() {
                       </SelectContent>
                     </Select>
                     {selectedRg ? (
-                      <Badge className="text-xs bg-green-500/10 text-green-400 border-green-500/30" variant="outline">
-                        <CheckCircle2 className="h-3 w-3 mr-1" />
-                        {selectedRg.name} (id={selectedRg.iRoutingGroup})
-                      </Badge>
+                      <div className="space-y-2">
+                        <Badge className="text-xs bg-green-500/10 text-green-400 border-green-500/30" variant="outline">
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          {selectedRg.name} (id={selectedRg.iRoutingGroup})
+                        </Badge>
+                        {authRules.length > 0 && (
+                          <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2.5 space-y-2">
+                            <p className="text-[10px] text-blue-300 font-medium">Reassign routing on existing rules</p>
+                            <p className="text-[10px] text-slate-400">
+                              Applies <span className="text-blue-300 font-mono">{selectedRg.name}</span> to all {authRules.length} existing auth rule{authRules.length !== 1 ? "s" : ""} — authentication fields (IP, CLD, CLI, etc.) remain untouched.
+                            </p>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs border-blue-500/30 text-blue-300 hover:bg-blue-500/10"
+                              disabled={bulkUpdateRgMut.isPending}
+                              onClick={() => bulkUpdateRgMut.mutate(selectedRg.iRoutingGroup)}
+                              data-testid="btn-bulk-apply-rg"
+                            >
+                              {bulkUpdateRgMut.isPending
+                                ? <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Applying…</>
+                                : <>Apply to all {authRules.length} rule{authRules.length !== 1 ? "s" : ""}</>}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <p className="text-[10px] text-amber-400">⚠ No routing group selected — Sippy will use account default</p>
                     )}
@@ -587,7 +631,7 @@ export default function AuthStudioPage() {
                             <td className="px-3 py-2 min-w-[180px]">
                               {isEditing ? (
                                 <div className="flex items-center gap-1.5">
-                                  <Select value={editingRgId} onValueChange={setEditingRgId}>
+                                  <Select value={editingRgId || undefined} onValueChange={setEditingRgId}>
                                     <SelectTrigger className="h-7 text-xs flex-1" data-testid={`sel-edit-rg-${rule.iAuthentication}`}>
                                       <SelectValue placeholder="Select RG…" />
                                     </SelectTrigger>
