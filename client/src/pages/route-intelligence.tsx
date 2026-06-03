@@ -387,7 +387,7 @@ function AiCopilotPanel() {
   const { toast } = useToast();
 
   const copilotMutation = useMutation<{ success: boolean; data: CopilotResult }, Error>({
-    mutationFn: () => apiRequest("POST", "/api/ai/route-recommendations"),
+    mutationFn: () => apiRequest("POST", "/api/ai/route-recommendations").then(r => r.json()),
     onSuccess: () => setHasRun(true),
     onError: (err) => {
       toast({ title: "Copilot error", description: err.message, variant: "destructive" });

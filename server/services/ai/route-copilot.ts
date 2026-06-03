@@ -25,8 +25,9 @@ import {
   routingSuggestions,
   fasEvents,
   irsfEvents,
+  dailyMinutesReports,
 } from "../../../shared/schema";
-import { desc, eq, gte, and } from "drizzle-orm";
+import { desc, eq, gte, and, sql } from "drizzle-orm";
 
 // ── Error type ─────────────────────────────────────────────────────────────────
 
@@ -87,6 +88,43 @@ function isDegraded(s: CarrierRow)  { return (s.stabilityScore ?? 100) < 58 || (
 function isHealthy(s: CarrierRow)   { return (s.stabilityScore ?? 0) >= 70 && (s.rollingAsr ?? 0) >= 58; }
 function isRecovering(s: CarrierRow){ return (s.stabilityScore ?? 0) > 76 && s.trend === "improving" && (s.rollingAsr ?? 0) > 70; }
 
+// ── LCR margin loader ─────────────────────────────────────────────────────────
+
+interface VendorMarginProfile {
+  avgMarginPct: number | null;
+  totalMarginAmount: number | null;
+  totalCalls: number;
+  isNegativeMargin: boolean;
+}
+
+async function loadMarginProfilesPerVendor(
+  since: Date,
+): Promise<Map<string, VendorMarginProfile>> {
+  const rows = await db
+    .select({
+      vendorName: dailyMinutesReports.vendorName,
+      avgMarginPct:        sql<number | null>`avg(${dailyMinutesReports.marginPct})`,
+      totalMarginAmount:   sql<number | null>`sum(${dailyMinutesReports.marginAmount})`,
+      totalCalls:          sql<number>`coalesce(sum(${dailyMinutesReports.totalCalls}), 0)`,
+    })
+    .from(dailyMinutesReports)
+    .where(gte(dailyMinutesReports.reportDate, sql`${since.toISOString().slice(0, 10)}`))
+    .groupBy(dailyMinutesReports.vendorName);
+
+  const profiles = new Map<string, VendorMarginProfile>();
+  for (const row of rows) {
+    if (!row.vendorName) continue;
+    const avgMarginPct = row.avgMarginPct ?? null;
+    profiles.set(row.vendorName, {
+      avgMarginPct,
+      totalMarginAmount: row.totalMarginAmount ?? null,
+      totalCalls: Number(row.totalCalls ?? 0),
+      isNegativeMargin: avgMarginPct != null && avgMarginPct < 0,
+    });
+  }
+  return profiles;
+}
+
 // ── Fraud telemetry loader ─────────────────────────────────────────────────────
 
 interface FraudProfile {
@@ -139,6 +177,7 @@ function buildRuleBasedRecommendations(
   scores: CarrierRow[],
   pendingSuggestions: (typeof routingSuggestions.$inferSelect)[],
   fraudProfiles: Map<string, FraudProfile>,
+  marginProfiles: Map<string, VendorMarginProfile>,
   vendorPrefixData?: any,
 ): AiRouteRecommendation[] {
   const degradedScores  = scores.filter(isDegraded);
@@ -149,7 +188,8 @@ function buildRuleBasedRecommendations(
 
   // ── Rule 1: Traffic shift degraded→healthy ──────────────────────────────────
   for (const bad of degradedScores) {
-    const fraud = fraudProfiles.get(bad.carrierName);
+    const fraud  = fraudProfiles.get(bad.carrierName);
+    const margin = marginProfiles.get(bad.carrierName);
     const alternatives = healthyScores
       .filter(h => h.carrierName !== bad.carrierName)
       .sort((a, b) => (b.stabilityScore ?? 0) - (a.stabilityScore ?? 0));
@@ -160,11 +200,12 @@ function buildRuleBasedRecommendations(
       const asrGain = (best.rollingAsr ?? 0) - (bad.rollingAsr ?? 0);
       const critical = isCritical(bad);
 
-      const fraudBonus = fraud && (fraud.fasCount + fraud.irsfCount) > 3 ? 8 : 0;
-      const confidence = Math.round(Math.min(
+      const fraudBonus  = fraud  && (fraud.fasCount + fraud.irsfCount) > 3 ? 8 : 0;
+      const marginBonus = margin && margin.isNegativeMargin ? 10 : 0;
+      const confidence  = Math.round(Math.min(
         95,
-        critical ? 80 + Math.min(stabilityGain * 0.4, 12) + fraudBonus
-                 : 58 + Math.min(stabilityGain * 0.5, 22) + fraudBonus,
+        critical ? 80 + Math.min(stabilityGain * 0.4, 12) + fraudBonus + marginBonus
+                 : 58 + Math.min(stabilityGain * 0.5, 22) + fraudBonus + marginBonus,
       ));
 
       const reasons: string[] = [];
@@ -176,6 +217,8 @@ function buildRuleBasedRecommendations(
         reasons.push(`Avg PDD ${(bad.avgPddMs / 1000).toFixed(1)}s — elevated latency signal`);
       if (bad.failureRate != null && bad.failureRate > 28)
         reasons.push(`Failure rate ${bad.failureRate.toFixed(1)}% — above acceptable ceiling`);
+      if (margin && margin.avgMarginPct != null && margin.avgMarginPct < 15)
+        reasons.push(`LCR margin ${margin.avgMarginPct.toFixed(1)}% — below 15% minimum threshold${margin.isNegativeMargin ? " (NEGATIVE)" : ""}`);
       if (fraud && fraud.fasCount > 0)
         reasons.push(`FAS events via ${bad.carrierName}: ${fraud.fasCount} in last 24h`);
       if (fraud && fraud.irsfCount > 0)
@@ -192,11 +235,12 @@ function buildRuleBasedRecommendations(
         action: `Shift traffic: ${bad.carrierName} → ${best.carrierName}`,
         confidence,
         reasons,
-        risk: critical ? "low" : (bad.stabilityScore ?? 100) < 48 ? "low" : "medium",
+        risk: critical || margin?.isNegativeMargin ? "low" : (bad.stabilityScore ?? 100) < 48 ? "low" : "medium",
         expectedImpact: [
           stabilityGain > 0 ? `Stability +${stabilityGain.toFixed(0)} pts` : null,
           asrGain > 0 ? `ASR +${asrGain.toFixed(1)}%` : null,
-          fraud && fraud.fasCount > 0 ? `Reduces FAS exposure` : null,
+          margin?.isNegativeMargin ? "Eliminates negative-margin exposure" : null,
+          fraud && fraud.fasCount > 0 ? "Reduces FAS exposure" : null,
         ].filter(Boolean).join(", "),
         currentVendor: bad.carrierName,
         targetVendor: best.carrierName,
@@ -210,13 +254,16 @@ function buildRuleBasedRecommendations(
       });
     } else {
       // No healthy alternative — deprioritise
-      const fraud = fraudProfiles.get(bad.carrierName);
+      const fraud  = fraudProfiles.get(bad.carrierName);
+      const margin = marginProfiles.get(bad.carrierName);
       const reasons: string[] = [];
       if (bad.stabilityScore != null) reasons.push(`Stability: ${bad.stabilityScore.toFixed(0)}/100`);
       if (bad.rollingAsr != null)      reasons.push(`ASR: ${bad.rollingAsr.toFixed(1)}%`);
       if (bad.trend === "degrading")   reasons.push("Trend: actively degrading");
       if (bad.failureRate != null && bad.failureRate > 25)
         reasons.push(`High failure rate: ${bad.failureRate.toFixed(1)}%`);
+      if (margin && margin.avgMarginPct != null && margin.avgMarginPct < 15)
+        reasons.push(`LCR margin ${margin.avgMarginPct.toFixed(1)}%${margin.isNegativeMargin ? " — NEGATIVE margin" : " — below threshold"}`);
       if (fraud && fraud.fasCount + fraud.irsfCount > 0)
         reasons.push(`Fraud signals: ${fraud.fasCount} FAS + ${fraud.irsfCount} IRSF events`);
 
@@ -338,6 +385,42 @@ function buildRuleBasedRecommendations(
     }
   }
 
+  // ── Rule 5: Negative / critically-low LCR margin (margin-driven, quality OK) ─
+  for (const [vendorName, margin] of marginProfiles) {
+    if (!margin.isNegativeMargin && (margin.avgMarginPct ?? 99) >= 8) continue;
+    if (recs.some(r => r.currentVendor === vendorName)) continue;
+    const carrierScore = scores.find(s => s.carrierName === vendorName);
+    // Only flag if quality isn't already critical (already covered by Rule 1)
+    if (carrierScore && isCritical(carrierScore)) continue;
+
+    const fraud = fraudProfiles.get(vendorName);
+    const isPureMarginalLoss = margin.isNegativeMargin;
+
+    recs.push({
+      id: `margin-${vendorName}`,
+      action: `Review LCR cost on ${vendorName} — ${isPureMarginalLoss ? "negative margin detected" : "margin critically low"}`,
+      confidence: Math.round(Math.min(82, 52 + (isPureMarginalLoss ? 20 : Math.abs(margin.avgMarginPct ?? 0) * 2))),
+      reasons: [
+        margin.avgMarginPct != null
+          ? `LCR margin: ${margin.avgMarginPct.toFixed(1)}%${isPureMarginalLoss ? " (operating at a loss)" : " — critically low"}`
+          : "Margin data indicates underperformance",
+        margin.totalCalls > 0 ? `${margin.totalCalls.toLocaleString()} calls analysed in margin window` : "",
+        carrierScore?.rollingAsr != null ? `Carrier ASR: ${carrierScore.rollingAsr.toFixed(1)}% — quality otherwise acceptable` : "",
+        "Re-negotiate cost tariff or shift high-volume prefixes to better-margin carrier",
+        fraud && (fraud.fasCount + fraud.irsfCount) > 0
+          ? `Additional fraud signal: ${fraud.fasCount} FAS + ${fraud.irsfCount} IRSF events compound the loss`
+          : "",
+      ].filter(Boolean),
+      risk: isPureMarginalLoss ? "high" : "medium",
+      expectedImpact: isPureMarginalLoss
+        ? "Eliminates operating loss on this carrier's traffic volume"
+        : "Improves margin from critically low to acceptable range",
+      currentVendor: vendorName,
+      fraudSignals: fraud ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
+      simulate: { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
+    });
+  }
+
   // Sort by confidence desc, deduplicate by currentVendor
   const seen = new Set<string>();
   const deduped: AiRouteRecommendation[] = [];
@@ -389,12 +472,14 @@ export async function runRouteCopilot(
   const since6h  = new Date(Date.now() -  6 * 60 * 60 * 1000);
 
   // ── Load all telemetry in parallel ─────────────────────────────────────────
-  const [allScores, pendingSuggestions, fraudProfiles] = await Promise.all([
+  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles] = await Promise.all([
     db.select().from(carrierQualityScores).orderBy(desc(carrierQualityScores.lastComputedAt)),
     db.select().from(routingSuggestions).where(
       and(eq(routingSuggestions.status, "pending"), gte(routingSuggestions.createdAt, since6h))
     ),
     loadFraudProfilesPerVendor(since24h),
+    loadMarginProfilesPerVendor(since7d),  // 7-day window for more stable margin signal
   ]);
 
   // Deduplicate scores: latest 24h score per carrier
@@ -409,9 +494,13 @@ export async function runRouteCopilot(
   const degradedScores = scores.filter(isDegraded);
   const criticalScores = scores.filter(isCritical);
   const fraudAlertCarriers = [...fraudProfiles.entries()].filter(([, v]) => v.fasCount + v.irsfCount >= 3).length;
+  const negativeMarginVendors = [...marginProfiles.entries()].filter(([, v]) => v.isNegativeMargin).length;
 
   // ── Rule engine: build baseline recommendations ─────────────────────────────
-  const baseline = buildRuleBasedRecommendations(scores, pendingSuggestions, fraudProfiles, vendorPrefixData);
+  // Note: simulate projections are computed server-side from carrier score deltas.
+  // The server has the authoritative carrier telemetry; client-side projection
+  // would duplicate this work without access to the raw score data.
+  const baseline = buildRuleBasedRecommendations(scores, pendingSuggestions, fraudProfiles, marginProfiles, vendorPrefixData);
 
   // ── Summary fields ─────────────────────────────────────────────────────────
   const topSignal = criticalScores.length > 0
@@ -436,7 +525,7 @@ export async function runRouteCopilot(
         criticalCarriers: criticalScores.length,
         fraudAlertCarriers,
         topSignal,
-        analysisNote: `Analysed ${scores.length} carrier${scores.length > 1 ? "s" : ""}, ${fraudProfiles.size} vendor fraud profiles · Rule-based preview · ${baseline.length} recommendation${baseline.length !== 1 ? "s" : ""}`,
+        analysisNote: `Analysed ${scores.length} carrier${scores.length > 1 ? "s" : ""}, ${fraudProfiles.size} fraud profiles, ${marginProfiles.size} margin profiles${negativeMarginVendors > 0 ? ` (${negativeMarginVendors} negative-margin)` : ""} · Rule-based preview · ${baseline.length} recommendation${baseline.length !== 1 ? "s" : ""}`,
       },
     };
   }
