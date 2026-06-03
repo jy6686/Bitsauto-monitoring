@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useNocWebSocket, type RollbackFailureAlert } from "@/hooks/use-noc-ws";
+import { X, WrenchIcon } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -201,6 +203,66 @@ function StripQuickApplyModal({
           </button>
         </div>
       </motion.div>
+    </div>
+  );
+}
+
+// ── Rollback Failure Banner ─────────────────────────────────────────────────────
+
+function RollbackFailureBanner({
+  alerts,
+  onDismiss,
+}: {
+  alerts: RollbackFailureAlert[];
+  onDismiss: (occurredAt: string) => void;
+}) {
+  if (alerts.length === 0) return null;
+  return (
+    <div className="flex-shrink-0 flex flex-col gap-1 px-3 py-2 bg-red-950/60 border-b border-red-700/60">
+      {alerts.map((alert) => (
+        <motion.div
+          key={alert.occurredAt}
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.2 }}
+          data-testid={`rollback-failure-banner-${alert.actionId}`}
+          className="flex items-start gap-2.5 rounded-lg border border-red-600/50 bg-red-900/40 px-3 py-2"
+        >
+          <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+            </span>
+            <WrenchIcon className="h-3.5 w-3.5 text-red-400 flex-shrink-0" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-red-300 bg-red-500/20 border border-red-500/30 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                {alert.manualRequired ? "MANUAL ACTION REQUIRED" : "ROLLBACK FAILED"}
+              </span>
+              <span className="text-[11px] font-semibold text-red-200 font-mono">
+                Action #{alert.actionId} — {alert.accountName}
+              </span>
+            </div>
+            <p className="text-[11px] text-red-300/80 mt-0.5 leading-snug line-clamp-2">{alert.errorMessage}</p>
+            <p className="text-[10px] text-red-400/60 mt-0.5 font-mono">
+              {alert.manualRequired
+                ? "The route/block change must be manually reverted in Sippy — automatic reversal is not available for this action type."
+                : "Sippy write failed. Live routing state may not match the expected state. Check connectivity and retry."}
+              {" "}Check the <strong className="text-red-300">NOC Incidents</strong> log for full details.
+            </p>
+          </div>
+          <button
+            data-testid={`rollback-failure-dismiss-${alert.actionId}`}
+            onClick={() => onDismiss(alert.occurredAt)}
+            className="flex-shrink-0 p-1 rounded hover:bg-red-700/40 text-red-400 hover:text-red-200 transition-colors"
+            aria-label="Dismiss rollback failure alert"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </motion.div>
+      ))}
     </div>
   );
 }
@@ -663,13 +725,25 @@ const QUICK_LINKS = [
 export default function NocDashboardPage() {
   const [fullscreen, setFullscreen] = useState(false);
   const [stripModalRec, setStripModalRec] = useState<StripRecommendation | null>(null);
+  const [rollbackAlerts, setRollbackAlerts] = useState<RollbackFailureAlert[]>([]);
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const { isManagement } = useAuth();
+  const { lastRollbackFailure } = useNocWebSocket();
 
   useEffect(() => {
     document.documentElement.classList.add('dark');
     return () => { document.documentElement.classList.remove('dark'); };
   }, []);
+
+  useEffect(() => {
+    if (!lastRollbackFailure) return;
+    if (dismissedAlerts.has(lastRollbackFailure.occurredAt)) return;
+    setRollbackAlerts(prev => {
+      if (prev.some(a => a.occurredAt === lastRollbackFailure.occurredAt)) return prev;
+      return [lastRollbackFailure, ...prev];
+    });
+  }, [lastRollbackFailure]);
 
   const { data: liveSummary } = useQuery<LiveSummary>({
     queryKey: ["/api/sippy/live-calls"],
@@ -870,6 +944,17 @@ export default function NocDashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Rollback Failure Banners ── */}
+      <AnimatePresence>
+        <RollbackFailureBanner
+          alerts={rollbackAlerts}
+          onDismiss={(occurredAt) => {
+            setDismissedAlerts(prev => new Set([...prev, occurredAt]));
+            setRollbackAlerts(prev => prev.filter(a => a.occurredAt !== occurredAt));
+          }}
+        />
+      </AnimatePresence>
 
       {/* ── Copilot Alert Strip ── */}
       <CopilotAlertStrip

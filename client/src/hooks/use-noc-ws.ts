@@ -13,15 +13,25 @@ export interface VoiceOtpUpdateEvent {
   errorMessage?: string | null;
 }
 
+export interface RollbackFailureAlert {
+  actionId:       number;
+  accountName:    string;
+  errorMessage:   string;
+  manualRequired: boolean;
+  occurredAt:     string;
+}
+
 interface UseNocWebSocketResult {
   lastTick: NocTickData | null;
   lastVoiceOtpUpdate: VoiceOtpUpdateEvent | null;
+  lastRollbackFailure: RollbackFailureAlert | null;
   connected: boolean;
 }
 
 export function useNocWebSocket(): UseNocWebSocketResult {
   const [lastTick, setLastTick] = useState<NocTickData | null>(null);
   const [lastVoiceOtpUpdate, setLastVoiceOtpUpdate] = useState<VoiceOtpUpdateEvent | null>(null);
+  const [lastRollbackFailure, setLastRollbackFailure] = useState<RollbackFailureAlert | null>(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,6 +62,14 @@ export function useNocWebSocket(): UseNocWebSocketResult {
               asteriskId: data.asteriskId ?? null,
               errorMessage: data.errorMessage ?? null,
             });
+          } else if (data.type === "rollback_failure_alert") {
+            setLastRollbackFailure({
+              actionId:       data.actionId,
+              accountName:    data.accountName,
+              errorMessage:   data.errorMessage,
+              manualRequired: data.manualRequired,
+              occurredAt:     data.occurredAt,
+            });
           }
         } catch { /* ignore malformed messages */ }
       };
@@ -79,5 +97,5 @@ export function useNocWebSocket(): UseNocWebSocketResult {
     };
   }, [connect]);
 
-  return { lastTick, lastVoiceOtpUpdate, connected };
+  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, connected };
 }

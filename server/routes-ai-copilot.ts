@@ -34,8 +34,9 @@ import {
   requiresDualApproval,
 } from "./action-executor";
 import { db } from "./db";
-import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache } from "../shared/schema";
+import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache, nocIncidents, nocIncidentEvents } from "../shared/schema";
 import { desc, gte, sql } from "drizzle-orm";
+import { broadcastRollbackFailureAlert } from "./noc-ws";
 
 type RequireRoleFn = (roles: string[], req: any, res: any, next: any) => void;
 
@@ -564,9 +565,41 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
       // Gate: non-reversible action types (ROUTE_BLOCK, MANUAL) have method:'none'.
       // We must NOT mark the original as rolled_back — operator must restore manually in Sippy.
       if (!rollbackSippy.method || rollbackSippy.method === "none") {
+        const errMsg = "This action type cannot be automatically reversed — manual restoration required in Sippy.";
+        // Emit persistent NOC alert so all operators know manual intervention is needed
+        try {
+          const [inc] = await db.insert(nocIncidents).values({
+            title:           `Rollback requires manual action — ${action.account_name} (Action #${actionId})`,
+            type:            "rollback_failure",
+            severity:        "critical",
+            status:          "open",
+            entityType:      "account",
+            entityId:        String(action.account_id),
+            entityName:      action.account_name,
+            description:     `Action #${actionId} (${action.action_type}) cannot be automatically reversed. Operator must restore settings manually in Sippy.\n\nRollback note: ${rollbackSippy.note ?? "No additional details."}`,
+            suggestedAction: "Log into Sippy and manually revert the route/block change for this account.",
+            source:          "system",
+          }).returning();
+          await db.insert(nocIncidentEvents).values({
+            incidentId: inc.id,
+            eventType:  "opened",
+            toStatus:   "open",
+            actorName:  actorName,
+            note:       `Auto-raised: rollback of action #${actionId} for ${action.account_name} requires manual Sippy intervention.`,
+          });
+          broadcastRollbackFailureAlert({
+            actionId,
+            accountName:    action.account_name,
+            errorMessage:   errMsg,
+            manualRequired: true,
+            occurredAt:     new Date().toISOString(),
+          });
+        } catch (nocErr: any) {
+          console.error("[ai-copilot/rollback] Failed to create NOC incident for manual rollback:", nocErr.message);
+        }
         return res.status(422).json({
           success:        false,
-          error:          "This action type cannot be automatically reversed.",
+          error:          errMsg,
           rollbackNote:   rollbackSippy.note,
           manualRequired: true,
         });
@@ -580,12 +613,44 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
       // Gate: if the Sippy write failed, surface the error and do NOT transition
       // the original action to rolled_back — the live state may still be unchanged.
       if (!execResult.success || execResult.mode !== "executed") {
+        const errMsg = execResult.error ?? "Rollback did not execute against Sippy";
         console.error(
-          `[ai-copilot/rollback] action=${actionId} rollback execution failed/not-live: ${execResult.error ?? execResult.mode}`,
+          `[ai-copilot/rollback] action=${actionId} rollback execution failed/not-live: ${errMsg}`,
         );
+        // Emit persistent NOC alert so all operators know live state may be inconsistent
+        try {
+          const [inc] = await db.insert(nocIncidents).values({
+            title:           `Rollback FAILED — ${action.account_name} (Action #${actionId})`,
+            type:            "rollback_failure",
+            severity:        "critical",
+            status:          "open",
+            entityType:      "account",
+            entityId:        String(action.account_id),
+            entityName:      action.account_name,
+            description:     `Rollback of action #${actionId} (${action.action_type}) failed to execute against Sippy. The live routing state may still reflect the original change.\n\nError: ${errMsg}`,
+            suggestedAction: "Check Sippy connectivity and verify the route state manually. Re-attempt rollback once connectivity is restored.",
+            source:          "system",
+          }).returning();
+          await db.insert(nocIncidentEvents).values({
+            incidentId: inc.id,
+            eventType:  "opened",
+            toStatus:   "open",
+            actorName:  actorName,
+            note:       `Auto-raised: rollback execution failed for action #${actionId} — ${errMsg}`,
+          });
+          broadcastRollbackFailureAlert({
+            actionId,
+            accountName:    action.account_name,
+            errorMessage:   errMsg,
+            manualRequired: false,
+            occurredAt:     new Date().toISOString(),
+          });
+        } catch (nocErr: any) {
+          console.error("[ai-copilot/rollback] Failed to create NOC incident for failed rollback:", nocErr.message);
+        }
         return res.status(500).json({
           success:           false,
-          error:             execResult.error ?? "Rollback did not execute against Sippy",
+          error:             errMsg,
           rollbackNote:      rollbackSippy.note,
           verificationState,
         });

@@ -62,3 +62,20 @@ export function setupNocWebSocket(httpServer: Server): void {
 export function nocClientCount(): number {
   return nocClients.size;
 }
+
+export interface RollbackFailureAlertData {
+  actionId:    number;
+  accountName: string;
+  errorMessage: string;
+  manualRequired: boolean;
+  occurredAt:  string;
+}
+
+export function broadcastRollbackFailureAlert(data: RollbackFailureAlertData): void {
+  const payload = JSON.stringify({ type: "rollback_failure_alert", ...data });
+  for (const client of nocClients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      try { client.ws.send(payload); } catch { /* ignore send errors */ }
+    }
+  }
+}
