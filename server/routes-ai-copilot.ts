@@ -20,7 +20,7 @@ import {
   executeAction,
 } from "./action-executor";
 import { db } from "./db";
-import { carrierQualityScores, fasEvents, irsfEvents } from "../shared/schema";
+import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache } from "../shared/schema";
 import { desc, gte, sql } from "drizzle-orm";
 
 type RequireRoleFn = (roles: string[], req: any, res: any, next: any) => void;
@@ -64,8 +64,15 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
 
       try {
         const result = await runRouteCopilot(vendorPrefixData);
-        // Store result in the 30-min cache so reloads pre-populate the panel
+        // Store result in the 30-min in-memory cache so reloads pre-populate the panel
         _lastCopilotResult = { value: result, expiresAt: Date.now() + COPILOT_RESULT_TTL_MS };
+        // Persist to DB so the cache survives server restarts / deployments
+        try {
+          await db.delete(copilotResultCache);
+          await db.insert(copilotResultCache).values({ result: result as any, generatedAt: new Date() });
+        } catch (dbErr: any) {
+          console.warn("[ai-recommendations] DB cache write failed (non-fatal):", dbErr.message);
+        }
         res.json({ success: true, data: result });
       } catch (err: any) {
         if (err instanceof AiContractError) {
@@ -85,14 +92,37 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
 
   // ── GET /api/ai/route-copilot/cached ────────────────────────────────────────
   // Returns the last successful CopilotResult (within 30-min TTL) or 404.
-  // Used by the frontend to pre-populate the copilot panel on page load.
+  // Falls back to the DB-persisted cache when the in-memory cache is cold
+  // (e.g. immediately after a server restart or deployment).
   app.get(
     "/api/ai/route-copilot/cached",
     (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
-    (_req: any, res: any) => {
+    async (_req: any, res: any) => {
       const now = Date.now();
+      // ── 1. In-memory cache hit ────────────────────────────────────────────
       if (_lastCopilotResult && _lastCopilotResult.expiresAt > now) {
-        return res.json({ success: true, data: _lastCopilotResult.value, cached: true });
+        return res.json({ success: true, data: _lastCopilotResult.value, cached: true, source: "memory" });
+      }
+      // ── 2. DB cache fallback ──────────────────────────────────────────────
+      try {
+        const rows = await db
+          .select()
+          .from(copilotResultCache)
+          .orderBy(desc(copilotResultCache.generatedAt))
+          .limit(1);
+
+        if (rows.length > 0) {
+          const row = rows[0];
+          const ageMs = now - row.generatedAt.getTime();
+          if (ageMs <= COPILOT_RESULT_TTL_MS) {
+            // Re-warm in-memory cache so subsequent requests skip the DB
+            const value = row.result as unknown as CopilotResult;
+            _lastCopilotResult = { value, expiresAt: row.generatedAt.getTime() + COPILOT_RESULT_TTL_MS };
+            return res.json({ success: true, data: value, cached: true, source: "db" });
+          }
+        }
+      } catch (dbErr: any) {
+        console.warn("[copilot-cached] DB fallback read failed (non-fatal):", dbErr.message);
       }
       return res.status(404).json({ success: false, error: "No cached result available" });
     },

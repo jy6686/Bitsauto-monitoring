@@ -361,6 +361,17 @@ export async function runSafeMigrations(): Promise<void> {
     await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS meta_otp_template_language VARCHAR(16)  DEFAULT 'en_us'`);
     await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS meta_use_otp_template      BOOLEAN      DEFAULT true`);
 
+    // ── Copilot result cache (added 2026-06-03) ───────────────────────────────
+    // Persists the last successful AI Copilot result so the panel pre-populates
+    // across server restarts and deployments (same 30-min TTL enforced in app).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS copilot_result_cache (
+        id           SERIAL PRIMARY KEY,
+        result       JSONB      NOT NULL,
+        generated_at TIMESTAMP  NOT NULL DEFAULT NOW()
+      )
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

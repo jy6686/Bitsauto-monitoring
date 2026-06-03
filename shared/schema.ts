@@ -3283,3 +3283,11 @@ export const callGovernanceLogs = pgTable("call_governance_log", {
   createdAt:      timestamp("created_at").defaultNow(),
 });
 export type CallGovernanceLog = typeof callGovernanceLogs.$inferSelect;
+
+// ── Copilot result cache (DB-persisted, survives server restarts) ─────────────
+export const copilotResultCache = pgTable("copilot_result_cache", {
+  id:          serial("id").primaryKey(),
+  result:      jsonb("result").notNull(),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+});
+export type CopilotResultCache = typeof copilotResultCache.$inferSelect;
