@@ -48,6 +48,7 @@ export interface AiRouteRecommendation {
   reasons: string[];
   risk: "low" | "medium" | "high";
   expectedImpact: string;
+  aiInsight?: string;
   currentVendor?: string;
   targetVendor?: string;
   destination?: string;
@@ -454,9 +455,10 @@ function validateAiOutput(raw: any, baseline: AiRouteRecommendation[]): AiRouteR
       throw new AiContractError("OpenAI output has empty or non-array reasons");
   }
 
-  // Merge simulate data from baseline (OpenAI doesn't touch simulate fields)
+  // Merge simulate/fraudSignals from baseline (OpenAI doesn't own those fields)
   return raw.map((item: any, i: number) => ({
     ...item,
+    aiInsight: typeof item.aiInsight === "string" && item.aiInsight.trim() ? item.aiInsight.trim() : undefined,
     fraudSignals: baseline[i]?.fraudSignals ?? item.fraudSignals,
     simulate: baseline[i]?.simulate ?? item.simulate ?? { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
   }));
@@ -548,30 +550,50 @@ export async function runRouteCopilot(
     };
   }
 
-  const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  // ── Shared rule-based fallback builder ────────────────────────────────────
+  function ruleBasedFallback(warning: string): CopilotResult {
+    return {
+      generatedAt: now,
+      mode: "rule_based_preview",
+      warning,
+      recommendations: baseline,
+      summary: {
+        totalCarriers: scores.length,
+        degradedCarriers: degradedScores.length,
+        criticalCarriers: criticalScores.length,
+        fraudAlertCarriers,
+        topSignal,
+        analysisNote: `Analysed ${scores.length} carrier${scores.length > 1 ? "s" : ""}, ${fraudProfiles.size} fraud profiles · Rule-based fallback · ${baseline.length} recommendation${baseline.length !== 1 ? "s" : ""}`,
+      },
+    };
+  }
 
-  const systemPrompt = `You are an expert VoIP network operations advisor for a telecom carrier platform.
+  // ── OpenAI enrichment (with graceful fallback on any failure) ─────────────
+  let rawContent: string;
+  try {
+    const { default: OpenAI } = await import("openai");
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const systemPrompt = `You are an expert VoIP network operations advisor for a telecom carrier platform.
 You receive route recommendations computed by a rule-based system and must:
 1. Rewrite the "action" as a clear, specific, operator-ready instruction (max 12 words).
 2. Keep "reasons" as an array of 2–4 concise factual bullet strings.
 3. Keep "expectedImpact" as one short sentence.
-4. Preserve all other fields (id, confidence, risk, currentVendor, targetVendor, destination) exactly as given.
-5. Return a JSON object: { "recommendations": [ ...same schema... ] }
+4. Add an "aiInsight" field: one sentence of telecom-specific operational context (e.g. regional congestion patterns, known carrier behaviour, PSTN/mobile peering considerations, fraud risk context, or margin-impacting routing patterns). This must add genuine telecom expertise beyond what the rule engine already states — do NOT just paraphrase the reasons. Max 25 words.
+5. Preserve all other fields (id, confidence, risk, currentVendor, targetVendor, destination) exactly as given.
+6. Return a JSON object: { "recommendations": [ ...same schema... ] }
 
 Output MUST be valid JSON. The "recommendations" array MUST have ${baseline.length} items (same order).
 Risk values: only "low", "medium", or "high".
 Confidence: integer 0–100 (you may adjust ±5 based on telecom best-practice judgement).`;
 
-  const userContent = JSON.stringify(baseline.map(r => ({
-    id: r.id, action: r.action, confidence: r.confidence, reasons: r.reasons,
-    risk: r.risk, expectedImpact: r.expectedImpact,
-    currentVendor: r.currentVendor, targetVendor: r.targetVendor, destination: r.destination,
-    fraudSignals: r.fraudSignals,
-  })));
+    const userContent = JSON.stringify(baseline.map(r => ({
+      id: r.id, action: r.action, confidence: r.confidence, reasons: r.reasons,
+      risk: r.risk, expectedImpact: r.expectedImpact,
+      currentVendor: r.currentVendor, targetVendor: r.targetVendor, destination: r.destination,
+      fraudSignals: r.fraudSignals,
+    })));
 
-  let rawContent: string;
-  try {
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 1200,
@@ -582,25 +604,36 @@ Confidence: integer 0–100 (you may adjust ±5 based on telecom best-practice j
       ],
     });
     rawContent = completion.choices[0]?.message?.content ?? "";
-    if (!rawContent) throw new AiContractError("OpenAI returned empty response");
+    if (!rawContent) {
+      console.warn("[ai-recommendations] OpenAI returned empty response — falling back to rule-based");
+      return ruleBasedFallback("OpenAI returned an empty response — showing rule-based recommendations.");
+    }
   } catch (err: any) {
-    if (err instanceof AiContractError) throw err;
-    // Rate-limit, timeout, network error
-    throw new AiContractError(`OpenAI API error: ${err.message ?? "unknown error"}`);
+    const msg = err?.message ?? "unknown error";
+    console.warn("[ai-recommendations] OpenAI API error — falling back to rule-based:", msg);
+    return ruleBasedFallback(`OpenAI unavailable (${msg}) — showing rule-based recommendations.`);
   }
 
   let parsed: any;
   try {
     parsed = JSON.parse(rawContent);
   } catch {
-    throw new AiContractError("OpenAI returned malformed JSON — cannot parse response");
+    console.warn("[ai-recommendations] OpenAI returned malformed JSON — falling back to rule-based");
+    return ruleBasedFallback("OpenAI returned malformed output — showing rule-based recommendations.");
   }
 
   if (!parsed.recommendations) {
-    throw new AiContractError("OpenAI response missing 'recommendations' key");
+    console.warn("[ai-recommendations] OpenAI response missing 'recommendations' key — falling back");
+    return ruleBasedFallback("OpenAI response was invalid — showing rule-based recommendations.");
   }
 
-  const validated = validateAiOutput(parsed.recommendations, baseline);
+  let validated: AiRouteRecommendation[];
+  try {
+    validated = validateAiOutput(parsed.recommendations, baseline);
+  } catch (err: any) {
+    console.warn("[ai-recommendations] OpenAI output failed contract validation — falling back:", err.message);
+    return ruleBasedFallback(`OpenAI output failed validation (${err.message}) — showing rule-based recommendations.`);
+  }
 
   return {
     generatedAt: now,

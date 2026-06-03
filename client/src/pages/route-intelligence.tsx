@@ -42,6 +42,7 @@ interface AiRouteRecommendation {
   reasons: string[];
   risk: "low" | "medium" | "high";
   expectedImpact: string;
+  aiInsight?: string;
   currentVendor?: string;
   targetVendor?: string;
   destination?: string;
@@ -276,6 +277,20 @@ function AiRecCard({
           <BarChart2 className="h-3.5 w-3.5 flex-shrink-0 text-cyan-500" />
           <span>{rec.expectedImpact}</span>
         </div>
+
+        {/* AI insight line (only present in ai_enhanced mode) */}
+        {rec.aiInsight && (
+          <div
+            data-testid={`ai-rec-insight-${index}`}
+            className="mt-2 flex items-start gap-2 text-xs rounded-lg bg-violet-500/8 border border-violet-500/20 px-3 py-2"
+          >
+            <Sparkles className="h-3 w-3 flex-shrink-0 text-violet-400 mt-0.5" />
+            <span>
+              <span className="font-semibold text-violet-400 mr-1">AI:</span>
+              <span className="text-muted-foreground">{rec.aiInsight}</span>
+            </span>
+          </div>
+        )}
 
         {/* Per-card simulate toggle */}
         {hasSimulate && (
