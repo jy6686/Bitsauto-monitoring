@@ -435,7 +435,13 @@ export default function CallGovernancePage() {
   const billingQ = useQuery<BillingRow[]>({
     queryKey: ['/api/call-governance/billing'],
     enabled: tab === 'billing',
-    refetchInterval: tab === 'billing' ? 30_000 : false,
+    // Poll fast (10s) while there are No CDR entries — CDRs appear within 5 min of the cut.
+    // Backs off to 30s once everything is resolved.
+    refetchInterval: (query) => {
+      if (tab !== 'billing') return false;
+      const hasPending = (query.state.data as BillingRow[] | undefined)?.some(r => r.status === 'no_cdr');
+      return hasPending ? 10_000 : 30_000;
+    },
   });
 
   const addRuleMut = useMutation({
@@ -865,9 +871,27 @@ export default function CallGovernancePage() {
                   <p className="text-xs text-amber-400 mb-1">⚠ Check (review)</p>
                   <p className="text-2xl font-bold text-amber-300" data-testid="billing-check">{check}</p>
                 </div>
-                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
-                  <p className="text-xs text-slate-500 mb-1">No CDR yet</p>
-                  <p className="text-2xl font-bold text-slate-400" data-testid="billing-no-cdr">{noCdr}</p>
+                <div className={`rounded-xl p-4 border ${noCdr > 0 ? 'bg-sky-950/30 border-sky-800/40' : 'bg-slate-900/60 border-slate-800'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className={`text-xs ${noCdr > 0 ? 'text-sky-400' : 'text-slate-500'}`}>
+                      {noCdr > 0 ? '⟳ Checking CDRs…' : 'No CDR yet'}
+                    </p>
+                    {noCdr > 0 && (
+                      <button
+                        onClick={() => billingQ.refetch()}
+                        disabled={billingQ.isFetching}
+                        className="text-sky-400 hover:text-sky-300 disabled:opacity-40 transition-colors"
+                        title="Re-check CDRs now"
+                        data-testid="btn-recheck-cdrs"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${billingQ.isFetching ? 'animate-spin' : ''}`} />
+                      </button>
+                    )}
+                  </div>
+                  <p className={`text-2xl font-bold ${noCdr > 0 ? 'text-sky-300' : 'text-slate-400'}`} data-testid="billing-no-cdr">{noCdr}</p>
+                  {noCdr > 0 && (
+                    <p className="text-[10px] text-sky-500/70 mt-1">Auto-checking every 10s</p>
+                  )}
                 </div>
               </div>
             );
