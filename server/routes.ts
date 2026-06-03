@@ -30313,11 +30313,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           const marginAmount: number | null       = (customerCost !== null && vendorCost !== null)
             ? parseFloat((customerCost - vendorCost).toFixed(6)) : null;
 
-          // Status logic
-          let status: 'ok' | 'check' | 'no_cdr' = 'no_cdr';
+          // Status logic — three tiers:
+          //   'no_cdr'  : CDR not found in cache yet
+          //   'loss'    : vendor cost > customer revenue (margin < 0) — financial loss
+          //   'check'   : customer billed significantly more seconds than cut window — review in Sippy
+          //   'ok'      : duration within bounds AND margin ≥ 0 (or no vendor cost available)
+          let status: 'ok' | 'check' | 'loss' | 'no_cdr' = 'no_cdr';
           if (customerBilledSec !== null && estimatedBilledSec !== null) {
-            // Allow 15s slack for rounding / billing intervals
-            status = customerBilledSec <= estimatedBilledSec + 15 ? 'ok' : 'check';
+            if (customerBilledSec > estimatedBilledSec + 15) {
+              status = 'check';   // overbilled on duration
+            } else if (marginAmount !== null && marginAmount < 0) {
+              status = 'loss';    // vendor cost exceeds customer revenue
+            } else {
+              status = 'ok';
+            }
           }
 
           // Decode real CLI/CLD for display:

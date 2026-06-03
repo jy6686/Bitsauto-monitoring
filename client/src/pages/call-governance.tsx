@@ -84,7 +84,7 @@ interface BillingRow {
   vendorCost: number | null;
   marginAmount: number | null;
   vendorName: string | null;
-  status: 'ok' | 'check' | 'no_cdr';
+  status: 'ok' | 'check' | 'loss' | 'no_cdr';
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -849,16 +849,15 @@ export default function CallGovernancePage() {
         <div className="space-y-4">
           {/* Summary cards */}
           {billingQ.data && billingQ.data.length > 0 && (() => {
-            const rows = billingQ.data;
-            const ok      = rows.filter(r => r.status === 'ok').length;
-            const check   = rows.filter(r => r.status === 'check').length;
-            const noCdr   = rows.filter(r => r.status === 'no_cdr').length;
-            const totalSaved = rows.reduce((s, r) => {
-              if (r.estimatedBilledSec != null) return s + r.estimatedBilledSec;
-              return s;
-            }, 0);
+            const rows  = billingQ.data;
+            const ok    = rows.filter(r => r.status === 'ok').length;
+            const loss  = rows.filter(r => r.status === 'loss').length;
+            const check = rows.filter(r => r.status === 'check').length;
+            const noCdr = rows.filter(r => r.status === 'no_cdr').length;
+            const totalLoss = rows.reduce((s, r) =>
+              r.status === 'loss' && r.marginAmount != null ? s + Math.abs(r.marginAmount) : s, 0);
             return (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
                   <p className="text-xs text-slate-500 mb-1">Total Governed</p>
                   <p className="text-2xl font-bold text-slate-100" data-testid="billing-total">{rows.length}</p>
@@ -867,8 +866,13 @@ export default function CallGovernancePage() {
                   <p className="text-xs text-emerald-400 mb-1">✓ OK (no loss)</p>
                   <p className="text-2xl font-bold text-emerald-300" data-testid="billing-ok">{ok}</p>
                 </div>
+                <div className={`rounded-xl p-4 border ${loss > 0 ? 'bg-rose-950/40 border-rose-900/40' : 'bg-slate-900/60 border-slate-800'}`}>
+                  <p className={`text-xs mb-1 ${loss > 0 ? 'text-rose-400' : 'text-slate-500'}`}>↓ Loss (vendor &gt; revenue)</p>
+                  <p className={`text-2xl font-bold ${loss > 0 ? 'text-rose-300' : 'text-slate-400'}`} data-testid="billing-loss">{loss}</p>
+                  {loss > 0 && <p className="text-[10px] text-rose-500/70 mt-1">−${totalLoss.toFixed(4)} total</p>}
+                </div>
                 <div className="bg-amber-950/40 border border-amber-900/40 rounded-xl p-4">
-                  <p className="text-xs text-amber-400 mb-1">⚠ Check (review)</p>
+                  <p className="text-xs text-amber-400 mb-1">⚠ Check (overbilled)</p>
                   <p className="text-2xl font-bold text-amber-300" data-testid="billing-check">{check}</p>
                 </div>
                 <div className={`rounded-xl p-4 border ${noCdr > 0 ? 'bg-sky-950/30 border-sky-800/40' : 'bg-slate-900/60 border-slate-800'}`}>
@@ -889,9 +893,7 @@ export default function CallGovernancePage() {
                     )}
                   </div>
                   <p className={`text-2xl font-bold ${noCdr > 0 ? 'text-sky-300' : 'text-slate-400'}`} data-testid="billing-no-cdr">{noCdr}</p>
-                  {noCdr > 0 && (
-                    <p className="text-[10px] text-sky-500/70 mt-1">Auto-checking every 10s</p>
-                  )}
+                  {noCdr > 0 && <p className="text-[10px] text-sky-500/70 mt-1">Auto-checking every 10s</p>}
                 </div>
               </div>
             );
@@ -901,8 +903,13 @@ export default function CallGovernancePage() {
           <div className="bg-slate-900/40 border border-slate-800 rounded-xl px-4 py-3 flex items-start gap-3">
             <Info className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
             <div className="text-xs text-slate-400 space-y-0.5">
-              <p><span className="text-slate-200 font-medium">How to read this:</span> For each governed cut, we compare what Sippy billed the customer (from CDR cache) vs. our estimated vendor charge (cut time + 8s cleanup).</p>
-              <p><span className="text-emerald-400 font-medium">OK</span> = customer billed ≤ estimated vendor + 15s buffer &nbsp;·&nbsp; <span className="text-amber-400 font-medium">Check</span> = customer billed significantly more — review in Sippy &nbsp;·&nbsp; <span className="text-slate-400 font-medium">No CDR</span> = CDR not in cache yet (may appear within 5 min)</p>
+              <p><span className="text-slate-200 font-medium">How to read this:</span> For each governed cut, we compare what Sippy billed the customer (from CDR cache) vs. vendor cost (from Mera enrichment).</p>
+              <p>
+                <span className="text-emerald-400 font-medium">OK</span> = duration within cut window AND margin ≥ 0 &nbsp;·&nbsp;
+                <span className="text-rose-400 font-medium">Loss</span> = vendor cost exceeds customer revenue (negative margin) — investigate routing or rates &nbsp;·&nbsp;
+                <span className="text-amber-400 font-medium">Check</span> = customer billed significantly more seconds than cut window — review in Sippy &nbsp;·&nbsp;
+                <span className="text-slate-400 font-medium">No CDR</span> = CDR not in cache yet (may appear within 5 min)
+              </p>
             </div>
           </div>
 
@@ -927,7 +934,7 @@ export default function CallGovernancePage() {
                       <th className="px-4 py-2.5 text-left font-medium">CLI → CLD</th>
                       <th className="px-4 py-2.5 text-left font-medium">Cut At</th>
                       <th className="px-4 py-2.5 text-right font-medium">Gov Cut</th>
-                      <th className="px-4 py-2.5 text-right font-medium">Est. Vendor Charge</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Cut Window</th>
                       <th className="px-4 py-2.5 text-right font-medium">Customer Billed</th>
                       <th className="px-4 py-2.5 text-right font-medium">Cust. Cost</th>
                       <th className="px-4 py-2.5 text-right font-medium">Vendor Cost</th>
@@ -939,6 +946,7 @@ export default function CallGovernancePage() {
                     {billingQ.data.map(row => {
                       const statusCfg = {
                         ok:     { label: 'OK',      cls: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' },
+                        loss:   { label: 'Loss',    cls: 'bg-rose-500/10   text-rose-300   border border-rose-500/20'   },
                         check:  { label: 'Check',   cls: 'bg-amber-500/10  text-amber-300  border border-amber-500/20'  },
                         no_cdr: { label: 'No CDR',  cls: 'bg-slate-800     text-slate-400  border border-slate-700'     },
                       }[row.status];
