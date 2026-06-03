@@ -35,28 +35,49 @@ type Dest = (typeof DESTINATIONS)[number];
 
 const ACTIVE_PRODUCTS = PRODUCT_CLASSES.filter(p => p.prefix !== "other");
 
-// ── CLD rule builders ─────────────────────────────────────────────────────────
+// ── Formula builders ──────────────────────────────────────────────────────────
+// All three fields derive from the same triple: {prefix}{productCode}{CC}
+// e.g. prefix=2221, product=1, CC=92  →  combined = "2221192"
+//   Incoming CLD wildcard : 2221192*
+//   CLD translation rule  : s/^2221192/192/
+//   Incoming CLI          : 2221192   (exact match, no wildcard)
+
+function buildCombined(prefix: string, productCode: string, cc: string) {
+  return `${prefix}${productCode}${cc}`;
+}
 function buildCldWildcard(prefix: string, productCode: string, cc: string) {
-  return `${prefix}${productCode}${cc}*`;
+  return buildCombined(prefix, productCode, cc) + "*";
 }
 function buildCldRule(prefix: string, productCode: string, cc: string) {
-  return `s/^${prefix}${productCode}${cc}/${productCode}${cc}/`;
+  const c = buildCombined(prefix, productCode, cc);
+  return `s/^${c}/${productCode}${cc}/`;
+}
+function buildCli(prefix: string, productCode: string, cc: string) {
+  return buildCombined(prefix, productCode, cc);   // no wildcard
 }
 
-// Parse prefix + product code from an existing CLD translation rule
-// e.g. "s/^6686192/192/" → { prefix: "6686", productCode: "1" }
+// Parse prefix + product code from an existing CLD translation rule.
+// Accepts 3-7 digit prefixes so it works with various client configs.
+// e.g. "s/^2221192/192/"  →  { prefix: "2221", productCode: "1" }
 function parseCldRule(rule: string): { prefix: string; productCode: string } {
-  const m = rule?.match(/^s\/\^(\d{4})([1267])/);
-  if (m) return { prefix: m[1], productCode: m[2] };
+  if (!rule) return { prefix: "", productCode: "" };
+  // Format: s/^{prefix}{productCode}{digits}/{productCode}{digits}/
+  const m = rule.match(/^s\/\^(\d{3,7})([1267])\d/);
+  if (m) return { prefix: m[1].slice(0, 4), productCode: m[2] };
+  // Fallback: grab first 4+ digits after s/^
+  const m2 = rule.match(/^s\/\^(\d{4,8})/);
+  if (m2) return { prefix: m2[1].slice(0, 4), productCode: "" };
   return { prefix: "", productCode: "" };
 }
 
-// Regenerate CLD fields from current formula — call this whenever prefix, productCode, or dest changes
-function regenCld(prefix: string, productCode: string, dest: Dest | null) {
-  if (!prefix || !dest || dest.label === "Custom" || !dest.cc) return null;
+// Regenerate all three formula fields at once.
+// Returns null when formula is incomplete (prefix < 4 digits or no destination).
+function regenAll(prefix: string, productCode: string, dest: Dest | null) {
+  if (prefix.length < 4 || !dest || dest.label === "Custom" || !dest.cc) return null;
   return {
     cld:     buildCldWildcard(prefix, productCode, dest.cc),
     cldRule: buildCldRule(prefix, productCode, dest.cc),
+    cli:     buildCli(prefix, productCode, dest.cc),
   };
 }
 
@@ -118,6 +139,7 @@ export default function AuthStudioPage() {
   const [fRemoteIp,    setFRemoteIp]    = useState("");
   const [fCld,         setFCld]         = useState("");
   const [fCldRule,     setFCldRule]     = useState("");
+  const [fCli,         setFCli]         = useState("");   // incoming CLI = combined without wildcard
   const [fMaxSess,     setFMaxSess]     = useState("0");
   const [fMaxCps,      setFMaxCps]      = useState("0");
   const [fPrefix,      setFPrefix]      = useState("");
@@ -156,27 +178,38 @@ export default function AuthStudioPage() {
     ? [...new Set(authRules.map(r => r.remoteIp).filter((ip): ip is string => !!ip))]
     : (selectedAcct?.allowedIps ?? []);
 
-  // ── Auto-fill from auth rules when they load ──────────────────────────────
+  // ── PRIMARY auto-generator ────────────────────────────────────────────────
+  // Runs after EVERY change to fPrefix, fProductCode, or selectedDest.
+  // This is the single source of truth for all three formula fields.
+  useEffect(() => {
+    const gen = regenAll(fPrefix, fProductCode, selectedDest);
+    if (gen) {
+      setFCld(gen.cld);
+      setFCldRule(gen.cldRule);
+      setFCli(gen.cli);
+    } else {
+      setFCld("");
+      setFCldRule("");
+      setFCli("");
+    }
+  }, [fPrefix, fProductCode, selectedDest]);
+
+  // ── Auto-fill prefix + IP from auth rules when they load ─────────────────
   useEffect(() => {
     if (!authData?.authRules?.length) return;
-
+    // Auto-fill Remote IP
     if (!fRemoteIp) {
       const ip = authData.authRules.find(r => r.remoteIp)?.remoteIp;
       if (ip) setFRemoteIp(ip);
     }
-
+    // Auto-detect prefix + product code from client's existing CLD translation rule
     if (!fPrefix) {
       const ruleWithCld = authData.authRules.find(r => r.cldTranslationRule);
       if (ruleWithCld?.cldTranslationRule) {
         const { prefix, productCode } = parseCldRule(ruleWithCld.cldTranslationRule);
-        if (prefix) {
-          setFPrefix(prefix);
-          const pc = productCode || fProductCode;
-          setFProductCode(pc);
-          // Immediately regenerate CLD if destination is already selected
-          const gen = regenCld(prefix, pc, selectedDest);
-          if (gen) { setFCld(gen.cld); setFCldRule(gen.cldRule); }
-        }
+        if (prefix) setFPrefix(prefix);
+        if (productCode) setFProductCode(productCode);
+        // CLD fields will update automatically via the PRIMARY effect above
       }
     }
   }, [authData]);
@@ -190,36 +223,28 @@ export default function AuthStudioPage() {
     setSelectedRgId("");
     setPushResult(null);
     setFRemoteIp((acct.allowedIps ?? [])[0] ?? "");
-    setFCld(""); setFCldRule("");
+    setFCld(""); setFCldRule(""); setFCli("");
     setFMaxSess("0"); setFMaxCps("0");
     setFMcEnabled(false);
     setFPrefix(""); setFProductCode("1");
   }
 
-  // ── Select destination ────────────────────────────────────────────────────
+  // ── Select destination — just update state, effect handles regen ──────────
   function handleSelectDest(destLabel: string) {
     const d = DESTINATIONS.find(x => x.label === destLabel) ?? null;
     setSelectedDest(d);
     setSelectedRgId("");
     setPushResult(null);
-    const gen = regenCld(fPrefix, fProductCode, d);
-    if (gen) { setFCld(gen.cld); setFCldRule(gen.cldRule); }
-    else      { setFCld(""); setFCldRule(""); }
   }
 
-  // ── Select product code (clickable) ──────────────────────────────────────
+  // ── Select product code — just update state, effect handles regen ─────────
   function handleSelectProduct(code: string) {
     setFProductCode(code);
-    const gen = regenCld(fPrefix, code, selectedDest);
-    if (gen) { setFCld(gen.cld); setFCldRule(gen.cldRule); }
   }
 
-  // ── Prefix change ─────────────────────────────────────────────────────────
+  // ── Prefix change — just update state, effect handles regen ──────────────
   function handlePrefixChange(val: string) {
-    const p = val.replace(/\D/g, "").slice(0, 4);
-    setFPrefix(p);
-    const gen = regenCld(p, fProductCode, selectedDest);
-    if (gen) { setFCld(gen.cld); setFCldRule(gen.cldRule); }
+    setFPrefix(val.replace(/\D/g, "").slice(0, 4));
   }
 
   // ── Push mutation ─────────────────────────────────────────────────────────
@@ -230,6 +255,7 @@ export default function AuthStudioPage() {
         iProtocol: 1,
         ...(fRemoteIp  ? { remoteIp:          fRemoteIp  } : {}),
         ...(fCld       ? { incomingCld:        fCld       } : {}),
+        ...(fCli       ? { incomingCli:        fCli       } : {}),
         ...(fCldRule   ? { cldTranslationRule: fCldRule   } : {}),
         ...(selectedRg ? { iRoutingGroup: selectedRg.iRoutingGroup } : {}),
         ...(fMaxSess && fMaxSess !== "0" ? { maxSessions: parseInt(fMaxSess, 10) } : {}),
@@ -664,6 +690,17 @@ export default function AuthStudioPage() {
                   placeholder=""
                   className="mt-1 h-8 text-xs font-mono"
                   data-testid="input-cld-rule" />
+              </div>
+
+              {/* Incoming CLI */}
+              <div>
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                  Incoming CLI <span className="text-cyan-400">← caller prefix match</span>
+                </Label>
+                <Input value={fCli} onChange={e => setFCli(e.target.value)}
+                  placeholder=""
+                  className="mt-1 h-8 text-xs font-mono"
+                  data-testid="input-incoming-cli" />
               </div>
 
               {/* Routing Group display */}
