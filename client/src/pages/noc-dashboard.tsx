@@ -191,6 +191,18 @@ function formatAgo(isoString: string, now: number): string {
   return `${hrs}h ago`;
 }
 
+const COPILOT_INTERVAL_S = 5 * 60;
+
+function formatNextIn(isoString: string, now: number): string {
+  const elapsed = Math.floor((now - new Date(isoString).getTime()) / 1000);
+  const remaining = Math.max(0, COPILOT_INTERVAL_S - elapsed);
+  if (remaining === 0) return "refreshing…";
+  if (remaining < 60) return `${remaining}s`;
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+}
+
 function CopilotAlertStrip({
   summary,
   canApply,
@@ -223,7 +235,8 @@ function CopilotAlertStrip({
 
   if (!summary) return null;
 
-  const ageLabel = formatAgo(summary.generatedAt, now);
+  const ageLabel   = formatAgo(summary.generatedAt, now);
+  const nextInLabel = formatNextIn(summary.generatedAt, now);
 
   if (!summary.hasAlerts) {
     return (
@@ -251,6 +264,8 @@ function CopilotAlertStrip({
         <span className="text-[10px] font-mono text-emerald-600/70">All carriers healthy</span>
         <span className="ml-auto text-[10px] font-mono text-slate-600 tabular-nums" data-testid="copilot-last-updated">
           Updated {ageLabel}
+          <span className="text-slate-700"> / next in </span>
+          <span data-testid="copilot-next-refresh">{nextInLabel}</span>
         </span>
       </div>
     );
@@ -335,6 +350,8 @@ function CopilotAlertStrip({
               className="text-[10px] font-mono text-slate-500 tabular-nums"
             >
               Updated {ageLabel}
+              <span className="text-slate-600"> / next in </span>
+              <span data-testid="copilot-next-refresh">{nextInLabel}</span>
             </span>
             <Link href="/route-intelligence?tab=copilot">
               <a
