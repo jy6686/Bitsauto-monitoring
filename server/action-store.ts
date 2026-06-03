@@ -705,3 +705,88 @@ export async function rollbackAction(id: number, userId: string, userName: strin
     return updated;
   } finally { await pool.end(); }
 }
+
+// ── expireStaleApprovals ──────────────────────────────────────────────────────
+// Background job helper — expires pending_approval actions older than
+// DUAL_APPROVAL_TTL_MINUTES (default 30). Each expired action is transitioned
+// to 'rejected' with a system audit trail entry and a ledger event.
+// Returns the count of actions expired in this sweep.
+export async function expireStaleApprovals(): Promise<number> {
+  // Sanitise TTL: must be a positive finite integer, default 30.
+  const rawTtl = parseInt(process.env.DUAL_APPROVAL_TTL_MINUTES ?? '30', 10);
+  const ttlMinutes = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 30;
+
+  const pool = getPool();
+  try {
+    const stale = await pool.query(
+      `SELECT * FROM account_actions
+       WHERE status = 'pending_approval'
+         AND updated_at < NOW() - ($1 || ' minutes')::interval
+       ORDER BY updated_at ASC`,
+      [ttlMinutes],
+    );
+
+    if (stale.rows.length === 0) return 0;
+
+    const REASON = 'Approval expired — no second operator action taken';
+    const now = new Date().toISOString();
+    let expiredCount = 0;
+
+    for (const row of stale.rows) {
+      const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
+      trail.push({
+        timestamp: now,
+        event:     'auto_expired',
+        userId:    'system',
+        userName:  'System (auto-expiry)',
+        details:   `${REASON} after ${ttlMinutes} minute TTL`,
+      });
+
+      // Atomic conditional UPDATE — only transitions if still in pending_approval.
+      // rowCount=0 means a concurrent approve/reject already claimed this row.
+      const result = await pool.query(
+        `UPDATE account_actions
+         SET status='rejected', rejected_by='system',
+             rejection_reason=$1, audit_trail=$2, updated_at=NOW()
+         WHERE id=$3 AND status='pending_approval'`,
+        [REASON, JSON.stringify(trail), row.id],
+      );
+
+      if ((result.rowCount ?? 0) === 0) {
+        // Race: another operator acted between SELECT and UPDATE — skip ledger.
+        console.debug(`[approval-expiry] Action #${row.id} already resolved (skipped)`);
+        continue;
+      }
+
+      expiredCount++;
+      console.log(`[approval-expiry] Action #${row.id} (${row.account_name}) expired after ${ttlMinutes}m TTL`);
+
+      appendToLedger({
+        ledgerId:          ledgerIdForC2Action(row.idempotency_key),
+        scope:             'account',
+        sourceSystem:      'C2',
+        actionType:        row.action_type,
+        entityId:          row.account_id,
+        entityName:        row.account_name,
+        idempotencyKey:    row.idempotency_key,
+        riskIndexSnapshot: row.risk_index ?? null,
+        approvalState:     'rejected',
+        executionState:    'not_executed',
+        verificationState: 'not_applicable',
+        sourceRecordId:    String(row.id),
+        eventType:         'rejected',
+        actorId:           'system',
+        actorName:         'System (auto-expiry)',
+        requestedBy:       row.requested_by,
+        requestedByName:   row.requested_by_name,
+        note:              `${REASON} after ${ttlMinutes}m TTL`,
+      }).catch((e: any) =>
+        console.warn(`[approval-expiry] Ledger append failed for action ${row.id}:`, e.message),
+      );
+    }
+
+    return expiredCount;
+  } finally {
+    await pool.end();
+  }
+}

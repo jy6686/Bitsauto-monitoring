@@ -22,6 +22,7 @@ import {
   atomicClaimPendingApproval,
   secondaryApproveAction,
   secondaryRejectAction,
+  expireStaleApprovals,
 } from "./action-store";
 import {
   recommendationToActionType,
@@ -614,13 +615,21 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
   // ── GET /api/ai/actions/pending ─────────────────────────────────────────────
   // Lists all actions in pending_approval state (awaiting second operator).
   // Management role required — these are the reviewers.
+  // Each action is enriched with expires_at (computed from updated_at + TTL).
   app.get(
     "/api/ai/actions/pending",
     (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
     async (_req: any, res: any) => {
       try {
+        const ttlMinutes = parseInt(process.env.DUAL_APPROVAL_TTL_MINUTES ?? '30', 10);
+        const ttlMs = ttlMinutes * 60_000;
         const rows = await listPendingApproval();
-        res.json({ success: true, data: rows });
+        const enriched = rows.map((r: any) => ({
+          ...r,
+          expires_at: new Date(new Date(r.updated_at).getTime() + ttlMs).toISOString(),
+          ttl_minutes: ttlMinutes,
+        }));
+        res.json({ success: true, data: enriched });
       } catch (err: any) {
         console.error("[ai-actions/pending] error:", err.message);
         res.status(500).json({ success: false, error: err.message ?? "List failed" });
@@ -959,5 +968,26 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         return res.status(500).json({ success: false, error: err.message ?? "Approval failed" });
       }
     },
+  );
+
+  // ── Approval expiry background job ──────────────────────────────────────────
+  // Runs every 60 seconds. Sweeps for pending_approval actions older than
+  // DUAL_APPROVAL_TTL_MINUTES (default 30) and transitions them to 'rejected'.
+  const EXPIRY_SWEEP_INTERVAL_MS = 60_000;
+  setInterval(async () => {
+    try {
+      const expired = await expireStaleApprovals();
+      if (expired > 0) {
+        console.log(`[approval-expiry] Swept ${expired} stale pending approval(s) to rejected`);
+        invalidateCopilotSummaryCache();
+      }
+    } catch (err: any) {
+      console.warn('[approval-expiry] Sweep error (non-fatal):', err.message);
+    }
+  }, EXPIRY_SWEEP_INTERVAL_MS);
+
+  console.log(
+    `[approval-expiry] Background job registered — sweeping every 60s, ` +
+    `TTL=${process.env.DUAL_APPROVAL_TTL_MINUTES ?? '30'}m (DUAL_APPROVAL_TTL_MINUTES)`,
   );
 }

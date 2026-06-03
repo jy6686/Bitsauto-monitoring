@@ -757,7 +757,53 @@ interface PendingAction {
   requested_by: string;
   requested_by_name: string;
   created_at: string;
+  updated_at: string;
+  expires_at: string;
+  ttl_minutes: number;
   sippy_params: Record<string, unknown>;
+}
+
+function ApprovalCountdown({ expiresAt }: { expiresAt: string }) {
+  const [remainingMs, setRemainingMs] = useState(() =>
+    Math.max(0, new Date(expiresAt).getTime() - Date.now()),
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setRemainingMs(Math.max(0, new Date(expiresAt).getTime() - Date.now()));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+
+  if (remainingMs === 0) {
+    return (
+      <span className="text-[11px] font-mono font-bold text-red-500 flex items-center gap-1">
+        <Clock className="h-3 w-3" />
+        Expiring…
+      </span>
+    );
+  }
+
+  const totalSec = Math.floor(remainingMs / 1000);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  const isUrgent = remainingMs < 5 * 60_000;
+  const isWarning = remainingMs < 10 * 60_000;
+
+  return (
+    <span
+      data-testid="approval-countdown"
+      className={cn(
+        "text-[11px] font-mono flex items-center gap-1",
+        isUrgent  ? "font-bold text-red-500 animate-pulse"   :
+        isWarning ? "font-semibold text-orange-400"           :
+                    "text-muted-foreground/70",
+      )}
+    >
+      <Clock className="h-3 w-3" />
+      {mins}:{secs.toString().padStart(2, "0")} remaining
+    </span>
+  );
 }
 
 function PendingApprovalPanel() {
@@ -852,9 +898,14 @@ function PendingApprovalPanel() {
                     <span className="font-medium text-sm truncate">{action.account_name}</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">{action.primary_action}</p>
-                  <p className="text-[11px] text-muted-foreground/60 mt-0.5 font-mono">
-                    Requested by {action.requested_by_name} · {new Date(action.created_at).toLocaleTimeString()}
-                  </p>
+                  <div className="flex items-center gap-3 mt-0.5">
+                    <p className="text-[11px] text-muted-foreground/60 font-mono">
+                      Requested by {action.requested_by_name} · {new Date(action.created_at).toLocaleTimeString()}
+                    </p>
+                    {action.expires_at && (
+                      <ApprovalCountdown expiresAt={action.expires_at} />
+                    )}
+                  </div>
                   {isSelf && (
                     <p className="text-[11px] text-orange-500 mt-1 flex items-center gap-1">
                       <AlertCircle className="h-3 w-3" />
