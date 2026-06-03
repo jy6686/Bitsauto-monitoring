@@ -147,6 +147,10 @@ export default function AuthStudioPage() {
   const [fMcEnabled,   setFMcEnabled]   = useState(false);
   const [fMcProductCode, setFMcProductCode] = useState("7");
 
+  // Inline routing-group editor on existing rules table
+  const [editingRuleId, setEditingRuleId] = useState<number | null>(null);
+  const [editingRgId,   setEditingRgId]   = useState<string>("");
+
   // ── Data fetching ─────────────────────────────────────────────────────────
   const { data: acctData, isLoading: loadingAccts } = useQuery<{ accounts: Account[] }>({
     queryKey: ["/api/sippy/accounts"],
@@ -304,6 +308,23 @@ export default function AuthStudioPage() {
       refetchAuth();
     },
     onError: (e: any) => toast({ variant: "destructive", title: "Delete failed", description: e.message }),
+  });
+
+  const updateRgMut = useMutation({
+    mutationFn: ({ iAuthentication, iRoutingGroup }: { iAuthentication: number; iRoutingGroup: number }) =>
+      apiRequest("PATCH", `/api/sippy/auth-rules/${iAuthentication}`, { iRoutingGroup }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      if (data.success === false) {
+        toast({ variant: "destructive", title: "Update failed", description: data.message });
+      } else {
+        toast({ title: "Routing group updated" });
+        setEditingRuleId(null);
+        setEditingRgId("");
+        qc.invalidateQueries({ queryKey: ["/api/sippy/accounts", selectedAcct?.iAccount, "auth-rules"] });
+        refetchAuth();
+      }
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Update failed", description: e.message }),
   });
 
   const canPush = !!selectedAcct && (!!fRemoteIp || !!fCld) && !!fPrefix;
@@ -487,8 +508,8 @@ export default function AuthStudioPage() {
               )}
             </div>
 
-            {/* ② Routing Group */}
-            {selectedDest && (
+            {/* ② Routing Group — always shown when account is selected */}
+            {selectedAcct && (
               <div className="rounded-lg border border-border bg-card p-4 space-y-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">② Select Routing Group</p>
                 {loadingRgs ? (
@@ -500,9 +521,11 @@ export default function AuthStudioPage() {
                     <Select value={selectedRgId} onValueChange={v => { setSelectedRgId(v); setPushResult(null); }}>
                       <SelectTrigger className="h-9 text-sm" data-testid="sel-routing-group">
                         <SelectValue placeholder={
-                          filteredRgs.length === 0
-                            ? "No matching groups — showing all"
-                            : `Choose from ${filteredRgs.length} matched group${filteredRgs.length !== 1 ? "s" : ""}…`
+                          filteredRgs.length > 0
+                            ? `Choose from ${filteredRgs.length} matched group${filteredRgs.length !== 1 ? "s" : ""}…`
+                            : allRgs.length > 0
+                              ? `Choose from ${allRgs.length} group${allRgs.length !== 1 ? "s" : ""}…`
+                              : "No routing groups loaded"
                         } />
                       </SelectTrigger>
                       <SelectContent>
@@ -513,11 +536,13 @@ export default function AuthStudioPage() {
                         ))}
                       </SelectContent>
                     </Select>
-                    {selectedRg && (
+                    {selectedRg ? (
                       <Badge className="text-xs bg-green-500/10 text-green-400 border-green-500/30" variant="outline">
                         <CheckCircle2 className="h-3 w-3 mr-1" />
                         {selectedRg.name} (id={selectedRg.iRoutingGroup})
                       </Badge>
+                    ) : (
+                      <p className="text-[10px] text-amber-400">⚠ No routing group selected — Sippy will use account default</p>
                     )}
                   </>
                 )}
@@ -544,32 +569,79 @@ export default function AuthStudioPage() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-border bg-muted/30">
-                        {["#","Remote IP","Incoming CLD","CLD Rule","RG Id","Sessions",""].map(h => (
+                        {["#","Remote IP","Incoming CLD","CLD Rule","Routing Group","Sessions",""].map(h => (
                           <th key={h} className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {authRules.map((rule, i) => (
-                        <tr key={rule.iAuthentication} className="border-b border-border/50 hover:bg-accent/40">
-                          <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
-                          <td className="px-3 py-2 font-mono">{rule.remoteIp ?? "—"}</td>
-                          <td className="px-3 py-2 font-mono">{rule.incomingCld ?? rule.incomingCli ?? "—"}</td>
-                          <td className="px-3 py-2 font-mono text-muted-foreground">{rule.cldTranslationRule ?? "—"}</td>
-                          <td className="px-3 py-2">{rule.iRoutingGroup ?? "—"}</td>
-                          <td className="px-3 py-2">{rule.maxSessions ?? "∞"}</td>
-                          <td className="px-3 py-2">
-                            <Button variant="ghost" size="icon" className="h-6 w-6"
-                              onClick={() => delMut.mutate(rule.iAuthentication)}
-                              disabled={delMut.isPending}
-                              data-testid={`btn-del-rule-${rule.iAuthentication}`}>
-                              {delMut.isPending
-                                ? <Loader2 className="h-3 w-3 animate-spin" />
-                                : <Trash2 className="h-3 w-3 text-red-400" />}
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
+                      {authRules.map((rule, i) => {
+                        const resolvedRg = allRgs.find(g => g.iRoutingGroup === rule.iRoutingGroup);
+                        const isEditing  = editingRuleId === rule.iAuthentication;
+                        return (
+                          <tr key={rule.iAuthentication} className="border-b border-border/50 hover:bg-accent/40">
+                            <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
+                            <td className="px-3 py-2 font-mono">{rule.remoteIp ?? "—"}</td>
+                            <td className="px-3 py-2 font-mono">{rule.incomingCld ?? rule.incomingCli ?? "—"}</td>
+                            <td className="px-3 py-2 font-mono text-muted-foreground">{rule.cldTranslationRule ?? "—"}</td>
+                            <td className="px-3 py-2 min-w-[180px]">
+                              {isEditing ? (
+                                <div className="flex items-center gap-1.5">
+                                  <Select value={editingRgId} onValueChange={setEditingRgId}>
+                                    <SelectTrigger className="h-7 text-xs flex-1" data-testid={`sel-edit-rg-${rule.iAuthentication}`}>
+                                      <SelectValue placeholder="Select RG…" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {allRgs.map(g => (
+                                        <SelectItem key={g.iRoutingGroup} value={String(g.iRoutingGroup)}>
+                                          {g.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Button size="sm" className="h-7 text-xs px-2"
+                                    disabled={!editingRgId || updateRgMut.isPending}
+                                    onClick={() => updateRgMut.mutate({ iAuthentication: rule.iAuthentication, iRoutingGroup: parseInt(editingRgId, 10) })}
+                                    data-testid={`btn-apply-rg-${rule.iAuthentication}`}>
+                                    {updateRgMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Apply"}
+                                  </Button>
+                                  <Button variant="ghost" size="sm" className="h-7 text-xs px-2"
+                                    onClick={() => { setEditingRuleId(null); setEditingRgId(""); }}>
+                                    ✕
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  {rule.iRoutingGroup ? (
+                                    <span className="text-green-400 font-mono">
+                                      {resolvedRg ? resolvedRg.name : `id=${rule.iRoutingGroup}`}
+                                    </span>
+                                  ) : (
+                                    <span className="text-amber-400">[From Account]</span>
+                                  )}
+                                  <button
+                                    onClick={() => { setEditingRuleId(rule.iAuthentication); setEditingRgId(rule.iRoutingGroup ? String(rule.iRoutingGroup) : ""); }}
+                                    className="text-[10px] text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors"
+                                    data-testid={`btn-edit-rg-${rule.iAuthentication}`}>
+                                    set
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">{rule.maxSessions ?? "∞"}</td>
+                            <td className="px-3 py-2">
+                              <Button variant="ghost" size="icon" className="h-6 w-6"
+                                onClick={() => delMut.mutate(rule.iAuthentication)}
+                                disabled={delMut.isPending}
+                                data-testid={`btn-del-rule-${rule.iAuthentication}`}>
+                                {delMut.isPending
+                                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                                  : <Trash2 className="h-3 w-3 text-red-400" />}
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
