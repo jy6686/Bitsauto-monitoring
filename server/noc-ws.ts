@@ -97,3 +97,21 @@ export function broadcastRollbackFailureAlert(data: RollbackFailureAlertData): v
     }
   }
 }
+
+export interface ApprovalExpiredData {
+  actionId:       number;
+  accountName:    string;
+  actionType:     string;
+  requestedByName: string;
+  ttlMinutes:     number;
+  expiredAt:      string;
+}
+
+export function broadcastApprovalExpired(data: ApprovalExpiredData): void {
+  const payload = JSON.stringify({ type: "approval_expired", ...data });
+  for (const client of nocClients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      try { client.ws.send(payload); } catch { /* ignore send errors */ }
+    }
+  }
+}

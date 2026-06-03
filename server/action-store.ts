@@ -14,6 +14,7 @@ import {
   type LedgerExecutionState,
   type LedgerVerificationState,
 } from './action-ledger';
+import { broadcastApprovalExpired } from './noc-ws';
 
 type AuditEntry = {
   timestamp: string;
@@ -784,6 +785,15 @@ export async function expireStaleApprovals(): Promise<number> {
 
       expiredCount++;
       console.log(`[approval-expiry] Action #${row.id} (${row.account_name}) expired after ${ttlMinutes}m TTL`);
+
+      broadcastApprovalExpired({
+        actionId:        row.id,
+        accountName:     row.account_name,
+        actionType:      row.action_type,
+        requestedByName: row.requested_by_name,
+        ttlMinutes,
+        expiredAt:       now,
+      });
 
       appendToLedger({
         ledgerId:          ledgerIdForC2Action(row.idempotency_key),

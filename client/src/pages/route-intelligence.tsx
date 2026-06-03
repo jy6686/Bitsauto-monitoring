@@ -819,6 +819,22 @@ function PendingApprovalPanel() {
     refetchInterval: 20_000,
   });
 
+  const { lastApprovalExpired } = useNocWebSocket();
+  const seenExpiredRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!lastApprovalExpired) return;
+    const key = `${lastApprovalExpired.actionId}-${lastApprovalExpired.expiredAt}`;
+    if (seenExpiredRef.current.has(key)) return;
+    seenExpiredRef.current.add(key);
+    refetch();
+    queryClient.invalidateQueries({ queryKey: ["/api/ai/actions/pending"] });
+    toast({
+      title: `Action #${lastApprovalExpired.actionId} auto-expired`,
+      description: `No second operator acted in time — action for ${lastApprovalExpired.accountName} was automatically rejected after ${lastApprovalExpired.ttlMinutes}m.`,
+      variant: "destructive",
+    });
+  }, [lastApprovalExpired]);
+
   const pending = data?.data ?? [];
 
   const approveMutation = useMutation<{ success: boolean; status: string; sippyNote: string }, Error, number>({

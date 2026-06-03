@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useNocWebSocket, type RollbackFailureAlert } from "@/hooks/use-noc-ws";
+import { useNocWebSocket, type RollbackFailureAlert, type ApprovalExpiredEvent } from "@/hooks/use-noc-ws";
 import { X, WrenchIcon } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -203,6 +203,65 @@ function StripQuickApplyModal({
           </button>
         </div>
       </motion.div>
+    </div>
+  );
+}
+
+// ── Approval Expired Banner ─────────────────────────────────────────────────────
+
+function ApprovalExpiredBanner({
+  events,
+  onDismiss,
+}: {
+  events: ApprovalExpiredEvent[];
+  onDismiss: (expiredAt: string) => void;
+}) {
+  if (events.length === 0) return null;
+  return (
+    <div className="flex-shrink-0 flex flex-col gap-1 px-3 py-2 bg-orange-950/60 border-b border-orange-700/60">
+      {events.map((evt) => (
+        <motion.div
+          key={`${evt.actionId}-${evt.expiredAt}`}
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.2 }}
+          data-testid={`approval-expired-banner-${evt.actionId}`}
+          className="flex items-start gap-2.5 rounded-lg border border-orange-600/50 bg-orange-900/40 px-3 py-2"
+        >
+          <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500" />
+            </span>
+            <Clock className="h-3.5 w-3.5 text-orange-400 flex-shrink-0" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-orange-300 bg-orange-500/20 border border-orange-500/30 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                APPROVAL EXPIRED
+              </span>
+              <span className="text-[11px] font-semibold text-orange-200 font-mono">
+                Action #{evt.actionId} — {evt.accountName}
+              </span>
+              <span className="text-[10px] font-bold uppercase font-mono bg-red-500/10 border border-red-500/20 text-red-400 px-1 py-0.5 rounded">
+                {evt.actionType}
+              </span>
+            </div>
+            <p className="text-[11px] text-orange-300/80 mt-0.5 leading-snug">
+              Requested by {evt.requestedByName} — auto-rejected after {evt.ttlMinutes}m TTL with no second operator action.
+            </p>
+          </div>
+          <button
+            data-testid={`approval-expired-dismiss-${evt.actionId}`}
+            onClick={() => onDismiss(evt.expiredAt)}
+            className="flex-shrink-0 p-1 rounded hover:bg-orange-700/40 text-orange-400 hover:text-orange-200 transition-colors"
+            aria-label="Dismiss approval expired alert"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </motion.div>
+      ))}
     </div>
   );
 }
@@ -727,9 +786,11 @@ export default function NocDashboardPage() {
   const [stripModalRec, setStripModalRec] = useState<StripRecommendation | null>(null);
   const [rollbackAlerts, setRollbackAlerts] = useState<RollbackFailureAlert[]>([]);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
+  const [expiredApprovals, setExpiredApprovals] = useState<ApprovalExpiredEvent[]>([]);
+  const [dismissedExpiry, setDismissedExpiry] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const { isManagement } = useAuth();
-  const { lastRollbackFailure } = useNocWebSocket();
+  const { lastRollbackFailure, lastApprovalExpired } = useNocWebSocket();
 
   useEffect(() => {
     document.documentElement.classList.add('dark');
@@ -744,6 +805,16 @@ export default function NocDashboardPage() {
       return [lastRollbackFailure, ...prev];
     });
   }, [lastRollbackFailure]);
+
+  useEffect(() => {
+    if (!lastApprovalExpired) return;
+    const key = `${lastApprovalExpired.actionId}-${lastApprovalExpired.expiredAt}`;
+    if (dismissedExpiry.has(key)) return;
+    setExpiredApprovals(prev => {
+      if (prev.some(e => e.actionId === lastApprovalExpired.actionId && e.expiredAt === lastApprovalExpired.expiredAt)) return prev;
+      return [lastApprovalExpired, ...prev];
+    });
+  }, [lastApprovalExpired]);
 
   const { data: liveSummary } = useQuery<LiveSummary>({
     queryKey: ["/api/sippy/live-calls"],
@@ -944,6 +1015,21 @@ export default function NocDashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Approval Expiry Banners ── */}
+      <AnimatePresence>
+        <ApprovalExpiredBanner
+          events={expiredApprovals}
+          onDismiss={(expiredAt) => {
+            const evt = expiredApprovals.find(e => e.expiredAt === expiredAt);
+            if (evt) {
+              const key = `${evt.actionId}-${evt.expiredAt}`;
+              setDismissedExpiry(prev => new Set([...prev, key]));
+            }
+            setExpiredApprovals(prev => prev.filter(e => e.expiredAt !== expiredAt));
+          }}
+        />
+      </AnimatePresence>
 
       {/* ── Rollback Failure Banners ── */}
       <AnimatePresence>

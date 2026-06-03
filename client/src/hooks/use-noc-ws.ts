@@ -29,11 +29,21 @@ export interface PendingApprovalEvent {
   primaryAction:   string;
 }
 
+export interface ApprovalExpiredEvent {
+  actionId:        number;
+  accountName:     string;
+  actionType:      string;
+  requestedByName: string;
+  ttlMinutes:      number;
+  expiredAt:       string;
+}
+
 interface UseNocWebSocketResult {
   lastTick: NocTickData | null;
   lastVoiceOtpUpdate: VoiceOtpUpdateEvent | null;
   lastRollbackFailure: RollbackFailureAlert | null;
   lastPendingApproval: PendingApprovalEvent | null;
+  lastApprovalExpired: ApprovalExpiredEvent | null;
   connected: boolean;
 }
 
@@ -42,6 +52,7 @@ export function useNocWebSocket(): UseNocWebSocketResult {
   const [lastVoiceOtpUpdate, setLastVoiceOtpUpdate] = useState<VoiceOtpUpdateEvent | null>(null);
   const [lastRollbackFailure, setLastRollbackFailure] = useState<RollbackFailureAlert | null>(null);
   const [lastPendingApproval, setLastPendingApproval] = useState<PendingApprovalEvent | null>(null);
+  const [lastApprovalExpired, setLastApprovalExpired] = useState<ApprovalExpiredEvent | null>(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,6 +99,15 @@ export function useNocWebSocket(): UseNocWebSocketResult {
               requestedByName: data.requestedByName,
               primaryAction:   data.primaryAction,
             });
+          } else if (data.type === "approval_expired") {
+            setLastApprovalExpired({
+              actionId:        data.actionId,
+              accountName:     data.accountName,
+              actionType:      data.actionType,
+              requestedByName: data.requestedByName,
+              ttlMinutes:      data.ttlMinutes,
+              expiredAt:       data.expiredAt,
+            });
           }
         } catch { /* ignore malformed messages */ }
       };
@@ -115,5 +135,5 @@ export function useNocWebSocket(): UseNocWebSocketResult {
     };
   }, [connect]);
 
-  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, lastPendingApproval, connected };
+  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, lastPendingApproval, lastApprovalExpired, connected };
 }
