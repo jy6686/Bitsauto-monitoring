@@ -49,6 +49,8 @@ class AmiGovernanceListener extends EventEmitter {
   private bridgePending = new Map<string, BridgeLeg[]>();
   // channel → bridgeId for cleanup on hangup
   private channelToBridge = new Map<string, string>();
+  // Raw frame listeners for collecting AMI action responses (e.g. CoreShowChannels)
+  private rawFrameListeners: Array<(f: Record<string, string>) => void> = [];
 
   start() {
     if (this.started) return;
@@ -151,10 +153,17 @@ class AmiGovernanceListener extends EventEmitter {
             this.socket.write(`Action: Ping\r\nActionID: gov-keepalive\r\n\r\n`);
           }
         }, 20_000);
+        // Emit 'connected' so governance engine can reconcile existing calls
+        this.emit('connected');
       } else {
         console.error('[ami-governance] Login failed:', f['message']);
       }
       return;
+    }
+
+    // Route frame to any registered raw listeners (used by fetchActiveBridges)
+    for (const fn of this.rawFrameListeners) {
+      try { fn(f); } catch {}
     }
 
     // Bridge event (chan_sip style — both channels in one event)
@@ -269,6 +278,78 @@ class AmiGovernanceListener extends EventEmitter {
   }
 
   get isConnected() { return this.connected && this.loggedIn; }
+
+  // ── Raw frame listener management (used by fetchActiveBridges) ────────────
+  addRawFrameListener(fn: (f: Record<string, string>) => void) {
+    this.rawFrameListeners.push(fn);
+  }
+  removeRawFrameListener(fn: (f: Record<string, string>) => void) {
+    this.rawFrameListeners = this.rawFrameListeners.filter(l => l !== fn);
+  }
+
+  /**
+   * Query Asterisk for all currently active bridged channels.
+   * Uses AMI CoreShowChannels — returns both legs of every active bridge
+   * so the governance engine can reconcile missed bridge events (e.g. after reconnect).
+   */
+  async fetchActiveBridges(): Promise<Array<{
+    channel:          string;
+    bridgeId:         string;
+    durationSec:      number;
+    uniqueId:         string;
+    callerIdNum:      string;
+    connectedLineNum: string;
+  }>> {
+    return new Promise((resolve) => {
+      if (!this.loggedIn || !this.socket) { resolve([]); return; }
+
+      const actionId  = `gov-csc-${++this.actionCounter}`;
+      const channels: Array<{
+        channel: string; bridgeId: string; durationSec: number;
+        uniqueId: string; callerIdNum: string; connectedLineNum: string;
+      }> = [];
+
+      // Timeout safety — resolve with whatever we have after 5s
+      const timeout = setTimeout(() => {
+        this.removeRawFrameListener(listener);
+        console.warn('[ami-governance] fetchActiveBridges timed out — returning partial results');
+        resolve(channels);
+      }, 5_000);
+
+      const listener = (f: Record<string, string>) => {
+        if (f['event'] === 'coreshowchannel') {
+          const bridgeId = f['bridgeid'] ?? '';
+          if (!bridgeId) return; // not currently bridged — skip
+
+          // Parse duration "H:MM:SS" or "M:SS"
+          const raw   = f['duration'] ?? '0:00:00';
+          const parts = raw.split(':').map(Number);
+          let secs = 0;
+          if (parts.length === 3)      secs = parts[0] * 3600 + parts[1] * 60 + parts[2];
+          else if (parts.length === 2) secs = parts[0] * 60  + parts[1];
+          else                         secs = parts[0] || 0;
+
+          channels.push({
+            channel:          f['channel']          ?? '',
+            bridgeId,
+            durationSec:      secs,
+            uniqueId:         f['uniqueid']          ?? '',
+            callerIdNum:      f['calleridnum']       ?? '',
+            connectedLineNum: f['connectedlinenum']  ?? '',
+          });
+        }
+
+        if (f['event'] === 'coreshowchannelscomplete') {
+          clearTimeout(timeout);
+          this.removeRawFrameListener(listener);
+          resolve(channels);
+        }
+      };
+
+      this.addRawFrameListener(listener);
+      this.socket.write(`Action: CoreShowChannels\r\nActionID: ${actionId}\r\n\r\n`);
+    });
+  }
 }
 
 export const amiGovernance = new AmiGovernanceListener();

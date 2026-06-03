@@ -129,6 +129,11 @@ async function scheduleGovernedCallCut(
   capSec: number,
 ) {
   if (!gc.channelB) return;
+  // Guard: never double-schedule — a timer already running means call is tracked
+  if (activeTimers.has(gc.id)) {
+    console.log(`[call-governance] Timer already active for call ${gc.id} — skipping duplicate`);
+    return;
+  }
   const capMs = capSec * 1_000;
   const timer = setTimeout(async () => {
     activeTimers.delete(gc.id);
@@ -138,11 +143,132 @@ async function scheduleGovernedCallCut(
   console.log(`[call-governance] Timer set for call ${gc.id}: ${capSec}s`);
 }
 
+/**
+ * Reconcile active bridges seen by Asterisk against the governance rule set.
+ * Runs on every AMI reconnect and every 60s thereafter.
+ * Catches calls that were already bridged when the server started or when AMI
+ * dropped — those calls never fired a BridgeEnter event so their timers were
+ * never set, leaving them hanging indefinitely.
+ */
+async function reconcileActiveCalls() {
+  try {
+    if (!amiGovernance.isConnected) return;
+
+    const rules = await db.select().from(callGovernanceRules).where(eq(callGovernanceRules.enabled, true));
+    if (!rules.length) return;
+
+    const amiChannels = await amiGovernance.fetchActiveBridges();
+    if (!amiChannels.length) return;
+
+    console.log(`[call-governance] Reconcile: ${amiChannels.length} bridged channel(s) from AMI`);
+
+    // Group channels by bridgeId — each bridge should have exactly 2 legs
+    const byBridge = new Map<string, typeof amiChannels>();
+    for (const ch of amiChannels) {
+      const arr = byBridge.get(ch.bridgeId) ?? [];
+      arr.push(ch);
+      byBridge.set(ch.bridgeId, arr);
+    }
+
+    for (const [, legs] of byBridge) {
+      if (legs.length !== 2) continue; // incomplete — skip
+
+      for (const rule of rules) {
+        if (!rule.channelPattern) continue;
+        let pattern: RegExp;
+        try { pattern = new RegExp(rule.channelPattern, 'i'); } catch { continue; }
+
+        const ch1 = legs[0];
+        const ch2 = legs[1];
+        const ch1Match = pattern.test(ch1.channel);
+        const ch2Match = pattern.test(ch2.channel);
+        if (!ch1Match && !ch2Match) continue;
+
+        // Determine A/B legs using same logic as the bridge handler
+        let legB: typeof ch1, legA: typeof ch1;
+        if (ch1Match && !ch2Match) {
+          legB = ch1; legA = ch2;
+        } else if (ch2Match && !ch1Match) {
+          legB = ch2; legA = ch1;
+        } else {
+          // Both match — SIP (plain) before PJSIP
+          const c1Plain = /^SIP\//i.test(ch1.channel) && !/^PJSIP\//i.test(ch1.channel);
+          legB = c1Plain ? ch1 : ch2;
+          legA = legB === ch1 ? ch2 : ch1;
+        }
+
+        // Check DB for existing active record for this vendor channel
+        const existing = await db.select().from(governedCalls).where(
+          and(
+            eq(governedCalls.status, 'active'),
+            sql`channel_b = ${legB.channel}`,
+          )
+        ).limit(1);
+
+        if (existing.length > 0 && activeTimers.has(existing[0].id)) {
+          continue; // already tracked with an active timer — nothing to do
+        }
+
+        // Compute remaining time — if call already exceeds cap, cut in 5s minimum
+        const capSec       = rule.capSec + Math.floor(Math.random() * (rule.jitterSec + 1));
+        const elapsedSec   = legB.durationSec;
+        const remainingSec = Math.max(5, capSec - elapsedSec);
+        const recordingPath = `/var/spool/asterisk/monitor/${legA.uniqueId}.wav`;
+
+        let gc: { id: number; channelA: string | null; channelB: string | null; recordingPath: string | null };
+
+        if (existing.length > 0) {
+          // Reuse the existing DB record — just re-arm the timer
+          gc = existing[0];
+          console.log(`[call-governance] Reconcile: re-arming timer for call ${gc.id} (${legB.channel}) elapsed=${elapsedSec}s → cut in ${remainingSec}s`);
+        } else {
+          // New record — this call was never tracked at all
+          const [inserted] = await db.insert(governedCalls).values({
+            uniqueId:       legA.uniqueId,
+            channelA:       legA.channel,
+            channelB:       legB.channel,
+            caller:         legA.callerIdNum,
+            callee:         legA.connectedLineNum,
+            connectionName: rule.connectionName,
+            ruleId:         rule.id,
+            capSec,
+            status:         'active',
+            recordingPath,
+          }).returning();
+          gc = inserted;
+
+          await db.insert(callGovernanceLogs).values({
+            governedCallId: gc.id,
+            eventType:      'call_bridged',
+            channel:        legB.channel,
+            details:        `Recovered by AMI reconcile | elapsed=${elapsedSec}s cap=${capSec}s → cutting in ${remainingSec}s`,
+          });
+
+          console.log(`[call-governance] Reconcile: new record #${gc.id} for ${legB.channel} elapsed=${elapsedSec}s → cut in ${remainingSec}s`);
+        }
+
+        await scheduleGovernedCallCut(gc, remainingSec);
+      }
+    }
+  } catch (err: any) {
+    console.error('[call-governance] reconcileActiveCalls error:', err?.message);
+  }
+}
+
 // ── Route registration ─────────────────────────────────────────────────────────
 
 export function registerCallGovernanceRoutes(app: Express) {
   // Start persistent AMI listener
   amiGovernance.start();
+
+  // ── On every AMI login: reconcile calls that were already bridged ──────────
+  // Runs 2s after login to let Asterisk finish its initial event stream.
+  amiGovernance.on('connected', () => {
+    setTimeout(reconcileActiveCalls, 2_000);
+  });
+
+  // ── Periodic watchdog: every 60s catch any remaining missed bridges ────────
+  setInterval(reconcileActiveCalls, 60_000);
 
   // ── Bridge event → check governance rules ──────────────────────────────────
   amiGovernance.on('bridge', async (event) => {
