@@ -5,7 +5,8 @@ import {
   Shield, Activity, BrainCircuit, RefreshCw, ChevronRight,
   Zap, Network, CheckCircle2, ArrowRight, Eye, X, Sparkles,
   ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
-  ShieldAlert, PlayCircle, Loader2, RotateCcw, Clock, UserCheck, ThumbsDown,
+  ShieldAlert, PlayCircle, Loader2, RotateCcw, History, Clock,
+  UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -1290,6 +1291,354 @@ function SummaryCard({ label, value, sub, color, icon: Icon }: {
   );
 }
 
+// ── RollbackHistoryPanel ──────────────────────────────────────────────────────
+
+interface RollbackSibling {
+  id: number;
+  action_type: string;
+  status: string;
+  primary_action: string;
+  requested_by: string;
+  requested_by_name: string | null;
+  verification_state: string;
+  created_at: string;
+  updated_at: string;
+  recommendation_ref: Record<string, unknown> | null;
+  sippy_result: Record<string, unknown> | null;
+}
+
+interface ActionHistoryRow {
+  id: number;
+  account_id: string;
+  account_name: string;
+  action_type: string;
+  status: string;
+  primary_action: string;
+  requested_by: string;
+  requested_by_name: string | null;
+  approved_by: string | null;
+  approved_by_name: string | null;
+  verification_state: string;
+  created_at: string;
+  updated_at: string;
+  recommendation_ref: Record<string, unknown> | null;
+  rollbacks: RollbackSibling[];
+}
+
+function fmtRelative(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return d.toLocaleDateString();
+}
+
+function fmtAbsolute(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+}
+
+const VSTATE_CFG: Record<string, { label: string; cls: string }> = {
+  SUCCESS_CONFIRMED: { label: "Verified",     cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+  FAILED_CONFIRMED:  { label: "Failed",       cls: "bg-rose-500/10 text-rose-400 border-rose-500/20"         },
+  UNKNOWN_PENDING:   { label: "Unverified",   cls: "bg-amber-500/10 text-amber-400 border-amber-500/20"      },
+  not_applicable:    { label: "N/A",          cls: "bg-muted/40 text-muted-foreground border-border"         },
+};
+
+const STATUS_CFG: Record<string, { label: string; cls: string; icon: any }> = {
+  executed:         { label: "Executed",     cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", icon: CheckCircle2 },
+  rolled_back:      { label: "Rolled Back",  cls: "bg-orange-500/10 text-orange-400 border-orange-500/20",   icon: RotateCcw    },
+  dry_run_approved: { label: "Dry-Run",      cls: "bg-sky-500/10 text-sky-400 border-sky-500/20",            icon: Eye          },
+  pending:          { label: "Pending",      cls: "bg-amber-500/10 text-amber-400 border-amber-500/20",      icon: Clock        },
+  rejected:         { label: "Rejected",     cls: "bg-rose-500/10 text-rose-400 border-rose-500/20",         icon: XCircle      },
+  failed:           { label: "Failed",       cls: "bg-rose-500/10 text-rose-400 border-rose-500/30",         icon: AlertTriangle },
+  snoozed:          { label: "Snoozed",      cls: "bg-muted/40 text-muted-foreground border-border",         icon: Clock        },
+};
+
+function VerificationBadge({ state }: { state: string }) {
+  const cfg = VSTATE_CFG[state] ?? VSTATE_CFG.not_applicable;
+  return (
+    <Badge variant="outline" className={cn("text-[10px] h-4 px-1.5", cfg.cls)}>
+      {cfg.label}
+    </Badge>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_CFG[status] ?? STATUS_CFG.pending;
+  const Icon = cfg.icon;
+  return (
+    <Badge variant="outline" className={cn("text-[10px] h-4 px-1.5 gap-0.5", cfg.cls)}>
+      <Icon className="h-2.5 w-2.5" />
+      {cfg.label}
+    </Badge>
+  );
+}
+
+function RollbackSiblingRow({ rb }: { rb: RollbackSibling }) {
+  const note = typeof rb.recommendation_ref === "object" && rb.recommendation_ref
+    ? (rb.recommendation_ref.note as string | undefined) ?? rb.primary_action
+    : rb.primary_action;
+  return (
+    <div className="flex items-start gap-2.5 py-2 pl-3 border-l-2 border-orange-500/40 ml-3 mt-1.5">
+      <RotateCcw className="h-3.5 w-3.5 text-orange-400 mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold text-orange-400">Rollback #{rb.id}</span>
+          <VerificationBadge state={rb.verification_state} />
+        </div>
+        {note && (
+          <p className="text-xs text-muted-foreground mt-0.5 truncate" title={note}>{note}</p>
+        )}
+        <div className="flex items-center gap-3 mt-1 flex-wrap">
+          <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+            <UserCheck className="h-3 w-3" />
+            {rb.requested_by_name ?? rb.requested_by}
+          </span>
+          <span className="text-[10px] text-muted-foreground/50" title={fmtAbsolute(rb.created_at)}>
+            {fmtRelative(rb.created_at)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActionHistoryRowCard({ row }: { row: ActionHistoryRow }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasRollbacks = row.rollbacks.length > 0;
+  const ref = row.recommendation_ref as any;
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border bg-card transition-colors",
+        hasRollbacks && row.status === "rolled_back" ? "border-orange-500/30" : "border-border",
+      )}
+      data-testid={`action-history-row-${row.id}`}
+    >
+      <div
+        className="flex items-start gap-3 p-3 cursor-pointer hover:bg-muted/20"
+        onClick={() => setExpanded(e => !e)}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-mono text-muted-foreground/60">#{row.id}</span>
+            <span className="text-sm font-medium truncate max-w-[220px]" title={row.account_name}>
+              {row.account_name}
+            </span>
+            <StatusBadge status={row.status} />
+            <VerificationBadge state={row.verification_state} />
+            {hasRollbacks && (
+              <Badge variant="outline" className="text-[10px] h-4 px-1.5 bg-orange-500/10 text-orange-400 border-orange-500/20 gap-0.5">
+                <RotateCcw className="h-2.5 w-2.5" />
+                {row.rollbacks.length} rollback{row.rollbacks.length > 1 ? "s" : ""}
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1 truncate" title={row.primary_action}>
+            {row.primary_action}
+          </p>
+          <div className="flex items-center gap-3 mt-1 flex-wrap">
+            <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+              <UserCheck className="h-3 w-3" />
+              Applied by: {row.approved_by_name ?? row.requested_by_name ?? row.requested_by}
+            </span>
+            <span className="text-[10px] text-muted-foreground/50" title={fmtAbsolute(row.created_at)}>
+              {fmtRelative(row.created_at)}
+            </span>
+            {ref?.source_mode && (
+              <span className={cn(
+                "text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border",
+                ref.source_mode === "ai_enhanced"
+                  ? "bg-violet-500/10 text-violet-400 border-violet-500/20"
+                  : "bg-amber-500/10 text-amber-400 border-amber-500/20",
+              )}>
+                {ref.source_mode === "ai_enhanced" ? "AI" : "Rule"}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="shrink-0 text-muted-foreground">
+          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-border/40 px-3 pb-3 pt-2 space-y-2">
+          {/* Meta details */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            <div>
+              <span className="text-muted-foreground/60">Action type: </span>
+              <span className="font-mono text-foreground/80">{row.action_type}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground/60">Applied at: </span>
+              <span>{fmtAbsolute(row.created_at)}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground/60">Applied by: </span>
+              <span>{row.approved_by_name ?? row.approved_by ?? row.requested_by_name ?? row.requested_by}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground/60">Verification: </span>
+              <span>{row.verification_state}</span>
+            </div>
+          </div>
+
+          {/* Rollback trail */}
+          {hasRollbacks ? (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                Rollback Trail
+              </p>
+              {row.rollbacks.map(rb => (
+                <RollbackSiblingRow key={rb.id} rb={rb} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground/50 italic">No rollbacks recorded for this action.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type HistoryFilter = "all" | "active" | "rolled_back";
+
+function RollbackHistoryPanel() {
+  const [filter, setFilter] = useState<HistoryFilter>("all");
+
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<{ success: boolean; actions: ActionHistoryRow[] }>({
+    queryKey: ["/api/ai/route-copilot/action-history", filter],
+    queryFn: async () => {
+      const url = filter === "all"
+        ? "/api/ai/route-copilot/action-history"
+        : `/api/ai/route-copilot/action-history?filter=${filter}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const actions = data?.actions ?? [];
+  const rolledBackCount = actions.filter(a => a.status === "rolled_back").length;
+  const activeCount     = actions.filter(a => a.status === "executed").length;
+
+  const FILTERS: { key: HistoryFilter; label: string }[] = [
+    { key: "all",         label: `All (${actions.length})` },
+    { key: "active",      label: `Active (${activeCount})`     },
+    { key: "rolled_back", label: `Rolled Back (${rolledBackCount})` },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="rounded-xl border bg-gradient-to-br from-orange-500/5 via-card to-card border-orange-500/20 p-5">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-orange-500/15 border border-orange-500/25 flex items-center justify-center">
+              <History className="h-4 w-4 text-orange-400" />
+            </div>
+            <div>
+              <h2 className="font-bold text-sm">Action Rollback History</h2>
+              <p className="text-xs text-muted-foreground">
+                Full rollback trail for every AI Copilot action applied to the ledger
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 h-8 text-xs"
+            disabled={isFetching}
+            onClick={() => refetch()}
+            data-testid="history-refresh-btn"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          {[
+            { label: "Total Actions",  value: actions.length,      color: "text-foreground"  },
+            { label: "Active",         value: activeCount,         color: "text-emerald-400" },
+            { label: "Rolled Back",    value: rolledBackCount,     color: "text-orange-400"  },
+          ].map(s => (
+            <div key={s.label} className="rounded-lg bg-muted/30 border border-border/50 p-3 text-center">
+              <p className={cn("text-2xl font-black tabular-nums font-mono", s.color)}>{s.value}</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-2">
+        <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+        {FILTERS.map(f => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            data-testid={`history-filter-${f.key}`}
+            className={cn(
+              "text-xs px-3 py-1 rounded-full border transition-colors",
+              filter === f.key
+                ? "bg-orange-500/15 text-orange-400 border-orange-500/30"
+                : "text-muted-foreground border-border hover:bg-muted/40",
+            )}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Loading action history…</span>
+        </div>
+      )}
+
+      {isError && (
+        <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-4 py-3 flex items-center gap-2 text-rose-400">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <p className="text-sm">{(error as Error).message}</p>
+        </div>
+      )}
+
+      {!isLoading && !isError && actions.length === 0 && (
+        <div className="rounded-lg border bg-card flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <History className="h-8 w-8 mb-2 opacity-30" />
+          <p className="text-sm">No actions found for this filter</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">
+            Apply recommendations from the AI Copilot tab to see them here.
+          </p>
+        </div>
+      )}
+
+      {!isLoading && !isError && actions.length > 0 && (
+        <div className="space-y-2">
+          {actions.map(a => (
+            <ActionHistoryRowCard key={a.id} row={a} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -1298,6 +1647,7 @@ const TABS = [
   { key: "qos",         label: "QoS Analysis",      icon: Zap         },
   { key: "copilot",     label: "AI Copilot",         icon: Sparkles    },
   { key: "recs",        label: "Account Recs",       icon: BrainCircuit },
+  { key: "history",     label: "Rollback History",   icon: History     },
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -1628,6 +1978,9 @@ export default function RouteIntelligencePage() {
           </div>
         </div>
       )}
+
+      {/* ── Rollback History Tab ── */}
+      {activeTab === "history" && <RollbackHistoryPanel />}
 
       {/* ── AI Copilot Tab ── */}
       {activeTab === "copilot" && <AiCopilotPanel />}

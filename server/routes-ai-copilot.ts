@@ -497,6 +497,68 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     },
   );
 
+  // ── GET /api/ai/route-copilot/action-history ─────────────────────────────
+  // Returns all non-ROLLBACK account_actions with their ROLLBACK sibling(s)
+  // nested underneath. Supports ?filter=rolled_back or ?filter=active.
+  app.get(
+    "/api/ai/route-copilot/action-history",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const filter = req.query.filter as string | undefined;
+        const { Pool } = await import("pg");
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        try {
+          const whereClauses: string[] = ["a.action_type != 'ROLLBACK'"];
+          if (filter === "rolled_back") {
+            whereClauses.push("a.status = 'rolled_back'");
+          } else if (filter === "active") {
+            // Active = executed against Sippy and not subsequently rolled back.
+            // A row whose status has been updated to 'rolled_back' is no longer active.
+            whereClauses.push("a.status = 'executed'");
+          }
+          const where = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
+          const r = await pool.query(`
+            SELECT
+              a.*,
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'id',                 rb.id,
+                    'action_type',        rb.action_type,
+                    'status',             rb.status,
+                    'primary_action',     rb.primary_action,
+                    'requested_by',       rb.requested_by,
+                    'requested_by_name',  rb.requested_by_name,
+                    'verification_state', rb.verification_state,
+                    'created_at',         rb.created_at,
+                    'updated_at',         rb.updated_at,
+                    'recommendation_ref', rb.recommendation_ref,
+                    'sippy_result',       rb.sippy_result
+                  ) ORDER BY rb.created_at ASC
+                ) FILTER (WHERE rb.id IS NOT NULL),
+                '[]'::json
+              ) AS rollbacks
+            FROM account_actions a
+            LEFT JOIN account_actions rb
+              ON rb.action_type = 'ROLLBACK'
+             AND (rb.recommendation_ref->>'originalActionId')::int = a.id
+            ${where}
+            GROUP BY a.id
+            ORDER BY a.created_at DESC
+            LIMIT 200
+          `);
+          return res.json({ success: true, actions: r.rows });
+        } finally {
+          await pool.end();
+        }
+      } catch (err: any) {
+        console.error("[ai-copilot/action-history] error:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
   // ── GET /api/ai/actions/pending ─────────────────────────────────────────────
   // Lists all actions in pending_approval state (awaiting second operator).
   // Management role required — these are the reviewers.
