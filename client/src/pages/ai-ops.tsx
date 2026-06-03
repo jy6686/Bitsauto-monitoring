@@ -1409,6 +1409,21 @@ export default function AiOpsPage() {
                           const confirmationTs = approvedEntry?.timestamp ?? action.updated_at;
                           const reVerifyEntry = trailArr.find(e => e.event === 're_verified');
                           const canReVerify = vs === 'UNKNOWN_PENDING' && action.status === 'executed';
+                          const rollbackEntry = trailArr.find(e => e.event === 'rolled_back');
+                          const rollbackReason = (() => {
+                            const SEPARATOR = ' \u2014 Reason: ';
+                            if (action.status === 'rolled_back' && rollbackEntry?.details) {
+                              const idx = rollbackEntry.details.indexOf(SEPARATOR);
+                              return idx !== -1 ? rollbackEntry.details.slice(idx + SEPARATOR.length) : null;
+                            }
+                            if (action.action_type === 'ROLLBACK' && trailArr[0]?.details) {
+                              const idx = trailArr[0].details.indexOf(SEPARATOR);
+                              return idx !== -1 ? trailArr[0].details.slice(idx + SEPARATOR.length) : null;
+                            }
+                            return null;
+                          })();
+                          const rollbackActor = rollbackEntry?.userName ?? (action.action_type === 'ROLLBACK' ? (action.requested_by_name ?? null) : null);
+                          const rollbackTs = rollbackEntry?.timestamp ?? (action.action_type === 'ROLLBACK' ? action.created_at : null);
                           const isPendingVerify = reVerifyMutation.isPending && (reVerifyMutation as any).variables === action.id;
 
                           return (
@@ -1491,6 +1506,25 @@ export default function AiOpsPage() {
                                     <div className="space-y-0.5">
                                       <p className="text-[9px] uppercase tracking-widest text-red-400/60 font-semibold">Error</p>
                                       <p className="text-[11px] text-red-400/80 font-mono">{String(sippyResult.error)}</p>
+                                    </div>
+                                  )}
+
+                                  {(action.status === 'rolled_back' || action.action_type === 'ROLLBACK') && (
+                                    <div
+                                      className="rounded border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 space-y-1"
+                                      data-testid={`rollback-reason-${action.id}`}
+                                    >
+                                      <p className="text-[9px] uppercase tracking-widest text-amber-400/70 font-semibold">Rollback Reason</p>
+                                      <p className="text-[11px] text-foreground/80 leading-snug">
+                                        {rollbackReason ?? 'No reason provided'}
+                                      </p>
+                                      {(rollbackActor || rollbackTs) && (
+                                        <p className="text-[9px] text-muted-foreground/50">
+                                          {rollbackActor ? `By ${rollbackActor}` : ''}
+                                          {rollbackActor && rollbackTs ? ' · ' : ''}
+                                          {rollbackTs ? format(new Date(rollbackTs), "MMM d, HH:mm:ss") : ''}
+                                        </p>
+                                      )}
                                     </div>
                                   )}
 
