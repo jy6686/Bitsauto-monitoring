@@ -546,6 +546,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
       const actor     = req.user ?? {};
       const actorId   = String(actor.id ?? actor.userId ?? "system");
       const actorName = actor.name ?? actor.username ?? actor.email ?? "Operator";
+      const reason    = typeof req.body?.reason === "string" ? req.body.reason.trim() : undefined;
 
       const rollbackSippy = buildRollbackParams(
         action.account_id,
@@ -674,10 +675,11 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         executedBy:        actorId,
         executedByName:    actorName,
         verificationState: String(verificationState),
+        reason,
       });
 
       // Mark original action as rolled_back only after audit entry is committed
-      await rollbackAction(actionId, actorId, actorName);
+      await rollbackAction(actionId, actorId, actorName, reason);
 
       console.log(
         `[ai-copilot/rollback] action=${actionId} rollback mode=${execResult.mode} ` +

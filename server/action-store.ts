@@ -515,15 +515,17 @@ export async function createRollbackEntry(data: {
   executedBy:       string;
   executedByName:   string;
   verificationState: string;
+  reason?:          string;
 }) {
   const pool = getPool();
   try {
+    const reasonSuffix = data.reason ? ` — Reason: ${data.reason}` : '';
     const trail: AuditEntry[] = [{
       timestamp: new Date().toISOString(),
       event:     'rollback_executed',
       userId:    data.executedBy,
       userName:  data.executedByName,
-      details:   `Rollback of action #${data.originalActionId}: ${data.rollbackNote}`,
+      details:   `Rollback of action #${data.originalActionId}: ${data.rollbackNote}${reasonSuffix}`,
     }];
     const r = await pool.query(`
       INSERT INTO account_actions
@@ -553,7 +555,7 @@ export async function createRollbackEntry(data: {
       actionType:        'ROLLBACK',
       entityId:          data.accountId,
       entityName:        data.accountName,
-      payload:           { originalActionId: data.originalActionId, sippyResult: data.sippyResult, note: data.rollbackNote },
+      payload:           { originalActionId: data.originalActionId, sippyResult: data.sippyResult, note: data.rollbackNote, reason: data.reason ?? null },
       idempotencyKey:    null,
       riskIndexSnapshot: null,
       approvalState:     'approved',
@@ -565,7 +567,7 @@ export async function createRollbackEntry(data: {
       actorName:         data.executedByName,
       requestedBy:       data.executedBy,
       requestedByName:   data.executedByName,
-      note:              `Rollback of action #${data.originalActionId}: ${data.rollbackNote}`,
+      note:              `Rollback of action #${data.originalActionId}: ${data.rollbackNote}${reasonSuffix}`,
     });
 
     return sibling;
@@ -660,14 +662,15 @@ export async function verifyAction(id: number, userId: string, userName: string)
   } finally { await pool.end(); }
 }
 
-export async function rollbackAction(id: number, userId: string, userName: string) {
+export async function rollbackAction(id: number, userId: string, userName: string, reason?: string) {
   const pool = getPool();
   try {
     const ex = await pool.query('SELECT * FROM account_actions WHERE id = $1', [id]);
     if (!ex.rows.length) return null;
     const row = ex.rows[0];
     const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
-    trail.push({ timestamp: new Date().toISOString(), event: 'rolled_back', userId, userName, details: 'Action manually rolled back' });
+    const details = reason ? `Action manually rolled back — Reason: ${reason}` : 'Action manually rolled back';
+    trail.push({ timestamp: new Date().toISOString(), event: 'rolled_back', userId, userName, details });
     const r = await pool.query(`
       UPDATE account_actions
       SET status='rolled_back', audit_trail=$1, updated_at=NOW()
@@ -695,7 +698,7 @@ export async function rollbackAction(id: number, userId: string, userName: strin
         actorName:         userName,
         requestedBy:       row.requested_by,
         requestedByName:   row.requested_by_name,
-        note:              'Action manually rolled back',
+        note:              reason ? `Action manually rolled back — Reason: ${reason}` : 'Action manually rolled back',
       });
     }
 

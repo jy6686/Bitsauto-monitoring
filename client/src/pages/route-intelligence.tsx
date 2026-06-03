@@ -318,6 +318,92 @@ function ApplyModal({
   );
 }
 
+// ── Undo / Rollback Modal ──────────────────────────────────────────────────────
+
+function UndoModal({
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={!isPending ? onCancel : undefined}
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 8 }}
+        transition={{ duration: 0.18 }}
+        className="relative z-10 w-full max-w-sm rounded-2xl border border-orange-500/30 bg-card shadow-2xl overflow-hidden"
+        data-testid="undo-modal"
+      >
+        <div className="bg-gradient-to-r from-orange-500/10 to-red-500/5 border-b border-orange-500/20 px-5 py-4">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-orange-500/20 border border-orange-500/30 flex items-center justify-center flex-shrink-0">
+              <RotateCcw className="h-3.5 w-3.5 text-orange-400" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm">Roll Back Action</h3>
+              <p className="text-[11px] text-muted-foreground">This will reverse the live Sippy change</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-foreground mb-1.5 block">
+              Reason <span className="text-muted-foreground font-normal">(optional but encouraged)</span>
+            </label>
+            <textarea
+              data-testid="undo-reason-input"
+              className="w-full text-sm rounded-lg border border-border bg-muted/40 px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-orange-500/50 placeholder:text-muted-foreground/50"
+              rows={3}
+              placeholder='e.g. "Wrong account", "Test only", "Reverting per incident report"'
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              disabled={isPending}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+            The reason will be stored in the audit trail and ledger note for this rollback entry.
+          </p>
+        </div>
+
+        <div className="px-5 pb-4 flex items-center justify-end gap-2.5">
+          <button
+            data-testid="undo-modal-cancel"
+            onClick={onCancel}
+            disabled={isPending}
+            className="text-sm font-medium px-4 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            data-testid="undo-modal-confirm"
+            onClick={() => onConfirm(reason)}
+            disabled={isPending}
+            className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RotateCcw className="h-3.5 w-3.5" />
+            )}
+            {isPending ? "Rolling back…" : "Confirm Rollback"}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 // ── AI Recommendation Card ─────────────────────────────────────────────────────
 
 function AiRecCard({
@@ -784,6 +870,7 @@ function AiCopilotPanel() {
   const [applied,      setApplied]      = useState<Map<string, AppliedEntry>>(new Map());
   const [hasRun,       setHasRun]       = useState(false);
   const [modalRec,     setModalRec]     = useState<AiRouteRecommendation | null>(null);
+  const [undoTarget,   setUndoTarget]   = useState<{ recId: string; actionId: number } | null>(null);
   const { toast } = useToast();
   const { isManagement } = useAuth();
 
@@ -874,9 +961,9 @@ function AiCopilotPanel() {
     },
   });
 
-  const rollbackMutation = useMutation<{ success: boolean; rollbackNote: string; verificationState: string; error?: string | null }, Error, { recId: string; actionId: number }>({
-    mutationFn: ({ actionId }) =>
-      apiRequest("POST", `/api/ai/route-copilot/rollback/${actionId}`)
+  const rollbackMutation = useMutation<{ success: boolean; rollbackNote: string; verificationState: string; error?: string | null }, Error, { recId: string; actionId: number; reason?: string }>({
+    mutationFn: ({ actionId, reason }) =>
+      apiRequest("POST", `/api/ai/route-copilot/rollback/${actionId}`, reason ? { reason } : undefined)
         .then(r => r.json())
         .then(data => {
           if (!data.success) throw new Error(data.error ?? "Rollback failed");
@@ -884,6 +971,7 @@ function AiCopilotPanel() {
         }),
     onSuccess: (data, { recId }) => {
       setApplied(prev => { const n = new Map(prev); n.delete(recId); return n; });
+      setUndoTarget(null);
       queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/applied-actions"] });
       toast({
         title: "Action rolled back",
@@ -891,6 +979,7 @@ function AiCopilotPanel() {
       });
     },
     onError: (err) => {
+      setUndoTarget(null);
       toast({ title: "Rollback failed", description: err.message, variant: "destructive" });
     },
   });
@@ -924,8 +1013,7 @@ function AiCopilotPanel() {
   }, []);
 
   const handleUndo = useCallback((recId: string, actionId: number) => {
-    rollbackMutation.mutate({ recId, actionId });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    setUndoTarget({ recId, actionId });
   }, []);
 
   return (
@@ -1164,6 +1252,17 @@ function AiCopilotPanel() {
             executionEnabled={executionEnabled}
             onConfirm={() => applyMutation.mutate(modalRec)}
             onCancel={() => !applyMutation.isPending && setModalRec(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Undo / rollback modal */}
+      <AnimatePresence>
+        {undoTarget && (
+          <UndoModal
+            isPending={rollbackMutation.isPending}
+            onConfirm={(reason) => rollbackMutation.mutate({ ...undoTarget, reason: reason || undefined })}
+            onCancel={() => !rollbackMutation.isPending && setUndoTarget(null)}
           />
         )}
       </AnimatePresence>
