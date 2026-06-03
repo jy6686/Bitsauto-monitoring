@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -202,11 +202,24 @@ function CopilotAlertStrip({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [flashKey, setFlashKey] = useState(0);
+  const prevGeneratedAt = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if (!summary) return;
+    if (
+      prevGeneratedAt.current !== undefined &&
+      prevGeneratedAt.current !== summary.generatedAt
+    ) {
+      setFlashKey(k => k + 1);
+    }
+    prevGeneratedAt.current = summary.generatedAt;
+  }, [summary?.generatedAt]);
 
   if (!summary) return null;
 
@@ -216,8 +229,19 @@ function CopilotAlertStrip({
     return (
       <div
         data-testid="copilot-quiet-strip"
-        className="flex-shrink-0 border-b border-slate-800/50 bg-slate-900/20 flex items-center gap-2 px-4 py-1.5"
+        className="relative flex-shrink-0 border-b border-slate-800/50 bg-slate-900/20 flex items-center gap-2 px-4 py-1.5 overflow-hidden"
       >
+        {flashKey > 0 && (
+          <motion.div
+            key={`flash-quiet-${flashKey}`}
+            data-testid="copilot-flash-overlay"
+            className="absolute inset-0 pointer-events-none"
+            initial={{ opacity: 0.55 }}
+            animate={{ opacity: 0 }}
+            transition={{ duration: 1.0, ease: "easeOut" }}
+            style={{ backgroundColor: "rgba(99,202,183,0.18)" }}
+          />
+        )}
         <BrainCircuit className="h-3 w-3 text-slate-600 flex-shrink-0" />
         <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-slate-600">
           AI Copilot
@@ -252,11 +276,26 @@ function CopilotAlertStrip({
         exit={{ opacity: 0, height: 0 }}
         transition={{ duration: 0.25 }}
         className={cn(
-          "flex-shrink-0 border-b flex flex-col overflow-hidden",
+          "relative flex-shrink-0 border-b flex flex-col overflow-hidden",
           borderColor, bgColor,
         )}
         data-testid="copilot-alert-strip"
       >
+        {flashKey > 0 && (
+          <motion.div
+            key={`flash-alert-${flashKey}`}
+            data-testid="copilot-flash-overlay"
+            className="absolute inset-0 pointer-events-none z-10"
+            initial={{ opacity: 0.7 }}
+            animate={{ opacity: 0 }}
+            transition={{ duration: 1.0, ease: "easeOut" }}
+            style={{
+              backgroundColor: isCritical
+                ? "rgba(239,68,68,0.22)"
+                : "rgba(234,179,8,0.18)",
+            }}
+          />
+        )}
         {/* Header row */}
         <div className="flex items-center gap-3 px-4 py-2">
           {isCritical
