@@ -30,7 +30,7 @@ import {
 import { cn } from "@/lib/utils";
 
 // ── Product class definitions ─────────────────────────────────────────────────
-const PRODUCT_CLASSES = [
+export const PRODUCT_CLASSES = [
   { prefix: '1', label: 'First Class Wholesale',   short: 'First',    color: 'text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/20',      dot: 'bg-blue-400',    ring: 'ring-blue-500/30'    },
   { prefix: '2', label: 'Business Class Wholesale', short: 'Business', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20',  dot: 'bg-violet-400',  ring: 'ring-violet-500/30'  },
   { prefix: '6', label: 'Special Bravo',            short: 'Bravo',    color: 'text-amber-400',  bg: 'bg-amber-500/10 border-amber-500/20',    dot: 'bg-amber-400',   ring: 'ring-amber-500/30'   },
