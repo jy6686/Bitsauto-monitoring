@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { format, formatDistanceToNow } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ChevronRight, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch, Volume2, VolumeX, MessageCircle, ShieldCheck, X, Loader2, Scale, ClipboardList, RotateCcw } from "lucide-react";
+import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ChevronRight, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch, Volume2, VolumeX, MessageCircle, ShieldCheck, X, Loader2, Scale, ClipboardList, RotateCcw, UserCheck, UserX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -1408,6 +1409,10 @@ export default function AiOpsPage() {
                           const approvedEntry = trailArr.find(e => e.event === 'approved');
                           const confirmationTs = approvedEntry?.timestamp ?? action.updated_at;
                           const reVerifyEntry = trailArr.find(e => e.event === 're_verified');
+                          const createdEntry = trailArr.find(e => e.event === 'created');
+                          const secondaryApprovedEntry = trailArr.find(e => e.event === 'secondary_approved');
+                          const secondaryRejectedEntry = trailArr.find(e => e.event === 'secondary_rejected');
+                          const hasDualApprovalTrail = !!(secondaryApprovedEntry || secondaryRejectedEntry);
                           const canReVerify = vs === 'UNKNOWN_PENDING' && action.status === 'executed';
                           const rollbackEntry = trailArr.find(e => e.event === 'rolled_back');
                           const rollbackReason = (() => {
@@ -1485,6 +1490,81 @@ export default function AiOpsPage() {
                                       </p>
                                     </div>
                                   </div>
+
+                                  {hasDualApprovalTrail && (
+                                    <div className="space-y-1.5" data-testid={`approval-trail-${action.id}`}>
+                                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground/50 font-semibold">Approval History Trail</p>
+                                      <div className="flex flex-col gap-0">
+                                        <div className="flex items-start gap-2 px-2.5 py-2 rounded-t-md bg-muted/10 border border-border/40">
+                                          <div className="h-4 w-4 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                                            <span className="text-[8px] font-bold text-blue-400">1</span>
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <p className="text-[10px] font-medium text-foreground/80">
+                                              Submitted by{' '}
+                                              <span className="font-semibold" data-testid={`trail-submitter-${action.id}`}>
+                                                {createdEntry?.userName ?? action.requested_by_name ?? '—'}
+                                              </span>
+                                            </p>
+                                            {createdEntry?.timestamp && (
+                                              <p className="text-[9px] text-muted-foreground/50 font-mono mt-0.5">
+                                                {format(new Date(createdEntry.timestamp), "MMM d, yyyy HH:mm:ss")}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center pl-4 py-0.5 border-x border-border/40">
+                                          <div className="w-px h-3 bg-border/50 ml-1.5" />
+                                          <ArrowRight className="h-2.5 w-2.5 text-muted-foreground/30 ml-1" />
+                                        </div>
+
+                                        {secondaryApprovedEntry && (
+                                          <div className="flex items-start gap-2 px-2.5 py-2 rounded-b-md bg-emerald-500/5 border border-emerald-500/20" data-testid={`trail-approved-${action.id}`}>
+                                            <UserCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                            <div className="min-w-0 flex-1">
+                                              <p className="text-[10px] font-medium text-emerald-400/90">
+                                                Approved by{' '}
+                                                <span className="font-semibold">
+                                                  {secondaryApprovedEntry.userName ?? action.approved_by_name ?? '—'}
+                                                </span>
+                                              </p>
+                                              <p className="text-[9px] text-muted-foreground/50 font-mono mt-0.5">
+                                                {format(new Date(secondaryApprovedEntry.timestamp), "MMM d, yyyy HH:mm:ss")}
+                                              </p>
+                                              {secondaryApprovedEntry.details && (
+                                                <p className="text-[9px] text-muted-foreground/60 mt-1 leading-snug">
+                                                  {secondaryApprovedEntry.details}
+                                                </p>
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {secondaryRejectedEntry && (
+                                          <div className="flex items-start gap-2 px-2.5 py-2 rounded-b-md bg-red-500/5 border border-red-500/20" data-testid={`trail-rejected-${action.id}`}>
+                                            <UserX className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" />
+                                            <div className="min-w-0 flex-1">
+                                              <p className="text-[10px] font-medium text-red-400/90">
+                                                Rejected by{' '}
+                                                <span className="font-semibold">
+                                                  {secondaryRejectedEntry.userName ?? '—'}
+                                                </span>
+                                              </p>
+                                              <p className="text-[9px] text-muted-foreground/50 font-mono mt-0.5">
+                                                {format(new Date(secondaryRejectedEntry.timestamp), "MMM d, yyyy HH:mm:ss")}
+                                              </p>
+                                              {secondaryRejectedEntry.details && (
+                                                <p className="text-[9px] text-red-400/60 mt-1 leading-snug italic">
+                                                  Reason: {secondaryRejectedEntry.details}
+                                                </p>
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
 
                                   {sippyNote && (
                                     <div className="space-y-0.5">
