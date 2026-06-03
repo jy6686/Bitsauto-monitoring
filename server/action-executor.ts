@@ -110,6 +110,50 @@ export function buildSippyParams(accountId: string, actionType: ActionType): Sip
   }
 }
 
+// ── Rollback params ───────────────────────────────────────────────────────────
+// Derives the inverse Sippy operation for each action type.
+// ROUTE_BLOCK is not automatically reversible (the original routing_plan_id is
+// not stored), so it returns method:'none' and requires manual intervention.
+export function buildRollbackParams(accountId: string, actionType: ActionType): SippyActionParams {
+  switch (actionType) {
+    case 'RATE_LIMIT':
+      return {
+        accountId,
+        method: 'updateAccount',
+        params: { i_account: accountId, max_calls: null, max_cps: null },
+        note:   'Rollback: Remove CPS and max_calls limits. Account returns to unrestricted call capacity.',
+      };
+    case 'EXPOSURE_RESTRICT':
+      return {
+        accountId,
+        method: 'updateAccount',
+        params: { i_account: accountId, ip_auth_enabled: 0 },
+        note:   'Rollback: Disable IP-based authentication. Account reverts to standard auth.',
+      };
+    case 'ROUTE_BLOCK':
+      return {
+        accountId,
+        method: 'none',
+        params: {},
+        note:   'Rollback: Routing plan was cleared — original plan ID not stored. Restore manually in Sippy.',
+      };
+    case 'ACCOUNT_FREEZE':
+      return {
+        accountId,
+        method: 'updateAccount',
+        params: { i_account: accountId, blocked: 0 },
+        note:   'Rollback: Unblock account. Traffic will resume from this account immediately.',
+      };
+    default:
+      return {
+        accountId,
+        method: 'none',
+        params: {},
+        note:   'Rollback: No automated inverse action for this type. Manual review required.',
+      };
+  }
+}
+
 // ── Execute ───────────────────────────────────────────────────────────────────
 
 export async function executeAction(

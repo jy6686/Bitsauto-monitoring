@@ -5,7 +5,7 @@ import {
   Shield, Activity, BrainCircuit, RefreshCw, ChevronRight,
   Zap, Network, CheckCircle2, ArrowRight, Eye, X, Sparkles,
   ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
-  ShieldAlert, PlayCircle, Loader2,
+  ShieldAlert, PlayCircle, Loader2, RotateCcw,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -318,21 +318,27 @@ function AiRecCard({
   index,
   pinned,
   applied,
+  appliedActionId,
+  canUndo,
   canApply,
   mode,
   onDismiss,
   onPin,
   onApply,
+  onUndo,
 }: {
   rec: AiRouteRecommendation;
   index: number;
   pinned: boolean;
   applied: boolean;
+  appliedActionId?: number;
+  canUndo: boolean;
   canApply: boolean;
   mode: CopilotMode;
   onDismiss: (id: string) => void;
   onPin: (id: string) => void;
   onApply: (rec: AiRouteRecommendation) => void;
+  onUndo: (recId: string, actionId: number) => void;
 }) {
   const [expanded, setExpanded]   = useState(false);
   const [simulate, setSimulate]   = useState(false);
@@ -407,6 +413,17 @@ function AiRecCard({
                   <CheckCircle2 className="h-2.5 w-2.5" />
                   Applied
                 </span>
+              )}
+              {applied && canUndo && appliedActionId !== undefined && (
+                <button
+                  data-testid={`ai-rec-undo-${index}`}
+                  onClick={() => onUndo(rec.id, appliedActionId)}
+                  title="Undo this action"
+                  className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono text-amber-500 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded hover:bg-amber-500/20 transition-colors"
+                >
+                  <RotateCcw className="h-2.5 w-2.5" />
+                  Undo
+                </button>
               )}
             </div>
 
@@ -575,10 +592,12 @@ function AiRecCard({
 
 // ── AI Copilot Panel ───────────────────────────────────────────────────────────
 
+interface AppliedEntry { actionId: number; verificationState: string }
+
 function AiCopilotPanel() {
   const [dismissed,    setDismissed]    = useState<Set<string>>(new Set());
   const [pinned,       setPinned]       = useState<Set<string>>(new Set());
-  const [applied,      setApplied]      = useState<Set<string>>(new Set());
+  const [applied,      setApplied]      = useState<Map<string, AppliedEntry>>(new Map());
   const [hasRun,       setHasRun]       = useState(false);
   const [modalRec,     setModalRec]     = useState<AiRouteRecommendation | null>(null);
   const { toast } = useToast();
@@ -590,6 +609,30 @@ function AiCopilotPanel() {
     retry: false,
     staleTime: 30 * 60 * 1000,
   });
+
+  // Hydrate Undo-eligible actions from the backend on load so Undo buttons
+  // are visible for previously applied SUCCESS_CONFIRMED actions across reloads.
+  const { data: appliedActionsData } = useQuery<{ success: boolean; actions: { actionId: number; recId: string; verificationState: string }[] }>({
+    queryKey: ["/api/ai/route-copilot/applied-actions"],
+    staleTime: 60_000,
+  });
+
+  // Merge persisted applied actions into the applied map once on first load.
+  // Fresh apply/rollback mutations always take precedence over stale server data.
+  useEffect(() => {
+    if (!appliedActionsData?.success || !appliedActionsData.actions.length) return;
+    setApplied(prev => {
+      const next = new Map(prev);
+      for (const a of appliedActionsData.actions) {
+        if (!next.has(a.recId)) {
+          next.set(a.recId, { actionId: a.actionId, verificationState: a.verificationState });
+        }
+      }
+      return next;
+    });
+  // Only run once when the data first arrives
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedActionsData]);
 
   // Mark hasRun when cache loads a valid result (only once, before any fresh run)
   useEffect(() => {
@@ -613,7 +656,7 @@ function AiCopilotPanel() {
     },
   });
 
-  const applyMutation = useMutation<{ success: boolean; actionId: number; mode: string; status: string; sippyNote: string }, Error, AiRouteRecommendation>({
+  const applyMutation = useMutation<{ success: boolean; actionId: number; mode: string; status: string; sippyNote: string; verificationState: string }, Error, AiRouteRecommendation>({
     mutationFn: (rec) =>
       apiRequest("POST", "/api/ai/route-copilot/apply", {
         recommendation: rec,
@@ -625,9 +668,10 @@ function AiCopilotPanel() {
           return data;
         }),
     onSuccess: (data, rec) => {
-      setApplied(prev => new Set([...prev, rec.id]));
+      setApplied(prev => new Map(prev).set(rec.id, { actionId: data.actionId, verificationState: data.verificationState ?? "UNKNOWN_PENDING" }));
       setModalRec(null);
       queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/applied-actions"] });
       toast({
         title: data.mode === "executed" ? "Routing action applied" : "Action recorded (dry-run)",
         description: data.sippyNote ?? `Action #${data.actionId} logged to audit ledger.`,
@@ -635,6 +679,27 @@ function AiCopilotPanel() {
     },
     onError: (err) => {
       toast({ title: "Apply failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const rollbackMutation = useMutation<{ success: boolean; rollbackNote: string; verificationState: string; error?: string | null }, Error, { recId: string; actionId: number }>({
+    mutationFn: ({ actionId }) =>
+      apiRequest("POST", `/api/ai/route-copilot/rollback/${actionId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.success) throw new Error(data.error ?? "Rollback failed");
+          return data;
+        }),
+    onSuccess: (data, { recId }) => {
+      setApplied(prev => { const n = new Map(prev); n.delete(recId); return n; });
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/applied-actions"] });
+      toast({
+        title: "Action rolled back",
+        description: data.rollbackNote ?? "Rollback recorded in audit ledger.",
+      });
+    },
+    onError: (err) => {
+      toast({ title: "Rollback failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -664,6 +729,11 @@ function AiCopilotPanel() {
 
   const handleApply = useCallback((rec: AiRouteRecommendation) => {
     setModalRec(rec);
+  }, []);
+
+  const handleUndo = useCallback((recId: string, actionId: number) => {
+    rollbackMutation.mutate({ recId, actionId });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -839,20 +909,27 @@ function AiCopilotPanel() {
             )}
           </div>
           <AnimatePresence>
-            {visible.map((rec, i) => (
-              <AiRecCard
-                key={rec.id}
-                rec={rec}
-                index={i}
-                pinned={pinned.has(rec.id)}
-                applied={applied.has(rec.id)}
-                canApply={isManagement}
-                mode={result?.mode ?? "rule_based_preview"}
-                onDismiss={handleDismiss}
-                onPin={handlePin}
-                onApply={handleApply}
-              />
-            ))}
+            {visible.map((rec, i) => {
+              const entry = applied.get(rec.id);
+              const isSuccessConfirmed = entry?.verificationState === "SUCCESS_CONFIRMED";
+              return (
+                <AiRecCard
+                  key={rec.id}
+                  rec={rec}
+                  index={i}
+                  pinned={pinned.has(rec.id)}
+                  applied={!!entry}
+                  appliedActionId={entry?.actionId}
+                  canUndo={isManagement && isSuccessConfirmed}
+                  canApply={isManagement}
+                  mode={result?.mode ?? "rule_based_preview"}
+                  onDismiss={handleDismiss}
+                  onPin={handlePin}
+                  onApply={handleApply}
+                  onUndo={handleUndo}
+                />
+              );
+            })}
           </AnimatePresence>
         </div>
       )}

@@ -10,15 +10,21 @@ import type { Express } from "express";
 import { runRouteCopilot, AiContractError } from "./services/ai/route-copilot";
 import type { CopilotResult } from "./services/ai/route-copilot";
 import {
+  listActions,
   createAction,
   approveAction,
+  getAction,
+  rollbackAction,
+  createRollbackEntry,
 } from "./action-store";
 import {
   recommendationToActionType,
   buildSippyParams,
+  buildRollbackParams,
   computeIdempotencyKey,
   executeAction,
   isExecutionEnabled,
+  type ActionType,
 } from "./action-executor";
 import { db } from "./db";
 import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache } from "../shared/schema";
@@ -383,18 +389,174 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         );
 
         return res.json({
-          success:      true,
-          actionId:     action.id,
-          mode:         execResult.mode,
-          status:       newStatus,
-          sippyNote:    sippyParams.note,
-          idempotent:   !!(action as any)._idempotent,
+          success:           true,
+          actionId:          action.id,
+          mode:              execResult.mode,
+          status:            newStatus,
+          sippyNote:         sippyParams.note,
+          verificationState: execResult.verificationState,
+          idempotent:        !!(action as any)._idempotent,
           updatedAction,
         });
       } catch (err: any) {
         console.error("[ai-copilot/apply] error:", err.message);
         return res.status(500).json({ success: false, error: err.message ?? "Apply failed" });
       }
+    },
+  );
+
+  // ── GET /api/ai/route-copilot/applied-actions ────────────────────────────
+  // Returns all account_actions that are executed + SUCCESS_CONFIRMED + not
+  // rolled_back, with their recommendation rec ID extracted from the JSON column.
+  // Used by the frontend to hydrate the Undo state across page reloads.
+  app.get(
+    "/api/ai/route-copilot/applied-actions",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const rows = await listActions({ status: "executed" });
+        const eligible = rows
+          .filter(
+            (r: any) =>
+              r.verification_state === "SUCCESS_CONFIRMED" &&
+              r.action_type !== "ROLLBACK",
+          )
+          .map((r: any) => {
+            const ref = r.recommendation_ref ?? {};
+            return {
+              actionId:          r.id,
+              recId:             ref.id ?? null,
+              accountId:         r.account_id,
+              accountName:       r.account_name,
+              actionType:        r.action_type,
+              verificationState: r.verification_state,
+              createdAt:         r.created_at,
+            };
+          })
+          .filter((e: any) => !!e.recId);
+        return res.json({ success: true, actions: eligible });
+      } catch (err: any) {
+        console.error("[ai-copilot/applied-actions] error:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
+  // ── POST /api/ai/route-copilot/rollback/:actionId ────────────────────────
+  // One-click rollback for a previously executed (SUCCESS_CONFIRMED) action.
+  // Derives the inverse Sippy params, executes them, and logs the rollback
+  // as a sibling ROLLBACK entry in the audit ledger.
+  app.post(
+    "/api/ai/route-copilot/rollback/:actionId",
+    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
+    async (req: any, res: any) => {
+      const actionId = parseInt(req.params.actionId, 10);
+      if (isNaN(actionId)) {
+        return res.status(400).json({ success: false, error: "Invalid actionId" });
+      }
+
+      const action = await getAction(actionId);
+      if (!action) {
+        return res.status(404).json({ success: false, error: "Action not found" });
+      }
+
+      if (action.verification_state !== "SUCCESS_CONFIRMED") {
+        return res.status(409).json({
+          success: false,
+          error: `Only SUCCESS_CONFIRMED actions can be rolled back (current: ${action.verification_state})`,
+        });
+      }
+
+      if (action.status === "rolled_back") {
+        return res.status(409).json({ success: false, error: "Action has already been rolled back" });
+      }
+
+      const actor     = req.user ?? {};
+      const actorId   = String(actor.id ?? actor.userId ?? "system");
+      const actorName = actor.name ?? actor.username ?? actor.email ?? "Operator";
+
+      const rollbackSippy = buildRollbackParams(
+        action.account_id,
+        action.action_type as ActionType,
+      );
+
+      // Gate: rollback requires live execution — the execution gate must be open.
+      // Dry-run mode would not actually undo anything in Sippy, so marking the
+      // original action as rolled_back would be incorrect.
+      if (!isExecutionEnabled()) {
+        return res.status(422).json({
+          success: false,
+          error:   "Rollback requires live execution (C2_EXECUTION_ENABLED=true). The execution gate is currently closed.",
+        });
+      }
+
+      // Gate: non-reversible action types (ROUTE_BLOCK, MANUAL) have method:'none'.
+      // We must NOT mark the original as rolled_back — operator must restore manually in Sippy.
+      if (!rollbackSippy.method || rollbackSippy.method === "none") {
+        return res.status(422).json({
+          success:        false,
+          error:          "This action type cannot be automatically reversed.",
+          rollbackNote:   rollbackSippy.note,
+          manualRequired: true,
+        });
+      }
+
+      // Execute the inverse Sippy operation
+      const execResult = await executeAction(actionId, rollbackSippy.method, rollbackSippy.params);
+
+      const verificationState = execResult.verificationState;
+
+      // Gate: if the Sippy write failed, surface the error and do NOT transition
+      // the original action to rolled_back — the live state may still be unchanged.
+      if (!execResult.success || execResult.mode !== "executed") {
+        console.error(
+          `[ai-copilot/rollback] action=${actionId} rollback execution failed/not-live: ${execResult.error ?? execResult.mode}`,
+        );
+        return res.status(500).json({
+          success:           false,
+          error:             execResult.error ?? "Rollback did not execute against Sippy",
+          rollbackNote:      rollbackSippy.note,
+          verificationState,
+        });
+      }
+
+      // Execution confirmed live — create sibling ROLLBACK row + append ledger event.
+      // This step is MANDATORY: if it fails we return an error and do NOT transition
+      // the original action, so the audit state remains consistent.
+      await createRollbackEntry({
+        originalActionId:  actionId,
+        accountId:         action.account_id,
+        accountName:       action.account_name,
+        rollbackNote:      rollbackSippy.note,
+        sippyResult:       {
+          mode:              execResult.mode,
+          success:           execResult.success,
+          verificationState: execResult.verificationState,
+          result:            execResult.result ?? null,
+          error:             execResult.error  ?? null,
+        },
+        executedBy:        actorId,
+        executedByName:    actorName,
+        verificationState: String(verificationState),
+      });
+
+      // Mark original action as rolled_back only after audit entry is committed
+      await rollbackAction(actionId, actorId, actorName);
+
+      console.log(
+        `[ai-copilot/rollback] action=${actionId} rollback mode=${execResult.mode} ` +
+        `success=${execResult.success} verification=${verificationState} actor=${actorId}`,
+      );
+
+      return res.json({
+        success:           true,
+        actionId,
+        rollbackNote:      rollbackSippy.note,
+        mode:              execResult.mode,
+        execSuccess:       execResult.success,
+        verificationState,
+        error:             null,
+      });
     },
   );
 }

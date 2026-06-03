@@ -281,6 +281,77 @@ export async function snoozeAction(id: number, userId: string, userName: string,
   } finally { await pool.end(); }
 }
 
+// ── createRollbackEntry ───────────────────────────────────────────────────────
+// Inserts a sibling ROLLBACK row in account_actions and appends a ledger event.
+// The original action is updated to rolled_back status by rollbackAction() after
+// this call. The sibling row carries action_type='ROLLBACK' and references the
+// original via recommendation_ref.originalActionId.
+export async function createRollbackEntry(data: {
+  originalActionId: number;
+  accountId:        string;
+  accountName:      string;
+  rollbackNote:     string;
+  sippyResult:      Record<string, unknown>;
+  executedBy:       string;
+  executedByName:   string;
+  verificationState: string;
+}) {
+  const pool = getPool();
+  try {
+    const trail: AuditEntry[] = [{
+      timestamp: new Date().toISOString(),
+      event:     'rollback_executed',
+      userId:    data.executedBy,
+      userName:  data.executedByName,
+      details:   `Rollback of action #${data.originalActionId}: ${data.rollbackNote}`,
+    }];
+    const r = await pool.query(`
+      INSERT INTO account_actions
+        (account_id, account_name, action_type, status, execution_mode, primary_action,
+         recommendation_ref, sippy_params, requested_by, requested_by_name, audit_trail,
+         idempotency_key, verification_state, created_at, updated_at)
+      VALUES ($1,$2,'ROLLBACK','executed','dry_run',$3,$4,$5,$6,$7,$8,NULL,$9,NOW(),NOW())
+      RETURNING *
+    `, [
+      data.accountId,
+      data.accountName,
+      data.rollbackNote,
+      JSON.stringify({ originalActionId: data.originalActionId, sippyResult: data.sippyResult }),
+      JSON.stringify({}),
+      data.executedBy,
+      data.executedByName,
+      JSON.stringify(trail),
+      data.verificationState,
+    ]);
+    const sibling = r.rows[0];
+
+    // ── Ledger: rollback executed event ───────────────────────────────────────
+    await appendToLedger({
+      ledgerId:          `c2:rollback:${data.originalActionId}:${Date.now()}`,
+      scope:             'account',
+      sourceSystem:      'C2',
+      actionType:        'ROLLBACK',
+      entityId:          data.accountId,
+      entityName:        data.accountName,
+      payload:           { originalActionId: data.originalActionId, sippyResult: data.sippyResult, note: data.rollbackNote },
+      idempotencyKey:    null,
+      riskIndexSnapshot: null,
+      approvalState:     'approved',
+      executionState:    'executed',
+      verificationState: data.verificationState as LedgerVerificationState,
+      sourceRecordId:    String(sibling.id),
+      eventType:         'rolled_back',
+      actorId:           data.executedBy,
+      actorName:         data.executedByName,
+      requestedBy:       data.executedBy,
+      requestedByName:   data.executedByName,
+      note:              `Rollback of action #${data.originalActionId}: ${data.rollbackNote}`,
+    });
+
+    return sibling;
+  } finally { await pool.end(); }
+}
+
 export async function rollbackAction(id: number, userId: string, userName: string) {
   const pool = getPool();
   try {
