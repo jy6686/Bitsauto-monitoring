@@ -59,6 +59,24 @@ export function setupNocWebSocket(httpServer: Server): void {
   console.log("[noc-ws] NOC WebSocket server attached at /ws/noc");
 }
 
+export interface PendingApprovalData {
+  actionId:        number;
+  actionType:      string;
+  accountName:     string;
+  requestedByName: string;
+  primaryAction:   string;
+}
+
+export function broadcastPendingApproval(data: PendingApprovalData): void {
+  if (nocClients.size === 0) return;
+  const payload = JSON.stringify({ type: "pending_approval_required", ...data });
+  for (const client of nocClients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      try { client.ws.send(payload); } catch { /* ignore send errors */ }
+    }
+  }
+}
+
 export function nocClientCount(): number {
   return nocClients.size;
 }

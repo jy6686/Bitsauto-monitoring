@@ -21,10 +21,19 @@ export interface RollbackFailureAlert {
   occurredAt:     string;
 }
 
+export interface PendingApprovalEvent {
+  actionId:        number;
+  actionType:      string;
+  accountName:     string;
+  requestedByName: string;
+  primaryAction:   string;
+}
+
 interface UseNocWebSocketResult {
   lastTick: NocTickData | null;
   lastVoiceOtpUpdate: VoiceOtpUpdateEvent | null;
   lastRollbackFailure: RollbackFailureAlert | null;
+  lastPendingApproval: PendingApprovalEvent | null;
   connected: boolean;
 }
 
@@ -32,6 +41,7 @@ export function useNocWebSocket(): UseNocWebSocketResult {
   const [lastTick, setLastTick] = useState<NocTickData | null>(null);
   const [lastVoiceOtpUpdate, setLastVoiceOtpUpdate] = useState<VoiceOtpUpdateEvent | null>(null);
   const [lastRollbackFailure, setLastRollbackFailure] = useState<RollbackFailureAlert | null>(null);
+  const [lastPendingApproval, setLastPendingApproval] = useState<PendingApprovalEvent | null>(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,6 +80,14 @@ export function useNocWebSocket(): UseNocWebSocketResult {
               manualRequired: data.manualRequired,
               occurredAt:     data.occurredAt,
             });
+          } else if (data.type === "pending_approval_required") {
+            setLastPendingApproval({
+              actionId:        data.actionId,
+              actionType:      data.actionType,
+              accountName:     data.accountName,
+              requestedByName: data.requestedByName,
+              primaryAction:   data.primaryAction,
+            });
           }
         } catch { /* ignore malformed messages */ }
       };
@@ -97,5 +115,5 @@ export function useNocWebSocket(): UseNocWebSocketResult {
     };
   }, [connect]);
 
-  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, connected };
+  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, lastPendingApproval, connected };
 }

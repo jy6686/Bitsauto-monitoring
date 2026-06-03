@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
   ShieldAlert, PlayCircle, Loader2, RotateCcw, History, Clock,
   UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown, Search,
-  Download, CalendarDays,
+  Download, CalendarDays, Bell,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useNocWebSocket } from "@/hooks/use-noc-ws";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -1928,12 +1929,36 @@ export default function RouteIntelligencePage() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const { toast } = useToast();
+  const { isManagement } = useAuth();
+  const { lastPendingApproval } = useNocWebSocket();
+  const seenApprovalIds = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
     if (tab) setActiveTab(tab);
   }, []);
+
+  // ── WS: react to pending_approval_required push ───────────────────────────
+  useEffect(() => {
+    if (!lastPendingApproval || !isManagement) return;
+    if (seenApprovalIds.current.has(lastPendingApproval.actionId)) return;
+    seenApprovalIds.current.add(lastPendingApproval.actionId);
+
+    queryClient.invalidateQueries({ queryKey: ["/api/ai/actions/pending"] });
+    toast({
+      title: "⚠️ Action Requires Your Approval",
+      description: `${lastPendingApproval.requestedByName} submitted "${lastPendingApproval.primaryAction}" for ${lastPendingApproval.accountName}. Go to AI Copilot to review.`,
+      duration: 10_000,
+    });
+  }, [lastPendingApproval, isManagement, toast]);
+
+  const { data: pendingActionsData } = useQuery<{ success: boolean; data: { id: number }[] }>({
+    queryKey: ["/api/ai/actions/pending"],
+    refetchInterval: 30_000,
+    enabled: !!isManagement,
+  });
+  const pendingCount = pendingActionsData?.data?.length ?? 0;
 
   const { data: scores = [], isFetching: scoresFetching } = useQuery<CarrierScore[]>({
     queryKey: ["/api/carrier-scores", 24],
@@ -2018,7 +2043,7 @@ export default function RouteIntelligencePage() {
             data-testid={`ri-tab-${tab.key}`}
             onClick={() => setActiveTab(tab.key)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all relative",
               activeTab === tab.key
                 ? "bg-white dark:bg-slate-800 shadow-sm text-foreground"
                 : "text-muted-foreground hover:text-foreground",
@@ -2033,6 +2058,14 @@ export default function RouteIntelligencePage() {
                 className="ml-0.5 min-w-[1.1rem] h-[1.1rem] flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none px-1"
               >
                 {rollbackCount > 99 ? "99+" : rollbackCount}
+              </span>
+            )}
+            {tab.key === "copilot" && isManagement && pendingCount > 0 && (
+              <span
+                data-testid="copilot-tab-pending-badge"
+                className="ml-0.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none"
+              >
+                {pendingCount}
               </span>
             )}
           </button>

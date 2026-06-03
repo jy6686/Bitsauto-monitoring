@@ -37,7 +37,7 @@ import {
 import { db } from "./db";
 import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache, nocIncidents, nocIncidentEvents } from "../shared/schema";
 import { desc, gte, sql } from "drizzle-orm";
-import { broadcastRollbackFailureAlert } from "./noc-ws";
+import { broadcastRollbackFailureAlert, broadcastPendingApproval } from "./noc-ws";
 
 type RequireRoleFn = (roles: string[], req: any, res: any, next: any) => void;
 
@@ -401,6 +401,17 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
             `[ai-copilot/apply] rec=${recommendation.id} action=${action.id} ` +
             `actionType=${actionType} DUAL_APPROVAL_REQUIRED actor=${actorId}`,
           );
+
+          // Notify all connected management operators via WebSocket push
+          try {
+            broadcastPendingApproval({
+              actionId:        action.id,
+              actionType,
+              accountName:     entityName,
+              requestedByName: actorName,
+              primaryAction:   recommendation.action,
+            });
+          } catch { /* non-fatal — operators can still poll the pending list */ }
 
           return res.json({
             success:                true,
