@@ -323,15 +323,25 @@ function ApplyModal({
 // ── Undo / Rollback Modal ──────────────────────────────────────────────────────
 
 function UndoModal({
+  summary,
   onConfirm,
   onCancel,
   isPending,
 }: {
+  summary: UndoSummary;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
   isPending: boolean;
 }) {
   const [reason, setReason] = useState("");
+
+  const formattedDate = summary.appliedAt
+    ? new Date(summary.appliedAt).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
@@ -356,6 +366,49 @@ function UndoModal({
               <p className="text-[11px] text-muted-foreground">This will reverse the live Sippy change</p>
             </div>
           </div>
+        </div>
+
+        {/* Action summary — prefilled from the original applied recommendation */}
+        <div
+          data-testid="undo-modal-summary"
+          className="mx-5 mt-4 rounded-lg border border-orange-500/20 bg-orange-500/5 px-4 py-3 space-y-1.5"
+        >
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-orange-400/80 mb-2">
+            Action being reversed
+          </p>
+          <div className="flex items-start gap-2">
+            <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0 mt-0.5" />
+            <p
+              data-testid="undo-modal-action-label"
+              className="text-xs font-medium text-foreground leading-snug"
+            >
+              {summary.actionLabel}
+            </p>
+          </div>
+          {(summary.currentVendor || summary.targetVendor) && (
+            <div className="flex items-center gap-1.5 pl-5 text-[11px] font-mono text-muted-foreground">
+              {summary.currentVendor && (
+                <span className="text-red-400/80">{summary.currentVendor}</span>
+              )}
+              {summary.currentVendor && summary.targetVendor && (
+                <ArrowRight className="h-2.5 w-2.5 opacity-40 flex-shrink-0" />
+              )}
+              {summary.targetVendor && (
+                <span className="text-green-400/90">{summary.targetVendor}</span>
+              )}
+            </div>
+          )}
+          {summary.destination && (
+            <p className="pl-5 text-[11px] font-mono text-muted-foreground">
+              Destination: {summary.destination}
+            </p>
+          )}
+          {formattedDate && (
+            <div className="flex items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
+              <Clock className="h-3 w-3 flex-shrink-0" />
+              <span data-testid="undo-modal-applied-date">Applied {formattedDate}</span>
+            </div>
+          )}
         </div>
 
         <div className="px-5 py-4 space-y-3">
@@ -416,6 +469,7 @@ function AiRecCard({
   appliedActionId,
   canUndo,
   canApply,
+  appliedAt,
   mode,
   onDismiss,
   onPin,
@@ -429,11 +483,12 @@ function AiRecCard({
   appliedActionId?: number;
   canUndo: boolean;
   canApply: boolean;
+  appliedAt?: string;
   mode: CopilotMode;
   onDismiss: (id: string) => void;
   onPin: (id: string) => void;
   onApply: (rec: AiRouteRecommendation) => void;
-  onUndo: (recId: string, actionId: number) => void;
+  onUndo: (recId: string, actionId: number, summary: UndoSummary) => void;
 }) {
   const [expanded, setExpanded]   = useState(false);
   const [simulate, setSimulate]   = useState(false);
@@ -512,7 +567,13 @@ function AiRecCard({
               {applied && canUndo && appliedActionId !== undefined && (
                 <button
                   data-testid={`ai-rec-undo-${index}`}
-                  onClick={() => onUndo(rec.id, appliedActionId)}
+                  onClick={() => onUndo(rec.id, appliedActionId, {
+                    actionLabel:   rec.action,
+                    destination:   rec.destination,
+                    currentVendor: rec.currentVendor,
+                    targetVendor:  rec.targetVendor,
+                    appliedAt,
+                  })}
                   title="Undo this action"
                   className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono text-amber-500 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded hover:bg-amber-500/20 transition-colors"
                 >
@@ -864,7 +925,15 @@ function PendingApprovalPanel() {
 
 // ── AI Copilot Panel ───────────────────────────────────────────────────────────
 
-interface AppliedEntry { actionId: number; verificationState: string }
+interface AppliedEntry { actionId: number; verificationState: string; appliedAt?: string }
+
+interface UndoSummary {
+  actionLabel: string;
+  destination?: string;
+  currentVendor?: string;
+  targetVendor?: string;
+  appliedAt?: string;
+}
 
 function AiCopilotPanel() {
   const [dismissed,    setDismissed]    = useState<Set<string>>(new Set());
@@ -872,7 +941,7 @@ function AiCopilotPanel() {
   const [applied,      setApplied]      = useState<Map<string, AppliedEntry>>(new Map());
   const [hasRun,       setHasRun]       = useState(false);
   const [modalRec,     setModalRec]     = useState<AiRouteRecommendation | null>(null);
-  const [undoTarget,   setUndoTarget]   = useState<{ recId: string; actionId: number } | null>(null);
+  const [undoTarget,   setUndoTarget]   = useState<{ recId: string; actionId: number; summary: UndoSummary } | null>(null);
   const { toast } = useToast();
   const { isManagement } = useAuth();
 
@@ -898,7 +967,7 @@ function AiCopilotPanel() {
       const next = new Map(prev);
       for (const a of appliedActionsData.actions) {
         if (!next.has(a.recId)) {
-          next.set(a.recId, { actionId: a.actionId, verificationState: a.verificationState });
+          next.set(a.recId, { actionId: a.actionId, verificationState: a.verificationState, appliedAt: (a as any).createdAt ?? undefined });
         }
       }
       return next;
@@ -941,7 +1010,7 @@ function AiCopilotPanel() {
           return data;
         }),
     onSuccess: (data, rec) => {
-      setApplied(prev => new Map(prev).set(rec.id, { actionId: data.actionId, verificationState: data.verificationState ?? "UNKNOWN_PENDING" }));
+      setApplied(prev => new Map(prev).set(rec.id, { actionId: data.actionId, verificationState: data.verificationState ?? "UNKNOWN_PENDING", appliedAt: new Date().toISOString() }));
       setModalRec(null);
       queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/summary"] });
       queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/applied-actions"] });
@@ -1014,8 +1083,8 @@ function AiCopilotPanel() {
     setModalRec(rec);
   }, []);
 
-  const handleUndo = useCallback((recId: string, actionId: number) => {
-    setUndoTarget({ recId, actionId });
+  const handleUndo = useCallback((recId: string, actionId: number, summary: UndoSummary) => {
+    setUndoTarget({ recId, actionId, summary });
   }, []);
 
   return (
@@ -1205,6 +1274,7 @@ function AiCopilotPanel() {
                   pinned={pinned.has(rec.id)}
                   applied={!!entry}
                   appliedActionId={entry?.actionId}
+                  appliedAt={entry?.appliedAt}
                   canUndo={isManagement && isSuccessConfirmed}
                   canApply={isManagement}
                   mode={result?.mode ?? "rule_based_preview"}
@@ -1262,8 +1332,9 @@ function AiCopilotPanel() {
       <AnimatePresence>
         {undoTarget && (
           <UndoModal
+            summary={undoTarget.summary}
             isPending={rollbackMutation.isPending}
-            onConfirm={(reason) => rollbackMutation.mutate({ ...undoTarget, reason: reason || undefined })}
+            onConfirm={(reason) => rollbackMutation.mutate({ recId: undoTarget.recId, actionId: undoTarget.actionId, reason: reason || undefined })}
             onCancel={() => !rollbackMutation.isPending && setUndoTarget(null)}
           />
         )}
