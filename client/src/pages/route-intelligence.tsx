@@ -651,12 +651,29 @@ function AiCopilotPanel() {
                       Rule-Based Preview
                     </span>
                   )}
-                  <span className="text-[10px] text-muted-foreground/50 font-mono">
-                    {new Date(result.generatedAt).toLocaleTimeString()}
-                  </span>
-                  {isCachedResult && (
-                    <span className="text-[10px] font-medium text-sky-500 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded">
-                      from cache
+                  {isCachedResult ? (() => {
+                    const ageMs = Date.now() - new Date(result.generatedAt).getTime();
+                    const ageMin = Math.floor(ageMs / 60000);
+                    const ageLabel = ageMin < 1 ? "just now" : `${ageMin} min ago`;
+                    const isStale = ageMin >= 20;
+                    return (
+                      <>
+                        <span className="text-[10px] text-muted-foreground/50 font-mono">
+                          {ageLabel}
+                        </span>
+                        <span className="text-[10px] font-medium text-sky-500 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded">
+                          from cache
+                        </span>
+                        {isStale && (
+                          <span className="text-[10px] font-medium text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                            may be stale
+                          </span>
+                        )}
+                      </>
+                    );
+                  })() : (
+                    <span className="text-[10px] text-muted-foreground/50 font-mono">
+                      {new Date(result.generatedAt).toLocaleTimeString()}
                     </span>
                   )}
                 </div>
