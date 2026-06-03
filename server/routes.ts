@@ -5,6 +5,7 @@ import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
+import { registerAiCopilotRoutes } from './routes-ai-copilot';
 import { createServer, type Server } from "http";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import * as net from "net";
@@ -30203,6 +30204,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // ── BhaooSMS / REVE SMS integration routes ────────────────────────────────
   registerBhaooRoutes(app);
   registerCallGovernanceRoutes(app);
+
+  // ── AI Route Copilot ──────────────────────────────────────────────────────
+  const { setVendorPrefixDataProvider } = await import('./routes-ai-copilot');
+  setVendorPrefixDataProvider(() => computeVendorPrefixIntelligence(cdrCache));
+  registerAiCopilotRoutes(app, requireRole);
 
   // ── Call Governance — Billing Check (needs cdrCache in scope) ────────────
   {

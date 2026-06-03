@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   GitBranch, TrendingDown, TrendingUp, Minus, AlertTriangle,
   Shield, Activity, BrainCircuit, RefreshCw, ChevronRight,
-  Zap, Network, CheckCircle2, ArrowRight, Eye, X,
+  Zap, Network, CheckCircle2, ArrowRight, Eye, X, Sparkles,
+  ChevronDown, ChevronUp, BarChart2, AlertCircle, Info,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,37 @@ interface CarrierScore {
 interface Recommendation {
   accountId: string; accountName?: string; priority?: number;
   urgency?: string; action?: string; reason?: string; dominantSignal?: string;
+}
+
+interface AiRouteRecommendation {
+  id: string;
+  action: string;
+  confidence: number;
+  reasons: string[];
+  risk: "low" | "medium" | "high";
+  expectedImpact: string;
+  currentVendor?: string;
+  targetVendor?: string;
+  destination?: string;
+  simulate: {
+    asrDelta: number | null;
+    stabilityDelta: number | null;
+    projectedAsr: number | null;
+    projectedStability: number | null;
+  };
+}
+
+interface CopilotResult {
+  generatedAt: string;
+  aiEnhanced: boolean;
+  recommendations: AiRouteRecommendation[];
+  summary: {
+    totalCarriers: number;
+    degradedCarriers: number;
+    criticalCarriers: number;
+    topSignal: string;
+    analysisNote: string;
+  };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -93,6 +125,423 @@ const URGENCY_COLOR: Record<string, string> = {
   monitor:   "bg-slate-100 dark:bg-slate-800 text-muted-foreground border-slate-200 dark:border-slate-700",
 };
 
+const RISK_CONFIG = {
+  low:    { label: "Low Risk",    cls: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30" },
+  medium: { label: "Medium Risk", cls: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30" },
+  high:   { label: "High Risk",   cls: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30" },
+};
+
+function ConfidenceBar({ value }: { value: number }) {
+  const color = value >= 80 ? "bg-green-500" : value >= 65 ? "bg-amber-500" : "bg-slate-400";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-20 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden flex-shrink-0">
+        <motion.div
+          className={cn("h-full rounded-full", color)}
+          initial={{ width: 0 }}
+          animate={{ width: `${value}%` }}
+          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        />
+      </div>
+      <span className="font-mono text-xs tabular-nums font-semibold text-muted-foreground">{value}%</span>
+    </div>
+  );
+}
+
+// ── AI Recommendation Card ─────────────────────────────────────────────────────
+
+function AiRecCard({
+  rec,
+  index,
+  simulate,
+  dismissed,
+  onDismiss,
+}: {
+  rec: AiRouteRecommendation;
+  index: number;
+  simulate: boolean;
+  dismissed: boolean;
+  onDismiss: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const risk = RISK_CONFIG[rec.risk];
+  const hasSimulate = rec.simulate.asrDelta != null || rec.simulate.stabilityDelta != null;
+
+  if (dismissed) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, x: -20, height: 0 }}
+      transition={{ delay: index * 0.04, duration: 0.25 }}
+      data-testid={`ai-rec-card-${index}`}
+      className={cn(
+        "rounded-xl border bg-card overflow-hidden",
+        rec.risk === "high" ? "border-red-500/30" :
+        rec.risk === "medium" ? "border-amber-500/20" : "border-border",
+      )}
+    >
+      {/* Card header */}
+      <div className="px-4 pt-3.5 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          {/* Rank badge */}
+          <div className="flex-shrink-0 w-7 h-7 rounded-full bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mt-0.5">
+            <span className="text-xs font-black text-violet-500 font-mono">#{index + 1}</span>
+          </div>
+
+          <div className="flex-1 min-w-0">
+            {/* Action */}
+            <p
+              data-testid={`ai-rec-action-${index}`}
+              className="font-semibold text-sm leading-snug"
+            >
+              {rec.action}
+            </p>
+
+            {/* Destination badge */}
+            {rec.destination && (
+              <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                Destination: {rec.destination}
+              </p>
+            )}
+
+            {/* Badges row */}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span className={cn(
+                "text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border",
+                risk.cls,
+              )}>
+                {risk.label}
+              </span>
+              {rec.currentVendor && rec.targetVendor && (
+                <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
+                  <span className="text-red-400/80">{rec.currentVendor}</span>
+                  <ArrowRight className="h-2.5 w-2.5 opacity-40" />
+                  <span className="text-green-400/90">{rec.targetVendor}</span>
+                </span>
+              )}
+            </div>
+
+            {/* Confidence */}
+            <div className="mt-2.5">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1 font-medium">
+                Confidence
+              </p>
+              <ConfidenceBar value={rec.confidence} />
+            </div>
+          </div>
+
+          {/* Dismiss */}
+          <button
+            data-testid={`ai-rec-dismiss-${index}`}
+            onClick={() => onDismiss(rec.id)}
+            className="text-muted-foreground/40 hover:text-muted-foreground transition-colors flex-shrink-0 mt-0.5"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Expected impact */}
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+          <BarChart2 className="h-3.5 w-3.5 flex-shrink-0 text-cyan-500" />
+          <span>{rec.expectedImpact}</span>
+        </div>
+
+        {/* Simulate overlay */}
+        <AnimatePresence>
+          {simulate && hasSimulate && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-2 rounded-lg bg-violet-500/5 border border-violet-500/15 px-3 py-2"
+            >
+              <p className="text-[10px] uppercase tracking-wide text-violet-400 font-semibold mb-1.5 flex items-center gap-1">
+                <Sparkles className="h-3 w-3" /> Projected Impact
+              </p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                {rec.simulate.asrDelta != null && (
+                  <div>
+                    <span className="text-muted-foreground">ASR Δ: </span>
+                    <span className={cn("font-mono font-bold", rec.simulate.asrDelta >= 0 ? "text-green-400" : "text-red-400")}>
+                      {rec.simulate.asrDelta >= 0 ? "+" : ""}{rec.simulate.asrDelta.toFixed(1)}%
+                    </span>
+                    {rec.simulate.projectedAsr != null && (
+                      <span className="text-muted-foreground/60"> → {rec.simulate.projectedAsr.toFixed(1)}%</span>
+                    )}
+                  </div>
+                )}
+                {rec.simulate.stabilityDelta != null && (
+                  <div>
+                    <span className="text-muted-foreground">Stability Δ: </span>
+                    <span className={cn("font-mono font-bold", rec.simulate.stabilityDelta >= 0 ? "text-green-400" : "text-red-400")}>
+                      {rec.simulate.stabilityDelta >= 0 ? "+" : ""}{rec.simulate.stabilityDelta.toFixed(0)} pts
+                    </span>
+                    {rec.simulate.projectedStability != null && (
+                      <span className="text-muted-foreground/60"> → {rec.simulate.projectedStability.toFixed(0)}/100</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Expandable reasons */}
+      <div className="border-t border-border/60">
+        <button
+          data-testid={`ai-rec-expand-${index}`}
+          onClick={() => setExpanded(p => !p)}
+          className="w-full flex items-center justify-between px-4 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-colors"
+        >
+          <span className="font-medium">{expanded ? "Hide" : "Show"} reasoning ({rec.reasons.length} signals)</span>
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </button>
+        <AnimatePresence>
+          {expanded && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <ul className="px-4 pb-3 space-y-1.5">
+                {rec.reasons.map((r, ri) => (
+                  <li key={ri} className="flex items-start gap-2 text-xs text-muted-foreground">
+                    <span className="mt-1 w-1.5 h-1.5 rounded-full bg-violet-400/60 flex-shrink-0" />
+                    <span>{r}</span>
+                  </li>
+                ))}
+              </ul>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </motion.div>
+  );
+}
+
+// ── AI Copilot Panel ───────────────────────────────────────────────────────────
+
+function AiCopilotPanel() {
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [simulate, setSimulate] = useState(false);
+  const [hasRun, setHasRun] = useState(false);
+  const { toast } = useToast();
+
+  const copilotMutation = useMutation<{ success: boolean; data: CopilotResult }, Error>({
+    mutationFn: () => apiRequest("POST", "/api/ai/route-copilot"),
+    onSuccess: () => setHasRun(true),
+    onError: (err) => {
+      toast({ title: "Copilot error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const result = copilotMutation.data?.data;
+  const visible = result?.recommendations.filter(r => !dismissed.has(r.id)) ?? [];
+
+  const handleDismiss = useCallback((id: string) => {
+    setDismissed(prev => new Set([...prev, id]));
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      {/* Copilot header panel */}
+      <div className="rounded-xl border bg-gradient-to-br from-violet-500/5 via-card to-cyan-500/5 border-violet-500/20 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-violet-500/15 border border-violet-500/25 flex items-center justify-center">
+                <Sparkles className="h-4 w-4 text-violet-400" />
+              </div>
+              <div>
+                <h2 className="font-bold text-sm">AI Route Copilot</h2>
+                <p className="text-xs text-muted-foreground">Analyses carrier health, Q-Scores, ASR & degradation signals</p>
+              </div>
+            </div>
+
+            {result && (
+              <motion.div
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-3 space-y-1"
+              >
+                <p className="text-sm font-medium text-foreground/90">{result.summary.topSignal}</p>
+                <p className="text-xs text-muted-foreground">{result.summary.analysisNote}</p>
+                <p className="text-[10px] text-muted-foreground/50 font-mono">
+                  Generated {new Date(result.generatedAt).toLocaleTimeString()}
+                  {result.aiEnhanced && " · AI-enhanced"}
+                </p>
+              </motion.div>
+            )}
+          </div>
+
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+            <Button
+              data-testid="copilot-analyse-btn"
+              size="sm"
+              disabled={copilotMutation.isPending}
+              onClick={() => copilotMutation.mutate()}
+              className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white border-0"
+            >
+              {copilotMutation.isPending ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {copilotMutation.isPending ? "Analysing…" : hasRun ? "Re-analyse" : "Analyse Routes"}
+            </Button>
+
+            {hasRun && (
+              <button
+                data-testid="copilot-simulate-toggle"
+                onClick={() => setSimulate(p => !p)}
+                className={cn(
+                  "flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md border transition-colors",
+                  simulate
+                    ? "bg-violet-500/15 border-violet-500/30 text-violet-400"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Eye className="h-3 w-3" />
+                {simulate ? "Simulate ON" : "Simulate Impact"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Summary stats (after first run) */}
+        {result && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-violet-500/10"
+          >
+            <div className="text-center">
+              <p className="text-2xl font-black tabular-nums font-mono text-foreground">{result.summary.totalCarriers}</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">Carriers</p>
+            </div>
+            <div className="text-center">
+              <p className={cn(
+                "text-2xl font-black tabular-nums font-mono",
+                result.summary.degradedCarriers > 0 ? "text-amber-500" : "text-green-500",
+              )}>
+                {result.summary.degradedCarriers}
+              </p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">Degraded</p>
+            </div>
+            <div className="text-center">
+              <p className={cn(
+                "text-2xl font-black tabular-nums font-mono",
+                result.summary.criticalCarriers > 0 ? "text-red-500" : "text-green-500",
+              )}>
+                {result.summary.criticalCarriers}
+              </p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">Critical</p>
+            </div>
+          </motion.div>
+        )}
+      </div>
+
+      {/* Loading skeleton */}
+      {copilotMutation.isPending && (
+        <div className="space-y-3">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="rounded-xl border bg-card p-4 animate-pulse">
+              <div className="flex items-start gap-3">
+                <div className="w-7 h-7 rounded-full bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-muted rounded w-3/4" />
+                  <div className="h-3 bg-muted rounded w-1/2" />
+                  <div className="h-2 bg-muted rounded w-1/3" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Error */}
+      {copilotMutation.isError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-sm text-red-600 dark:text-red-400">Analysis failed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{copilotMutation.error.message}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-run state */}
+      {!hasRun && !copilotMutation.isPending && (
+        <div className="rounded-xl border bg-card flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <Sparkles className="h-10 w-10 mb-3 opacity-20" />
+          <p className="text-sm font-medium">Ready to analyse your routes</p>
+          <p className="text-xs mt-1 opacity-60">Click "Analyse Routes" to generate recommendations</p>
+          <p className="text-xs mt-3 opacity-40 max-w-sm text-center">
+            Powered by carrier stability scores, Q-Scores, ASR/ACD telemetry, and degradation signals
+          </p>
+        </div>
+      )}
+
+      {/* Recommendations */}
+      {hasRun && !copilotMutation.isPending && visible.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground font-medium">
+              {visible.length} recommendation{visible.length !== 1 ? "s" : ""}, ranked by confidence
+            </p>
+            {dismissed.size > 0 && (
+              <button
+                onClick={() => setDismissed(new Set())}
+                className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+              >
+                Restore {dismissed.size} dismissed
+              </button>
+            )}
+          </div>
+          <AnimatePresence>
+            {visible.map((rec, i) => (
+              <AiRecCard
+                key={rec.id}
+                rec={rec}
+                index={i}
+                simulate={simulate}
+                dismissed={false}
+                onDismiss={handleDismiss}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* No recommendations after run */}
+      {hasRun && !copilotMutation.isPending && result && visible.length === 0 && (
+        <div className="rounded-xl border bg-card flex flex-col items-center justify-center py-12 text-muted-foreground">
+          <CheckCircle2 className="h-8 w-8 mb-2 text-green-500/40" />
+          <p className="text-sm">No route changes recommended</p>
+          <p className="text-xs mt-1 opacity-60">
+            {result.summary.totalCarriers > 0
+              ? "All carriers are performing within acceptable range"
+              : "No carrier data available — run score recompute first"}
+          </p>
+        </div>
+      )}
+
+      {/* Phase 1 notice */}
+      {hasRun && (
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground/50 px-1">
+          <Info className="h-3 w-3 flex-shrink-0" />
+          <span>Phase 1: Observe &amp; Recommend only — no automatic rerouting. All actions require manual confirmation.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Summary Cards ──────────────────────────────────────────────────────────────
 
 function SummaryCard({ label, value, sub, color, icon: Icon }: {
@@ -119,7 +568,8 @@ const TABS = [
   { key: "overview",    label: "Overview",          icon: Activity    },
   { key: "degradation", label: "Degradation Alert", icon: TrendingDown },
   { key: "qos",         label: "QoS Analysis",      icon: Zap         },
-  { key: "recs",        label: "Route Recommendations", icon: BrainCircuit },
+  { key: "copilot",     label: "AI Copilot",         icon: Sparkles    },
+  { key: "recs",        label: "Account Recs",       icon: BrainCircuit },
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -152,15 +602,11 @@ export default function RouteIntelligencePage() {
   const healthy  = scores.filter(s => getHealthTier(s) === "healthy");
   const degraded = scores.filter(s => getHealthTier(s) === "degraded");
   const critical = scores.filter(s => getHealthTier(s) === "critical");
-  const noData   = scores.filter(s => getHealthTier(s) === "no_data");
   const avgAsr   = scores.filter(s => s.rollingAsr != null).reduce((a, s, _, arr) => a + s.rollingAsr! / arr.length, 0);
   const avgPdd   = scores.filter(s => s.avgPddMs != null).reduce((a, s, _, arr) => a + s.avgPddMs! / arr.length, 0);
 
   const degradedPlusCritical = [...critical, ...degraded].sort((a, b) => (a.stabilityScore ?? 0) - (b.stabilityScore ?? 0));
-
   const activeRecs = recommendations.filter(r => !dismissed.has(r.accountId));
-
-  // Sort scores for overview: worst first
   const sortedScores = [...scores].sort((a, b) => (a.stabilityScore ?? 0) - (b.stabilityScore ?? 0));
 
   return (
@@ -173,7 +619,7 @@ export default function RouteIntelligencePage() {
             Route Intelligence Cockpit
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Carrier stability, degradation detection, and route recommendations
+            Carrier stability, degradation detection, and AI-powered route recommendations
           </p>
         </div>
         <Button
@@ -204,7 +650,7 @@ export default function RouteIntelligencePage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-lg w-fit flex-wrap">
         {TABS.map(tab => (
           <button
             key={tab.key}
@@ -215,9 +661,13 @@ export default function RouteIntelligencePage() {
               activeTab === tab.key
                 ? "bg-white dark:bg-slate-800 shadow-sm text-foreground"
                 : "text-muted-foreground hover:text-foreground",
+              tab.key === "copilot" && activeTab !== "copilot" && "text-violet-500 hover:text-violet-600",
             )}
           >
-            <tab.icon className="h-3.5 w-3.5" />
+            <tab.icon className={cn(
+              "h-3.5 w-3.5",
+              tab.key === "copilot" && "text-violet-400",
+            )} />
             {tab.label}
           </button>
         ))}
@@ -501,7 +951,10 @@ export default function RouteIntelligencePage() {
         </div>
       )}
 
-      {/* ── Route Recommendations Tab ── */}
+      {/* ── AI Copilot Tab ── */}
+      {activeTab === "copilot" && <AiCopilotPanel />}
+
+      {/* ── Account Recommendations Tab ── */}
       {activeTab === "recs" && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -548,26 +1001,15 @@ export default function RouteIntelligencePage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs"
-                      data-testid={`ri-rec-dismiss-${i}`}
-                      onClick={() => setDismissed(prev => new Set([...prev, rec.accountId]))}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs gap-1"
-                      data-testid={`ri-rec-view-${i}`}
-                      onClick={() => window.location.href = `/clients/${rec.accountId}`}
-                    >
-                      View <ArrowRight className="h-3 w-3" />
-                    </Button>
-                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs flex-shrink-0"
+                    data-testid={`ri-rec-dismiss-${i}`}
+                    onClick={() => setDismissed(prev => new Set([...prev, rec.accountId]))}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
                 </div>
               </motion.div>
             );
