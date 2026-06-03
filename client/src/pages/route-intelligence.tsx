@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   GitBranch, TrendingDown, TrendingUp, Minus, AlertTriangle,
@@ -6,7 +6,8 @@ import {
   Zap, Network, CheckCircle2, ArrowRight, Eye, X, Sparkles,
   ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
   ShieldAlert, PlayCircle, Loader2, RotateCcw, History, Clock,
-  UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown,
+  UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown, Search,
+  Download, CalendarDays,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -1512,16 +1513,80 @@ function ActionHistoryRowCard({ row }: { row: ActionHistoryRow }) {
 
 type HistoryFilter = "all" | "active" | "rolled_back";
 
+// ── CSV export helper ─────────────────────────────────────────────────────────
+
+function escCsv(v: string | number | null | undefined): string {
+  if (v == null) return "";
+  const s = String(v);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function exportHistoryCsv(rows: ActionHistoryRow[]) {
+  const headers = [
+    "ID", "Account ID", "Account Name", "Action Type", "Status",
+    "Applied By", "Applied At", "Rolled Back By", "Rolled Back At", "Verification State",
+  ];
+  const lines: string[] = [headers.join(",")];
+  for (const r of rows) {
+    const appliedBy = r.approved_by_name ?? r.approved_by ?? r.requested_by_name ?? r.requested_by;
+    const rb = r.rollbacks[0] ?? null;
+    const rbBy = rb ? (rb.requested_by_name ?? rb.requested_by) : null;
+    const rbAt = rb ? rb.created_at : null;
+    lines.push([
+      r.id,
+      escCsv(r.account_id),
+      escCsv(r.account_name),
+      escCsv(r.action_type),
+      escCsv(r.status),
+      escCsv(appliedBy),
+      escCsv(r.created_at),
+      escCsv(rbBy),
+      escCsv(rbAt),
+      escCsv(r.verification_state),
+    ].join(","));
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `rollback-history-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── RollbackHistoryPanel ──────────────────────────────────────────────────────
+
 function RollbackHistoryPanel() {
-  const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [filter, setFilter]     = useState<HistoryFilter>("all");
+  const [search, setSearch]     = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo]     = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [search]);
+
+  const buildUrl = () => {
+    const params = new URLSearchParams();
+    if (filter !== "all") params.set("filter", filter);
+    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo)   params.set("dateTo", dateTo);
+    const qs = params.toString();
+    return qs ? `/api/ai/route-copilot/action-history?${qs}` : "/api/ai/route-copilot/action-history";
+  };
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery<{ success: boolean; actions: ActionHistoryRow[] }>({
-    queryKey: ["/api/ai/route-copilot/action-history", filter],
+    queryKey: ["/api/ai/route-copilot/action-history", filter, debouncedSearch, dateFrom, dateTo],
     queryFn: async () => {
-      const url = filter === "all"
-        ? "/api/ai/route-copilot/action-history"
-        : `/api/ai/route-copilot/action-history?filter=${filter}`;
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildUrl(), { credentials: "include" });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
@@ -1532,12 +1597,20 @@ function RollbackHistoryPanel() {
   const actions = data?.actions ?? [];
   const rolledBackCount = actions.filter(a => a.status === "rolled_back").length;
   const activeCount     = actions.filter(a => a.status === "executed").length;
+  const hasActiveFilters = debouncedSearch.trim() !== "" || dateFrom !== "" || dateTo !== "";
 
   const FILTERS: { key: HistoryFilter; label: string }[] = [
     { key: "all",         label: `All (${actions.length})` },
-    { key: "active",      label: `Active (${activeCount})`     },
+    { key: "active",      label: `Active (${activeCount})` },
     { key: "rolled_back", label: `Rolled Back (${rolledBackCount})` },
   ];
+
+  function clearFilters() {
+    setSearch("");
+    setDateFrom("");
+    setDateTo("");
+    setFilter("all");
+  }
 
   return (
     <div className="space-y-4">
@@ -1555,17 +1628,30 @@ function RollbackHistoryPanel() {
               </p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 h-8 text-xs"
-            disabled={isFetching}
-            onClick={() => refetch()}
-            data-testid="history-refresh-btn"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-8 text-xs"
+              disabled={actions.length === 0}
+              onClick={() => exportHistoryCsv(actions)}
+              data-testid="history-export-csv-btn"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-8 text-xs"
+              disabled={isFetching}
+              onClick={() => refetch()}
+              data-testid="history-refresh-btn"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -1583,9 +1669,60 @@ function RollbackHistoryPanel() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Search + Date Range */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        {/* Search input */}
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search by account, action type, or operator…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            data-testid="history-search-input"
+            className="w-full h-8 pl-8 pr-3 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-orange-500/40"
+          />
+        </div>
+        {/* Date from */}
+        <div className="relative">
+          <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => setDateFrom(e.target.value)}
+            data-testid="history-date-from"
+            title="From date"
+            className="h-8 pl-8 pr-2 text-xs rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500/40 w-[140px]"
+          />
+        </div>
+        <span className="text-xs text-muted-foreground hidden sm:inline">to</span>
+        {/* Date to */}
+        <div className="relative">
+          <CalendarDays className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => setDateTo(e.target.value)}
+            data-testid="history-date-to"
+            title="To date"
+            className="h-8 pl-8 pr-2 text-xs rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-orange-500/40 w-[140px]"
+          />
+        </div>
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            data-testid="history-clear-filters-btn"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground border border-border rounded-md px-2.5 h-8 transition-colors"
+          >
+            <X className="h-3 w-3" />
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Status Filters */}
       <div className="flex items-center gap-2">
-        <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+        <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         {FILTERS.map(f => (
           <button
             key={f.key}
@@ -1621,10 +1758,22 @@ function RollbackHistoryPanel() {
       {!isLoading && !isError && actions.length === 0 && (
         <div className="rounded-lg border bg-card flex flex-col items-center justify-center py-16 text-muted-foreground">
           <History className="h-8 w-8 mb-2 opacity-30" />
-          <p className="text-sm">No actions found for this filter</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">
-            Apply recommendations from the AI Copilot tab to see them here.
+          <p className="text-sm">
+            {hasActiveFilters ? "No actions match your search criteria" : "No actions found for this filter"}
           </p>
+          <p className="text-xs text-muted-foreground/60 mt-1">
+            {hasActiveFilters
+              ? "Try adjusting your search terms or date range."
+              : "Apply recommendations from the AI Copilot tab to see them here."}
+          </p>
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="mt-3 text-xs text-orange-400 hover:text-orange-300 underline"
+            >
+              Clear all filters
+            </button>
+          )}
         </div>
       )}
 

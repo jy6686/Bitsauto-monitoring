@@ -499,25 +499,50 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
 
   // ── GET /api/ai/route-copilot/action-history ─────────────────────────────
   // Returns all non-ROLLBACK account_actions with their ROLLBACK sibling(s)
-  // nested underneath. Supports ?filter=rolled_back or ?filter=active.
+  // nested underneath. Supports ?filter=rolled_back|active, ?search=<text>,
+  // ?dateFrom=<ISO>&dateTo=<ISO> for server-side filtering.
   app.get(
     "/api/ai/route-copilot/action-history",
     (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
     async (req: any, res: any) => {
       try {
-        const filter = req.query.filter as string | undefined;
+        const filter   = req.query.filter   as string | undefined;
+        const search   = req.query.search   as string | undefined;
+        const dateFrom = req.query.dateFrom as string | undefined;
+        const dateTo   = req.query.dateTo   as string | undefined;
+
         const { Pool } = await import("pg");
         const pool = new Pool({ connectionString: process.env.DATABASE_URL });
         try {
           const whereClauses: string[] = ["a.action_type != 'ROLLBACK'"];
+          const params: any[] = [];
+
           if (filter === "rolled_back") {
             whereClauses.push("a.status = 'rolled_back'");
           } else if (filter === "active") {
-            // Active = executed against Sippy and not subsequently rolled back.
-            // A row whose status has been updated to 'rolled_back' is no longer active.
             whereClauses.push("a.status = 'executed'");
           }
-          const where = whereClauses.length ? "WHERE " + whereClauses.join(" AND ") : "";
+
+          if (search && search.trim()) {
+            params.push(`%${search.trim().toLowerCase()}%`);
+            const p = params.length;
+            whereClauses.push(
+              `(LOWER(a.account_name) LIKE $${p} OR LOWER(a.action_type) LIKE $${p} OR LOWER(COALESCE(a.requested_by_name, a.requested_by, '')) LIKE $${p} OR LOWER(COALESCE(a.approved_by_name, a.approved_by, '')) LIKE $${p})`,
+            );
+          }
+
+          if (dateFrom) {
+            params.push(dateFrom);
+            whereClauses.push(`a.created_at >= $${params.length}`);
+          }
+
+          if (dateTo) {
+            // Include the full end day by adding 1 day
+            params.push(dateTo);
+            whereClauses.push(`a.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+          }
+
+          const where = "WHERE " + whereClauses.join(" AND ");
           const r = await pool.query(`
             SELECT
               a.*,
@@ -546,8 +571,8 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
             ${where}
             GROUP BY a.id
             ORDER BY a.created_at DESC
-            LIMIT 200
-          `);
+            LIMIT 500
+          `, params);
           return res.json({ success: true, actions: r.rows });
         } finally {
           await pool.end();
