@@ -4,7 +4,8 @@ import {
   GitBranch, TrendingDown, TrendingUp, Minus, AlertTriangle,
   Shield, Activity, BrainCircuit, RefreshCw, ChevronRight,
   Zap, Network, CheckCircle2, ArrowRight, Eye, X, Sparkles,
-  ChevronDown, ChevronUp, BarChart2, AlertCircle, Info,
+  ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
+  ShieldAlert,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,12 @@ interface Recommendation {
   urgency?: string; action?: string; reason?: string; dominantSignal?: string;
 }
 
+interface FraudSignals {
+  fasCount: number;
+  irsfCount: number;
+  avgFraudScore: number | null;
+}
+
 interface AiRouteRecommendation {
   id: string;
   action: string;
@@ -38,6 +45,7 @@ interface AiRouteRecommendation {
   currentVendor?: string;
   targetVendor?: string;
   destination?: string;
+  fraudSignals?: FraudSignals;
   simulate: {
     asrDelta: number | null;
     stabilityDelta: number | null;
@@ -48,12 +56,14 @@ interface AiRouteRecommendation {
 
 interface CopilotResult {
   generatedAt: string;
-  aiEnhanced: boolean;
+  mode: "ai_enhanced" | "rule_based_preview";
+  warning?: string;
   recommendations: AiRouteRecommendation[];
   summary: {
     totalCarriers: number;
     degradedCarriers: number;
     criticalCarriers: number;
+    fraudAlertCarriers: number;
     topSignal: string;
     analysisNote: string;
   };
@@ -153,21 +163,21 @@ function ConfidenceBar({ value }: { value: number }) {
 function AiRecCard({
   rec,
   index,
-  simulate,
-  dismissed,
+  pinned,
   onDismiss,
+  onPin,
 }: {
   rec: AiRouteRecommendation;
   index: number;
-  simulate: boolean;
-  dismissed: boolean;
+  pinned: boolean;
   onDismiss: (id: string) => void;
+  onPin: (id: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded]   = useState(false);
+  const [simulate, setSimulate]   = useState(false);
   const risk = RISK_CONFIG[rec.risk];
+  const hasFraud = rec.fraudSignals && (rec.fraudSignals.fasCount + rec.fraudSignals.irsfCount) > 0;
   const hasSimulate = rec.simulate.asrDelta != null || rec.simulate.stabilityDelta != null;
-
-  if (dismissed) return null;
 
   return (
     <motion.div
@@ -178,11 +188,20 @@ function AiRecCard({
       data-testid={`ai-rec-card-${index}`}
       className={cn(
         "rounded-xl border bg-card overflow-hidden",
-        rec.risk === "high" ? "border-red-500/30" :
+        pinned && "ring-2 ring-violet-500/40",
+        rec.risk === "high"   ? "border-red-500/30" :
         rec.risk === "medium" ? "border-amber-500/20" : "border-border",
       )}
     >
-      {/* Card header */}
+      {/* Pinned banner */}
+      {pinned && (
+        <div className="bg-violet-500/10 border-b border-violet-500/20 px-4 py-1 flex items-center gap-1.5">
+          <Pin className="h-3 w-3 text-violet-400" />
+          <span className="text-[10px] font-semibold text-violet-400 uppercase tracking-wide">Pinned</span>
+        </div>
+      )}
+
+      {/* Card body */}
       <div className="px-4 pt-3.5 pb-3">
         <div className="flex items-start justify-between gap-3">
           {/* Rank badge */}
@@ -191,15 +210,9 @@ function AiRecCard({
           </div>
 
           <div className="flex-1 min-w-0">
-            {/* Action */}
-            <p
-              data-testid={`ai-rec-action-${index}`}
-              className="font-semibold text-sm leading-snug"
-            >
+            <p data-testid={`ai-rec-action-${index}`} className="font-semibold text-sm leading-snug">
               {rec.action}
             </p>
-
-            {/* Destination badge */}
             {rec.destination && (
               <p className="text-xs text-muted-foreground mt-0.5 font-mono">
                 Destination: {rec.destination}
@@ -208,10 +221,7 @@ function AiRecCard({
 
             {/* Badges row */}
             <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <span className={cn(
-                "text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border",
-                risk.cls,
-              )}>
+              <span className={cn("text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border", risk.cls)}>
                 {risk.label}
               </span>
               {rec.currentVendor && rec.targetVendor && (
@@ -221,25 +231,44 @@ function AiRecCard({
                   <span className="text-green-400/90">{rec.targetVendor}</span>
                 </span>
               )}
+              {hasFraud && (
+                <span className="flex items-center gap-1 text-[10px] font-mono text-red-400/80 bg-red-500/8 border border-red-500/20 px-1.5 py-0.5 rounded">
+                  <ShieldAlert className="h-2.5 w-2.5" />
+                  {rec.fraudSignals!.fasCount + rec.fraudSignals!.irsfCount} fraud signals
+                </span>
+              )}
             </div>
 
             {/* Confidence */}
             <div className="mt-2.5">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1 font-medium">
-                Confidence
-              </p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1 font-medium">Confidence</p>
               <ConfidenceBar value={rec.confidence} />
             </div>
           </div>
 
-          {/* Dismiss */}
-          <button
-            data-testid={`ai-rec-dismiss-${index}`}
-            onClick={() => onDismiss(rec.id)}
-            className="text-muted-foreground/40 hover:text-muted-foreground transition-colors flex-shrink-0 mt-0.5"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          {/* Action buttons */}
+          <div className="flex flex-col gap-1.5 flex-shrink-0">
+            <button
+              data-testid={`ai-rec-pin-${index}`}
+              onClick={() => onPin(rec.id)}
+              title={pinned ? "Unpin" : "Pin this recommendation"}
+              className={cn(
+                "p-1.5 rounded-md transition-colors",
+                pinned
+                  ? "text-violet-400 bg-violet-500/15 hover:bg-violet-500/25"
+                  : "text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/30",
+              )}
+            >
+              <Pin className="h-3.5 w-3.5" />
+            </button>
+            <button
+              data-testid={`ai-rec-dismiss-${index}`}
+              onClick={() => onDismiss(rec.id)}
+              className="p-1.5 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/30 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Expected impact */}
@@ -248,48 +277,73 @@ function AiRecCard({
           <span>{rec.expectedImpact}</span>
         </div>
 
-        {/* Simulate overlay */}
-        <AnimatePresence>
-          {simulate && hasSimulate && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mt-2 rounded-lg bg-violet-500/5 border border-violet-500/15 px-3 py-2"
+        {/* Per-card simulate toggle */}
+        {hasSimulate && (
+          <div className="mt-2">
+            <button
+              data-testid={`ai-rec-simulate-toggle-${index}`}
+              onClick={() => setSimulate(p => !p)}
+              className={cn(
+                "flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md border transition-colors w-full justify-center",
+                simulate
+                  ? "bg-violet-500/15 border-violet-500/30 text-violet-400"
+                  : "border-border text-muted-foreground hover:text-foreground",
+              )}
             >
-              <p className="text-[10px] uppercase tracking-wide text-violet-400 font-semibold mb-1.5 flex items-center gap-1">
-                <Sparkles className="h-3 w-3" /> Projected Impact
-              </p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                {rec.simulate.asrDelta != null && (
-                  <div>
-                    <span className="text-muted-foreground">ASR Δ: </span>
-                    <span className={cn("font-mono font-bold", rec.simulate.asrDelta >= 0 ? "text-green-400" : "text-red-400")}>
-                      {rec.simulate.asrDelta >= 0 ? "+" : ""}{rec.simulate.asrDelta.toFixed(1)}%
-                    </span>
-                    {rec.simulate.projectedAsr != null && (
-                      <span className="text-muted-foreground/60"> → {rec.simulate.projectedAsr.toFixed(1)}%</span>
-                    )}
+              <Eye className="h-3 w-3" />
+              {simulate ? "Hide Projected Impact" : "Simulate Impact"}
+            </button>
+
+            <AnimatePresence>
+              {simulate && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-2 rounded-lg bg-violet-500/5 border border-violet-500/15 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-violet-400 font-semibold mb-1.5 flex items-center gap-1">
+                      <Sparkles className="h-3 w-3" /> Projected Impact (if applied)
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                      {rec.simulate.asrDelta != null && (
+                        <div>
+                          <span className="text-muted-foreground">ASR Δ: </span>
+                          <span className={cn("font-mono font-bold", rec.simulate.asrDelta >= 0 ? "text-green-400" : "text-red-400")}>
+                            {rec.simulate.asrDelta >= 0 ? "+" : ""}{rec.simulate.asrDelta.toFixed(1)}%
+                          </span>
+                          {rec.simulate.projectedAsr != null && (
+                            <span className="text-muted-foreground/60"> → {rec.simulate.projectedAsr.toFixed(1)}%</span>
+                          )}
+                        </div>
+                      )}
+                      {rec.simulate.stabilityDelta != null && (
+                        <div>
+                          <span className="text-muted-foreground">Stability Δ: </span>
+                          <span className={cn("font-mono font-bold", rec.simulate.stabilityDelta >= 0 ? "text-green-400" : "text-red-400")}>
+                            {rec.simulate.stabilityDelta >= 0 ? "+" : ""}{rec.simulate.stabilityDelta.toFixed(0)} pts
+                          </span>
+                          {rec.simulate.projectedStability != null && (
+                            <span className="text-muted-foreground/60"> → {rec.simulate.projectedStability.toFixed(0)}/100</span>
+                          )}
+                        </div>
+                      )}
+                      {rec.fraudSignals && (rec.fraudSignals.fasCount + rec.fraudSignals.irsfCount) > 0 && (
+                        <div className="col-span-2 mt-0.5 text-muted-foreground">
+                          Fraud exposure: {rec.fraudSignals.fasCount} FAS + {rec.fraudSignals.irsfCount} IRSF events would be reduced
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-                {rec.simulate.stabilityDelta != null && (
-                  <div>
-                    <span className="text-muted-foreground">Stability Δ: </span>
-                    <span className={cn("font-mono font-bold", rec.simulate.stabilityDelta >= 0 ? "text-green-400" : "text-red-400")}>
-                      {rec.simulate.stabilityDelta >= 0 ? "+" : ""}{rec.simulate.stabilityDelta.toFixed(0)} pts
-                    </span>
-                    {rec.simulate.projectedStability != null && (
-                      <span className="text-muted-foreground/60"> → {rec.simulate.projectedStability.toFixed(0)}/100</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
 
-      {/* Expandable reasons */}
+      {/* Expandable reasoning */}
       <div className="border-t border-border/60">
         <button
           data-testid={`ai-rec-expand-${index}`}
@@ -328,28 +382,43 @@ function AiRecCard({
 
 function AiCopilotPanel() {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [simulate, setSimulate] = useState(false);
-  const [hasRun, setHasRun] = useState(false);
+  const [pinned,    setPinned]    = useState<Set<string>>(new Set());
+  const [hasRun,    setHasRun]    = useState(false);
   const { toast } = useToast();
 
   const copilotMutation = useMutation<{ success: boolean; data: CopilotResult }, Error>({
-    mutationFn: () => apiRequest("POST", "/api/ai/route-copilot"),
+    mutationFn: () => apiRequest("POST", "/api/ai/route-recommendations"),
     onSuccess: () => setHasRun(true),
     onError: (err) => {
       toast({ title: "Copilot error", description: err.message, variant: "destructive" });
     },
   });
 
-  const result = copilotMutation.data?.data;
-  const visible = result?.recommendations.filter(r => !dismissed.has(r.id)) ?? [];
+  const result  = copilotMutation.data?.data;
+  const allRecs = result?.recommendations ?? [];
+
+  // Pinned first, then by original rank, dismissed excluded
+  const visible = [
+    ...allRecs.filter(r => pinned.has(r.id) && !dismissed.has(r.id)),
+    ...allRecs.filter(r => !pinned.has(r.id) && !dismissed.has(r.id)),
+  ];
 
   const handleDismiss = useCallback((id: string) => {
     setDismissed(prev => new Set([...prev, id]));
+    setPinned(prev => { const n = new Set(prev); n.delete(id); return n; });
+  }, []);
+
+  const handlePin = useCallback((id: string) => {
+    setPinned(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
   }, []);
 
   return (
     <div className="space-y-4">
-      {/* Copilot header panel */}
+      {/* Header panel */}
       <div className="rounded-xl border bg-gradient-to-br from-violet-500/5 via-card to-cyan-500/5 border-violet-500/20 p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -359,22 +428,30 @@ function AiCopilotPanel() {
               </div>
               <div>
                 <h2 className="font-bold text-sm">AI Route Copilot</h2>
-                <p className="text-xs text-muted-foreground">Analyses carrier health, Q-Scores, ASR & degradation signals</p>
+                <p className="text-xs text-muted-foreground">
+                  Analyses carrier stability, fraud signals, Q-Scores & ASR telemetry
+                </p>
               </div>
             </div>
 
             {result && (
-              <motion.div
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mt-3 space-y-1"
-              >
+              <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="mt-3 space-y-1">
                 <p className="text-sm font-medium text-foreground/90">{result.summary.topSignal}</p>
                 <p className="text-xs text-muted-foreground">{result.summary.analysisNote}</p>
-                <p className="text-[10px] text-muted-foreground/50 font-mono">
-                  Generated {new Date(result.generatedAt).toLocaleTimeString()}
-                  {result.aiEnhanced && " · AI-enhanced"}
-                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  {result.mode === "ai_enhanced" ? (
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded">
+                      AI Enhanced
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                      Rule-Based Preview
+                    </span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground/50 font-mono">
+                    {new Date(result.generatedAt).toLocaleTimeString()}
+                  </span>
+                </div>
               </motion.div>
             )}
           </div>
@@ -387,61 +464,44 @@ function AiCopilotPanel() {
               onClick={() => copilotMutation.mutate()}
               className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white border-0"
             >
-              {copilotMutation.isPending ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
+              {copilotMutation.isPending
+                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                : <Sparkles className="h-3.5 w-3.5" />}
               {copilotMutation.isPending ? "Analysing…" : hasRun ? "Re-analyse" : "Analyse Routes"}
             </Button>
-
-            {hasRun && (
-              <button
-                data-testid="copilot-simulate-toggle"
-                onClick={() => setSimulate(p => !p)}
-                className={cn(
-                  "flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md border transition-colors",
-                  simulate
-                    ? "bg-violet-500/15 border-violet-500/30 text-violet-400"
-                    : "border-border text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Eye className="h-3 w-3" />
-                {simulate ? "Simulate ON" : "Simulate Impact"}
-              </button>
-            )}
           </div>
         </div>
 
-        {/* Summary stats (after first run) */}
+        {/* Warning banner (rule-based preview mode) */}
+        {result?.warning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mt-3 flex items-start gap-2 text-xs rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-amber-700 dark:text-amber-400"
+          >
+            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+            <span>{result.warning}</span>
+          </motion.div>
+        )}
+
+        {/* Summary stats */}
         {result && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-violet-500/10"
+            className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-violet-500/10"
           >
-            <div className="text-center">
-              <p className="text-2xl font-black tabular-nums font-mono text-foreground">{result.summary.totalCarriers}</p>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">Carriers</p>
-            </div>
-            <div className="text-center">
-              <p className={cn(
-                "text-2xl font-black tabular-nums font-mono",
-                result.summary.degradedCarriers > 0 ? "text-amber-500" : "text-green-500",
-              )}>
-                {result.summary.degradedCarriers}
-              </p>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">Degraded</p>
-            </div>
-            <div className="text-center">
-              <p className={cn(
-                "text-2xl font-black tabular-nums font-mono",
-                result.summary.criticalCarriers > 0 ? "text-red-500" : "text-green-500",
-              )}>
-                {result.summary.criticalCarriers}
-              </p>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">Critical</p>
-            </div>
+            {[
+              { label: "Carriers",  value: result.summary.totalCarriers,       color: "text-foreground" },
+              { label: "Degraded",  value: result.summary.degradedCarriers,    color: result.summary.degradedCarriers  > 0 ? "text-amber-500" : "text-green-500" },
+              { label: "Critical",  value: result.summary.criticalCarriers,    color: result.summary.criticalCarriers  > 0 ? "text-red-500"   : "text-green-500" },
+              { label: "Fraud Flags", value: result.summary.fraudAlertCarriers, color: result.summary.fraudAlertCarriers > 0 ? "text-red-400"   : "text-green-500" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="text-center">
+                <p className={cn("text-2xl font-black tabular-nums font-mono", color)}>{value}</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{label}</p>
+              </div>
+            ))}
           </motion.div>
         )}
       </div>
@@ -464,7 +524,7 @@ function AiCopilotPanel() {
         </div>
       )}
 
-      {/* Error */}
+      {/* Error (includes 502 from AI contract failures) */}
       {copilotMutation.isError && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 flex items-start gap-3">
           <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -481,25 +541,27 @@ function AiCopilotPanel() {
           <Sparkles className="h-10 w-10 mb-3 opacity-20" />
           <p className="text-sm font-medium">Ready to analyse your routes</p>
           <p className="text-xs mt-1 opacity-60">Click "Analyse Routes" to generate recommendations</p>
-          <p className="text-xs mt-3 opacity-40 max-w-sm text-center">
-            Powered by carrier stability scores, Q-Scores, ASR/ACD telemetry, and degradation signals
+          <p className="text-xs mt-3 opacity-40 max-w-xs text-center">
+            Uses carrier scores, fraud signals, Q-Score, ASR/ACD telemetry, and degradation indicators
           </p>
         </div>
       )}
 
-      {/* Recommendations */}
+      {/* Recommendations list */}
       {hasRun && !copilotMutation.isPending && visible.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground font-medium">
-              {visible.length} recommendation{visible.length !== 1 ? "s" : ""}, ranked by confidence
+              {visible.length} recommendation{visible.length !== 1 ? "s" : ""}
+              {pinned.size > 0 ? `, ${pinned.size} pinned` : ""}
+              {dismissed.size > 0 ? ` · ${dismissed.size} dismissed` : ""}
             </p>
             {dismissed.size > 0 && (
               <button
                 onClick={() => setDismissed(new Set())}
                 className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
               >
-                Restore {dismissed.size} dismissed
+                Restore dismissed
               </button>
             )}
           </div>
@@ -509,24 +571,24 @@ function AiCopilotPanel() {
                 key={rec.id}
                 rec={rec}
                 index={i}
-                simulate={simulate}
-                dismissed={false}
+                pinned={pinned.has(rec.id)}
                 onDismiss={handleDismiss}
+                onPin={handlePin}
               />
             ))}
           </AnimatePresence>
         </div>
       )}
 
-      {/* No recommendations after run */}
+      {/* Empty after run */}
       {hasRun && !copilotMutation.isPending && result && visible.length === 0 && (
         <div className="rounded-xl border bg-card flex flex-col items-center justify-center py-12 text-muted-foreground">
           <CheckCircle2 className="h-8 w-8 mb-2 text-green-500/40" />
           <p className="text-sm">No route changes recommended</p>
           <p className="text-xs mt-1 opacity-60">
             {result.summary.totalCarriers > 0
-              ? "All carriers are performing within acceptable range"
-              : "No carrier data available — run score recompute first"}
+              ? "All carriers performing within acceptable range"
+              : "No carrier data available — recompute scores first"}
           </p>
         </div>
       )}
@@ -535,7 +597,7 @@ function AiCopilotPanel() {
       {hasRun && (
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground/50 px-1">
           <Info className="h-3 w-3 flex-shrink-0" />
-          <span>Phase 1: Observe &amp; Recommend only — no automatic rerouting. All actions require manual confirmation.</span>
+          <span>Phase 1 — Observe &amp; Recommend only. All routing changes require manual operator confirmation.</span>
         </div>
       )}
     </div>
@@ -598,7 +660,6 @@ export default function RouteIntelligencePage() {
     },
   });
 
-  // Derived
   const healthy  = scores.filter(s => getHealthTier(s) === "healthy");
   const degraded = scores.filter(s => getHealthTier(s) === "degraded");
   const critical = scores.filter(s => getHealthTier(s) === "critical");
@@ -606,7 +667,7 @@ export default function RouteIntelligencePage() {
   const avgPdd   = scores.filter(s => s.avgPddMs != null).reduce((a, s, _, arr) => a + s.avgPddMs! / arr.length, 0);
 
   const degradedPlusCritical = [...critical, ...degraded].sort((a, b) => (a.stabilityScore ?? 0) - (b.stabilityScore ?? 0));
-  const activeRecs = recommendations.filter(r => !dismissed.has(r.accountId));
+  const activeRecs  = recommendations.filter(r => !dismissed.has(r.accountId));
   const sortedScores = [...scores].sort((a, b) => (a.stabilityScore ?? 0) - (b.stabilityScore ?? 0));
 
   return (
@@ -637,9 +698,9 @@ export default function RouteIntelligencePage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SummaryCard label="Healthy Carriers"  value={healthy.length}  sub={`${scores.length} total`} color="text-green-600 dark:text-green-400" icon={CheckCircle2} />
-        <SummaryCard label="Degraded"          value={degraded.length} sub="stability 45–70"          color="text-amber-600 dark:text-amber-400" icon={AlertTriangle} />
-        <SummaryCard label="Critical"          value={critical.length} sub="stability < 45"           color="text-red-600 dark:text-red-400"     icon={Zap} />
+        <SummaryCard label="Healthy"  value={healthy.length}  sub={`${scores.length} total`} color="text-green-600 dark:text-green-400"  icon={CheckCircle2} />
+        <SummaryCard label="Degraded" value={degraded.length} sub="stability 45–70"          color="text-amber-600 dark:text-amber-400"  icon={AlertTriangle} />
+        <SummaryCard label="Critical" value={critical.length} sub="stability < 45"           color="text-red-600 dark:text-red-400"      icon={Zap} />
         <SummaryCard
           label="Avg ASR"
           value={scores.length ? `${avgAsr.toFixed(1)}%` : "—"}
@@ -664,10 +725,7 @@ export default function RouteIntelligencePage() {
               tab.key === "copilot" && activeTab !== "copilot" && "text-violet-500 hover:text-violet-600",
             )}
           >
-            <tab.icon className={cn(
-              "h-3.5 w-3.5",
-              tab.key === "copilot" && "text-violet-400",
-            )} />
+            <tab.icon className={cn("h-3.5 w-3.5", tab.key === "copilot" && "text-violet-400")} />
             {tab.label}
           </button>
         ))}
@@ -692,9 +750,7 @@ export default function RouteIntelligencePage() {
                 <thead className="bg-muted/30 border-b">
                   <tr>
                     {["Carrier", "Status", "ASR %", "Fail %", "Avg PDD", "Stability", "Samples", "Trend"].map(h => (
-                      <th key={h} className="px-4 py-2.5 text-left text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
-                        {h}
-                      </th>
+                      <th key={h} className="px-4 py-2.5 text-left text-[11px] uppercase tracking-wide text-muted-foreground font-medium">{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -722,17 +778,10 @@ export default function RouteIntelligencePage() {
                             {cfg.label}
                           </span>
                         </td>
+                        <td className="px-4 py-2.5"><StatCell value={s.rollingAsr} unit="%" warn={50} crit={30} /></td>
+                        <td className="px-4 py-2.5"><StatCell value={s.failureRate} unit="%" /></td>
                         <td className="px-4 py-2.5">
-                          <StatCell value={s.rollingAsr} unit="%" warn={50} crit={30} />
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <StatCell value={s.failureRate} unit="%" />
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <span className={cn(
-                            "font-mono tabular-nums font-semibold",
-                            (s.avgPddMs ?? 0) > 500 ? "text-amber-500" : "text-foreground",
-                          )}>
+                          <span className={cn("font-mono tabular-nums font-semibold", (s.avgPddMs ?? 0) > 500 ? "text-amber-500" : "text-foreground")}>
                             {s.avgPddMs != null ? `${s.avgPddMs.toFixed(0)}ms` : "—"}
                           </span>
                         </td>
@@ -746,17 +795,11 @@ export default function RouteIntelligencePage() {
                                 transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
                               />
                             </div>
-                            <span className="font-mono text-xs tabular-nums font-semibold">
-                              {s.stabilityScore?.toFixed(0) ?? "—"}
-                            </span>
+                            <span className="font-mono text-xs tabular-nums font-semibold">{s.stabilityScore?.toFixed(0) ?? "—"}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground tabular-nums">
-                          {s.sampleCount.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <TrendIcon trend={s.trend} />
-                        </td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground tabular-nums">{s.sampleCount.toLocaleString()}</td>
+                        <td className="px-4 py-2.5"><TrendIcon trend={s.trend} /></td>
                       </motion.tr>
                     );
                   })}
@@ -786,9 +829,7 @@ export default function RouteIntelligencePage() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.05 }}
                 data-testid={`deg-carrier-${s.carrierId}`}
-                className={cn("rounded-lg border p-4", tier === "critical"
-                  ? "bg-red-500/5 border-red-500/20"
-                  : "bg-amber-500/5 border-amber-500/20")}
+                className={cn("rounded-lg border p-4", tier === "critical" ? "bg-red-500/5 border-red-500/20" : "bg-amber-500/5 border-amber-500/20")}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
@@ -796,34 +837,24 @@ export default function RouteIntelligencePage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="font-semibold">{s.carrierName}</p>
-                        <span className={cn("text-[10px] font-bold uppercase font-mono px-1.5 py-0.5 rounded border", cfg.badge)}>
-                          {cfg.label}
-                        </span>
+                        <span className={cn("text-[10px] font-bold uppercase font-mono px-1.5 py-0.5 rounded border", cfg.badge)}>{cfg.label}</span>
                       </div>
                       <div className="flex gap-4 mt-2 text-sm">
                         <div>
                           <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Stability</p>
-                          <p className={cn("font-mono font-bold", cfg.badge.split(" ")[1])}>
-                            {s.stabilityScore?.toFixed(0) ?? "—"}
-                          </p>
+                          <p className={cn("font-mono font-bold", cfg.badge.split(" ")[1])}>{s.stabilityScore?.toFixed(0) ?? "—"}</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-muted-foreground uppercase tracking-wide">ASR</p>
-                          <p className="font-mono font-bold">
-                            {s.rollingAsr != null ? `${s.rollingAsr.toFixed(1)}%` : "—"}
-                          </p>
+                          <p className="font-mono font-bold">{s.rollingAsr != null ? `${s.rollingAsr.toFixed(1)}%` : "—"}</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Fail Rate</p>
-                          <p className="font-mono font-bold">
-                            {s.failureRate != null ? `${s.failureRate.toFixed(1)}%` : "—"}
-                          </p>
+                          <p className="font-mono font-bold">{s.failureRate != null ? `${s.failureRate.toFixed(1)}%` : "—"}</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Avg PDD</p>
-                          <p className="font-mono font-bold">
-                            {s.avgPddMs != null ? `${s.avgPddMs.toFixed(0)}ms` : "—"}
-                          </p>
+                          <p className="font-mono font-bold">{s.avgPddMs != null ? `${s.avgPddMs.toFixed(0)}ms` : "—"}</p>
                         </div>
                       </div>
                     </div>
@@ -837,7 +868,7 @@ export default function RouteIntelligencePage() {
                   <div className="mt-3 pt-3 border-t border-red-500/20">
                     <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1.5">
                       <AlertTriangle className="h-3.5 w-3.5" />
-                      Carrier is below critical stability threshold — consider rerouting traffic immediately.
+                      Below critical stability threshold — consider rerouting traffic immediately.
                     </p>
                   </div>
                 )}
@@ -853,9 +884,7 @@ export default function RouteIntelligencePage() {
           <div className="rounded-lg border bg-card overflow-hidden">
             <div className="px-4 py-2.5 border-b">
               <p className="text-sm font-semibold">QoS Metrics by Carrier</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                ASR, PDD, and stability over the last 24 hours
-              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">ASR, PDD, and stability over the last 24 hours</p>
             </div>
             {scores.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
@@ -868,43 +897,26 @@ export default function RouteIntelligencePage() {
                   <thead className="bg-muted/30 border-b">
                     <tr>
                       {["Carrier", "ASR", "Fail Rate", "Avg PDD", "Quality Band", "Stability Score", "Trend"].map(h => (
-                        <th key={h} className="px-4 py-2 text-left text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
-                          {h}
-                        </th>
+                        <th key={h} className="px-4 py-2 text-left text-[11px] uppercase tracking-wide text-muted-foreground font-medium">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {[...scores].sort((a, b) => (b.rollingAsr ?? 0) - (a.rollingAsr ?? 0)).map((s, i) => {
-                      const asr    = s.rollingAsr ?? 0;
-                      const qBand  = asr >= 65 ? "A" : asr >= 50 ? "B" : asr >= 35 ? "C" : "D";
+                      const asr   = s.rollingAsr ?? 0;
+                      const qBand = asr >= 65 ? "A" : asr >= 50 ? "B" : asr >= 35 ? "C" : "D";
                       const qColor = { A: "text-green-500", B: "text-blue-500", C: "text-amber-500", D: "text-red-500" }[qBand];
                       return (
-                        <tr
-                          key={s.carrierId}
-                          data-testid={`qos-row-${s.carrierId}`}
-                          className="border-b border-slate-100 dark:border-slate-800 hover:bg-muted/20 transition-colors"
-                        >
+                        <tr key={s.carrierId} data-testid={`qos-row-${s.carrierId}`} className="border-b border-slate-100 dark:border-slate-800 hover:bg-muted/20 transition-colors">
                           <td className="px-4 py-2.5 font-medium">{s.carrierName}</td>
+                          <td className="px-4 py-2.5"><StatCell value={s.rollingAsr} unit="%" warn={50} crit={30} /></td>
+                          <td className="px-4 py-2.5"><StatCell value={s.failureRate} unit="%" /></td>
                           <td className="px-4 py-2.5">
-                            <StatCell value={s.rollingAsr} unit="%" warn={50} crit={30} />
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <StatCell value={s.failureRate} unit="%" />
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className={cn(
-                              "font-mono tabular-nums font-semibold",
-                              (s.avgPddMs ?? 0) > 500 ? "text-amber-500" : (s.avgPddMs ?? 0) > 350 ? "text-yellow-500" : "text-foreground",
-                            )}>
+                            <span className={cn("font-mono tabular-nums font-semibold", (s.avgPddMs ?? 0) > 500 ? "text-amber-500" : (s.avgPddMs ?? 0) > 350 ? "text-yellow-500" : "text-foreground")}>
                               {s.avgPddMs != null ? `${s.avgPddMs.toFixed(0)}ms` : "—"}
                             </span>
                           </td>
-                          <td className="px-4 py-2.5">
-                            <span className={cn("text-xl font-black tabular-nums", qColor)}>
-                              {s.sampleCount < 5 ? "—" : qBand}
-                            </span>
-                          </td>
+                          <td className="px-4 py-2.5"><span className={cn("text-xl font-black tabular-nums", qColor)}>{s.sampleCount < 5 ? "—" : qBand}</span></td>
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
                               <div className="w-16 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -913,14 +925,10 @@ export default function RouteIntelligencePage() {
                                   style={{ width: `${Math.min(s.stabilityScore ?? 0, 100)}%` }}
                                 />
                               </div>
-                              <span className="font-mono text-xs tabular-nums">
-                                {s.stabilityScore?.toFixed(0) ?? "—"}
-                              </span>
+                              <span className="font-mono text-xs tabular-nums">{s.stabilityScore?.toFixed(0) ?? "—"}</span>
                             </div>
                           </td>
-                          <td className="px-4 py-2.5">
-                            <TrendIcon trend={s.trend} />
-                          </td>
+                          <td className="px-4 py-2.5"><TrendIcon trend={s.trend} /></td>
                         </tr>
                       );
                     })}
@@ -930,20 +938,17 @@ export default function RouteIntelligencePage() {
             )}
           </div>
 
-          {/* QoS Summary */}
+          {/* QoS Band Summary */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             {["A", "B", "C", "D"].map(band => {
-              const asr_ranges = { A: [65, 100], B: [50, 65], C: [35, 50], D: [0, 35] }[band]!;
-              const cnt = scores.filter(s => {
-                const a = s.rollingAsr ?? 0;
-                return a >= asr_ranges[0] && a < asr_ranges[1] && s.sampleCount >= 5;
-              }).length;
+              const ranges = { A: [65, 100], B: [50, 65], C: [35, 50], D: [0, 35] }[band]!;
+              const cnt = scores.filter(s => { const a = s.rollingAsr ?? 0; return a >= ranges[0] && a < ranges[1] && s.sampleCount >= 5; }).length;
               const colors = { A: "text-green-600 dark:text-green-400 bg-green-500/10 border-green-500/20", B: "text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20", C: "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20", D: "text-red-600 dark:text-red-400 bg-red-500/10 border-red-500/20" }[band];
               return (
                 <div key={band} className={cn("rounded-lg border p-4", colors)}>
                   <p className="text-3xl font-black">{cnt}</p>
                   <p className="text-xs font-bold uppercase tracking-wide mt-1">Band {band}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">ASR {asr_ranges[0]}–{asr_ranges[1]}%</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">ASR {ranges[0]}–{ranges[1]}%</p>
                 </div>
               );
             })}
@@ -991,19 +996,14 @@ export default function RouteIntelligencePage() {
                         </span>
                         <span className="font-medium truncate">{rec.accountName ?? rec.accountId}</span>
                       </div>
-                      {rec.action && (
-                        <p className="text-sm text-muted-foreground mt-1">{rec.action}</p>
-                      )}
+                      {rec.action && <p className="text-sm text-muted-foreground mt-1">{rec.action}</p>}
                       {rec.dominantSignal && (
-                        <p className="text-xs text-muted-foreground/60 mt-1 font-mono">
-                          Signal: {rec.dominantSignal.replace(/_/g, " ")}
-                        </p>
+                        <p className="text-xs text-muted-foreground/60 mt-1 font-mono">Signal: {rec.dominantSignal.replace(/_/g, " ")}</p>
                       )}
                     </div>
                   </div>
                   <Button
-                    variant="ghost"
-                    size="sm"
+                    variant="ghost" size="sm"
                     className="h-7 text-xs flex-shrink-0"
                     data-testid={`ri-rec-dismiss-${i}`}
                     onClick={() => setDismissed(prev => new Set([...prev, rec.accountId]))}
