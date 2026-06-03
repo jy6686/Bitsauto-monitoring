@@ -203,6 +203,17 @@ function formatNextIn(isoString: string, now: number): string {
   return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
 
+function nextInOverdueSecs(isoString: string, now: number): number {
+  const elapsed = Math.floor((now - new Date(isoString).getTime()) / 1000);
+  return Math.max(0, elapsed - COPILOT_INTERVAL_S);
+}
+
+function nextInColorClass(overdueSecs: number): string {
+  if (overdueSecs >= 90) return "text-red-400";
+  if (overdueSecs >= 30) return "text-amber-400";
+  return "";
+}
+
 function CopilotAlertStrip({
   summary,
   canApply,
@@ -235,8 +246,10 @@ function CopilotAlertStrip({
 
   if (!summary) return null;
 
-  const ageLabel   = formatAgo(summary.generatedAt, now);
+  const ageLabel    = formatAgo(summary.generatedAt, now);
   const nextInLabel = formatNextIn(summary.generatedAt, now);
+  const overdueSecs = nextInOverdueSecs(summary.generatedAt, now);
+  const nextInCls   = nextInColorClass(overdueSecs);
 
   if (!summary.hasAlerts) {
     return (
@@ -265,7 +278,7 @@ function CopilotAlertStrip({
         <span className="ml-auto text-[10px] font-mono text-slate-600 tabular-nums" data-testid="copilot-last-updated">
           Updated {ageLabel}
           <span className="text-slate-700"> / next in </span>
-          <span data-testid="copilot-next-refresh">{nextInLabel}</span>
+          <span data-testid="copilot-next-refresh" className={cn("transition-colors duration-500", nextInCls || "text-slate-600")}>{nextInLabel}</span>
         </span>
       </div>
     );
@@ -351,7 +364,7 @@ function CopilotAlertStrip({
             >
               Updated {ageLabel}
               <span className="text-slate-600"> / next in </span>
-              <span data-testid="copilot-next-refresh">{nextInLabel}</span>
+              <span data-testid="copilot-next-refresh" className={cn("transition-colors duration-500", nextInCls || "text-slate-500")}>{nextInLabel}</span>
             </span>
             <Link href="/route-intelligence?tab=copilot">
               <a
