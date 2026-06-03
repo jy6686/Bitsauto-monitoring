@@ -16,6 +16,7 @@ import {
   getAction,
   rollbackAction,
   createRollbackEntry,
+  verifyAction,
 } from "./action-store";
 import {
   recommendationToActionType,
@@ -557,6 +558,49 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         verificationState,
         error:             null,
       });
+    },
+  );
+
+  // ── PATCH /api/ai/actions/:id/verify ────────────────────────────────────────
+  // Re-reads Sippy account state for an UNKNOWN_PENDING action and updates the
+  // verification_state. Only applies when the action is in executed status and
+  // verification_state is UNKNOWN_PENDING.
+  app.patch(
+    "/api/ai/actions/:id/verify",
+    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
+    async (req: any, res: any) => {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ success: false, error: "Invalid action id" });
+      }
+
+      const existing = await getAction(id);
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "Action not found" });
+      }
+      if (existing.verification_state !== "UNKNOWN_PENDING") {
+        return res.json({
+          success: true,
+          alreadyResolved: true,
+          action: existing,
+          message: `Verification state is already ${existing.verification_state} — no re-check needed`,
+        });
+      }
+
+      const actor     = req.user ?? {};
+      const actorId   = String(actor.id ?? actor.userId ?? "system");
+      const actorName = actor.name ?? actor.username ?? actor.email ?? "Operator";
+
+      try {
+        const updated = await verifyAction(id, actorId, actorName);
+        console.log(
+          `[ai-copilot/verify] action=${id} old=UNKNOWN_PENDING new=${updated?.verification_state} actor=${actorId}`,
+        );
+        return res.json({ success: true, action: updated });
+      } catch (err: any) {
+        console.error("[ai-copilot/verify] error:", err.message);
+        return res.status(500).json({ success: false, error: err.message ?? "Verify failed" });
+      }
     },
   );
 }

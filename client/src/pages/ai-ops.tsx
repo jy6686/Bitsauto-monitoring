@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch, Volume2, VolumeX, MessageCircle, ShieldCheck, X, Loader2, Scale } from "lucide-react";
+import { Bot, AlertTriangle, CheckCircle2, TrendingDown, Zap, Search, RefreshCw, Info, ArrowRight, Brain, Lightbulb, Activity, Clock, Play, TrendingUp, BarChart3, CheckCheck, Layers, XCircle, ChevronDown, ChevronUp, ChevronRight, ThumbsUp, ThumbsDown, BellOff, Sparkles, GitBranch, Volume2, VolumeX, MessageCircle, ShieldCheck, X, Loader2, Scale, ClipboardList, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -108,6 +108,25 @@ const METRIC_LABEL: Record<string, string> = {
   asr: 'ASR',
   acd: 'ACD',
   cps: 'Calls/hr',
+};
+
+// ── Audit Ledger badge configs ─────────────────────────────────────────────────
+const VERIF_BADGE_CFG: Record<string, { cls: string; label: string }> = {
+  SUCCESS_CONFIRMED: { cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', label: '✓ Confirmed'  },
+  FAILED_CONFIRMED:  { cls: 'bg-red-500/15 text-red-400 border-red-500/30',             label: '✗ Failed'     },
+  UNKNOWN_PENDING:   { cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30',       label: '? Pending'    },
+  NOT_APPLICABLE:    { cls: 'bg-muted/20 text-muted-foreground/50 border-border',        label: 'Dry-run'      },
+  not_applicable:    { cls: 'bg-muted/20 text-muted-foreground/50 border-border',        label: 'Dry-run'      },
+};
+const ACTION_STATUS_CFG: Record<string, { cls: string; label: string }> = {
+  pending:          { cls: 'bg-amber-500/10 text-amber-400 border-amber-500/30',       label: 'Pending'       },
+  approved:         { cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30', label: 'Dry-run OK'    },
+  dry_run_approved: { cls: 'bg-blue-500/10 text-blue-400 border-blue-500/30',          label: 'Dry-run OK'    },
+  executed:         { cls: 'bg-blue-500/10 text-blue-400 border-blue-500/30',          label: 'Executed'      },
+  failed:           { cls: 'bg-red-500/10 text-red-400 border-red-500/30',             label: 'Failed'        },
+  rejected:         { cls: 'bg-muted/20 text-muted-foreground border-border',          label: 'Rejected'      },
+  snoozed:          { cls: 'bg-violet-500/10 text-violet-400 border-violet-500/30',    label: 'Snoozed'       },
+  rolled_back:      { cls: 'bg-muted/20 text-muted-foreground border-border',          label: 'Rolled back'   },
 };
 
 const NLQ_EXAMPLES = [
@@ -322,6 +341,7 @@ export default function AiOpsPage() {
   const [actionModal, setActionModal] = useState<{ rec: Recommendation; intent: 'approve' | 'reject' | 'snooze' } | null>(null);
   const [rejectReason, setRejectReason]  = useState('');
   const [snoozeHours,  setSnoozeHours]   = useState(24);
+  const [expandedActionId, setExpandedActionId] = useState<number | null>(null);
 
   const { data: recommendations = [], isLoading: recsLoading, refetch: refetchRecs } = useQuery<Recommendation[]>({
     queryKey: ['/api/recommendations'],
@@ -431,6 +451,18 @@ export default function AiOpsPage() {
       });
     },
   });
+
+  const reVerifyMutation = useMutation({
+    mutationFn: (actionId: number) =>
+      apiRequest('PATCH', `/api/ai/actions/${actionId}/verify`),
+    onSuccess: (data: any, actionId) => {
+      qc.invalidateQueries({ queryKey: ['/api/actions'] });
+      const vs = data?.action?.verification_state ?? 'unknown';
+      toast({ title: `Re-verify complete — ${vs}`, description: `Action #${actionId} updated` });
+    },
+    onError: (e: any) => toast({ title: 'Re-verify failed', description: e?.message, variant: 'destructive' }),
+  });
+
   const immediateRecs = recommendations.filter(r => r.urgency === 'immediate');
   const todayRecs     = recommendations.filter(r => r.urgency === 'today');
   const monitorRecs   = recommendations.filter(r => r.urgency === 'monitor');
@@ -1346,6 +1378,148 @@ export default function AiOpsPage() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* ── Execution Audit Ledger ──────────────────────────────── */}
+                {existingActions.length > 0 && (
+                  <div className="space-y-3 pt-4 border-t border-border/30">
+                    <div className="flex items-center gap-2">
+                      <ClipboardList className="h-3.5 w-3.5 text-indigo-400" />
+                      <span className="text-[11px] font-semibold text-muted-foreground/70 uppercase tracking-wider">Execution Audit Ledger</span>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-muted/20 text-muted-foreground border-border">
+                        {existingActions.length}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {[...existingActions]
+                        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+                        .map(action => {
+                          const isExpanded = expandedActionId === action.id;
+                          const vs = action.verification_state ?? 'not_applicable';
+                          const vCfg = VERIF_BADGE_CFG[vs] ?? VERIF_BADGE_CFG.not_applicable;
+                          const sCfg = ACTION_STATUS_CFG[action.status] ?? ACTION_STATUS_CFG.pending;
+                          const sippyResult = action.sippy_result as Record<string, unknown> | null;
+                          const sippyMethod = (sippyResult?.sippyMethod ?? (action.sippy_params as any)?.method ?? '—') as string;
+                          const sippyNote = (sippyResult?.sippyNote ?? '') as string;
+                          const executionResult = sippyResult?.result as Record<string, unknown> | null;
+                          const resultPreview = (executionResult?.preview ?? executionResult?.message ?? '') as string;
+                          const trailArr = Array.isArray(action.audit_trail) ? action.audit_trail as Array<{ timestamp: string; event: string; userId?: string; userName?: string; details?: string }> : [];
+                          const approvedEntry = trailArr.find(e => e.event === 'approved');
+                          const confirmationTs = approvedEntry?.timestamp ?? action.updated_at;
+                          const reVerifyEntry = trailArr.find(e => e.event === 're_verified');
+                          const canReVerify = vs === 'UNKNOWN_PENDING' && action.status === 'executed';
+                          const isPendingVerify = reVerifyMutation.isPending && (reVerifyMutation as any).variables === action.id;
+
+                          return (
+                            <div
+                              key={action.id}
+                              className={cn("rounded-lg border bg-card/60 overflow-hidden", isExpanded ? "border-indigo-500/30" : "border-border/40")}
+                              data-testid={`ledger-action-${action.id}`}
+                            >
+                              {/* Summary row */}
+                              <div
+                                className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/20 transition-colors"
+                                onClick={() => setExpandedActionId(isExpanded ? null : action.id)}
+                              >
+                                <div className="flex-1 min-w-0 flex items-center gap-2">
+                                  {isExpanded
+                                    ? <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+                                    : <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+                                  <span className="text-[11px] font-medium truncate">{action.account_name ?? action.account_id}</span>
+                                  <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0 hidden sm:block">{action.action_type}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded border leading-none", sCfg.cls)}>
+                                    {sCfg.label}
+                                  </span>
+                                  <span
+                                    className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded border leading-none", vCfg.cls)}
+                                    data-testid={`verif-badge-${action.id}`}
+                                  >
+                                    {vCfg.label}
+                                  </span>
+                                  <span className="text-[9px] text-muted-foreground/40 tabular-nums hidden sm:block">
+                                    {formatDistanceToNow(new Date(action.updated_at), { addSuffix: true })}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Detail panel */}
+                              {isExpanded && (
+                                <div className="border-t border-border/30 px-4 py-3 bg-muted/5 space-y-3">
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-0.5">
+                                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground/50 font-semibold">Sippy Method</p>
+                                      <p className="text-[11px] font-mono text-foreground/80 truncate">{sippyMethod || '—'}</p>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground/50 font-semibold">Executed By</p>
+                                      <p className="text-[11px] text-foreground/80 truncate">{action.approved_by_name ?? action.requested_by_name ?? '—'}</p>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground/50 font-semibold">Confirmation Timestamp</p>
+                                      <p className="text-[11px] font-mono text-foreground/80">
+                                        {confirmationTs ? format(new Date(confirmationTs), "MMM d, HH:mm:ss") : '—'}
+                                      </p>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground/50 font-semibold">Execution Mode</p>
+                                      <p className={cn("text-[11px]", action.execution_mode === 'executed' ? 'text-blue-400' : 'text-muted-foreground')}>
+                                        {action.execution_mode ?? '—'}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {sippyNote && (
+                                    <div className="space-y-0.5">
+                                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground/50 font-semibold">Action Note</p>
+                                      <p className="text-[11px] text-muted-foreground/80 leading-snug">{sippyNote}</p>
+                                    </div>
+                                  )}
+
+                                  {resultPreview && (
+                                    <div className="space-y-0.5">
+                                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground/50 font-semibold">Result Preview</p>
+                                      <pre className="text-[10px] font-mono bg-muted/20 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all text-foreground/70 max-h-24 overflow-y-auto">
+                                        {resultPreview}
+                                      </pre>
+                                    </div>
+                                  )}
+
+                                  {sippyResult?.error && (
+                                    <div className="space-y-0.5">
+                                      <p className="text-[9px] uppercase tracking-widest text-red-400/60 font-semibold">Error</p>
+                                      <p className="text-[11px] text-red-400/80 font-mono">{String(sippyResult.error)}</p>
+                                    </div>
+                                  )}
+
+                                  {reVerifyEntry && (
+                                    <div className="rounded bg-indigo-500/5 border border-indigo-500/20 p-2 text-[10px] text-muted-foreground/70">
+                                      Re-verified {format(new Date(reVerifyEntry.timestamp), "MMM d, HH:mm:ss")}
+                                      {reVerifyEntry.userName ? ` by ${reVerifyEntry.userName}` : ''}
+                                    </div>
+                                  )}
+
+                                  {canReVerify && (
+                                    <button
+                                      data-testid={`btn-reverify-${action.id}`}
+                                      onClick={e => { e.stopPropagation(); reVerifyMutation.mutate(action.id); }}
+                                      disabled={isPendingVerify}
+                                      className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                                    >
+                                      {isPendingVerify
+                                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                                        : <RotateCcw className="h-3 w-3" />}
+                                      Re-verify against Sippy
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
                   </div>
                 )}
               </div>

@@ -352,6 +352,94 @@ export async function createRollbackEntry(data: {
   } finally { await pool.end(); }
 }
 
+// ── verifyAction — re-reads Sippy state for UNKNOWN_PENDING actions ────────────
+// Attempts getAccountInfo to confirm whether the previously executed write
+// was actually applied. Only re-verifies when verification_state = UNKNOWN_PENDING.
+export async function verifyAction(id: number, userId: string, userName: string): Promise<any | null> {
+  const pool = getPool();
+  try {
+    const ex = await pool.query('SELECT * FROM account_actions WHERE id = $1', [id]);
+    if (!ex.rows.length) return null;
+    const row = ex.rows[0];
+
+    if (row.verification_state !== 'UNKNOWN_PENDING') {
+      return row;
+    }
+
+    const sippyResult = (row.sippy_result ?? {}) as Record<string, unknown>;
+    const sippyMethod  = (sippyResult.sippyMethod ?? row.sippy_params?.method ?? '') as string;
+    const sippyParams  = (row.sippy_params ?? {}) as Record<string, unknown>;
+
+    let newVerificationState: string = 'UNKNOWN_PENDING';
+    let reVerifyData: Record<string, unknown> = {
+      reVerifiedAt:  new Date().toISOString(),
+      reVerifiedBy:  userName,
+      previousState: 'UNKNOWN_PENDING',
+    };
+
+    if (sippyMethod === 'updateAccount' || sippyMethod === 'customer.updateAccount') {
+      const iAccountRaw = sippyParams.i_account;
+      if (iAccountRaw !== undefined && iAccountRaw !== null) {
+        const { callSippyXmlRpc } = await import('./sippy');
+        const verifyResult = await callSippyXmlRpc('getAccountInfo', {
+          i_account: parseInt(String(iAccountRaw), 10),
+        });
+        newVerificationState = verifyResult.success ? 'SUCCESS_CONFIRMED' : 'FAILED_CONFIRMED';
+        reVerifyData = {
+          ...reVerifyData,
+          sippySuccess: verifyResult.success,
+          sippyStatus:  verifyResult.statusCode ?? null,
+          preview:      verifyResult.rawBody?.slice(0, 300) ?? null,
+        };
+      }
+    }
+
+    const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
+    trail.push({
+      timestamp: new Date().toISOString(),
+      event:     're_verified',
+      userId,
+      userName,
+      details:   `Re-verification result: ${newVerificationState}`,
+    });
+
+    const updatedSippyResult = { ...sippyResult, reVerify: reVerifyData };
+
+    const r = await pool.query(`
+      UPDATE account_actions
+      SET verification_state=$1, sippy_result=$2, audit_trail=$3, updated_at=NOW()
+      WHERE id=$4 RETURNING *
+    `, [newVerificationState, JSON.stringify(updatedSippyResult), JSON.stringify(trail), id]);
+
+    const updated = r.rows[0] ?? null;
+
+    if (updated) {
+      await appendToLedger({
+        ledgerId:          ledgerIdForC2Action(row.idempotency_key),
+        scope:             'account',
+        sourceSystem:      'C2',
+        actionType:        row.action_type,
+        entityId:          row.account_id,
+        entityName:        row.account_name,
+        idempotencyKey:    row.idempotency_key,
+        riskIndexSnapshot: row.risk_index ?? null,
+        approvalState:     'approved',
+        executionState:    'executed',
+        verificationState: newVerificationState as LedgerVerificationState,
+        sourceRecordId:    String(id),
+        eventType:         'verified',
+        actorId:           userId,
+        actorName:         userName,
+        requestedBy:       row.requested_by,
+        requestedByName:   row.requested_by_name,
+        note:              `Re-verification: ${newVerificationState}`,
+      });
+    }
+
+    return updated;
+  } finally { await pool.end(); }
+}
+
 export async function rollbackAction(id: number, userId: string, userName: string) {
   const pool = getPool();
   try {
