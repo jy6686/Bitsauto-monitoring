@@ -147,9 +147,13 @@ export default function AuthStudioPage() {
   const [fMcEnabled,   setFMcEnabled]   = useState(false);
   const [fMcProductCode, setFMcProductCode] = useState("7");
 
+  // Routing group combobox (Step ②)
+  const [rgOpen, setRgOpen] = useState(false);
+
   // Inline routing-group editor on existing rules table
   const [editingRuleId, setEditingRuleId] = useState<number | null>(null);
   const [editingRgId,   setEditingRgId]   = useState<string>("");
+  const [editingRgOpen, setEditingRgOpen] = useState(false);
 
   // ── Data fetching ─────────────────────────────────────────────────────────
   const { data: acctData, isLoading: loadingAccts } = useQuery<{ accounts: Account[] }>({
@@ -540,24 +544,50 @@ export default function AuthStudioPage() {
                   </div>
                 ) : (
                   <>
-                    <Select value={selectedRgId || undefined} onValueChange={v => { setSelectedRgId(v); setPushResult(null); }}>
-                      <SelectTrigger className="h-9 text-sm" data-testid="sel-routing-group">
-                        <SelectValue placeholder={
-                          filteredRgs.length > 0
-                            ? `Choose from ${filteredRgs.length} matched group${filteredRgs.length !== 1 ? "s" : ""}…`
-                            : allRgs.length > 0
-                              ? `Choose from ${allRgs.length} group${allRgs.length !== 1 ? "s" : ""}…`
-                              : "No routing groups loaded"
-                        } />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(filteredRgs.length > 0 ? filteredRgs : allRgs).map(g => (
-                          <SelectItem key={g.iRoutingGroup} value={String(g.iRoutingGroup)}>
-                            {g.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={rgOpen} onOpenChange={setRgOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={rgOpen}
+                          className="w-full justify-between h-9 text-sm font-normal"
+                          data-testid="sel-routing-group"
+                        >
+                          {selectedRg
+                            ? <span className="truncate">{selectedRg.name}</span>
+                            : <span className="text-muted-foreground">
+                                {filteredRgs.length > 0
+                                  ? `Choose from ${filteredRgs.length} matched group${filteredRgs.length !== 1 ? "s" : ""}…`
+                                  : `Choose from ${allRgs.length} group${allRgs.length !== 1 ? "s" : ""}…`}
+                              </span>}
+                          <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[320px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Search routing group…" className="h-8 text-sm" />
+                          <CommandList>
+                            <CommandEmpty>No groups found.</CommandEmpty>
+                            <CommandGroup>
+                              {(filteredRgs.length > 0 ? filteredRgs : allRgs).map(g => (
+                                <CommandItem
+                                  key={g.iRoutingGroup}
+                                  value={g.name}
+                                  onSelect={() => {
+                                    setSelectedRgId(String(g.iRoutingGroup));
+                                    setPushResult(null);
+                                    setRgOpen(false);
+                                  }}
+                                >
+                                  <CheckCircle2 className={`mr-2 h-3.5 w-3.5 ${selectedRgId === String(g.iRoutingGroup) ? "opacity-100 text-green-400" : "opacity-0"}`} />
+                                  {g.name}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                     {selectedRg ? (
                       <div className="space-y-2">
                         <Badge className="text-xs bg-green-500/10 text-green-400 border-green-500/30" variant="outline">
@@ -631,18 +661,40 @@ export default function AuthStudioPage() {
                             <td className="px-3 py-2 min-w-[180px]">
                               {isEditing ? (
                                 <div className="flex items-center gap-1.5">
-                                  <Select value={editingRgId || undefined} onValueChange={setEditingRgId}>
-                                    <SelectTrigger className="h-7 text-xs flex-1" data-testid={`sel-edit-rg-${rule.iAuthentication}`}>
-                                      <SelectValue placeholder="Select RG…" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {allRgs.map(g => (
-                                        <SelectItem key={g.iRoutingGroup} value={String(g.iRoutingGroup)}>
-                                          {g.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <Popover open={editingRgOpen} onOpenChange={setEditingRgOpen}>
+                                    <PopoverTrigger asChild>
+                                      <Button variant="outline" role="combobox"
+                                        className="h-7 text-xs flex-1 justify-between font-normal min-w-[140px]"
+                                        data-testid={`sel-edit-rg-${rule.iAuthentication}`}>
+                                        <span className="truncate">
+                                          {editingRgId
+                                            ? (allRgs.find(g => String(g.iRoutingGroup) === editingRgId)?.name ?? editingRgId)
+                                            : "Select RG…"}
+                                        </span>
+                                        <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 text-muted-foreground" />
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[240px] p-0" align="start">
+                                      <Command>
+                                        <CommandInput placeholder="Search…" className="h-7 text-xs" />
+                                        <CommandList>
+                                          <CommandEmpty>No groups found.</CommandEmpty>
+                                          <CommandGroup>
+                                            {allRgs.map(g => (
+                                              <CommandItem
+                                                key={g.iRoutingGroup}
+                                                value={g.name}
+                                                onSelect={() => { setEditingRgId(String(g.iRoutingGroup)); setEditingRgOpen(false); }}
+                                              >
+                                                <CheckCircle2 className={`mr-2 h-3 w-3 ${editingRgId === String(g.iRoutingGroup) ? "opacity-100 text-green-400" : "opacity-0"}`} />
+                                                {g.name}
+                                              </CommandItem>
+                                            ))}
+                                          </CommandGroup>
+                                        </CommandList>
+                                      </Command>
+                                    </PopoverContent>
+                                  </Popover>
                                   <Button size="sm" className="h-7 text-xs px-2"
                                     disabled={!editingRgId || updateRgMut.isPending}
                                     onClick={() => updateRgMut.mutate({ iAuthentication: rule.iAuthentication, iRoutingGroup: parseInt(editingRgId, 10) })}
@@ -650,7 +702,7 @@ export default function AuthStudioPage() {
                                     {updateRgMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Apply"}
                                   </Button>
                                   <Button variant="ghost" size="sm" className="h-7 text-xs px-2"
-                                    onClick={() => { setEditingRuleId(null); setEditingRgId(""); }}>
+                                    onClick={() => { setEditingRuleId(null); setEditingRgId(""); setEditingRgOpen(false); }}>
                                     ✕
                                   </Button>
                                 </div>
