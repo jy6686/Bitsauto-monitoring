@@ -34,7 +34,7 @@ interface Account {
   balance: number;
   status: "healthy" | "warning" | "critical";
   currency: string;
-  allowedIps: string[];
+  allowedIps: string[] | null | undefined;
   prefix: string | null;
 }
 
@@ -125,7 +125,7 @@ export default function AuthStudioPage() {
     setSelectedRgId("");
     setPushResult(null);
     // Pre-fill remote IP from first allowed IP
-    setFRemoteIp(acct.allowedIps[0] ?? "");
+    setFRemoteIp((acct.allowedIps ?? [])[0] ?? "");
     setFCld("");
     setFCldRule("");
     setFMaxSess("0");
@@ -282,10 +282,10 @@ export default function AuthStudioPage() {
                     <span>#{a.iAccount}</span>
                     <span>{a.currency} {a.balance?.toFixed(2)}</span>
                   </div>
-                  {a.allowedIps.length > 0 && (
+                  {(a.allowedIps ?? []).length > 0 && (
                     <div className="text-[10px] text-muted-foreground truncate mt-0.5">
-                      IP: {a.allowedIps.slice(0, 2).join(", ")}
-                      {a.allowedIps.length > 2 && ` +${a.allowedIps.length - 2}`}
+                      IP: {(a.allowedIps ?? []).slice(0, 2).join(", ")}
+                      {(a.allowedIps ?? []).length > 2 && ` +${(a.allowedIps ?? []).length - 2}`}
                     </div>
                   )}
                 </button>
@@ -314,7 +314,7 @@ export default function AuthStudioPage() {
                 <div><span className="text-muted-foreground">Balance</span>
                   <p className="font-medium mt-0.5">{selectedAcct.currency} {selectedAcct.balance?.toFixed(4)}</p></div>
                 <div><span className="text-muted-foreground">Allowed IPs</span>
-                  <p className="font-medium mt-0.5">{selectedAcct.allowedIps.length > 0 ? selectedAcct.allowedIps.join(", ") : "None registered"}</p></div>
+                  <p className="font-medium mt-0.5">{(selectedAcct.allowedIps ?? []).length > 0 ? (selectedAcct.allowedIps ?? []).join(", ") : "None registered"}</p></div>
               </div>
 
               {/* ── Step 1: Destination selector ── */}
