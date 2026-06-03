@@ -29,6 +29,7 @@ import {
   aiOpsEvents, syntheticTestRuns, routingGroupsCache,
   connectionVendorCache2, executionHealthLog, carrierQualityScores,
 } from '../shared/schema';
+import { invalidateCopilotSummaryCache } from './routes-ai-copilot';
 
 const DEFAULT_SIPPY_URL = 'https://191.101.30.107';
 function _sippyPortalUrl(s: { portalUrl?: string | null }): string {
@@ -295,6 +296,8 @@ async function _executeCampaign(campaign: any): Promise<void> {
     `anomaly: ${anomalyFired} | confidence: ${anomalyFired ? _asrDropConfidence(baseline!, asr, eligibleCalls).toFixed(2) : 'n/a'} | ` +
     `next: ${nextRunAt?.toISOString() ?? 'none'}`
   );
+
+  invalidateCopilotSummaryCache();
 }
 
 // ── Phase 1: Retry wrapper ────────────────────────────────────────────────────

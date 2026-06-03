@@ -13,6 +13,7 @@
 import { eq, gte, desc } from 'drizzle-orm';
 import { db } from './db';
 import { routeDecisionTraces, carrierQualityScores, aiOpsEvents } from '../shared/schema';
+import { invalidateCopilotSummaryCache } from './routes-ai-copilot';
 
 // ── CDR provider ──────────────────────────────────────────────────────────────
 // Routes.ts registers this after the CDR cache is warm.  The function accepts
@@ -53,6 +54,7 @@ async function _run(): Promise<void> {
     await _computeFromCdrs(24);
     await _computeFromCdrs(168);
     console.log('[carrier-scoring] Scores updated');
+    invalidateCopilotSummaryCache();
   } catch (e: any) {
     console.warn('[carrier-scoring] error:', e.message);
   }
@@ -63,6 +65,7 @@ export async function recomputeCarrierScores(): Promise<void> {
   await _computeWindow(168);
   await _computeFromCdrs(24);
   await _computeFromCdrs(168);
+  invalidateCopilotSummaryCache();
 }
 
 // ── Trace-based computation (simulation mode) ─────────────────────────────────

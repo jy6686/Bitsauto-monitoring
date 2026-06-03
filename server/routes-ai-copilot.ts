@@ -30,6 +30,16 @@ export function setVendorPrefixDataProvider(fn: () => Promise<any>) {
   _getCdrBasedPrefixData = fn;
 }
 
+// ── Copilot summary in-memory TTL cache (2 min) ─────────────────────────────
+// Eliminates redundant DB queries when multiple NOC operators poll simultaneously.
+const SUMMARY_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+let _summaryCache: { value: object; expiresAt: number } | null = null;
+
+export function invalidateCopilotSummaryCache(): void {
+  _summaryCache = null;
+  console.debug("[copilot-summary] Cache invalidated");
+}
+
 export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn) {
   // ── POST /api/ai/route-recommendations ─────────────────────────────────────
   app.post(
@@ -72,7 +82,15 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
     async (_req: any, res: any) => {
       try {
-        const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        // ── Cache check ──────────────────────────────────────────────────────
+        const now = Date.now();
+        if (_summaryCache && _summaryCache.expiresAt > now) {
+          console.debug("[copilot-summary] Cache hit — serving cached result");
+          return res.json(_summaryCache.value);
+        }
+        console.debug("[copilot-summary] Cache miss — running DB queries");
+
+        const since24h = new Date(now - 24 * 60 * 60 * 1000);
 
         // Load latest 24h score per carrier
         const allScores = await db
@@ -121,7 +139,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           topSignal = `${fraudEvents} fraud events detected`;
         }
 
-        res.json({
+        const payload = {
           hasAlerts,
           criticalCount: criticalCarriers.length,
           degradedCount: degradedCarriers.length,
@@ -130,7 +148,12 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           topSignal,
           totalCarriers: scores.length,
           generatedAt: new Date().toISOString(),
-        });
+        };
+
+        // ── Store in cache ───────────────────────────────────────────────────
+        _summaryCache = { value: payload, expiresAt: now + SUMMARY_CACHE_TTL_MS };
+
+        res.json(payload);
       } catch (err: any) {
         console.error("[copilot-summary] Error:", err.message);
         res.status(500).json({ success: false, error: err.message ?? "Summary failed" });
