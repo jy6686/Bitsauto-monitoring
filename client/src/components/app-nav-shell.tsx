@@ -6,7 +6,7 @@ import {
   Activity, Globe, Phone, PhoneCall, Server,
   LineChart, Eye, Monitor, Database, Network,
   HardDrive, Layers, Calculator, Route, FlaskConical,
-  Shield, FileText, Lock, TrendingDown, History,
+  Shield, ShieldCheck, FileText, Lock, TrendingDown, History,
   LayoutDashboard, Zap, Map as MapIcon, BarChart3, Brain,
   SlidersHorizontal, Key, Mail, Building2, Wallet, Banknote,
   HeartPulse, Mic, Bot, ClipboardList, ArrowRightLeft, BrainCircuit,
@@ -103,6 +103,7 @@ const DOMAINS: Domain[] = [
       ]},
       { label: 'Routing', desc: 'Routing groups, LCR analysis, simulators and route testing', icon: GitBranch, items: [
         { href: '/routing-manager',     label: 'Routing Manager', desc: 'Groups, connections & translations', icon: GitBranch },
+        { href: '/auth-studio',         label: 'Auth Studio',     desc: 'Client → Destination → RG provisioning', icon: ShieldCheck },
         { href: '/lcr-analyser',        label: 'LCR Analyser',    desc: 'Least-cost routing engine',          icon: Calculator },
         { href: '/test-call',           label: 'Route Tester',    desc: 'On-demand route test calls',         icon: PhoneCall },
         { href: '/call-flow-simulator', label: 'Route Simulator', desc: 'Simulate routing decisions',         icon: ArrowRightLeft },

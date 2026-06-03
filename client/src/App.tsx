@@ -121,6 +121,7 @@ import CreditControlPage from "@/pages/credit-control";
 import ClientIdentityPage from "@/pages/client-identity";
 import FinanceCockpitPage from "@/pages/finance-cockpit";
 import RoutingManagerPage from "@/pages/routing-manager";
+import AuthStudioPage from "@/pages/auth-studio";
 import ApprovalQueuePage from "@/pages/approval-queue";
 import VendorsPage from "@/pages/vendors";
 import ApprovalSettingsPage from "@/pages/approval-settings";
@@ -588,6 +589,9 @@ function Router() {
       </Route>
       <Route path="/routing-manager">
         {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management', 'routing_admin']} mgmtFeature="routing_manager" />}
+      </Route>
+      <Route path="/auth-studio">
+        {() => <ProtectedRoute component={AuthStudioPage} requiredRoles={['admin', 'management', 'routing_admin']} />}
       </Route>
       <Route path="/approvals">
         {() => <ProtectedRoute component={ApprovalQueuePage} requiredRoles={['admin', 'management', 'super_admin', 'noc_operator', 'team_lead', 'destination_manager', 'routing_admin']} mgmtFeature="approval_queue" />}
