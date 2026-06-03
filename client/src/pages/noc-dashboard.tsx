@@ -8,7 +8,7 @@ import {
   Minus, BrainCircuit, Siren, Maximize2, Minimize, Moon, Sun,
   ArrowRight, RefreshCw, AlertOctagon, GitBranch, Network,
   ChevronRight, Clock, Zap, ChevronDown, ChevronUp, ExternalLink,
-  PlayCircle, Loader2, AlertCircle, BarChart2,
+  PlayCircle, Loader2, AlertCircle, BarChart2, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -58,6 +58,7 @@ interface StripRecommendation {
   currentVendor?: string;
   targetVendor?: string;
   reasons: string[];
+  source_mode?: "ai_enhanced" | "rule_based";
   simulate: { asrDelta: null; stabilityDelta: null; projectedAsr: null; projectedStability: null };
 }
 
@@ -133,6 +134,23 @@ function StripQuickApplyModal({
             <span className={cn("text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border", RISK_CLS[rec.risk])}>
               {RISK_LABEL[rec.risk]}
             </span>
+            {rec.source_mode === "ai_enhanced" ? (
+              <span
+                data-testid="strip-source-mode-badge-ai"
+                className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/30"
+              >
+                <Sparkles className="h-2.5 w-2.5" />
+                AI
+              </span>
+            ) : (
+              <span
+                data-testid="strip-source-mode-badge-rules"
+                className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border bg-amber-500/10 text-amber-500 border-amber-500/30"
+              >
+                <Network className="h-2.5 w-2.5" />
+                Rules
+              </span>
+            )}
             <span className="text-[10px] text-muted-foreground font-mono">
               Confidence: <span className="font-semibold text-foreground">{rec.confidence}%</span>
             </span>
@@ -694,7 +712,10 @@ export default function NocDashboardPage() {
     StripRecommendation
   >({
     mutationFn: (rec) =>
-      apiRequest("POST", "/api/ai/route-copilot/apply", { recommendation: rec })
+      apiRequest("POST", "/api/ai/route-copilot/apply", {
+        recommendation: rec,
+        source_mode: rec.source_mode ?? "rule_based",
+      })
         .then(r => r.json())
         .then(data => {
           if (!data.success) throw new Error(data.error ?? "Apply failed");

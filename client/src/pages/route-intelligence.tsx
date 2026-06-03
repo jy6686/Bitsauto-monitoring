@@ -56,6 +56,8 @@ interface AiRouteRecommendation {
   };
 }
 
+type CopilotMode = "ai_enhanced" | "rule_based_preview";
+
 interface CopilotResult {
   generatedAt: string;
   mode: "ai_enhanced" | "rule_based_preview";
@@ -162,13 +164,38 @@ function ConfidenceBar({ value }: { value: number }) {
 
 // ── Apply Approval Modal ───────────────────────────────────────────────────────
 
+function SourceModeBadge({ mode }: { mode: CopilotMode }) {
+  if (mode === "ai_enhanced") {
+    return (
+      <span
+        data-testid="source-mode-badge-ai"
+        className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/30"
+      >
+        <Sparkles className="h-2.5 w-2.5" />
+        AI
+      </span>
+    );
+  }
+  return (
+    <span
+      data-testid="source-mode-badge-rules"
+      className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border bg-amber-500/10 text-amber-500 border-amber-500/30"
+    >
+      <Network className="h-2.5 w-2.5" />
+      Rules
+    </span>
+  );
+}
+
 function ApplyModal({
   rec,
+  mode,
   onConfirm,
   onCancel,
   isPending,
 }: {
   rec: AiRouteRecommendation;
+  mode: CopilotMode;
   onConfirm: () => void;
   onCancel: () => void;
   isPending: boolean;
@@ -227,6 +254,7 @@ function ApplyModal({
             <span className={cn("text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border", risk.cls)}>
               {risk.label}
             </span>
+            <SourceModeBadge mode={mode} />
             <span className="text-[10px] text-muted-foreground font-mono">
               Confidence: <span className="font-semibold text-foreground">{rec.confidence}%</span>
             </span>
@@ -284,6 +312,7 @@ function AiRecCard({
   pinned,
   applied,
   canApply,
+  mode,
   onDismiss,
   onPin,
   onApply,
@@ -293,6 +322,7 @@ function AiRecCard({
   pinned: boolean;
   applied: boolean;
   canApply: boolean;
+  mode: CopilotMode;
   onDismiss: (id: string) => void;
   onPin: (id: string) => void;
   onApply: (rec: AiRouteRecommendation) => void;
@@ -348,6 +378,7 @@ function AiRecCard({
               <span className={cn("text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border", risk.cls)}>
                 {risk.label}
               </span>
+              <SourceModeBadge mode={mode} />
               {rec.currentVendor && rec.targetVendor && (
                 <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
                   <span className="text-red-400/80">{rec.currentVendor}</span>
@@ -571,7 +602,10 @@ function AiCopilotPanel() {
 
   const applyMutation = useMutation<{ success: boolean; actionId: number; mode: string; status: string; sippyNote: string }, Error, AiRouteRecommendation>({
     mutationFn: (rec) =>
-      apiRequest("POST", "/api/ai/route-copilot/apply", { recommendation: rec })
+      apiRequest("POST", "/api/ai/route-copilot/apply", {
+        recommendation: rec,
+        source_mode: result?.mode === "ai_enhanced" ? "ai_enhanced" : "rule_based",
+      })
         .then(r => r.json())
         .then(data => {
           if (!data.success) throw new Error(data.error ?? "Apply failed");
@@ -800,6 +834,7 @@ function AiCopilotPanel() {
                 pinned={pinned.has(rec.id)}
                 applied={applied.has(rec.id)}
                 canApply={isManagement}
+                mode={result?.mode ?? "rule_based_preview"}
                 onDismiss={handleDismiss}
                 onPin={handlePin}
                 onApply={handleApply}
@@ -839,6 +874,7 @@ function AiCopilotPanel() {
         {modalRec && (
           <ApplyModal
             rec={modalRec}
+            mode={result?.mode ?? "rule_based_preview"}
             isPending={applyMutation.isPending}
             onConfirm={() => applyMutation.mutate(modalRec)}
             onCancel={() => !applyMutation.isPending && setModalRec(null)}

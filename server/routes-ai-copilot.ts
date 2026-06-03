@@ -190,6 +190,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
             action: `Reroute traffic away from ${worst.carrierName}`,
             confidence: 82,
             risk: "high",
+            source_mode: "rule_based",
             expectedImpact: `Stability ${worst.stabilityScore?.toFixed(0) ?? "??"}/100 — rerouting will reduce failed call exposure`,
             currentVendor: worst.carrierName,
             reasons: [
@@ -208,6 +209,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
             action: `Deprioritise ${worst.carrierName} routing by 20%`,
             confidence: 65,
             risk: "medium",
+            source_mode: "rule_based",
             expectedImpact: `ASR ${worst.rollingAsr?.toFixed(1) ?? "?"}% — deprioritising reduces degraded traffic exposure`,
             currentVendor: worst.carrierName,
             reasons: [
@@ -269,11 +271,15 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     "/api/ai/route-copilot/apply",
     (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
     async (req: any, res: any) => {
-      const { recommendation, note } = req.body ?? {};
+      const { recommendation, note, source_mode } = req.body ?? {};
 
       if (!recommendation || !recommendation.id || !recommendation.action) {
         return res.status(400).json({ success: false, error: "recommendation.id and recommendation.action are required" });
       }
+
+      // Validate source_mode if provided
+      const validatedSourceMode: "ai_enhanced" | "rule_based" | undefined =
+        source_mode === "ai_enhanced" || source_mode === "rule_based" ? source_mode : undefined;
 
       // Derive actor identity from session
       const actor = req.user ?? {};
@@ -325,6 +331,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
             targetVendor:   recommendation.targetVendor,
             destination:    recommendation.destination,
             note:           note ?? null,
+            source_mode:    validatedSourceMode ?? null,
           },
           sippyParams:       sippyParams.params,
           requestedBy:       actorId,
