@@ -58,6 +58,14 @@ export function computeIdempotencyKey(
   return createHash('sha256').update(raw).digest('hex').slice(0, 64);
 }
 
+// ── Dual-approval gate ────────────────────────────────────────────────────────
+// ACCOUNT_FREEZE and ROUTE_BLOCK impact live traffic directly.
+// When the execution gate is open these require a second management-role
+// operator to confirm before the Sippy write fires (four-eyes rule).
+export function requiresDualApproval(actionType: ActionType | string): boolean {
+  return actionType === 'ACCOUNT_FREEZE' || actionType === 'ROUTE_BLOCK';
+}
+
 // ── Action type helpers ───────────────────────────────────────────────────────
 
 export function recommendationToActionType(dominantSignal: string): ActionType {

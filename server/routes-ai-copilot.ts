@@ -17,6 +17,11 @@ import {
   rollbackAction,
   createRollbackEntry,
   verifyAction,
+  listPendingApproval,
+  setPendingApproval,
+  atomicClaimPendingApproval,
+  secondaryApproveAction,
+  secondaryRejectAction,
 } from "./action-store";
 import {
   recommendationToActionType,
@@ -26,6 +31,7 @@ import {
   executeAction,
   isExecutionEnabled,
   type ActionType,
+  requiresDualApproval,
 } from "./action-executor";
 import { db } from "./db";
 import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache } from "../shared/schema";
@@ -359,10 +365,57 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           idempotencyKey,
         });
 
-        // 2. Execute (dry-run gate is inside executeAction)
+        // 2. Four-eyes check — high-risk actions (ACCOUNT_FREEZE, ROUTE_BLOCK)
+        //    when execution is live require a second operator to approve before
+        //    the Sippy write fires. This check applies regardless of idempotency:
+        //    - New action  → set pending_approval and return early
+        //    - Idempotent action already in pending_approval → return that state (no re-execution)
+        //    - Idempotent action in any other state → fall through to execute normally
+        const isIdempotent = !!(action as any)._idempotent;
+
+        // Idempotent re-submission when the existing action is still pending_approval:
+        // do NOT bypass the gate — return the existing pending state.
+        if (isIdempotent && action.status === 'pending_approval') {
+          console.log(
+            `[ai-copilot/apply] rec=${recommendation.id} action=${action.id} ` +
+            `IDEMPOTENT_PENDING_APPROVAL — returning existing pending state actor=${actorId}`,
+          );
+          return res.json({
+            success:                true,
+            actionId:               action.id,
+            mode:                   "pending_approval",
+            status:                 "pending_approval",
+            requiresSecondApproval: true,
+            sippyNote:              sippyParams.note,
+            idempotent:             true,
+            updatedAction:          action,
+          });
+        }
+
+        if (isExecutionEnabled() && requiresDualApproval(actionType) && !isIdempotent) {
+          const pendingAction = await setPendingApproval(action.id, actorId, actorName);
+
+          console.log(
+            `[ai-copilot/apply] rec=${recommendation.id} action=${action.id} ` +
+            `actionType=${actionType} DUAL_APPROVAL_REQUIRED actor=${actorId}`,
+          );
+
+          return res.json({
+            success:                true,
+            actionId:               action.id,
+            mode:                   "pending_approval",
+            status:                 "pending_approval",
+            requiresSecondApproval: true,
+            sippyNote:              sippyParams.note,
+            idempotent:             false,
+            updatedAction:          pendingAction,
+          });
+        }
+
+        // 3. Execute (dry-run gate is inside executeAction)
         const execResult = await executeAction(action.id, sippyParams.method, sippyParams.params);
 
-        // 3. Update the action record with execution outcome
+        // 4. Update the action record with execution outcome
         const newStatus = execResult.success
           ? (execResult.mode === "executed" ? "executed" : "dry_run_approved")
           : "failed";
@@ -439,6 +492,23 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
       } catch (err: any) {
         console.error("[ai-copilot/applied-actions] error:", err.message);
         return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
+  // ── GET /api/ai/actions/pending ─────────────────────────────────────────────
+  // Lists all actions in pending_approval state (awaiting second operator).
+  // Management role required — these are the reviewers.
+  app.get(
+    "/api/ai/actions/pending",
+    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const rows = await listPendingApproval();
+        res.json({ success: true, data: rows });
+      } catch (err: any) {
+        console.error("[ai-actions/pending] error:", err.message);
+        res.status(500).json({ success: false, error: err.message ?? "List failed" });
       }
     },
   );
@@ -600,6 +670,112 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
       } catch (err: any) {
         console.error("[ai-copilot/verify] error:", err.message);
         return res.status(500).json({ success: false, error: err.message ?? "Verify failed" });
+      }
+    },
+  );
+
+  // ── POST /api/ai/actions/:id/approve ────────────────────────────────────────
+  // Second-operator approval or rejection of a pending_approval action.
+  // Body: { decision: "approve" | "reject", reason?: string }
+  // - approve → fires executeAction against Sippy and transitions to executed/failed
+  // - reject  → transitions to rejected with optional reason note
+  // Management role required; the actor must not be the original requestor.
+  app.post(
+    "/api/ai/actions/:id/approve",
+    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
+    async (req: any, res: any) => {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ success: false, error: "Invalid action id" });
+
+      const { decision, reason } = req.body ?? {};
+      if (decision !== "approve" && decision !== "reject") {
+        return res.status(400).json({ success: false, error: 'decision must be "approve" or "reject"' });
+      }
+
+      const actor     = req.user ?? {};
+      const actorId   = String(actor.id ?? actor.userId ?? "system");
+      const actorName = actor.name ?? actor.username ?? actor.email ?? "Operator";
+
+      try {
+        // ── Re-fetch action to get requested_by for self-actor check ────────────
+        const actionMeta = await getAction(id);
+        if (!actionMeta) {
+          return res.status(404).json({ success: false, error: "Action not found" });
+        }
+
+        // Two-person rule: the actor must not be the same as the original requestor,
+        // regardless of whether the decision is approve OR reject.
+        if (actionMeta.requested_by && actionMeta.requested_by === actorId) {
+          return res.status(403).json({
+            success: false,
+            error:   "Self-action not permitted — a different operator must approve or reject",
+          });
+        }
+
+        if (decision === "reject") {
+          // secondaryRejectAction guards status='pending_approval' internally.
+          const updated = await secondaryRejectAction(id, actorId, actorName, reason ?? "");
+          if (!updated) {
+            return res.status(409).json({ success: false, error: "Action is no longer in pending_approval state" });
+          }
+          console.log(`[ai-actions/approve] action=${id} REJECTED by ${actorId}`);
+          return res.json({ success: true, status: "rejected", updatedAction: updated });
+        }
+
+        // decision === "approve":
+        // ── Atomic claim — prevents two concurrent approvers from both executing ─
+        // atomicClaimPendingApproval does a single conditional UPDATE WHERE
+        // status='pending_approval', returning the row only on success.
+        // If another request already claimed the action, this returns null → 409.
+        const claimed = await atomicClaimPendingApproval(id, actorId, actorName);
+        if (!claimed) {
+          return res.status(409).json({
+            success: false,
+            error:   "Action is no longer in pending_approval state (already claimed or resolved)",
+          });
+        }
+
+        // ── Fire Sippy write ────────────────────────────────────────────────────
+        const actionType  = claimed.action_type as string;
+        const sippyParams = buildSippyParams(claimed.account_id, actionType as any);
+        const execResult  = await executeAction(id, sippyParams.method, sippyParams.params);
+
+        const newStatus = execResult.success
+          ? (execResult.mode === "executed" ? "executed" : "dry_run_approved")
+          : "failed";
+
+        const updatedAction = await secondaryApproveAction(
+          id,
+          actorId,
+          actorName,
+          {
+            mode:              execResult.mode,
+            success:           execResult.success,
+            verificationState: execResult.verificationState,
+            result:            execResult.result ?? null,
+            error:             execResult.error ?? null,
+            sippyMethod:       sippyParams.method,
+            sippyNote:         sippyParams.note,
+          },
+          newStatus,
+          execResult.verificationState,
+        );
+
+        console.log(
+          `[ai-actions/approve] action=${id} APPROVED by ${actorId} ` +
+          `mode=${execResult.mode} status=${newStatus}`,
+        );
+
+        return res.json({
+          success:      true,
+          status:       newStatus,
+          mode:         execResult.mode,
+          sippyNote:    sippyParams.note,
+          updatedAction,
+        });
+      } catch (err: any) {
+        console.error(`[ai-actions/approve] action=${id} error:`, err.message);
+        return res.status(500).json({ success: false, error: err.message ?? "Approval failed" });
       }
     },
   );

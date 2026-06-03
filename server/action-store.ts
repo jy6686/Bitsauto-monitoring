@@ -120,6 +120,226 @@ export async function createAction(data: {
   } finally { await pool.end(); }
 }
 
+// ── listPendingApproval ───────────────────────────────────────────────────────
+// Returns all actions awaiting a second operator sign-off.
+export async function listPendingApproval() {
+  const pool = getPool();
+  try {
+    const r = await pool.query(
+      `SELECT * FROM account_actions WHERE status = 'pending_approval' ORDER BY created_at DESC LIMIT 100`,
+    );
+    return r.rows;
+  } finally { await pool.end(); }
+}
+
+// ── setPendingApproval ────────────────────────────────────────────────────────
+// Transitions an action to pending_approval — written immediately after
+// createAction for high-risk types when C2_EXECUTION_ENABLED=true.
+export async function setPendingApproval(
+  id:          number,
+  userId:      string,
+  userName:    string,
+) {
+  const pool = getPool();
+  try {
+    const ex = await pool.query('SELECT * FROM account_actions WHERE id = $1', [id]);
+    if (!ex.rows.length) return null;
+    const row = ex.rows[0];
+    const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
+    trail.push({
+      timestamp: new Date().toISOString(),
+      event:     'pending_approval',
+      userId,
+      userName,
+      details:   'High-risk action submitted — awaiting second operator approval',
+    });
+    const r = await pool.query(`
+      UPDATE account_actions
+      SET status='pending_approval', audit_trail=$1, updated_at=NOW()
+      WHERE id=$2 RETURNING *
+    `, [JSON.stringify(trail), id]);
+    const updated = r.rows[0] ?? null;
+
+    if (updated) {
+      await appendToLedger({
+        ledgerId:          ledgerIdForC2Action(row.idempotency_key),
+        scope:             'account',
+        sourceSystem:      'C2',
+        actionType:        row.action_type,
+        entityId:          row.account_id,
+        entityName:        row.account_name,
+        payload:           { note: 'Awaiting second operator approval (four-eyes rule)' },
+        idempotencyKey:    row.idempotency_key,
+        riskIndexSnapshot: row.risk_index ?? null,
+        approvalState:     'pending',
+        executionState:    'not_executed',
+        verificationState: 'not_applicable',
+        sourceRecordId:    String(id),
+        eventType:         'submitted',
+        actorId:           userId,
+        actorName:         userName,
+        requestedBy:       row.requested_by,
+        requestedByName:   row.requested_by_name,
+        note:              'High-risk action submitted — awaiting second operator approval',
+      });
+    }
+
+    return updated;
+  } finally { await pool.end(); }
+}
+
+// ── atomicClaimPendingApproval ────────────────────────────────────────────────
+// Atomically transitions an action from pending_approval → approving so only
+// one concurrent operator can proceed to execution. Returns the claimed row, or
+// null if the action no longer exists / is no longer in pending_approval state.
+// This prevents two approvers racing to execute the same Sippy write.
+export async function atomicClaimPendingApproval(
+  id:       number,
+  userId:   string,
+  userName: string,
+) {
+  const pool = getPool();
+  try {
+    // Conditional UPDATE — only succeeds if status is still 'pending_approval'.
+    // No SELECT before UPDATE, so the state-check and transition are atomic.
+    const r = await pool.query(`
+      UPDATE account_actions
+      SET status='approving', approved_by=$1, approved_by_name=$2, updated_at=NOW()
+      WHERE id=$3 AND status='pending_approval'
+      RETURNING *
+    `, [userId, userName, id]);
+    return r.rows[0] ?? null;
+  } finally { await pool.end(); }
+}
+
+// ── secondaryApproveAction ────────────────────────────────────────────────────
+// Called after atomicClaimPendingApproval succeeds. Writes the final execution
+// outcome (executed / dry_run_approved / failed) and appends ledger event.
+export async function secondaryApproveAction(
+  id:          number,
+  userId:      string,
+  userName:    string,
+  sippyResult: Record<string, unknown>,
+  newStatus:   string,
+  verSt:       string,
+) {
+  const pool = getPool();
+  try {
+    // At this point the action is in 'approving' state (claimed by this caller).
+    // Read the full row for audit_trail and ledger fields.
+    const ex = await pool.query('SELECT * FROM account_actions WHERE id = $1', [id]);
+    if (!ex.rows.length) return null;
+    const row = ex.rows[0];
+
+    const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
+    trail.push({
+      timestamp: new Date().toISOString(),
+      event:     'secondary_approved',
+      userId,
+      userName,
+      details:   newStatus === 'executed'
+        ? `Second approval granted — executed against Sippy (verification: ${verSt})`
+        : `Second approval granted (dry-run) — no live write`,
+    });
+    const r = await pool.query(`
+      UPDATE account_actions
+      SET status=$1, approved_by=$2, approved_by_name=$3,
+          sippy_result=$4, audit_trail=$5, verification_state=$6, updated_at=NOW()
+      WHERE id=$7 RETURNING *
+    `, [newStatus, userId, userName, JSON.stringify(sippyResult), JSON.stringify(trail), verSt, id]);
+    const updated = r.rows[0] ?? null;
+
+    if (updated) {
+      const execState: LedgerExecutionState = newStatus === 'executed' ? 'executed' : 'not_executed';
+      const isExecFailed = newStatus === 'failed';
+      await appendToLedger({
+        ledgerId:          ledgerIdForC2Action(row.idempotency_key),
+        scope:             'account',
+        sourceSystem:      'C2',
+        actionType:        row.action_type,
+        entityId:          row.account_id,
+        entityName:        row.account_name,
+        payload:           { sippyResult },
+        idempotencyKey:    row.idempotency_key,
+        riskIndexSnapshot: row.risk_index ?? null,
+        approvalState:     'approved',
+        executionState:    isExecFailed ? 'failed' : execState,
+        verificationState: verSt as LedgerVerificationState,
+        sourceRecordId:    String(id),
+        eventType:         isExecFailed ? 'execution_failed' : (newStatus === 'executed' ? 'executed' : 'approved'),
+        actorId:           userId,
+        actorName:         userName,
+        requestedBy:       row.requested_by,
+        requestedByName:   row.requested_by_name,
+        note:              isExecFailed
+          ? `Secondary approval: execution failed — ${(sippyResult as any)?.error ?? 'unknown'}`
+          : newStatus === 'executed'
+            ? `Secondary approval: executed against Sippy — verification: ${verSt}`
+            : 'Secondary approval: dry-run recorded',
+      });
+    }
+
+    return updated;
+  } finally { await pool.end(); }
+}
+
+// ── secondaryRejectAction ─────────────────────────────────────────────────────
+// Called when the second operator rejects a pending_approval action.
+export async function secondaryRejectAction(
+  id:       number,
+  userId:   string,
+  userName: string,
+  reason:   string,
+) {
+  const pool = getPool();
+  try {
+    const ex = await pool.query('SELECT * FROM account_actions WHERE id = $1', [id]);
+    if (!ex.rows.length) return null;
+    const row = ex.rows[0];
+    if (row.status !== 'pending_approval') return null;
+
+    const trail: AuditEntry[] = Array.isArray(row.audit_trail) ? row.audit_trail : [];
+    trail.push({
+      timestamp: new Date().toISOString(),
+      event:     'secondary_rejected',
+      userId,
+      userName,
+      details:   reason || 'Second operator rejected — no reason provided',
+    });
+    const r = await pool.query(`
+      UPDATE account_actions
+      SET status='rejected', rejected_by=$1, rejection_reason=$2, audit_trail=$3, updated_at=NOW()
+      WHERE id=$4 RETURNING *
+    `, [userId, reason || null, JSON.stringify(trail), id]);
+    const updated = r.rows[0] ?? null;
+
+    if (updated) {
+      await appendToLedger({
+        ledgerId:          ledgerIdForC2Action(row.idempotency_key),
+        scope:             'account',
+        sourceSystem:      'C2',
+        actionType:        row.action_type,
+        entityId:          row.account_id,
+        entityName:        row.account_name,
+        idempotencyKey:    row.idempotency_key,
+        riskIndexSnapshot: row.risk_index ?? null,
+        approvalState:     'rejected',
+        executionState:    'not_executed',
+        verificationState: 'not_applicable',
+        sourceRecordId:    String(id),
+        eventType:         'rejected',
+        actorId:           userId,
+        actorName:         userName,
+        requestedBy:       row.requested_by,
+        requestedByName:   row.requested_by_name,
+        note:              `Second operator rejected: ${reason || 'no reason provided'}`,
+      });
+    }
+
+    return updated;
+  } finally { await pool.end(); }
+}
+
 export async function getAction(id: number) {
   const pool = getPool();
   try {

@@ -5,7 +5,7 @@ import {
   Shield, Activity, BrainCircuit, RefreshCw, ChevronRight,
   Zap, Network, CheckCircle2, ArrowRight, Eye, X, Sparkles,
   ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
-  ShieldAlert, PlayCircle, Loader2, RotateCcw,
+  ShieldAlert, PlayCircle, Loader2, RotateCcw, Clock, UserCheck, ThumbsDown,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -269,7 +269,14 @@ function ApplyModal({
           </div>
 
           {/* Execution mode notice */}
-          {executionEnabled ? (
+          {executionEnabled && rec.risk === "high" ? (
+            <div className="flex items-start gap-2 text-[11px] text-orange-600 dark:text-orange-400 bg-orange-500/8 border border-orange-500/20 rounded-lg px-3 py-2">
+              <Clock className="h-3.5 w-3.5 flex-shrink-0 mt-0.5 text-orange-500" />
+              <span>
+                <span className="font-bold">Two-person rule:</span> This high-risk action will be queued for a second management-role operator to approve before writing to Sippy.
+              </span>
+            </div>
+          ) : executionEnabled ? (
             <div className="flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/8 border border-emerald-500/20 rounded-lg px-3 py-2">
               <span className="font-bold uppercase tracking-widest text-[10px] bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-1.5 py-0.5 rounded font-mono flex-shrink-0">LIVE</span>
               <span>Execution gate is open. This action will write directly to Sippy and be confirmed by post-write re-read.</span>
@@ -590,6 +597,183 @@ function AiRecCard({
   );
 }
 
+// ── Pending Approval Panel ─────────────────────────────────────────────────────
+
+interface PendingAction {
+  id: number;
+  account_id: string;
+  account_name: string;
+  action_type: string;
+  primary_action: string;
+  requested_by: string;
+  requested_by_name: string;
+  created_at: string;
+  sippy_params: Record<string, unknown>;
+}
+
+function PendingApprovalPanel() {
+  const { toast } = useToast();
+  const { user } = useAuth() as any;
+  const currentUserId = String(user?.id ?? user?.userId ?? "");
+  const [rejectTarget, setRejectTarget] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<{ success: boolean; data: PendingAction[] }>({
+    queryKey: ["/api/ai/actions/pending"],
+    refetchInterval: 20_000,
+  });
+
+  const pending = data?.data ?? [];
+
+  const approveMutation = useMutation<{ success: boolean; status: string; sippyNote: string }, Error, number>({
+    mutationFn: (id) =>
+      apiRequest("POST", `/api/ai/actions/${id}/approve`, { decision: "approve" })
+        .then(r => r.json())
+        .then(d => { if (!d.success) throw new Error(d.error ?? "Approval failed"); return d; }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/actions/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/summary"] });
+      toast({
+        title: data.status === "executed" ? "Action executed" : "Approval recorded",
+        description: data.sippyNote ?? "Action processed successfully.",
+      });
+    },
+    onError: (err) => toast({ title: "Approval failed", description: err.message, variant: "destructive" }),
+  });
+
+  const rejectMutation = useMutation<{ success: boolean }, Error, { id: number; reason: string }>({
+    mutationFn: ({ id, reason }) =>
+      apiRequest("POST", `/api/ai/actions/${id}/approve`, { decision: "reject", reason })
+        .then(r => r.json())
+        .then(d => { if (!d.success) throw new Error(d.error ?? "Rejection failed"); return d; }),
+    onSuccess: () => {
+      setRejectTarget(null);
+      setRejectReason("");
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/actions/pending"] });
+      toast({ title: "Action rejected", description: "The action has been rejected and will not be executed." });
+    },
+    onError: (err) => toast({ title: "Rejection failed", description: err.message, variant: "destructive" }),
+  });
+
+  if (isLoading) return null;
+  if (pending.length === 0) return null;
+
+  return (
+    <div
+      data-testid="pending-approval-panel"
+      className="rounded-xl border border-orange-500/40 bg-orange-500/5 overflow-hidden"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-orange-500/20 bg-orange-500/10">
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-orange-400" />
+          <span className="text-sm font-bold text-orange-400">
+            {pending.length} Action{pending.length !== 1 ? "s" : ""} Awaiting Second Approval
+          </span>
+          <span className="text-[10px] font-bold uppercase font-mono bg-orange-500/20 border border-orange-500/30 text-orange-400 px-1.5 py-0.5 rounded">
+            FOUR-EYES RULE
+          </span>
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          data-testid="pending-panel-refresh"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Actions list */}
+      <div className="divide-y divide-orange-500/10">
+        {pending.map((action) => {
+          const isSelf = action.requested_by === currentUserId;
+          return (
+            <div
+              key={action.id}
+              data-testid={`pending-action-${action.id}`}
+              className="px-4 py-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-orange-400 font-mono">#{action.id}</span>
+                    <span className="text-[10px] font-bold uppercase font-mono bg-red-500/10 border border-red-500/20 text-red-400 px-1.5 py-0.5 rounded">
+                      {action.action_type}
+                    </span>
+                    <span className="font-medium text-sm truncate">{action.account_name}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{action.primary_action}</p>
+                  <p className="text-[11px] text-muted-foreground/60 mt-0.5 font-mono">
+                    Requested by {action.requested_by_name} · {new Date(action.created_at).toLocaleTimeString()}
+                  </p>
+                  {isSelf && (
+                    <p className="text-[11px] text-orange-500 mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      You submitted this action — a different operator must approve it.
+                    </p>
+                  )}
+                </div>
+
+                {/* Approve / Reject */}
+                {!isSelf && (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {rejectTarget === action.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          data-testid={`reject-reason-${action.id}`}
+                          type="text"
+                          placeholder="Reason (optional)"
+                          value={rejectReason}
+                          onChange={e => setRejectReason(e.target.value)}
+                          className="text-xs border border-border rounded px-2 py-1 bg-background w-40"
+                        />
+                        <button
+                          data-testid={`reject-confirm-${action.id}`}
+                          onClick={() => rejectMutation.mutate({ id: action.id, reason: rejectReason })}
+                          disabled={rejectMutation.isPending}
+                          className="text-xs font-semibold px-2 py-1 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                        >
+                          {rejectMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirm Reject"}
+                        </button>
+                        <button
+                          onClick={() => { setRejectTarget(null); setRejectReason(""); }}
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          data-testid={`approve-action-${action.id}`}
+                          onClick={() => approveMutation.mutate(action.id)}
+                          disabled={approveMutation.isPending}
+                          className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50"
+                        >
+                          {approveMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserCheck className="h-3 w-3" />}
+                          Approve
+                        </button>
+                        <button
+                          data-testid={`reject-action-${action.id}`}
+                          onClick={() => setRejectTarget(action.id)}
+                          className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                          <ThumbsDown className="h-3 w-3" />
+                          Reject
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── AI Copilot Panel ───────────────────────────────────────────────────────────
 
 interface AppliedEntry { actionId: number; verificationState: string }
@@ -656,7 +840,7 @@ function AiCopilotPanel() {
     },
   });
 
-  const applyMutation = useMutation<{ success: boolean; actionId: number; mode: string; status: string; sippyNote: string; verificationState: string }, Error, AiRouteRecommendation>({
+  const applyMutation = useMutation<{ success: boolean; actionId: number; mode: string; status: string; requiresSecondApproval?: boolean; sippyNote: string; verificationState: string }, Error, AiRouteRecommendation>({
     mutationFn: (rec) =>
       apiRequest("POST", "/api/ai/route-copilot/apply", {
         recommendation: rec,
@@ -672,10 +856,18 @@ function AiCopilotPanel() {
       setModalRec(null);
       queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/summary"] });
       queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/applied-actions"] });
-      toast({
-        title: data.mode === "executed" ? "Routing action applied" : "Action recorded (dry-run)",
-        description: data.sippyNote ?? `Action #${data.actionId} logged to audit ledger.`,
-      });
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/actions/pending"] });
+      if (data.requiresSecondApproval) {
+        toast({
+          title: "Awaiting second approval",
+          description: `Action #${data.actionId} queued — a second management-role operator must approve before it writes to Sippy.`,
+        });
+      } else {
+        toast({
+          title: data.mode === "executed" ? "Routing action applied" : "Action recorded (dry-run)",
+          description: data.sippyNote ?? `Action #${data.actionId} logged to audit ledger.`,
+        });
+      }
     },
     onError: (err) => {
       toast({ title: "Apply failed", description: err.message, variant: "destructive" });
@@ -847,6 +1039,9 @@ function AiCopilotPanel() {
           </motion.div>
         )}
       </div>
+
+      {/* Pending approval panel — shown to management operators when actions await sign-off */}
+      {isManagement && <PendingApprovalPanel />}
 
       {/* Loading skeleton */}
       {copilotMutation.isPending && (
