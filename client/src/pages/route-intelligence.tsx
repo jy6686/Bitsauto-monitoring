@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   GitBranch, TrendingDown, TrendingUp, Minus, AlertTriangle,
@@ -842,9 +842,16 @@ const TABS = [
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function RouteIntelligencePage() {
-  const [activeTab, setActiveTab] = useState("overview");
+  const initialTab = new URLSearchParams(window.location.search).get("tab") ?? "overview";
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const { toast } = useToast();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab) setActiveTab(tab);
+  }, []);
 
   const { data: scores = [], isFetching: scoresFetching } = useQuery<CarrierScore[]>({
     queryKey: ["/api/carrier-scores", 24],

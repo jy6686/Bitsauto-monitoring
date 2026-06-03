@@ -3,6 +3,7 @@
  * POST /api/ai/route-recommendations        — run analysis, return ranked recommendations
  * GET  /api/ai/route-recommendations/status — engine health check
  * POST /api/ai/route-copilot/apply          — apply a recommendation (audit-logged)
+ * GET  /api/ai/route-copilot/summary        — lightweight NOC poll (no AI call)
  */
 
 import type { Express } from "express";
@@ -17,6 +18,9 @@ import {
   computeIdempotencyKey,
   executeAction,
 } from "./action-executor";
+import { db } from "./db";
+import { carrierQualityScores, fasEvents, irsfEvents } from "../shared/schema";
+import { desc, gte, sql } from "drizzle-orm";
 
 type RequireRoleFn = (roles: string[], req: any, res: any, next: any) => void;
 
@@ -57,6 +61,79 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         }
         console.error("[ai-recommendations] Internal error:", err.message);
         res.status(500).json({ success: false, error: err.message ?? "Analysis failed" });
+      }
+    },
+  );
+
+  // ── GET /api/ai/route-copilot/summary ───────────────────────────────────────
+  // Lightweight NOC dashboard poll — pure DB query, no AI call, safe to run every 5 min.
+  app.get(
+    "/api/ai/route-copilot/summary",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+        // Load latest 24h score per carrier
+        const allScores = await db
+          .select()
+          .from(carrierQualityScores)
+          .orderBy(desc(carrierQualityScores.lastComputedAt));
+
+        const latestByCarrier = new Map<string, typeof allScores[number]>();
+        for (const row of allScores) {
+          if (row.windowHours === 24 && !latestByCarrier.has(row.carrierName)) {
+            latestByCarrier.set(row.carrierName, row);
+          }
+        }
+        const scores = [...latestByCarrier.values()];
+
+        const criticalCarriers = scores.filter(
+          s => (s.stabilityScore ?? 100) < 35 || (s.rollingAsr ?? 100) < 25,
+        );
+        const degradedCarriers = scores.filter(
+          s => !criticalCarriers.includes(s) &&
+            ((s.stabilityScore ?? 100) < 58 || (s.rollingAsr ?? 100) < 42),
+        );
+
+        // Fraud count (fast aggregate)
+        const [fasCount, irsfCount] = await Promise.all([
+          db.select({ n: sql<number>`count(*)` }).from(fasEvents).where(gte(fasEvents.detectedAt, since24h)),
+          db.select({ n: sql<number>`count(*)` }).from(irsfEvents).where(gte(irsfEvents.detectedAt, since24h)),
+        ]);
+        const fraudEvents = Number(fasCount[0]?.n ?? 0) + Number(irsfCount[0]?.n ?? 0);
+
+        const hasAlerts = criticalCarriers.length > 0 || degradedCarriers.length > 0;
+
+        // Top action text
+        let topAction: string | null = null;
+        let topSignal: string | null = null;
+        if (criticalCarriers.length > 0) {
+          const worst = criticalCarriers.sort((a, b) => (a.stabilityScore ?? 100) - (b.stabilityScore ?? 100))[0];
+          topAction = `Reroute traffic away from ${worst.carrierName} (stability: ${worst.stabilityScore?.toFixed(0) ?? "??"}/100)`;
+          topSignal = `${criticalCarriers.length} critical carrier${criticalCarriers.length > 1 ? "s" : ""} detected`;
+        } else if (degradedCarriers.length > 0) {
+          const worst = degradedCarriers.sort((a, b) => (a.stabilityScore ?? 100) - (b.stabilityScore ?? 100))[0];
+          topAction = `Monitor or deprioritise ${worst.carrierName} (ASR: ${worst.rollingAsr?.toFixed(1) ?? "??"}%)`;
+          topSignal = `${degradedCarriers.length} degraded carrier${degradedCarriers.length > 1 ? "s" : ""}`;
+        } else if (fraudEvents > 3) {
+          topAction = `Investigate carriers for elevated fraud signals (${fraudEvents} events in 24h)`;
+          topSignal = `${fraudEvents} fraud events detected`;
+        }
+
+        res.json({
+          hasAlerts,
+          criticalCount: criticalCarriers.length,
+          degradedCount: degradedCarriers.length,
+          fraudEvents,
+          topAction,
+          topSignal,
+          totalCarriers: scores.length,
+          generatedAt: new Date().toISOString(),
+        });
+      } catch (err: any) {
+        console.error("[copilot-summary] Error:", err.message);
+        res.status(500).json({ success: false, error: err.message ?? "Summary failed" });
       }
     },
   );

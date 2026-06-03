@@ -7,7 +7,7 @@ import {
   Radio, Shield, Eye, ShieldCheck, TrendingUp, TrendingDown,
   Minus, BrainCircuit, Siren, Maximize2, Minimize, Moon, Sun,
   ArrowRight, RefreshCw, AlertOctagon, GitBranch, Network,
-  ChevronRight, Clock, Zap,
+  ChevronRight, Clock, Zap, ChevronDown, ChevronUp, ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -45,6 +45,144 @@ interface Recommendation {
 }
 
 interface AlertRow { id: number; severity: string; resolved: boolean; acknowledgedAt: string | null; }
+
+interface CopilotSummary {
+  hasAlerts: boolean;
+  criticalCount: number;
+  degradedCount: number;
+  fraudEvents: number;
+  topAction: string | null;
+  topSignal: string | null;
+  totalCarriers: number;
+  generatedAt: string;
+}
+
+// ── Copilot Alert Strip ─────────────────────────────────────────────────────────
+
+function CopilotAlertStrip({ summary }: { summary: CopilotSummary | undefined }) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (!summary || !summary.hasAlerts) return null;
+
+  const isCritical = summary.criticalCount > 0;
+  const borderColor = isCritical ? "border-red-500/40" : "border-amber-500/40";
+  const bgColor     = isCritical ? "bg-red-500/8"      : "bg-amber-500/8";
+  const iconColor   = isCritical ? "text-red-400"       : "text-amber-400";
+  const badgeCls    = isCritical
+    ? "bg-red-500/20 text-red-300 border-red-500/40"
+    : "bg-amber-500/20 text-amber-300 border-amber-500/40";
+  const alertLabel  = isCritical ? "CRITICAL" : "WARNING";
+
+  const totalAlerts = summary.criticalCount + summary.degradedCount;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        key="copilot-strip"
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: "auto" }}
+        exit={{ opacity: 0, height: 0 }}
+        transition={{ duration: 0.25 }}
+        className={cn(
+          "flex-shrink-0 border-b flex flex-col overflow-hidden",
+          borderColor, bgColor,
+        )}
+        data-testid="copilot-alert-strip"
+      >
+        {/* Header row */}
+        <div className="flex items-center gap-3 px-4 py-2">
+          {isCritical
+            ? <Pulse color="red" size={1} />
+            : <Pulse color="amber" size={1} />
+          }
+          <BrainCircuit className={cn("h-3.5 w-3.5 flex-shrink-0", iconColor)} />
+          <span className={cn("text-[10px] font-bold uppercase tracking-widest flex-shrink-0", iconColor)}>
+            Copilot Alerts
+          </span>
+
+          <span className={cn(
+            "text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border flex-shrink-0",
+            badgeCls,
+          )}>
+            {alertLabel}
+          </span>
+
+          {totalAlerts > 0 && (
+            <span className={cn("text-[10px] font-mono font-bold flex-shrink-0", iconColor)}>
+              {totalAlerts} carrier{totalAlerts > 1 ? "s" : ""}
+            </span>
+          )}
+
+          {summary.topSignal && (
+            <>
+              <span className="text-slate-700 flex-shrink-0">·</span>
+              <span className="text-[11px] text-slate-300 truncate flex-1 min-w-0">
+                {summary.topSignal}
+              </span>
+            </>
+          )}
+
+          <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+            <Link href="/route-intelligence?tab=copilot">
+              <a
+                data-testid="copilot-strip-open-intel"
+                className={cn(
+                  "flex items-center gap-1.5 text-[10px] font-mono font-bold px-2 py-1 rounded border transition-all",
+                  isCritical
+                    ? "border-red-500/40 text-red-400 hover:bg-red-500/20"
+                    : "border-amber-500/40 text-amber-400 hover:bg-amber-500/20",
+                )}
+              >
+                <ExternalLink className="h-2.5 w-2.5" />
+                Route Intelligence
+              </a>
+            </Link>
+            <button
+              data-testid="copilot-strip-collapse"
+              onClick={() => setCollapsed(v => !v)}
+              className="p-1 rounded hover:bg-slate-800/60 text-slate-500 hover:text-slate-300 transition-colors"
+              title={collapsed ? "Expand" : "Collapse"}
+            >
+              {collapsed
+                ? <ChevronDown className="h-3.5 w-3.5" />
+                : <ChevronUp className="h-3.5 w-3.5" />
+              }
+            </button>
+          </div>
+        </div>
+
+        {/* Expandable action row */}
+        <AnimatePresence>
+          {!collapsed && summary.topAction && (
+            <motion.div
+              key="strip-body"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.18 }}
+              className="px-4 pb-2"
+            >
+              <div className="flex items-start gap-2 pl-6">
+                <ArrowRight className={cn("h-3 w-3 flex-shrink-0 mt-0.5", iconColor)} />
+                <span className="text-[11px] text-slate-300 font-mono leading-snug">
+                  {summary.topAction}
+                </span>
+              </div>
+              {summary.fraudEvents > 3 && (
+                <div className="flex items-center gap-1.5 pl-6 mt-1">
+                  <Shield className="h-3 w-3 text-rose-400 flex-shrink-0" />
+                  <span className="text-[10px] text-rose-400 font-mono">
+                    {summary.fraudEvents} fraud events in last 24h
+                  </span>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
 
 // ── Atoms ──────────────────────────────────────────────────────────────────────
 
@@ -276,6 +414,12 @@ export default function NocDashboardPage() {
     refetchInterval: 90_000,
   });
 
+  const { data: copilotSummary } = useQuery<CopilotSummary>({
+    queryKey: ["/api/ai/route-copilot/summary"],
+    refetchInterval: 5 * 60 * 1000,
+    retry: 1,
+  });
+
   const investigateMutation = useMutation({
     mutationFn: (id: number) =>
       apiRequest("PATCH", `/api/noc/incidents/${id}/status`, { status: "investigating" }),
@@ -404,6 +548,9 @@ export default function NocDashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Copilot Alert Strip ── */}
+      <CopilotAlertStrip summary={copilotSummary} />
 
       {/* ── Main three-panel grid ── */}
       <div className="flex-1 grid grid-cols-12 gap-0 min-h-0 overflow-hidden">
