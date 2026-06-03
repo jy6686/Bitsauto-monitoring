@@ -23,6 +23,7 @@ import {
   secondaryApproveAction,
   secondaryRejectAction,
   expireStaleApprovals,
+  getApprovalTtlMinutes,
 } from "./action-store";
 import {
   recommendationToActionType,
@@ -632,7 +633,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
     async (_req: any, res: any) => {
       try {
-        const ttlMinutes = parseInt(process.env.DUAL_APPROVAL_TTL_MINUTES ?? '30', 10);
+        const ttlMinutes = await getApprovalTtlMinutes();
         const ttlMs = ttlMinutes * 60_000;
         const rows = await listPendingApproval();
         const enriched = rows.map((r: any) => ({
@@ -999,6 +1000,6 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
 
   console.log(
     `[approval-expiry] Background job registered — sweeping every 60s, ` +
-    `TTL=${process.env.DUAL_APPROVAL_TTL_MINUTES ?? '30'}m (DUAL_APPROVAL_TTL_MINUTES)`,
+    `TTL resolved at runtime from DB settings (falls back to DUAL_APPROVAL_TTL_MINUTES env var, default 30m)`,
   );
 }

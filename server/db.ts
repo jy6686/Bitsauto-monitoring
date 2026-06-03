@@ -361,6 +361,10 @@ export async function runSafeMigrations(): Promise<void> {
     await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS meta_otp_template_language VARCHAR(16)  DEFAULT 'en_us'`);
     await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS meta_use_otp_template      BOOLEAN      DEFAULT true`);
 
+    // ── Dual-approval TTL setting ─────────────────────────────────────────────
+    // Allows admins to configure the pending-approval expiry window from the UI.
+    await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS dual_approval_ttl_minutes INTEGER DEFAULT 30`);
+
     // ── Copilot result cache (added 2026-06-03) ───────────────────────────────
     // Persists the last successful AI Copilot result so the panel pre-populates
     // across server restarts and deployments (same 30-min TTL enforced in app).

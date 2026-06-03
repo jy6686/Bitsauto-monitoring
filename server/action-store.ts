@@ -706,15 +706,39 @@ export async function rollbackAction(id: number, userId: string, userName: strin
   } finally { await pool.end(); }
 }
 
+// ── getApprovalTtlMinutes ─────────────────────────────────────────────────────
+// Reads the dual-approval TTL from the settings table first; falls back to the
+// DUAL_APPROVAL_TTL_MINUTES environment variable, then to the hard-coded default
+// of 30 minutes.  Clamped to the range [5, 480].
+export async function getApprovalTtlMinutes(): Promise<number> {
+  const pool = getPool();
+  try {
+    const r = await pool.query(
+      `SELECT dual_approval_ttl_minutes FROM settings ORDER BY id LIMIT 1`,
+    );
+    if (r.rows.length > 0 && r.rows[0].dual_approval_ttl_minutes != null) {
+      const dbVal = parseInt(r.rows[0].dual_approval_ttl_minutes, 10);
+      if (Number.isFinite(dbVal) && dbVal >= 5) {
+        return Math.min(dbVal, 480);
+      }
+    }
+  } catch {
+    // Non-fatal — fall through to env var / default
+  } finally {
+    await pool.end();
+  }
+  // Fallback: env var → hard default (also clamp to [5, 480])
+  const rawEnv = parseInt(process.env.DUAL_APPROVAL_TTL_MINUTES ?? '30', 10);
+  return Number.isFinite(rawEnv) && rawEnv >= 5 ? Math.min(rawEnv, 480) : 30;
+}
+
 // ── expireStaleApprovals ──────────────────────────────────────────────────────
 // Background job helper — expires pending_approval actions older than
-// DUAL_APPROVAL_TTL_MINUTES (default 30). Each expired action is transitioned
-// to 'rejected' with a system audit trail entry and a ledger event.
+// the configured TTL (DB setting → env var → 30 min). Each expired action is
+// transitioned to 'rejected' with a system audit trail entry and a ledger event.
 // Returns the count of actions expired in this sweep.
 export async function expireStaleApprovals(): Promise<number> {
-  // Sanitise TTL: must be a positive finite integer, default 30.
-  const rawTtl = parseInt(process.env.DUAL_APPROVAL_TTL_MINUTES ?? '30', 10);
-  const ttlMinutes = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 30;
+  const ttlMinutes = await getApprovalTtlMinutes();
 
   const pool = getPool();
   try {

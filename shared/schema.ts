@@ -116,6 +116,8 @@ export const settings = pgTable("settings", {
   grafanaPanelHeight:  integer("grafana_panel_height").default(480),        // iframe height in px
   // Configurable approval settings — JSON map of feature → { create, edit, delete } booleans
   approvalSettings: text("approval_settings"),
+  // Dual-approval TTL — how long a pending_approval action stays open before auto-expiry (minutes)
+  dualApprovalTtlMinutes: integer("dual_approval_ttl_minutes").default(30),
   // Sidebar visibility config — JSON array of hidden item hrefs (admin-controlled)
   sidebarHiddenItems: text("sidebar_hidden_items").default('[]'),
   // HLR / CNAM provider config

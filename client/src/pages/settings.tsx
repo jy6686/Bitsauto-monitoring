@@ -39,6 +39,7 @@ const formSchema = insertSettingsSchema.pick({
   grafanaUrl: true,
   grafanaDefaultRange: true,
   grafanaPanelHeight: true,
+  dualApprovalTtlMinutes: true,
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -2317,6 +2318,7 @@ export default function SettingsPage() {
       grafanaUrl: '',
       grafanaDefaultRange: '1h',
       grafanaPanelHeight: 480,
+      dualApprovalTtlMinutes: 30,
     },
   });
 
@@ -3013,6 +3015,40 @@ export default function SettingsPage() {
 
         {/* ══ SYSTEM TAB (Grafana) ══ */}
         <div className={activeTab !== 'system' ? 'hidden' : 'space-y-6'}>
+
+        {/* ── Security — Dual Approval TTL ── */}
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-border/50 bg-muted/20 flex items-center gap-3">
+            <ShieldCheck className="w-4 h-4 text-violet-400" />
+            <div>
+              <h3 className="font-semibold text-sm">Security — Approval Timeout</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                How long a dual-approval request stays open before it auto-expires.
+              </p>
+            </div>
+          </div>
+          <div className="p-6 space-y-5">
+            <div className="grid gap-2 max-w-xs">
+              <label className="text-sm font-medium">Approval Timeout (minutes)</label>
+              <p className="text-xs text-muted-foreground">
+                High-risk actions awaiting a second operator sign-off are automatically rejected after this window. Min 5, max 480 (8 hours). Default: 30.
+              </p>
+              <input
+                {...form.register("dualApprovalTtlMinutes", { valueAsNumber: true })}
+                data-testid="input-dual-approval-ttl"
+                type="number"
+                min={5}
+                max={480}
+                step={5}
+                placeholder="30"
+                className="bg-background border border-border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
+            <div className="rounded-lg bg-violet-500/10 border border-violet-500/20 px-4 py-3 text-xs text-violet-300">
+              This value is stored in the database and takes effect immediately — no server restart needed. The expiry sweep runs every 60 seconds.
+            </div>
+          </div>
+        </div>
 
         {/* ── Grafana Embed ── */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">

@@ -1237,6 +1237,13 @@ export async function registerRoutes(
   app.patch(api.settings.update.path, (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req, res) => {
     try {
       const input = api.settings.update.input.parse(req.body);
+      // Server-side range check for dual-approval TTL (mirrors UI constraints: 5–480 min)
+      if (input.dualApprovalTtlMinutes !== undefined && input.dualApprovalTtlMinutes !== null) {
+        const ttl = Number(input.dualApprovalTtlMinutes);
+        if (!Number.isFinite(ttl) || ttl < 5 || ttl > 480) {
+          return res.status(400).json({ message: 'Approval timeout must be between 5 and 480 minutes.', field: 'dualApprovalTtlMinutes' });
+        }
+      }
       const updated = await storage.updateSettings(input);
       res.json(updated);
       regenDataflowDoc();
