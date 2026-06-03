@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -11,21 +11,42 @@ import { Separator } from "@/components/ui/separator";
 import { Loader2, Search, User, ShieldCheck, CheckCircle2, AlertTriangle, Trash2, RefreshCw, ChevronRight } from "lucide-react";
 
 // ── Destination presets ───────────────────────────────────────────────────────
+// cc = country code digits only — wildcard and CLD rule are derived from
+//   { prefix }{ productCode }{ cc } e.g.  6686 + 1 + 92 → "6686192"
 const DESTINATIONS = [
-  { label: "Pakistan",     wildcard: "92*",   cldRule: "s/^92/92/",     keywords: ["pakistan","pk-","pk ","_pk"] },
-  { label: "UK",           wildcard: "44*",   cldRule: "s/^44/44/",     keywords: ["uk","united kingdom","britain"," uk "] },
-  { label: "Bangladesh",   wildcard: "880*",  cldRule: "s/^880/880/",   keywords: ["bangladesh","bangla","_bd","bd-"] },
-  { label: "India",        wildcard: "91*",   cldRule: "s/^91/91/",     keywords: ["india"," in ","_in-"] },
-  { label: "UAE",          wildcard: "971*",  cldRule: "s/^971/971/",   keywords: ["uae","emirates","dubai"] },
-  { label: "USA / Canada", wildcard: "1*",    cldRule: "s/^1/1/",       keywords: ["usa","canada","nanp","us-"] },
-  { label: "Afghanistan",  wildcard: "93*",   cldRule: "s/^93/93/",     keywords: ["afghan","afg"] },
-  { label: "Saudi Arabia", wildcard: "966*",  cldRule: "s/^966/966/",   keywords: ["saudi","ksa"] },
-  { label: "Kenya",        wildcard: "254*",  cldRule: "s/^254/254/",   keywords: ["kenya"] },
-  { label: "Nigeria",      wildcard: "234*",  cldRule: "s/^234/234/",   keywords: ["nigeria","nig"] },
-  { label: "Custom",       wildcard: "",      cldRule: "",              keywords: [] },
+  { label: "Pakistan",     cc: "92",  keywords: ["pakistan","pk-","pk ","_pk"] },
+  { label: "UK",           cc: "44",  keywords: ["uk","united kingdom","britain"," uk "] },
+  { label: "Bangladesh",   cc: "880", keywords: ["bangladesh","bangla","_bd","bd-"] },
+  { label: "India",        cc: "91",  keywords: ["india"," in ","_in-"] },
+  { label: "UAE",          cc: "971", keywords: ["uae","emirates","dubai"] },
+  { label: "USA / Canada", cc: "1",   keywords: ["usa","canada","nanp","us-"] },
+  { label: "Afghanistan",  cc: "93",  keywords: ["afghan","afg"] },
+  { label: "Saudi Arabia", cc: "966", keywords: ["saudi","ksa"] },
+  { label: "Kenya",        cc: "254", keywords: ["kenya"] },
+  { label: "Nigeria",      cc: "234", keywords: ["nigeria","nig"] },
+  { label: "Custom",       cc: "",    keywords: [] },
 ] as const;
 
 type Dest = (typeof DESTINATIONS)[number];
+
+// Product codes used in the CLD prefix scheme
+const PRODUCT_CODES = [
+  { value: "1", label: "1 — Standard" },
+  { value: "2", label: "2 — Premium" },
+  { value: "6", label: "6 — Economy" },
+  { value: "7", label: "7 — Mobile" },
+] as const;
+
+// ── CLD rule builders ─────────────────────────────────────────────────────────
+// Wildcard:  {prefix}{productCode}{cc}*   e.g.  6686192*
+// CLD rule:  s/^{prefix}{productCode}{cc}/{productCode}{cc}/
+//            strips the 4-digit routing prefix, keeps product+CC for Sippy routing.
+function buildCldWildcard(prefix: string, productCode: string, cc: string): string {
+  return `${prefix}${productCode}${cc}*`;
+}
+function buildCldRule(prefix: string, productCode: string, cc: string): string {
+  return `s/^${prefix}${productCode}${cc}/${productCode}${cc}/`;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Account {
@@ -81,11 +102,19 @@ export default function AuthStudioPage() {
   const [pushResult, setPushResult]       = useState<{ ok: boolean; msg: string; id?: number } | null>(null);
 
   // Generated form (right panel) — all editable before push
-  const [fRemoteIp,  setFRemoteIp]   = useState("");
-  const [fCld,       setFCld]        = useState("");
-  const [fCldRule,   setFCldRule]    = useState("");
-  const [fMaxSess,   setFMaxSess]    = useState("0");
-  const [fMaxCps,    setFMaxCps]     = useState("0");
+  const [fRemoteIp,    setFRemoteIp]    = useState("");
+  const [fCld,         setFCld]         = useState("");
+  const [fCldRule,     setFCldRule]     = useState("");
+  const [fMaxSess,     setFMaxSess]     = useState("0");
+  const [fMaxCps,      setFMaxCps]      = useState("0");
+
+  // CLD prefix + product code (shared formula inputs)
+  const [fPrefix,      setFPrefix]      = useState("6686");   // 4-digit routing prefix
+  const [fProductCode, setFProductCode] = useState("1");      // Product code: 1/2/6/7
+
+  // MC (mobile-calling) secondary rule
+  const [fMcEnabled,      setFMcEnabled]      = useState(false);
+  const [fMcProductCode,  setFMcProductCode]  = useState("7");
 
   // ── Data fetching ───────────────────────────────────────────────────────────
   const { data: acctData, isLoading: loadingAccts } = useQuery<{ accounts: Account[] }>({
@@ -102,8 +131,8 @@ export default function AuthStudioPage() {
   });
 
   // ── Derived ─────────────────────────────────────────────────────────────────
-  const accounts = acctData?.accounts ?? [];
-  const allRgs   = rgData?.groups ?? [];
+  const accounts  = acctData?.accounts ?? [];
+  const allRgs    = rgData?.groups ?? [];
   const authRules = authData?.authRules ?? [];
 
   const filteredAccts = useMemo(() =>
@@ -118,18 +147,37 @@ export default function AuthStudioPage() {
 
   const selectedRg = allRgs.find(g => String(g.iRoutingGroup) === selectedRgId) ?? null;
 
+  // ── Auto-fill Remote IP from auth rules once they load ────────────────────
+  // listAccounts() doesn't return allowedIps — derive from the account's own
+  // auth rules (already fetched) so the Remote IP field pre-populates correctly.
+  useEffect(() => {
+    if (!authData?.authRules?.length) return;
+    if (fRemoteIp) return; // don't overwrite if user already typed something
+    const firstIp = authData.authRules.find(r => r.remoteIp)?.remoteIp;
+    if (firstIp) setFRemoteIp(firstIp);
+  }, [authData]);
+
+  // ── Auto-regenerate CLD wildcard + rule when formula inputs change ─────────
+  useEffect(() => {
+    if (!selectedDest || selectedDest.label === "Custom" || !selectedDest.cc) return;
+    setFCld(buildCldWildcard(fPrefix, fProductCode, selectedDest.cc));
+    setFCldRule(buildCldRule(fPrefix, fProductCode, selectedDest.cc));
+  }, [selectedDest, fPrefix, fProductCode]);
+
   // ── Select account handler ──────────────────────────────────────────────────
   function handleSelectAcct(acct: Account) {
     setSelectedAcct(acct);
     setSelectedDest(null);
     setSelectedRgId("");
     setPushResult(null);
-    // Pre-fill remote IP from first allowed IP
+    // allowedIps is empty from listAccounts() — IP will be auto-filled by useEffect above
+    // once authData loads. If there IS a value (e.g. from the enriched clients route), use it.
     setFRemoteIp((acct.allowedIps ?? [])[0] ?? "");
     setFCld("");
     setFCldRule("");
     setFMaxSess("0");
     setFMaxCps("0");
+    setFMcEnabled(false);
   }
 
   // ── Select destination handler ──────────────────────────────────────────────
@@ -138,9 +186,9 @@ export default function AuthStudioPage() {
     setSelectedDest(d);
     setSelectedRgId("");
     setPushResult(null);
-    if (d) {
-      setFCld(d.wildcard);
-      setFCldRule(d.cldRule);
+    if (d && d.label !== "Custom" && d.cc) {
+      setFCld(buildCldWildcard(fPrefix, fProductCode, d.cc));
+      setFCldRule(buildCldRule(fPrefix, fProductCode, d.cc));
     }
   }
 
@@ -154,22 +202,43 @@ export default function AuthStudioPage() {
   const pushMut = useMutation({
     mutationFn: async () => {
       if (!selectedAcct) throw new Error("No account selected.");
+
+      // Primary rule
       const body: Record<string, unknown> = {
-        iProtocol: 1, // SIP
-        ...(fRemoteIp ? { remoteIp:           fRemoteIp } : {}),
-        ...(fCld      ? { incomingCld:         fCld }      : {}),
-        ...(fCldRule  ? { cldTranslationRule:  fCldRule }  : {}),
+        iProtocol: 1,
+        ...(fRemoteIp  ? { remoteIp:           fRemoteIp  } : {}),
+        ...(fCld       ? { incomingCld:         fCld       } : {}),
+        ...(fCldRule   ? { cldTranslationRule:  fCldRule   } : {}),
         ...(selectedRg ? { iRoutingGroup: selectedRg.iRoutingGroup } : {}),
         ...(fMaxSess && fMaxSess !== "0" ? { maxSessions: parseInt(fMaxSess, 10) } : {}),
         ...(fMaxCps  && fMaxCps  !== "0" ? { maxCps:      parseInt(fMaxCps, 10) }  : {}),
       };
       const r = await apiRequest("POST", `/api/sippy/accounts/${selectedAcct.iAccount}/auth-rules`, body);
-      return r.json();
+      const primary = await r.json();
+
+      // Optional MC secondary rule
+      if (fMcEnabled && selectedDest && selectedDest.cc) {
+        const mcCld     = buildCldWildcard(fPrefix, fMcProductCode, selectedDest.cc);
+        const mcCldRule = buildCldRule(fPrefix, fMcProductCode, selectedDest.cc);
+        const mcBody: Record<string, unknown> = {
+          iProtocol: 1,
+          ...(fRemoteIp  ? { remoteIp:           fRemoteIp  } : {}),
+          incomingCld:        mcCld,
+          cldTranslationRule: mcCldRule,
+          ...(selectedRg ? { iRoutingGroup: selectedRg.iRoutingGroup } : {}),
+          ...(fMaxSess && fMaxSess !== "0" ? { maxSessions: parseInt(fMaxSess, 10) } : {}),
+          ...(fMaxCps  && fMaxCps  !== "0" ? { maxCps:      parseInt(fMaxCps, 10) }  : {}),
+        };
+        await apiRequest("POST", `/api/sippy/accounts/${selectedAcct.iAccount}/auth-rules`, mcBody);
+      }
+
+      return primary;
     },
     onSuccess: (data: any) => {
       if (data.success) {
-        setPushResult({ ok: true, msg: `Auth rule created (id=${data.iAuthentication})`, id: data.iAuthentication });
-        toast({ title: "Auth rule pushed to Sippy", description: `i_authentication = ${data.iAuthentication}` });
+        const extra = fMcEnabled ? " + MC rule" : "";
+        setPushResult({ ok: true, msg: `Auth rule created (id=${data.iAuthentication})${extra}`, id: data.iAuthentication });
+        toast({ title: "Auth rule pushed to Sippy", description: `i_authentication = ${data.iAuthentication}${extra}` });
         qc.invalidateQueries({ queryKey: ["/api/sippy/accounts", selectedAcct?.iAccount, "auth-rules"] });
         refetchAuth();
       } else {
@@ -196,6 +265,11 @@ export default function AuthStudioPage() {
   });
 
   const canPush = !!selectedAcct && (!!fRemoteIp || !!fCld);
+
+  // Derived IPs — prefer auth-rule IPs (accurate) over account list IPs (often empty)
+  const derivedIps: string[] = authRules.length > 0
+    ? [...new Set(authRules.map(r => r.remoteIp).filter((ip): ip is string => !!ip))]
+    : (selectedAcct?.allowedIps ?? []);
 
   // ── Step badges ──────────────────────────────────────────────────────────────
   const steps = [
@@ -313,8 +387,18 @@ export default function AuthStudioPage() {
                   <p className="font-medium mt-0.5">#{selectedAcct.iAccount}</p></div>
                 <div><span className="text-muted-foreground">Balance</span>
                   <p className="font-medium mt-0.5">{selectedAcct.currency} {selectedAcct.balance?.toFixed(4)}</p></div>
-                <div><span className="text-muted-foreground">Allowed IPs</span>
-                  <p className="font-medium mt-0.5">{(selectedAcct.allowedIps ?? []).length > 0 ? (selectedAcct.allowedIps ?? []).join(", ") : "None registered"}</p></div>
+                <div>
+                  <span className="text-muted-foreground">Registered IP</span>
+                  {loadingAuth ? (
+                    <p className="font-medium mt-0.5 text-muted-foreground flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" /> loading…
+                    </p>
+                  ) : derivedIps.length > 0 ? (
+                    <p className="font-medium font-mono mt-0.5 text-green-400">{derivedIps.join(", ")}</p>
+                  ) : (
+                    <p className="font-medium mt-0.5 text-muted-foreground">None registered</p>
+                  )}
+                </div>
               </div>
 
               {/* ── Step 1: Destination selector ── */}
@@ -327,15 +411,19 @@ export default function AuthStudioPage() {
                   <SelectContent>
                     {DESTINATIONS.map(d => (
                       <SelectItem key={d.label} value={d.label}>{d.label}
-                        {d.wildcard ? <span className="ml-2 text-muted-foreground text-xs">{d.wildcard}</span> : null}
+                        {d.cc ? <span className="ml-2 text-muted-foreground text-xs">+{d.cc}</span> : null}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {selectedDest && selectedDest.label !== "Custom" && (
+                {selectedDest && selectedDest.label !== "Custom" && selectedDest.cc && (
                   <div className="flex gap-2 flex-wrap">
-                    <Badge variant="secondary" className="text-xs">Prefix wildcard: {selectedDest.wildcard}</Badge>
-                    <Badge variant="secondary" className="text-xs">CLD rule: {selectedDest.cldRule}</Badge>
+                    <Badge variant="secondary" className="text-xs font-mono">
+                      CLD: {buildCldWildcard(fPrefix, fProductCode, selectedDest.cc)}
+                    </Badge>
+                    <Badge variant="secondary" className="text-xs font-mono">
+                      Rule: {buildCldRule(fPrefix, fProductCode, selectedDest.cc)}
+                    </Badge>
                     <Badge variant="outline" className="text-xs text-green-400 border-green-500/30">
                       {filteredRgs.length} routing group{filteredRgs.length !== 1 ? "s" : ""} matched
                     </Badge>
@@ -465,6 +553,45 @@ export default function AuthStudioPage() {
                   placeholder="e.g. 104.245.246.110"
                   className="mt-1 h-8 text-xs font-mono"
                   data-testid="input-remote-ip" />
+                {derivedIps.length > 1 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {derivedIps.map(ip => (
+                      <button key={ip} onClick={() => setFRemoteIp(ip)}
+                        className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors">
+                        {ip}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ── CLD formula inputs ── */}
+              <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">
+                  CLD Formula: <span className="text-orange-400 normal-case font-mono">prefix + product + CC</span>
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">4-digit Prefix</Label>
+                    <Input value={fPrefix} onChange={e => setFPrefix(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="6686" maxLength={4}
+                      className="mt-1 h-7 text-xs font-mono"
+                      data-testid="input-prefix" />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Product Code</Label>
+                    <Select value={fProductCode} onValueChange={setFProductCode}>
+                      <SelectTrigger className="mt-1 h-7 text-xs" data-testid="sel-product-code">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRODUCT_CODES.map(p => (
+                          <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </div>
 
               {/* Incoming CLD */}
@@ -473,7 +600,7 @@ export default function AuthStudioPage() {
                   Incoming CLD/DNIS <span className="text-violet-400">← destination prefix</span>
                 </Label>
                 <Input value={fCld} onChange={e => setFCld(e.target.value)}
-                  placeholder="e.g. 92*"
+                  placeholder="e.g. 6686192*"
                   className="mt-1 h-8 text-xs font-mono"
                   data-testid="input-incoming-cld" />
               </div>
@@ -484,7 +611,7 @@ export default function AuthStudioPage() {
                   CLD Tr. Rule <span className="text-orange-400">← auto-generated</span>
                 </Label>
                 <Input value={fCldRule} onChange={e => setFCldRule(e.target.value)}
-                  placeholder="e.g. s/^92/92/"
+                  placeholder="e.g. s/^6686192/192/"
                   className="mt-1 h-8 text-xs font-mono"
                   data-testid="input-cld-rule" />
               </div>
@@ -521,6 +648,43 @@ export default function AuthStudioPage() {
                 </div>
               </div>
 
+              {/* ── MC (Mobile Calling) secondary rule ── */}
+              <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Add MC Rule</Label>
+                  <button
+                    onClick={() => setFMcEnabled(v => !v)}
+                    data-testid="btn-toggle-mc"
+                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${fMcEnabled ? "bg-primary" : "bg-muted"}`}>
+                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${fMcEnabled ? "translate-x-3.5" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+                {fMcEnabled && selectedDest && selectedDest.cc && (
+                  <div className="space-y-1.5">
+                    <div>
+                      <Label className="text-[10px] text-muted-foreground">MC Product Code</Label>
+                      <Select value={fMcProductCode} onValueChange={setFMcProductCode}>
+                        <SelectTrigger className="mt-1 h-7 text-xs" data-testid="sel-mc-product-code">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PRODUCT_CODES.map(p => (
+                            <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="text-[10px] font-mono text-muted-foreground space-y-0.5 bg-background/60 rounded p-1.5">
+                      <p className="text-violet-400">{buildCldWildcard(fPrefix, fMcProductCode, selectedDest.cc)}</p>
+                      <p className="text-orange-400">{buildCldRule(fPrefix, fMcProductCode, selectedDest.cc)}</p>
+                    </div>
+                  </div>
+                )}
+                {fMcEnabled && (!selectedDest || !selectedDest.cc) && (
+                  <p className="text-[10px] text-muted-foreground">Select a destination first</p>
+                )}
+              </div>
+
               <Separator className="my-1" />
 
               {/* Push result */}
@@ -546,7 +710,7 @@ export default function AuthStudioPage() {
               >
                 {pushMut.isPending
                   ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Pushing…</>
-                  : "▶  Implement / Push to Sippy"}
+                  : `▶  Implement${fMcEnabled ? " (+ MC rule)" : ""} / Push to Sippy`}
               </Button>
 
               <p className="text-[10px] text-muted-foreground text-center">
