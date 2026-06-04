@@ -3516,3 +3516,26 @@ export const rtpQualityStats = pgTable("rtp_quality_stats", {
   computedAt:        timestamp("computed_at").defaultNow().notNull(),
 });
 export type RtpQualityStat = typeof rtpQualityStats.$inferSelect;
+
+// ── Reconciliation Report Schedules — recurring email delivery ────────────────
+export const reconciliationReportSchedules = pgTable("reconciliation_report_schedules", {
+  id:            serial("id").primaryKey(),
+  name:          varchar("name",         { length: 128 }).notNull(),
+  reportType:    varchar("report_type",  { length: 20 }).notNull().default('carrier'), // 'carrier' | 'client'
+  recipients:    text("recipients").notNull(),          // comma-separated emails
+  format:        varchar("format",       { length: 10 }).notNull().default('pdf'),    // 'pdf' | 'csv'
+  frequency:     varchar("frequency",    { length: 20 }).notNull().default('monthly'), // 'monthly' | 'weekly'
+  dayOfMonth:    integer("day_of_month").default(1),    // 1–28, used when frequency='monthly'
+  dayOfWeek:     integer("day_of_week"),                // 0=Sun … 6=Sat, used when frequency='weekly'
+  cronHour:      integer("cron_hour").notNull().default(8), // 0–23 UTC
+  carrierTariff: varchar("carrier_tariff", { length: 64 }), // optional carrier/tariff filter
+  enabled:       boolean("enabled").notNull().default(true),
+  lastSentAt:    timestamp("last_sent_at"),
+  nextDueAt:     timestamp("next_due_at"),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+});
+export type ReconciliationReportSchedule = typeof reconciliationReportSchedules.$inferSelect;
+export type InsertReconciliationReportSchedule = typeof reconciliationReportSchedules.$inferInsert;
+export const insertReconciliationReportScheduleSchema = createInsertSchema(reconciliationReportSchedules).omit({
+  id: true, createdAt: true, lastSentAt: true, nextDueAt: true,
+});

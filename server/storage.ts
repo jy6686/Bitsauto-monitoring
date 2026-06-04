@@ -141,6 +141,8 @@ import {
   workspaceDefinitions, workspaceTabs, workspaceTabItems,
   type WorkspaceDefinition, type WorkspaceTab, type WorkspaceTabItem,
   type WorkspaceTabWithItems, type WorkspaceWithTabs,
+  reconciliationReportSchedules,
+  type ReconciliationReportSchedule, type InsertReconciliationReportSchedule,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -404,6 +406,14 @@ export interface IStorage {
   deleteScheduledReport(id: number): Promise<void>;
   markReportSent(id: number, sentAt: Date, nextDueAt: Date): Promise<void>;
   getDueScheduledReports(): Promise<ScheduledReport[]>;
+
+  // Reconciliation Report Schedules
+  getReconciliationReportSchedules(): Promise<ReconciliationReportSchedule[]>;
+  createReconciliationReportSchedule(s: InsertReconciliationReportSchedule): Promise<ReconciliationReportSchedule>;
+  updateReconciliationReportSchedule(id: number, updates: Partial<InsertReconciliationReportSchedule>): Promise<ReconciliationReportSchedule | undefined>;
+  deleteReconciliationReportSchedule(id: number): Promise<void>;
+  markReconciliationReportSent(id: number, sentAt: Date, nextDueAt: Date): Promise<void>;
+  getDueReconciliationReportSchedules(): Promise<ReconciliationReportSchedule[]>;
 
   // Chat
   getChatRooms(): Promise<ChatRoom[]>;
@@ -1926,6 +1936,51 @@ export class DatabaseStorage implements IStorage {
     const now = new Date();
     return db.select().from(scheduledReports)
       .where(and(eq(scheduledReports.enabled, true), lt(scheduledReports.nextDueAt, now)));
+  }
+
+  // ── Reconciliation Report Schedules ──────────────────────────────────────────
+  async getReconciliationReportSchedules(): Promise<ReconciliationReportSchedule[]> {
+    return db.select().from(reconciliationReportSchedules).orderBy(desc(reconciliationReportSchedules.createdAt));
+  }
+
+  async createReconciliationReportSchedule(s: InsertReconciliationReportSchedule): Promise<ReconciliationReportSchedule> {
+    const nextDueAt = computeReconNextDueAt(s.frequency ?? 'monthly', s.dayOfMonth ?? 1, s.dayOfWeek ?? undefined, s.cronHour ?? 8);
+    const [row] = await db.insert(reconciliationReportSchedules).values({ ...s, nextDueAt }).returning();
+    return row;
+  }
+
+  async updateReconciliationReportSchedule(id: number, updates: Partial<InsertReconciliationReportSchedule>): Promise<ReconciliationReportSchedule | undefined> {
+    const extra: Partial<ReconciliationReportSchedule> = {};
+    if (updates.frequency || updates.dayOfMonth != null || updates.dayOfWeek != null || updates.cronHour != null) {
+      const existing = await db.select().from(reconciliationReportSchedules).where(eq(reconciliationReportSchedules.id, id)).then(r => r[0]);
+      if (existing) {
+        extra.nextDueAt = computeReconNextDueAt(
+          updates.frequency ?? existing.frequency,
+          updates.dayOfMonth ?? existing.dayOfMonth ?? 1,
+          (updates.dayOfWeek !== undefined ? updates.dayOfWeek : existing.dayOfWeek) ?? undefined,
+          updates.cronHour ?? existing.cronHour,
+        );
+      }
+    }
+    const [row] = await db.update(reconciliationReportSchedules)
+      .set({ ...updates, ...extra })
+      .where(eq(reconciliationReportSchedules.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteReconciliationReportSchedule(id: number): Promise<void> {
+    await db.delete(reconciliationReportSchedules).where(eq(reconciliationReportSchedules.id, id));
+  }
+
+  async markReconciliationReportSent(id: number, sentAt: Date, nextDueAt: Date): Promise<void> {
+    await db.update(reconciliationReportSchedules).set({ lastSentAt: sentAt, nextDueAt }).where(eq(reconciliationReportSchedules.id, id));
+  }
+
+  async getDueReconciliationReportSchedules(): Promise<ReconciliationReportSchedule[]> {
+    const now = new Date();
+    return db.select().from(reconciliationReportSchedules)
+      .where(and(eq(reconciliationReportSchedules.enabled, true), lt(reconciliationReportSchedules.nextDueAt, now)));
   }
 
   // ── Chat ────────────────────────────────────────────────────────────────────
@@ -3663,6 +3718,31 @@ export class DatabaseStorage implements IStorage {
 }
 
 // ── Standalone helpers ─────────────────────────────────────────────────────────
+
+/** Compute next trigger time for a reconciliation report schedule. */
+function computeReconNextDueAt(frequency: string, dayOfMonth: number, dayOfWeek: number | undefined, cronHour: number): Date {
+  const now = new Date();
+  if (frequency === 'weekly') {
+    const target = dayOfWeek ?? 1; // Monday default
+    const current = now.getDay();
+    let daysUntil = (target - current + 7) % 7;
+    if (daysUntil === 0) daysUntil = 7; // next week if same day
+    const next = new Date(now);
+    next.setDate(next.getDate() + daysUntil);
+    next.setHours(cronHour, 0, 0, 0);
+    return next;
+  }
+  // monthly
+  const day = Math.min(Math.max(dayOfMonth, 1), 28);
+  const next = new Date(now);
+  next.setDate(day);
+  next.setHours(cronHour, 0, 0, 0);
+  next.setMinutes(0, 0, 0);
+  if (next <= now) {
+    next.setMonth(next.getMonth() + 1);
+  }
+  return next;
+}
 
 function computeNextDueAt(frequency: string, cronHour?: number): Date {
   const now = new Date();

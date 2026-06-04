@@ -30,6 +30,7 @@ import {
   CheckCircle2, AlertTriangle, XCircle, Clock, RefreshCw, Search,
   Upload, Users, DollarSign, Info, TrendingDown, ThumbsUp, ShieldAlert,
   Download, FileText, Loader2, FileSpreadsheet, FileDown, Mail,
+  Calendar, Trash2, Plus, ToggleLeft, ToggleRight, Send, Pencil,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -180,6 +181,18 @@ export default function ClientReconciliationPage() {
     to: '', subject: 'Client Reconciliation Report', message: '', format: 'pdf' as 'pdf' | 'csv',
   });
 
+  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<ReconSchedule | null>(null);
+  const [scheduleForm, setScheduleForm] = useState({
+    name: 'Monthly Client Reconciliation',
+    recipients: '',
+    format: 'pdf' as 'pdf' | 'csv',
+    frequency: 'monthly' as 'monthly' | 'weekly',
+    dayOfMonth: 1,
+    dayOfWeek: 1,
+    cronHour: 8,
+  });
+
   const emailMutation = useMutation({
     mutationFn: (data: typeof emailForm) =>
       apiRequest("POST", "/api/client-reconciliation/export/email", {
@@ -193,6 +206,52 @@ export default function ClientReconciliationPage() {
     onError: (err: any) => {
       toast({ title: 'Email failed', description: err.message, variant: 'destructive' });
     },
+  });
+
+  interface ReconSchedule { id: number; name: string; reportType: string; recipients: string; format: string; frequency: string; dayOfMonth: number | null; dayOfWeek: number | null; cronHour: number; carrierTariff: string | null; enabled: boolean; lastSentAt: string | null; nextDueAt: string | null; createdAt: string; }
+  const { data: schedules = [], isLoading: schedulesLoading } = useQuery<ReconSchedule[]>({
+    queryKey: ["/api/reconciliation-report-schedules"],
+    select: (data) => data.filter(s => s.reportType === 'client'),
+  });
+
+  const createScheduleMut = useMutation({
+    mutationFn: (body: any) => apiRequest("POST", "/api/reconciliation-report-schedules", body).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Schedule created", description: "Report will be sent automatically on schedule." });
+      queryClient.invalidateQueries({ queryKey: ["/api/reconciliation-report-schedules"] });
+      setShowScheduleDialog(false);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const updateScheduleMut = useMutation({
+    mutationFn: ({ id, ...body }: any) => apiRequest("PATCH", `/api/reconciliation-report-schedules/${id}`, body).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Schedule updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/reconciliation-report-schedules"] });
+      setShowScheduleDialog(false);
+      setEditingSchedule(null);
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const toggleScheduleMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
+      apiRequest("PATCH", `/api/reconciliation-report-schedules/${id}`, { enabled }).then(r => r.json()),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/reconciliation-report-schedules"] }),
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteScheduleMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/reconciliation-report-schedules/${id}`).then(r => r.json()),
+    onSuccess: () => { toast({ title: "Schedule deleted" }); queryClient.invalidateQueries({ queryKey: ["/api/reconciliation-report-schedules"] }); },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const sendNowMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/reconciliation-report-schedules/${id}/send-now`).then(r => r.json()),
+    onSuccess: () => toast({ title: "Report sent", description: "The report was delivered immediately." }),
+    onError: (err: any) => toast({ title: "Send failed", description: err.message, variant: "destructive" }),
   });
 
   async function handleExport(type: 'csv' | 'pdf') {
@@ -470,6 +529,13 @@ export default function ClientReconciliationPage() {
               >
                 <Mail className="h-4 w-4 mr-2 text-blue-400" />
                 Email Report…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="button-schedule-report"
+                onClick={() => setShowScheduleDialog(true)}
+              >
+                <Calendar className="h-4 w-4 mr-2 text-violet-400" />
+                Schedule Report…
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -768,6 +834,238 @@ export default function ClientReconciliationPage() {
           </Form>
         </DialogContent>
       </Dialog>
+      {/* Schedule Report Dialog */}
+      <Dialog open={showScheduleDialog} onOpenChange={open => { setShowScheduleDialog(open); if (!open) setEditingSchedule(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-violet-400" />
+              {editingSchedule ? 'Edit Schedule' : 'Schedule Recurring Report'}
+            </DialogTitle>
+            <DialogDescription>
+              {editingSchedule
+                ? 'Update the settings for this recurring client reconciliation report.'
+                : 'Configure automatic email delivery of client reconciliation reports. Reports are generated for the active billing period at the scheduled time.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Schedule Name</Label>
+              <Input
+                data-testid="input-schedule-name"
+                value={scheduleForm.name}
+                onChange={e => setScheduleForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Monthly Client Reconciliation"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Recipients (comma-separated)</Label>
+              <Input
+                data-testid="input-schedule-recipients"
+                value={scheduleForm.recipients}
+                onChange={e => setScheduleForm(f => ({ ...f, recipients: e.target.value }))}
+                placeholder="finance@company.com, ops@company.com"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Format</Label>
+                <Select value={scheduleForm.format} onValueChange={v => setScheduleForm(f => ({ ...f, format: v as any }))}>
+                  <SelectTrigger data-testid="select-schedule-format"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pdf">PDF Report</SelectItem>
+                    <SelectItem value="csv">CSV Export</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Frequency</Label>
+                <Select value={scheduleForm.frequency} onValueChange={v => setScheduleForm(f => ({ ...f, frequency: v as any }))}>
+                  <SelectTrigger data-testid="select-schedule-frequency"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {scheduleForm.frequency === 'monthly' ? (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Day of Month (1–28)</Label>
+                  <Input
+                    data-testid="input-schedule-day-month"
+                    type="number"
+                    min={1}
+                    max={28}
+                    value={scheduleForm.dayOfMonth}
+                    onChange={e => setScheduleForm(f => ({ ...f, dayOfMonth: Number(e.target.value) }))}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Day of Week</Label>
+                  <Select value={String(scheduleForm.dayOfWeek)} onValueChange={v => setScheduleForm(f => ({ ...f, dayOfWeek: Number(v) }))}>
+                    <SelectTrigger data-testid="select-schedule-day-week"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((d, i) => (
+                        <SelectItem key={i} value={String(i)}>{d}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Hour (UTC, 0–23)</Label>
+                <Input
+                  data-testid="input-schedule-hour"
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={scheduleForm.cronHour}
+                  onChange={e => setScheduleForm(f => ({ ...f, cronHour: Number(e.target.value) }))}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowScheduleDialog(false); setEditingSchedule(null); }}>Cancel</Button>
+            {editingSchedule ? (
+              <Button
+                data-testid="button-save-schedule"
+                disabled={updateScheduleMut.isPending || !scheduleForm.name.trim() || !scheduleForm.recipients.trim()}
+                onClick={() => updateScheduleMut.mutate({
+                  id: editingSchedule.id,
+                  name: scheduleForm.name.trim(),
+                  recipients: scheduleForm.recipients.trim(),
+                  format: scheduleForm.format,
+                  frequency: scheduleForm.frequency,
+                  dayOfMonth: scheduleForm.frequency === 'monthly' ? scheduleForm.dayOfMonth : 1,
+                  dayOfWeek: scheduleForm.frequency === 'weekly' ? scheduleForm.dayOfWeek : null,
+                  cronHour: scheduleForm.cronHour,
+                })}
+              >
+                {updateScheduleMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Pencil className="h-4 w-4 mr-2" />}
+                Save Changes
+              </Button>
+            ) : (
+              <Button
+                data-testid="button-create-schedule"
+                disabled={createScheduleMut.isPending || !scheduleForm.name.trim() || !scheduleForm.recipients.trim()}
+                onClick={() => createScheduleMut.mutate({
+                  name: scheduleForm.name.trim(),
+                  reportType: 'client',
+                  recipients: scheduleForm.recipients.trim(),
+                  format: scheduleForm.format,
+                  frequency: scheduleForm.frequency,
+                  dayOfMonth: scheduleForm.frequency === 'monthly' ? scheduleForm.dayOfMonth : 1,
+                  dayOfWeek: scheduleForm.frequency === 'weekly' ? scheduleForm.dayOfWeek : null,
+                  cronHour: scheduleForm.cronHour,
+                  enabled: true,
+                })}
+              >
+                {createScheduleMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                Create Schedule
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Scheduled Reports Panel */}
+      {(schedules.length > 0 || schedulesLoading) && (
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-violet-400" />
+              <h3 className="font-semibold text-sm">Client Reconciliation Schedules</h3>
+              <Badge variant="outline" className="text-xs">{schedules.length}</Badge>
+            </div>
+            <Button variant="outline" size="sm" data-testid="button-add-schedule" onClick={() => setShowScheduleDialog(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add Schedule
+            </Button>
+          </div>
+          <div className="px-6 py-4 space-y-2">
+            {schedulesLoading && <p className="text-xs text-muted-foreground">Loading schedules…</p>}
+            {schedules.map(s => (
+              <div key={s.id} data-testid={`row-schedule-${s.id}`} className="flex items-center justify-between p-3 rounded-lg border border-border/40 bg-muted/5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm">{s.name}</span>
+                    <Badge variant="outline" className="text-[11px] text-violet-400 border-violet-500/30">
+                      {s.frequency === 'monthly' ? `Monthly day ${s.dayOfMonth}` : `Weekly ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][s.dayOfWeek ?? 1]}`}
+                    </Badge>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted/20 text-muted-foreground uppercase">{s.format}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted/20 text-muted-foreground">{s.cronHour}:00 UTC</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{s.recipients}</p>
+                  {s.lastSentAt && <p className="text-[10px] text-muted-foreground/60 mt-0.5 flex items-center gap-1"><Clock className="h-3 w-3" />Last sent: {new Date(s.lastSentAt).toLocaleString()}</p>}
+                  {s.nextDueAt && <p className="text-[10px] text-muted-foreground/60 mt-0.5">Next: {new Date(s.nextDueAt).toLocaleString()}</p>}
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0 ml-3">
+                  <Button
+                    variant="ghost" size="sm" title="Edit schedule"
+                    data-testid={`button-edit-schedule-${s.id}`}
+                    onClick={() => {
+                      setEditingSchedule(s);
+                      setScheduleForm({
+                        name: s.name,
+                        recipients: s.recipients,
+                        format: s.format as 'pdf' | 'csv',
+                        frequency: s.frequency as 'monthly' | 'weekly',
+                        dayOfMonth: s.dayOfMonth ?? 1,
+                        dayOfWeek: s.dayOfWeek ?? 1,
+                        cronHour: s.cronHour,
+                      });
+                      setShowScheduleDialog(true);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-yellow-400" />
+                  </Button>
+                  <Button
+                    variant="ghost" size="sm" title="Send now"
+                    data-testid={`button-send-now-${s.id}`}
+                    onClick={() => sendNowMut.mutate(s.id)}
+                    disabled={sendNowMut.isPending}
+                  >
+                    <Send className="h-3.5 w-3.5 text-blue-400" />
+                  </Button>
+                  <Button
+                    variant="ghost" size="sm" title={s.enabled ? 'Disable' : 'Enable'}
+                    data-testid={`button-toggle-schedule-${s.id}`}
+                    onClick={() => toggleScheduleMut.mutate({ id: s.id, enabled: !s.enabled })}
+                  >
+                    {s.enabled ? <ToggleRight className="h-3.5 w-3.5 text-emerald-400" /> : <ToggleLeft className="h-3.5 w-3.5 text-muted-foreground" />}
+                  </Button>
+                  <Button
+                    variant="ghost" size="sm" title="Delete"
+                    data-testid={`button-delete-schedule-${s.id}`}
+                    onClick={() => deleteScheduleMut.mutate(s.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add schedule prompt when none exist */}
+      {!schedulesLoading && schedules.length === 0 && (
+        <div className="flex items-center justify-between p-4 rounded-lg border border-dashed border-violet-500/30 bg-violet-500/5">
+          <div className="flex items-center gap-3">
+            <Calendar className="h-5 w-5 text-violet-400 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium">No recurring report schedules</p>
+              <p className="text-xs text-muted-foreground">Set up automatic email delivery so finance teams receive reconciliation reports without logging in.</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" data-testid="button-add-first-schedule" onClick={() => setShowScheduleDialog(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> Schedule Report
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
