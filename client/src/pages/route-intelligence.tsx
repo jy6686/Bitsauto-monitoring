@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, Fragment } from "react";
+import { useState, useCallback, useEffect, useRef, Fragment, useMemo } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -3023,6 +3023,21 @@ function SipErrorsTab() {
 
   const vendors = data?.vendors ?? [];
   const spikeVendors = vendors.filter(v => v.hasSpike);
+
+  const estimatedRows = useMemo(() => {
+    if (!data?.vendors?.length) return null;
+    const filteredVendors = exportVendor
+      ? data.vendors.filter(v => v.vendorName === exportVendor)
+      : data.vendors;
+    let count = 0;
+    for (const v of filteredVendors) {
+      const windowCodes = v.windows[activeWin] ?? {};
+      for (const code of Object.keys(windowCodes)) {
+        if (!exportCode || code === exportCode) count++;
+      }
+    }
+    return count;
+  }, [data, exportVendor, exportCode, activeWin]);
   const spikeVendorNames = new Set(spikeVendors.map(v => v.vendorName));
   const windowLabel: Record<number, string> = { 15: "15 min", 60: "1 hr", 240: "4 hr" };
   const prefixRows = copilotData?.prefixRows ?? [];
@@ -3170,6 +3185,11 @@ function SipErrorsTab() {
               >
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
+                {estimatedRows !== null && (
+                  <span data-testid="sip-errors-export-row-count" className="text-muted-foreground/50">
+                    · ~{estimatedRows} rows
+                  </span>
+                )}
               </a>
             ) : (
               <span
@@ -3179,6 +3199,11 @@ function SipErrorsTab() {
               >
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
+                {estimatedRows !== null && (
+                  <span data-testid="sip-errors-export-row-count" className="text-muted-foreground/25">
+                    · ~{estimatedRows} rows
+                  </span>
+                )}
               </span>
             )}
           </div>
