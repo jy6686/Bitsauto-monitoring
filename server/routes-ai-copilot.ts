@@ -39,8 +39,9 @@ import {
   requiresDualApproval,
 } from "./action-executor";
 import { db } from "./db";
-import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache, nocIncidents, nocIncidentEvents } from "../shared/schema";
-import { desc, gte, sql } from "drizzle-orm";
+import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache, nocIncidents, nocIncidentEvents, incidents } from "../shared/schema";
+import { desc, gte, sql, eq, and } from "drizzle-orm";
+import { INC_TYPES } from "./incident-engine";
 import { broadcastRollbackFailureAlert, broadcastPendingApproval } from "./noc-ws";
 import { sendPendingApprovalNotifications } from "./email";
 
@@ -1145,10 +1146,25 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
     async (_req: any, res: any) => {
       try {
-        const [snapshot, prefixRows] = await Promise.all([
+        const [snapshot, prefixRows, activeAlertIncidents] = await Promise.all([
           loadSipErrorSnapshot(),
           loadSipPrefixSnapshot(),
+          db.select({ id: incidents.id, entityId: incidents.entityId }).from(incidents).where(
+            and(
+              eq(incidents.incidentType, INC_TYPES.SIP_ERROR_RATE),
+              eq(incidents.status, 'active'),
+            )
+          ).catch(() => [] as { id: number; entityId: string | null }[]),
         ]);
+
+        // Build a set of vendor names that have active SIP_ERROR_RATE incidents
+        const activeAlertVendors = new Set(
+          activeAlertIncidents
+            .map(inc => (inc.entityId ?? '').split(':')[0])
+            .filter(Boolean)
+        );
+        const hasActiveAlert = activeAlertIncidents.length > 0;
+
         const vendors = snapshot.map(snap => ({
           vendorName:      snap.vendorName,
           topCode:         snap.topCode,
@@ -1156,9 +1172,10 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           maxRate:         snap.maxRate,
           hasCongestion:   snap.hasCongestion,
           hasCliRejection: snap.hasCliRejection,
+          hasActiveAlert:  activeAlertVendors.has(snap.vendorName),
           windows:         snap.windows,
         }));
-        res.json({ success: true, vendors, prefixRows, computedAt: new Date().toISOString() });
+        res.json({ success: true, vendors, prefixRows, hasActiveAlert, computedAt: new Date().toISOString() });
       } catch (err: any) {
         console.error("[copilot/sip-errors] Error:", err.message);
         res.status(500).json({ success: false, error: err.message });

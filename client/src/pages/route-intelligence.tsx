@@ -1575,6 +1575,7 @@ interface SipVendorSnapshot {
   maxRate: number;
   hasCongestion: boolean;
   hasCliRejection: boolean;
+  hasActiveAlert: boolean;
   windows: {
     [mins: number]: {
       [code: number]: { count: number; rate: number };
@@ -1594,6 +1595,7 @@ interface SipErrorData {
   success: boolean;
   vendors: SipVendorSnapshot[];
   prefixRows: SipPrefixRow[];
+  hasActiveAlert: boolean;
   computedAt: string;
 }
 
@@ -1718,9 +1720,8 @@ function SipErrorPanel() {
 
   const { data, isLoading } = useQuery<SipErrorData>({
     queryKey: ["/api/copilot/sip-errors"],
-    enabled: open,
     staleTime: 5 * 60 * 1000,
-    refetchInterval: open ? 5 * 60 * 1000 : false,
+    refetchInterval: 5 * 60 * 1000,
   });
 
   const { data: histData } = useQuery<SipErrorHistoryData>({
@@ -1741,6 +1742,7 @@ function SipErrorPanel() {
   const vendors = data?.vendors ?? [];
   const prefixRows = data?.prefixRows ?? [];
   const hasData = vendors.length > 0;
+  const hasActiveAlert = data?.hasActiveAlert ?? false;
 
   const windowLabel: Record<number, string> = { 15: "15 min", 60: "1 hr", 240: "4 hr" };
 
@@ -1759,11 +1761,21 @@ function SipErrorPanel() {
               {vendors.length} vendor{vendors.length !== 1 ? "s" : ""} · {vendors.filter(v => v.maxRate > 10).length} flagged
             </span>
           )}
-          {vendors.some(v => v.hasCongestion || v.hasCliRejection) && (
-            <span className="text-[10px] font-bold uppercase tracking-wide text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+          {hasActiveAlert ? (
+            <span
+              data-testid="sip-error-active-alert-badge"
+              className="text-[10px] font-bold uppercase tracking-wide text-red-500 bg-red-500/10 border border-red-500/30 px-1.5 py-0.5 rounded animate-pulse"
+            >
+              Active Alert
+            </span>
+          ) : vendors.some(v => v.hasCongestion || v.hasCliRejection) ? (
+            <span
+              data-testid="sip-error-alert-badge"
+              className="text-[10px] font-bold uppercase tracking-wide text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded"
+            >
               Alert
             </span>
-          )}
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}

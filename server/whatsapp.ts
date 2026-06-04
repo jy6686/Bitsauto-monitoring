@@ -2,7 +2,7 @@
 import { storage } from './storage';
 import { sendMetaDirectText, sendMetaOtpTemplate } from './services/meta-cloud-api/index';
 
-export type WaAlertType = 'fas' | 'balance' | 'traffic' | 'auth' | 'outage' | 'quality' | 'test';
+export type WaAlertType = 'fas' | 'balance' | 'traffic' | 'auth' | 'outage' | 'quality' | 'sip_error' | 'test';
 
 // ── Provider senders ───────────────────────────────────────────────────────
 
@@ -120,6 +120,25 @@ export function formatOutageAlert(opts: { event: 'down' | 'recovered'; host: str
     `🕒 ${new Date().toUTCString()}`,
     '━━━━━━━━━━━━━━━━━━',
     opts.event === 'down' ? '_Immediate investigation required!_' : '_Service restored._',
+  ].join('\n');
+}
+
+export function formatSipErrorAlert(opts: {
+  vendorName: string;
+  alerts: Array<{ codeLabel: string; rate: number }>;
+  threshold: number;
+}): string {
+  const alertLines = opts.alerts.map(a => `  • ${a.codeLabel}: *${a.rate.toFixed(1)}%* (threshold ${opts.threshold}%)`);
+  return [
+    '🚨 *SIP Error Rate Alert* 🚨',
+    '━━━━━━━━━━━━━━━━━━',
+    `📡 *Platform:* Bitsauto Monitoring`,
+    `🏢 *Vendor:* ${opts.vendorName}`,
+    `⚠️ *Threshold crossed (15-min window):*`,
+    ...alertLines,
+    `🕒 ${new Date().toUTCString()}`,
+    '━━━━━━━━━━━━━━━━━━',
+    '_Review vendor routing and consider failover._',
   ].join('\n');
 }
 

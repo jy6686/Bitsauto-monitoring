@@ -107,7 +107,7 @@ export const settings = pgTable("settings", {
   whatsappPhones:      text("whatsapp_phones"),           // comma-separated E.164 e.g. +923001234567,+441234567890
   whatsappApiKey:      varchar("whatsapp_api_key",     { length: 255 }), // CallMeBot apikey OR UltraMsg token
   whatsappInstanceId:  varchar("whatsapp_instance_id", { length: 128 }), // UltraMsg instance ID only
-  whatsappAlertTypes:  text("whatsapp_alert_types").default('fas,balance,traffic,outage,auth'), // CSV
+  whatsappAlertTypes:  text("whatsapp_alert_types").default('fas,balance,traffic,outage,auth,sip_error'), // CSV
   // Call Recordings
   recordingServerUrl:  varchar("recording_server_url", { length: 512 }), // Base URL of recording server, e.g. https://rec.example.com
   // Grafana embed
@@ -147,6 +147,8 @@ export const settings = pgTable("settings", {
   invoiceSmtpPass:      varchar("invoice_smtp_pass",       { length: 512 }),
   invoiceSmtpFromName:  varchar("invoice_smtp_from_name",  { length: 255 }).default('Bitsauto Finance'),
   invoiceSmtpFromEmail: varchar("invoice_smtp_from_email", { length: 255 }),
+  // SIP Error Rate alerting threshold — percentage (15-min window) above which an incident fires
+  sipErrorAlertThreshold: real("sip_error_alert_threshold").default(15),
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports

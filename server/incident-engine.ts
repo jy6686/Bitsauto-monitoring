@@ -9,6 +9,7 @@ export const INC_TYPES = {
   ACCOUNT_HEALTH:   'ACCOUNT_HEALTH',
   FAS_SPIKE:        'FAS_SPIKE',
   ACCOUNT_EXPOSURE: 'ACCOUNT_EXPOSURE',
+  SIP_ERROR_RATE:   'SIP_ERROR_RATE',
 } as const;
 
 // ── Lifecycle event logger ─────────────────────────────────────────────────────
@@ -337,4 +338,80 @@ export async function runIncidentEngine(): Promise<{ opened: number; updated: nu
     console.error('[incident-engine] Error:', e.message);
     return { opened, updated, resolved };
   }
+}
+
+// ── SIP Error Rate incident checker ───────────────────────────────────────────
+// Called from the SIP error aggregator after each CDR pass.
+// vendorStats: array of { vendorName, code, rate } for the 15-min window.
+// threshold: percentage (e.g. 15 = 15%) above which an incident fires.
+// Returns list of vendor+code pairs whose incidents were newly opened.
+export async function runSipErrorRateCheck(
+  vendorStats: Array<{ vendorName: string; code: number; rate: number; codeLabel: string }>,
+  threshold: number,
+): Promise<Array<{ vendorName: string; code: number; rate: number; codeLabel: string }>> {
+  const newlyOpened: Array<{ vendorName: string; code: number; rate: number; codeLabel: string }> = [];
+
+  try {
+    // Build the set of currently-firing vendor×code pairs
+    const firingKeys = new Set<string>();
+
+    for (const stat of vendorStats) {
+      const entityId = `${stat.vendorName}:${stat.code}`;
+      if (stat.rate < threshold) continue;
+
+      firingKeys.add(entityId);
+
+      const severity = stat.rate >= threshold * 2 ? 'critical' : 'high';
+      const result = await upsertIncident({
+        entityType:      'vendor',
+        entityId,
+        entityName:      stat.vendorName,
+        incidentType:    INC_TYPES.SIP_ERROR_RATE,
+        severity,
+        confidence:      Math.min(95, 70 + Math.round(stat.rate / 2)),
+        title:           `${stat.vendorName}: ${stat.codeLabel} rate ${stat.rate.toFixed(1)}% (15 min)`,
+        summary:         `${stat.codeLabel} error rate crossed ${threshold}% threshold on the 15-minute window.`,
+        reasons:         [
+          `${stat.codeLabel} rate: ${stat.rate.toFixed(1)}% in the last 15 minutes`,
+          `Threshold: ${threshold}%`,
+        ],
+        suggestedAction: stat.code === 503
+          ? 'Check carrier congestion and consider route failover to an alternate vendor.'
+          : stat.code === 486
+          ? 'High busy rate — check destination capacity and trunk group limits.'
+          : 'Investigate vendor routing and SIP signalling for this error pattern.',
+        source: 'sip_error_aggregator',
+      });
+
+      if (result === 'opened') {
+        newlyOpened.push(stat);
+      }
+    }
+
+    // Auto-resolve incidents whose rate has now dropped below threshold
+    const activeIncidents = await db.select().from(incidents).where(
+      and(
+        eq(incidents.incidentType, INC_TYPES.SIP_ERROR_RATE),
+        eq(incidents.status, 'active'),
+      )
+    );
+
+    const now = new Date();
+    for (const inc of activeIncidents) {
+      if (!firingKeys.has(inc.entityId ?? '')) {
+        await db.update(incidents)
+          .set({ status: 'resolved', resolvedAt: now, updatedAt: now })
+          .where(eq(incidents.id, inc.id));
+        await logLifecycle(inc.id, 'active', 'resolved', `Auto-resolved: SIP error rate dropped below ${threshold}% threshold`);
+      }
+    }
+
+    if (newlyOpened.length > 0) {
+      console.log(`[incident-engine] SIP_ERROR_RATE: ${newlyOpened.length} new incident(s) opened`);
+    }
+  } catch (e: any) {
+    console.error('[incident-engine] SIP error rate check error:', e.message);
+  }
+
+  return newlyOpened;
 }

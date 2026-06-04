@@ -27,6 +27,9 @@
 import { db } from "../../db";
 import { sipErrorStats } from "../../../shared/schema";
 import { Pool } from "pg";
+import { runSipErrorRateCheck } from "../../incident-engine";
+import { storage } from "../../storage";
+import { sendWhatsAppAlert, formatSipErrorAlert } from "../../whatsapp";
 
 export const SIP_ERROR_CODES = [503, 486, 480, 404, 603, 487] as const;
 export type SipErrorCode = typeof SIP_ERROR_CODES[number];
@@ -317,6 +320,42 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
     const vendorCount = new Set(rows.filter(r => !r.dest_prefix).map(r => r.vendor_name)).size;
     const prefixCount = new Set(rows.filter(r => r.dest_prefix).map(r => r.dest_prefix)).size;
     console.log(`[sip-error-agg] Bucket ${timeBucket.toISOString()} — ${rows.length} rows for ${vendorCount} vendor(s), ${prefixCount} prefix(es) from ${cdrsProcessed} CDRs`);
+
+    // ── Post-aggregation alert check ──────────────────────────────────────────
+    // Build a flat list of 15-min vendor×code stats for the incident check
+    const vendorStats15m: Array<{ vendorName: string; code: number; rate: number; codeLabel: string }> = [];
+    for (const row of rows) {
+      if (row.window_minutes === 15 && row.dest_prefix === null) {
+        vendorStats15m.push({
+          vendorName: row.vendor_name,
+          code:       row.code,
+          rate:       row.rate,
+          codeLabel:  CODE_LABELS[row.code] ?? String(row.code),
+        });
+      }
+    }
+
+    if (vendorStats15m.length > 0) {
+      const settings = await storage.getSettings().catch(() => null);
+      const threshold = settings?.sipErrorAlertThreshold ?? 15;
+
+      const newlyOpened = await runSipErrorRateCheck(vendorStats15m, threshold);
+
+      // Dispatch WhatsApp for each newly-opened vendor (group alerts per vendor)
+      if (newlyOpened.length > 0) {
+        const byVendor = new Map<string, Array<{ codeLabel: string; rate: number }>>();
+        for (const s of newlyOpened) {
+          if (!byVendor.has(s.vendorName)) byVendor.set(s.vendorName, []);
+          byVendor.get(s.vendorName)!.push({ codeLabel: s.codeLabel, rate: s.rate });
+        }
+        for (const [vendorName, alerts] of byVendor) {
+          const msg = formatSipErrorAlert({ vendorName, alerts, threshold });
+          sendWhatsAppAlert('sip_error', msg).catch((e: any) =>
+            console.warn('[sip-error-agg] WhatsApp alert error:', e.message)
+          );
+        }
+      }
+    }
   } catch (err: any) {
     console.warn('[sip-error-agg] Aggregation error (non-fatal):', err.message);
   } finally {
