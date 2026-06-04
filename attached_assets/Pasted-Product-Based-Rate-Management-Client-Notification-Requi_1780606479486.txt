@@ -1,0 +1,274 @@
+Product-Based Rate Management & Client Notification Requirements
+
+1. Product Classification Framework
+
+The platform should support multiple products under the same customer tariff.
+
+Example Products
+
+* First Class
+* Business Class
+* Special Bravo
+* Special Charlie
+
+Each product must have:
+
+* Unique Product ID
+* Product Name
+* Product Description
+* Product Type
+* Product-Specific Rate Sheet
+* Product-Specific Effective Dates
+
+⸻
+
+2. Customer Tariff Structure
+
+A customer should have a single tariff profile.
+
+Example
+
+Customer: Junaid
+
+Tariff: Junaid Wholesale
+
+Products within Tariff:
+
+* First Class
+* Business Class
+* Special Bravo
+* Special Charlie
+
+The tariff remains the same, but each product maintains its own independent rate sheet.
+
+Example
+
+Pakistan Mobile
+
+First Class = 0.0200
+
+Business Class = 0.0180
+
+Special Bravo = 0.0160
+
+Special Charlie = 0.0140
+
+The same destination appears multiple times within the tariff, one entry for each product.
+
+⸻
+
+3. Product Identification & Documentation
+
+The system should clearly indicate:
+
+* Which destination belongs to which product.
+* Which rate sheet was used.
+* Which vendor supplied the rate.
+* Which customer rate was generated from that product.
+
+Users should be able to view:
+
+* Product Name
+* Last Updated Date
+* Previous Rate
+* Current Rate
+* Vendor Source
+* Customer Rate History
+
+⸻
+
+4. Product-Based Rate Repository
+
+The platform should store rate sheets separately for each product.
+
+Example
+
+Pakistan Mobile
+
+Rate Sheet:
+
+* First Class
+* Business Class
+* Special Bravo
+* Special Charlie
+
+Each rate sheet should be maintained independently.
+
+The database must retain:
+
+* Historical rates
+* Effective dates
+* Previous versions
+* Change history
+
+⸻
+
+5. Rate History & Audit Tracking
+
+For every destination and product, the platform should record:
+
+* Last Offered Rate
+* Offer Date
+* Current Rate
+* Previous Rate
+* Rate Increase
+* Rate Decrease
+* Customer Name
+* User Name
+
+Example
+
+Pakistan Mobile
+
+Product: Business Class
+
+Customer Rate Sent:
+
+* January 2026 = 0.0180
+* March 2026 = 0.0190
+* June 2026 = 0.0210
+
+Users should instantly see the complete history.
+
+⸻
+
+6. Automated Customer Impact Analysis
+
+When vendor rates change, the system should automatically identify affected customers.
+
+Example
+
+Vendor Rate
+
+Previous:
+0.0180
+
+New:
+0.0190
+
+Effective:
+7 Days
+
+The system should automatically compare:
+
+* Customer Selling Rate
+* Current Cost
+* Margin
+* Effective Date
+
+⸻
+
+7. Seven-Day Rate Increase Notification Engine
+
+Wholesale customers typically require 7-day advance notice.
+
+The platform should automatically generate alerts when vendor rate increases are received.
+
+Alert Conditions
+
+Vendor submits:
+
+Pakistan Mobile
+
+Current Cost:
+0.0180
+
+New Cost:
+0.0190
+
+Effective:
+7 Days
+
+The system should:
+
+* Identify impacted customers.
+* Calculate new margins.
+* Determine whether customer rates require adjustment.
+* Generate notification tasks.
+
+⸻
+
+8. Smart Alert Logic
+
+Alerts should only be generated when action is required.
+
+Example 1
+
+Customer Rate:
+0.0250
+
+New Vendor Cost:
+0.0190
+
+Margin remains sufficient.
+
+Result:
+No alert required.
+
+Example 2
+
+Customer Rate:
+0.0191
+
+New Vendor Cost:
+0.0190
+
+Margin becomes critically low.
+
+Result:
+Alert required.
+
+Example 3
+
+Customer already received updated pricing.
+
+Result:
+No duplicate alert generated.
+
+⸻
+
+9. Customer Rate Recommendation List
+
+Seven days before implementation, the platform should generate a list showing:
+
+* Customer Name
+* Product Name
+* Destination
+* Current Customer Rate
+* New Recommended Rate
+* Vendor Increase Amount
+* Effective Date
+* Margin Impact
+
+This becomes the operational work queue for the pricing team.
+
+⸻
+
+10. Rate Sheet Distribution Management
+
+The platform should automatically prepare customer-specific rate sheets.
+
+Features:
+
+* Product-based exports.
+* Customer-specific pricing.
+* Wholesale pricing.
+* Retail pricing.
+* Scheduled distribution.
+* Email delivery.
+* Approval workflow before sending.
+
+⸻
+
+Expected Outcome
+
+The platform should function as a complete Product-Based Pricing Management System that:
+
+* Maintains separate rate sheets for each product.
+* Stores full historical pricing records.
+* Tracks customer rate offers and revisions.
+* Identifies affected customers when vendor costs increase.
+* Generates automatic 7-day advance notice alerts.
+* Prevents duplicate notifications.
+* Provides product-level visibility and reporting.
+* Enables efficient wholesale and retail rate management.
