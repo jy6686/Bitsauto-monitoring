@@ -56,6 +56,7 @@ export interface AiRouteRecommendation {
   currentVendor?: string;
   targetVendor?: string;
   destination?: string;
+  autoTriggered?: boolean;
   fraudSignals?: {
     fasCount: number;
     irsfCount: number;
@@ -73,6 +74,8 @@ export interface CopilotResult {
   generatedAt: string;
   mode: "ai_enhanced" | "rule_based_preview";
   warning?: string;
+  autoTriggered?: boolean;
+  triggerReason?: string;
   recommendations: AiRouteRecommendation[];
   summary: {
     totalCarriers: number;
@@ -466,6 +469,70 @@ function validateAiOutput(raw: any, baseline: AiRouteRecommendation[]): AiRouteR
     fraudSignals: baseline[i]?.fraudSignals ?? item.fraudSignals,
     simulate: baseline[i]?.simulate ?? item.simulate ?? { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
   }));
+}
+
+// ── Auto-trigger queue ────────────────────────────────────────────────────────
+// Non-blocking, low-priority: only one auto-analysis runs at a time.
+// If a new sustained-503 event fires while one is in progress, it is coalesced.
+
+let _autoTriggerPending: { vendorName: string; rate: number } | null = null;
+let _autoTriggerRunning = false;
+
+// Callback invoked by routes-ai-copilot.ts after a successful auto-triggered run.
+let _onAutoTriggerComplete: ((result: CopilotResult) => void) | null = null;
+
+export function setAutoTriggerCompleteCallback(fn: (result: CopilotResult) => void): void {
+  _onAutoTriggerComplete = fn;
+}
+
+/**
+ * Enqueue an automatic copilot analysis triggered by a sustained-503 condition.
+ * Non-blocking: returns immediately. Only one analysis runs at a time (coalesced).
+ */
+export function enqueueAutoTriggeredAnalysis(vendorName: string, rate: number): void {
+  // Coalesce: if already pending/running, just update the pending trigger
+  _autoTriggerPending = { vendorName, rate };
+  if (_autoTriggerRunning) {
+    console.debug(`[copilot-auto] Analysis already running — coalesced trigger for ${vendorName}`);
+    return;
+  }
+  _processAutoTriggerQueue();
+}
+
+async function _processAutoTriggerQueue(): Promise<void> {
+  while (_autoTriggerPending) {
+    const { vendorName, rate } = _autoTriggerPending;
+    _autoTriggerPending = null;
+    _autoTriggerRunning = true;
+    try {
+      console.log(`[copilot-auto] Starting auto-triggered analysis — reason: ${vendorName} sustained 503 @ ${rate.toFixed(1)}%`);
+      const result = await runRouteCopilot();
+
+      // Flag the full result and relevant recommendations
+      const triggerReason = `Sustained SIP 503 from ${vendorName} (${rate.toFixed(1)}% over consecutive 15-min windows)`;
+      const autoResult: CopilotResult = {
+        ...result,
+        autoTriggered: true,
+        triggerReason,
+        recommendations: result.recommendations.map(rec => ({
+          ...rec,
+          autoTriggered:
+            rec.currentVendor === vendorName ||
+            rec.targetVendor  === vendorName ||
+            rec.action.toLowerCase().includes(vendorName.toLowerCase()),
+        })),
+      };
+
+      if (_onAutoTriggerComplete) {
+        _onAutoTriggerComplete(autoResult);
+      }
+      console.log(`[copilot-auto] Auto-triggered analysis complete — ${autoResult.recommendations.length} recommendations`);
+    } catch (err: any) {
+      console.warn(`[copilot-auto] Auto-triggered analysis failed (non-fatal): ${err.message}`);
+    } finally {
+      _autoTriggerRunning = false;
+    }
+  }
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────

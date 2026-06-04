@@ -7,9 +7,9 @@
  */
 
 import type { Express } from "express";
-import { runRouteCopilot, AiContractError } from "./services/ai/route-copilot";
+import { runRouteCopilot, AiContractError, enqueueAutoTriggeredAnalysis, setAutoTriggerCompleteCallback } from "./services/ai/route-copilot";
 import type { CopilotResult } from "./services/ai/route-copilot";
-import { startSipErrorAggregator, loadSipErrorSnapshot, loadSipPrefixSnapshot, loadSipErrorHistory, CODE_LABELS } from "./services/ai/sip-error-aggregator";
+import { startSipErrorAggregator, loadSipErrorSnapshot, loadSipPrefixSnapshot, loadSipErrorHistory, CODE_LABELS, sipErrorEmitter, updateSustained503Settings } from "./services/ai/sip-error-aggregator";
 import {
   listActions,
   createAction,
@@ -62,6 +62,15 @@ let _summaryCache: { value: object; expiresAt: number } | null = null;
 // Persists the most recent successful analysis so the page pre-populates on reload.
 const COPILOT_RESULT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 let _lastCopilotResult: { value: CopilotResult; expiresAt: number } | null = null;
+
+// ── Copilot 503 settings (in-memory, persisted to DB) ────────────────────────
+interface Copilot503Settings {
+  thresholdPct: number;   // 503 rate % that triggers detection
+  sustainWindows: number; // number of consecutive 15-min windows required
+}
+
+const DEFAULT_503_SETTINGS: Copilot503Settings = { thresholdPct: 15, sustainWindows: 2 };
+let _503Settings: Copilot503Settings = { ...DEFAULT_503_SETTINGS };
 
 export function invalidateCopilotSummaryCache(): void {
   _summaryCache = null;
@@ -1097,6 +1106,74 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     `TTL resolved at runtime from DB settings (falls back to DUAL_APPROVAL_TTL_MINUTES env var, default 30m)`,
   );
 
+  // ── GET /api/ai/route-copilot/settings ─────────────────────────────────────
+  // Returns current copilot 503 detection settings.
+  app.get(
+    "/api/ai/route-copilot/settings",
+    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
+    (_req: any, res: any) => {
+      res.json({
+        success: true,
+        settings: {
+          threshold503Pct:  _503Settings.thresholdPct,
+          sustainWindows:   _503Settings.sustainWindows,
+          description: `Auto-trigger fires when a vendor exceeds ${_503Settings.thresholdPct}% SIP 503 rate for ${_503Settings.sustainWindows} consecutive 15-min windows`,
+        },
+        defaults: { threshold503Pct: DEFAULT_503_SETTINGS.thresholdPct, sustainWindows: DEFAULT_503_SETTINGS.sustainWindows },
+      });
+    },
+  );
+
+  // ── PUT /api/ai/route-copilot/settings ─────────────────────────────────────
+  // Updates copilot 503 detection settings (admin/management only).
+  app.put(
+    "/api/ai/route-copilot/settings",
+    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
+    async (req: any, res: any) => {
+      const { threshold503Pct, sustainWindows } = req.body ?? {};
+
+      const thresholdNum = Number(threshold503Pct);
+      const windowsNum   = Number(sustainWindows);
+
+      if (threshold503Pct !== undefined && (isNaN(thresholdNum) || thresholdNum < 1 || thresholdNum > 100)) {
+        return res.status(400).json({ success: false, error: "threshold503Pct must be between 1 and 100" });
+      }
+      if (sustainWindows !== undefined && (isNaN(windowsNum) || windowsNum < 1 || windowsNum > 10)) {
+        return res.status(400).json({ success: false, error: "sustainWindows must be between 1 and 10" });
+      }
+
+      if (!isNaN(thresholdNum) && threshold503Pct !== undefined) _503Settings.thresholdPct  = thresholdNum;
+      if (!isNaN(windowsNum)   && sustainWindows !== undefined)   _503Settings.sustainWindows = windowsNum;
+
+      // Propagate to the aggregator
+      updateSustained503Settings(_503Settings.thresholdPct, _503Settings.sustainWindows);
+
+      // Persist to DB (fire-and-forget — in-memory is authoritative for running server)
+      try {
+        await db.execute(sql`
+          INSERT INTO copilot_503_settings (id, threshold_pct, sustain_windows, updated_at)
+          VALUES (1, ${_503Settings.thresholdPct}, ${_503Settings.sustainWindows}, NOW())
+          ON CONFLICT (id) DO UPDATE
+            SET threshold_pct   = EXCLUDED.threshold_pct,
+                sustain_windows  = EXCLUDED.sustain_windows,
+                updated_at       = EXCLUDED.updated_at
+        `);
+      } catch (dbErr: any) {
+        console.warn("[copilot-settings] DB persist failed (non-fatal):", dbErr.message);
+      }
+
+      console.log(`[copilot-settings] Updated: threshold=${_503Settings.thresholdPct}%, windows=${_503Settings.sustainWindows}`);
+      res.json({
+        success: true,
+        settings: {
+          threshold503Pct:  _503Settings.thresholdPct,
+          sustainWindows:   _503Settings.sustainWindows,
+          description: `Auto-trigger fires when a vendor exceeds ${_503Settings.thresholdPct}% SIP 503 rate for ${_503Settings.sustainWindows} consecutive 15-min windows`,
+        },
+      });
+    },
+  );
+
   // ── SIP Error Stats table bootstrap ─────────────────────────────────────────
   // Create/migrate the table via raw SQL (db:push prompt-blocks DDL in this env).
   // Wrapped in a fire-and-forget IIFE because registerAiCopilotRoutes is sync.
@@ -1132,10 +1209,60 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           ON sip_error_stats (vendor_name, window_minutes, code, time_bucket, COALESCE(dest_prefix, ''))
       `);
       console.log("[sip-error-stats] Table ensured (with time_bucket + unique index)");
+
+      // ── Copilot settings table bootstrap ──────────────────────────────────
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS copilot_503_settings (
+          id              INTEGER PRIMARY KEY DEFAULT 1,
+          threshold_pct   REAL    NOT NULL DEFAULT 15,
+          sustain_windows INTEGER NOT NULL DEFAULT 2,
+          updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
+      // Load persisted settings if present
+      try {
+        const settingsRows = await db.execute(sql`SELECT threshold_pct, sustain_windows FROM copilot_503_settings WHERE id = 1`);
+        const row = (settingsRows as any).rows?.[0] ?? (settingsRows as any)[0];
+        if (row) {
+          const tp = parseFloat(row.threshold_pct ?? row['threshold_pct']);
+          const sw = parseInt(row.sustain_windows ?? row['sustain_windows'], 10);
+          if (Number.isFinite(tp) && Number.isFinite(sw)) {
+            _503Settings.thresholdPct  = tp;
+            _503Settings.sustainWindows = sw;
+            updateSustained503Settings(tp, sw);
+            console.log(`[copilot-settings] Loaded from DB: threshold=${tp}%, windows=${sw}`);
+          }
+        }
+      } catch {
+        // No persisted settings — use defaults
+      }
     } catch (err: any) {
       console.warn("[sip-error-stats] Table bootstrap warning (non-fatal):", err.message);
     }
     startSipErrorAggregator();
+
+    // ── Sustained-503 event subscription ─────────────────────────────────────
+    // When the aggregator detects sustained 503s, enqueue a non-blocking copilot analysis.
+    setAutoTriggerCompleteCallback((autoResult) => {
+      // Store as the latest copilot result so the next page load sees it
+      _lastCopilotResult = { value: autoResult, expiresAt: Date.now() + COPILOT_RESULT_TTL_MS };
+      // Persist to DB cache
+      db.delete(copilotResultCache).then(() => {
+        db.insert(copilotResultCache).values({ result: autoResult as any, generatedAt: new Date() }).catch((e: any) => {
+          console.warn("[copilot-auto] DB cache write failed (non-fatal):", e.message);
+        });
+      }).catch((e: any) => {
+        console.warn("[copilot-auto] DB cache delete failed (non-fatal):", e.message);
+      });
+      invalidateCopilotSummaryCache();
+      const autoCount = autoResult.recommendations.filter(r => r.autoTriggered).length;
+      console.log(`[copilot-auto] Auto-triggered result cached — ${autoCount} auto-flagged rec(s). Trigger: ${autoResult.triggerReason}`);
+    });
+
+    sipErrorEmitter.on('sustained-503', ({ vendorName, rate }: { vendorName: string; rate: number }) => {
+      console.warn(`[copilot-auto] sustained-503 event received for ${vendorName} @ ${rate.toFixed(1)}% — enqueuing analysis`);
+      enqueueAutoTriggeredAnalysis(vendorName, rate);
+    });
   })();
 
   // ── GET /api/copilot/sip-errors ─────────────────────────────────────────────

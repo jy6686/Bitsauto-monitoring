@@ -9,6 +9,7 @@ import {
   UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown, Search,
   Download, CalendarDays, Bell, TimerOff, Radio, Waves, LayoutGrid,
   Database, BarChart3, ChevronUp as ChevUp, SlidersHorizontal,
+  Settings, Save,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -55,6 +56,7 @@ interface AiRouteRecommendation {
   currentVendor?: string;
   targetVendor?: string;
   destination?: string;
+  autoTriggered?: boolean;
   fraudSignals?: FraudSignals;
   simulate: {
     asrDelta: number | null;
@@ -70,6 +72,8 @@ interface CopilotResult {
   generatedAt: string;
   mode: "ai_enhanced" | "rule_based_preview";
   warning?: string;
+  autoTriggered?: boolean;
+  triggerReason?: string;
   recommendations: AiRouteRecommendation[];
   summary: {
     totalCarriers: number;
@@ -564,6 +568,16 @@ function AiRecCard({
                   <span className="text-red-400/80">{rec.currentVendor}</span>
                   <ArrowRight className="h-2.5 w-2.5 opacity-40" />
                   <span className="text-green-400/90">{rec.targetVendor}</span>
+                </span>
+              )}
+              {rec.autoTriggered && (
+                <span
+                  data-testid={`ai-rec-auto-triggered-badge-${index}`}
+                  className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono text-cyan-500 bg-cyan-500/10 border border-cyan-500/30 px-1.5 py-0.5 rounded"
+                  title="This recommendation was generated automatically in response to a sustained SIP 503 condition"
+                >
+                  <Zap className="h-2.5 w-2.5" />
+                  Auto-Triggered
                 </span>
               )}
               {hasFraud && (
@@ -1131,13 +1145,163 @@ interface UndoSummary {
   noOriginalPlanWarning?: boolean;
 }
 
+interface Copilot503Settings {
+  threshold503Pct: number;
+  sustainWindows: number;
+  description?: string;
+}
+
+function CopilotSettingsPanel({ onClose }: { onClose: () => void }) {
+  const { toast } = useToast();
+  const { data: settingsData, isLoading } = useQuery<{ success: boolean; settings: Copilot503Settings; defaults: Copilot503Settings }>({
+    queryKey: ["/api/ai/route-copilot/settings"],
+    staleTime: 60_000,
+  });
+
+  const [threshold, setThreshold] = useState<number | "">("");
+  const [windows,   setWindows]   = useState<number | "">("");
+
+  useEffect(() => {
+    if (settingsData?.settings) {
+      setThreshold(settingsData.settings.threshold503Pct);
+      setWindows(settingsData.settings.sustainWindows);
+    }
+  }, [settingsData]);
+
+  const saveMutation = useMutation<{ success: boolean; settings: Copilot503Settings }, Error>({
+    mutationFn: () =>
+      apiRequest("PUT", "/api/ai/route-copilot/settings", {
+        threshold503Pct: Number(threshold),
+        sustainWindows:  Number(windows),
+      }).then(r => r.json()).then(d => {
+        if (!d.success) throw new Error(d.error ?? "Save failed");
+        return d;
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai/route-copilot/settings"] });
+      toast({ title: "Settings saved", description: data.settings.description });
+      onClose();
+    },
+    onError: (err) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const defaults = settingsData?.defaults;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      className="rounded-xl border border-cyan-500/30 bg-card p-4 space-y-4"
+      data-testid="copilot-settings-panel"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Settings className="h-4 w-4 text-cyan-400" />
+          <h3 className="font-semibold text-sm">AI Copilot · Auto-Trigger Settings</h3>
+        </div>
+        <button onClick={onClose} className="p-1 rounded hover:bg-muted/40 transition-colors">
+          <X className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+      </div>
+
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        Configure when the copilot automatically re-analyses routes in response to a sustained SIP 503 condition from a vendor.
+        Detection fires every CDR refresh cycle (~5 min).
+      </p>
+
+      {isLoading ? (
+        <div className="space-y-2 animate-pulse">
+          <div className="h-8 bg-muted rounded" />
+          <div className="h-8 bg-muted rounded" />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1.5">
+              503 Rate Threshold (%)
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                data-testid="copilot-setting-threshold"
+                type="number"
+                min={1}
+                max={100}
+                value={threshold}
+                onChange={e => setThreshold(e.target.value === "" ? "" : Number(e.target.value))}
+                className="w-24 h-8 bg-muted/40 border border-border rounded-md px-3 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
+              />
+              <span className="text-xs text-muted-foreground">
+                {defaults ? `Default: ${defaults.threshold503Pct}%` : ""}
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Vendor must exceed this 503 rate in the 15-min window to count as a "high" window.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1.5">
+              Consecutive Windows Required
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                data-testid="copilot-setting-windows"
+                type="number"
+                min={1}
+                max={10}
+                value={windows}
+                onChange={e => setWindows(e.target.value === "" ? "" : Number(e.target.value))}
+                className="w-24 h-8 bg-muted/40 border border-border rounded-md px-3 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
+              />
+              <span className="text-xs text-muted-foreground">
+                {defaults ? `Default: ${defaults.sustainWindows}` : ""}
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Number of consecutive 15-min windows above threshold before auto-trigger fires.
+            </p>
+          </div>
+
+          {settingsData?.settings?.description && (
+            <div className="rounded-lg bg-cyan-500/8 border border-cyan-500/20 px-3 py-2 text-xs text-cyan-400/90">
+              {settingsData.settings.description}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              data-testid="copilot-settings-save"
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || threshold === "" || windows === ""}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-semibold disabled:opacity-40 transition-colors"
+            >
+              {saveMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+              Save Settings
+            </button>
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 function AiCopilotPanel() {
-  const [dismissed,    setDismissed]    = useState<Set<string>>(new Set());
-  const [pinned,       setPinned]       = useState<Set<string>>(new Set());
-  const [applied,      setApplied]      = useState<Map<string, AppliedEntry>>(new Map());
-  const [hasRun,       setHasRun]       = useState(false);
-  const [modalRec,     setModalRec]     = useState<AiRouteRecommendation | null>(null);
-  const [undoTarget,   setUndoTarget]   = useState<{ recId: string; actionId: number; summary: UndoSummary } | null>(null);
+  const [dismissed,     setDismissed]    = useState<Set<string>>(new Set());
+  const [pinned,        setPinned]       = useState<Set<string>>(new Set());
+  const [applied,       setApplied]      = useState<Map<string, AppliedEntry>>(new Map());
+  const [hasRun,        setHasRun]       = useState(false);
+  const [modalRec,      setModalRec]     = useState<AiRouteRecommendation | null>(null);
+  const [undoTarget,    setUndoTarget]   = useState<{ recId: string; actionId: number; summary: UndoSummary } | null>(null);
+  const [settingsOpen,  setSettingsOpen] = useState(false);
   const { toast } = useToast();
   const { isManagement } = useAuth();
 
@@ -1364,6 +1528,22 @@ function AiCopilotPanel() {
                 : <Sparkles className="h-3.5 w-3.5" />}
               {copilotMutation.isPending ? "Analysing…" : hasRun ? "Re-analyse" : "Analyse Routes"}
             </Button>
+            {isManagement && (
+              <button
+                data-testid="copilot-settings-btn"
+                onClick={() => setSettingsOpen(p => !p)}
+                title="Auto-trigger settings"
+                className={cn(
+                  "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border transition-colors",
+                  settingsOpen
+                    ? "bg-cyan-500/15 border-cyan-500/30 text-cyan-400"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-cyan-500/30",
+                )}
+              >
+                <Settings className="h-3 w-3" />
+                Settings
+              </button>
+            )}
           </div>
         </div>
 
@@ -1400,6 +1580,32 @@ function AiCopilotPanel() {
           </motion.div>
         )}
       </div>
+
+      {/* Settings panel */}
+      <AnimatePresence>
+        {settingsOpen && isManagement && (
+          <CopilotSettingsPanel onClose={() => setSettingsOpen(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* Auto-trigger notification banner */}
+      {result?.autoTriggered && result.triggerReason && (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 px-4 py-3 flex items-start gap-3"
+          data-testid="copilot-auto-trigger-banner"
+        >
+          <Zap className="h-4 w-4 text-cyan-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-cyan-400">Auto-triggered analysis</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{result.triggerReason}</p>
+            <p className="text-[10px] text-muted-foreground/60 mt-1">
+              Recommendations with a <span className="text-cyan-400 font-bold">AUTO-TRIGGERED</span> badge were generated specifically in response to this condition.
+            </p>
+          </div>
+        </motion.div>
+      )}
 
       {/* Pending approval panel — shown to management operators when actions await sign-off */}
       {isManagement && <PendingApprovalPanel />}

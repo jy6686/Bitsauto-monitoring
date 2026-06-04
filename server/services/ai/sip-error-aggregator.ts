@@ -30,6 +30,7 @@ import { Pool } from "pg";
 import { runSipErrorRateCheck } from "../../incident-engine";
 import { storage } from "../../storage";
 import { sendWhatsAppAlert, formatSipErrorAlert } from "../../whatsapp";
+import { EventEmitter } from "events";
 
 export const SIP_ERROR_CODES = [503, 486, 480, 404, 603, 487] as const;
 export type SipErrorCode = typeof SIP_ERROR_CODES[number];
@@ -154,6 +155,55 @@ function toDestPrefix(callee: string | undefined, prefix?: string | undefined): 
   const raw = (prefix || callee || '').replace(/^\+/, '').replace(/\D/g, '');
   if (raw.length < 3) return null;
   return raw.slice(0, Math.min(5, raw.length));
+}
+
+// ── Sustained-503 event emitter ──────────────────────────────────────────────
+// Tracks 503 rates across consecutive 15-min windows per vendor.
+// Emits 'sustained-503' when a vendor's 503 rate exceeds the configured
+// threshold for the configured number of consecutive windows.
+//
+// Event payload: { vendorName: string; rate: number; windows: number }
+
+export const sipErrorEmitter = new EventEmitter();
+
+// Settings (overridden at runtime by routes-ai-copilot.ts)
+export let sustained503ThresholdPct = 15;  // default 15%
+export let sustained503Windows      = 2;   // default 2 consecutive windows
+
+export function updateSustained503Settings(thresholdPct: number, windows: number) {
+  sustained503ThresholdPct = thresholdPct;
+  sustained503Windows      = windows;
+  console.log(`[sip-error-agg] sustained-503 settings updated: threshold=${thresholdPct}%, windows=${windows}`);
+}
+
+// Tracks how many consecutive 15-min windows each vendor has been above threshold
+const _consecutiveHighWindows = new Map<string, number>();
+
+function checkSustained503(vendor503Rates: Map<string, number>): void {
+  for (const [vendor, rate] of vendor503Rates) {
+    if (rate >= sustained503ThresholdPct) {
+      const consecutive = (_consecutiveHighWindows.get(vendor) ?? 0) + 1;
+      _consecutiveHighWindows.set(vendor, consecutive);
+      if (consecutive >= sustained503Windows) {
+        console.warn(
+          `[sip-error-agg] sustained-503 detected: ${vendor} ${rate.toFixed(1)}% ` +
+          `(${consecutive}+ consecutive windows ≥${sustained503ThresholdPct}%)`,
+        );
+        sipErrorEmitter.emit('sustained-503', { vendorName: vendor, rate, windows: consecutive });
+      }
+    } else {
+      // Reset consecutive count when vendor drops below threshold
+      if (_consecutiveHighWindows.has(vendor)) {
+        _consecutiveHighWindows.delete(vendor);
+      }
+    }
+  }
+  // Remove vendors no longer present in this window
+  for (const vendor of _consecutiveHighWindows.keys()) {
+    if (!vendor503Rates.has(vendor)) {
+      _consecutiveHighWindows.delete(vendor);
+    }
+  }
 }
 
 let _isRunning = false;
@@ -319,6 +369,7 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
 
     const vendorCount = new Set(rows.filter(r => !r.dest_prefix).map(r => r.vendor_name)).size;
     const prefixCount = new Set(rows.filter(r => r.dest_prefix).map(r => r.dest_prefix)).size;
+
     console.log(`[sip-error-agg] Bucket ${timeBucket.toISOString()} — ${rows.length} rows for ${vendorCount} vendor(s), ${prefixCount} prefix(es) from ${cdrsProcessed} CDRs`);
 
     // ── Post-aggregation alert check ──────────────────────────────────────────
@@ -355,6 +406,18 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
           );
         }
       }
+    }
+
+    // ── Sustained-503 check ──────────────────────────────────────────────────
+    // Extract 15-min 503 rate per vendor and fire sustained-503 if threshold met
+    const vendor503Rates = new Map<string, number>();
+    for (const row of rows) {
+      if (row.window_minutes === 15 && row.code === 503 && !row.dest_prefix) {
+        vendor503Rates.set(row.vendor_name, row.rate);
+      }
+    }
+    if (vendor503Rates.size > 0) {
+      checkSustained503(vendor503Rates);
     }
   } catch (err: any) {
     console.warn('[sip-error-agg] Aggregation error (non-fatal):', err.message);
