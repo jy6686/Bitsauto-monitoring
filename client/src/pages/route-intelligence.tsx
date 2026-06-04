@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
   ShieldAlert, PlayCircle, Loader2, RotateCcw, History, Clock,
   UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown, Search,
-  Download, CalendarDays, Bell,
+  Download, CalendarDays, Bell, TimerOff,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -807,17 +807,37 @@ function ApprovalCountdown({ expiresAt }: { expiresAt: string }) {
   );
 }
 
+interface ExpiredAction {
+  id: number;
+  account_id: string;
+  account_name: string;
+  action_type: string;
+  primary_action: string;
+  requested_by: string;
+  requested_by_name: string;
+  rejection_reason: string;
+  updated_at: string;
+  created_at: string;
+}
+
 function PendingApprovalPanel() {
   const { toast } = useToast();
   const { user } = useAuth() as any;
   const currentUserId = String(user?.id ?? user?.userId ?? "");
   const [rejectTarget, setRejectTarget] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [expiredOpen, setExpiredOpen] = useState(false);
 
   const { data, isLoading, refetch } = useQuery<{ success: boolean; data: PendingAction[] }>({
     queryKey: ["/api/ai/actions/pending"],
     refetchInterval: 20_000,
   });
+
+  const { data: expiredData, isLoading: expiredLoading, refetch: refetchExpired } =
+    useQuery<{ success: boolean; data: ExpiredAction[] }>({
+      queryKey: ["/api/ai/actions/expired"],
+      refetchInterval: 60_000,
+    });
 
   const { lastApprovalExpired } = useNocWebSocket();
   const seenExpiredRef = useRef<Set<string>>(new Set());
@@ -827,7 +847,9 @@ function PendingApprovalPanel() {
     if (seenExpiredRef.current.has(key)) return;
     seenExpiredRef.current.add(key);
     refetch();
+    refetchExpired();
     queryClient.invalidateQueries({ queryKey: ["/api/ai/actions/pending"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/ai/actions/expired"] });
     toast({
       title: `Action #${lastApprovalExpired.actionId} auto-expired`,
       description: `No second operator acted in time — action for ${lastApprovalExpired.accountName} was automatically rejected after ${lastApprovalExpired.ttlMinutes}m.`,
@@ -836,6 +858,7 @@ function PendingApprovalPanel() {
   }, [lastApprovalExpired]);
 
   const pending = data?.data ?? [];
+  const expired = expiredData?.data ?? [];
 
   const approveMutation = useMutation<{ success: boolean; status: string; sippyNote: string }, Error, number>({
     mutationFn: (id) =>
@@ -867,36 +890,38 @@ function PendingApprovalPanel() {
     onError: (err) => toast({ title: "Rejection failed", description: err.message, variant: "destructive" }),
   });
 
-  if (isLoading) return null;
-  if (pending.length === 0) return null;
+  if (isLoading && expiredLoading) return null;
+  if (pending.length === 0 && expired.length === 0) return null;
 
   return (
     <div
       data-testid="pending-approval-panel"
       className="rounded-xl border border-orange-500/40 bg-orange-500/5 overflow-hidden"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-orange-500/20 bg-orange-500/10">
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-orange-400" />
-          <span className="text-sm font-bold text-orange-400">
-            {pending.length} Action{pending.length !== 1 ? "s" : ""} Awaiting Second Approval
-          </span>
-          <span className="text-[10px] font-bold uppercase font-mono bg-orange-500/20 border border-orange-500/30 text-orange-400 px-1.5 py-0.5 rounded">
-            FOUR-EYES RULE
-          </span>
+      {/* Header — only shown when there are pending items */}
+      {pending.length > 0 && (
+        <div className="flex items-center justify-between px-4 py-3 border-b border-orange-500/20 bg-orange-500/10">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-orange-400" />
+            <span className="text-sm font-bold text-orange-400">
+              {pending.length} Action{pending.length !== 1 ? "s" : ""} Awaiting Second Approval
+            </span>
+            <span className="text-[10px] font-bold uppercase font-mono bg-orange-500/20 border border-orange-500/30 text-orange-400 px-1.5 py-0.5 rounded">
+              FOUR-EYES RULE
+            </span>
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            data-testid="pending-panel-refresh"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
         </div>
-        <button
-          onClick={() => refetch()}
-          className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-          data-testid="pending-panel-refresh"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      )}
 
-      {/* Actions list */}
-      <div className="divide-y divide-orange-500/10">
+      {/* Actions list — only shown when there are pending items */}
+      {pending.length > 0 && <div className="divide-y divide-orange-500/10">
         {pending.map((action) => {
           const isSelf = action.requested_by === currentUserId;
           return (
@@ -986,7 +1011,86 @@ function PendingApprovalPanel() {
             </div>
           );
         })}
-      </div>
+      </div>}
+
+      {/* Expired Approvals Section */}
+      {expired.length > 0 && (
+        <div
+          data-testid="expired-approvals-section"
+          className={pending.length > 0
+            ? "border-t border-orange-500/20"
+            : ""}
+        >
+          {/* Collapsed toggle header */}
+          <button
+            data-testid="expired-approvals-toggle"
+            onClick={() => setExpiredOpen(o => !o)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-zinc-800/40 hover:bg-zinc-800/60 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <TimerOff className="h-4 w-4 text-zinc-400" />
+              <span className="text-sm font-semibold text-zinc-300">
+                Expired Approvals
+              </span>
+              <span className="text-[10px] font-bold font-mono bg-zinc-700/60 border border-zinc-600/40 text-zinc-400 px-1.5 py-0.5 rounded">
+                {expired.length} record{expired.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                data-testid="expired-approvals-refresh"
+                onClick={e => { e.stopPropagation(); refetchExpired(); }}
+                className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+              {expiredOpen
+                ? <ChevronUp className="h-4 w-4 text-zinc-500" />
+                : <ChevronDown className="h-4 w-4 text-zinc-500" />}
+            </div>
+          </button>
+
+          {/* Expanded list */}
+          {expiredOpen && (
+            <div
+              data-testid="expired-approvals-list"
+              className="divide-y divide-zinc-700/30 max-h-72 overflow-y-auto"
+            >
+              {expired.map(ea => (
+                <div
+                  key={ea.id}
+                  data-testid={`expired-action-${ea.id}`}
+                  className="px-4 py-3 flex items-start justify-between gap-3 hover:bg-zinc-800/20 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-zinc-400 font-mono">#{ea.id}</span>
+                      <span className="text-[10px] font-bold uppercase font-mono bg-zinc-700/50 border border-zinc-600/30 text-zinc-400 px-1.5 py-0.5 rounded">
+                        {ea.action_type}
+                      </span>
+                      <span className="font-medium text-sm text-zinc-300 truncate">{ea.account_name}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{ea.primary_action}</p>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      <p className="text-[11px] text-muted-foreground/60 font-mono">
+                        Requested by {ea.requested_by_name} · Created {new Date(ea.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <span className="text-[10px] font-semibold uppercase text-red-400/80 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded font-mono">
+                      EXPIRED
+                    </span>
+                    <p className="text-[10px] text-muted-foreground/50 font-mono mt-1">
+                      {new Date(ea.updated_at).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

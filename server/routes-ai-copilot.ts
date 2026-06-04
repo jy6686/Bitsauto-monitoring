@@ -18,6 +18,7 @@ import {
   createRollbackEntry,
   verifyAction,
   listPendingApproval,
+  listExpiredApprovals,
   setPendingApproval,
   atomicClaimPendingApproval,
   secondaryApproveAction,
@@ -644,6 +645,23 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         res.json({ success: true, data: enriched });
       } catch (err: any) {
         console.error("[ai-actions/pending] error:", err.message);
+        res.status(500).json({ success: false, error: err.message ?? "List failed" });
+      }
+    },
+  );
+
+  // ── GET /api/ai/actions/expired ─────────────────────────────────────────────
+  // Lists recently auto-expired approvals (status='rejected', system expiry reason).
+  // Management role required — used by the operator history panel.
+  app.get(
+    "/api/ai/actions/expired",
+    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const rows = await listExpiredApprovals(50);
+        res.json({ success: true, data: rows });
+      } catch (err: any) {
+        console.error("[ai-actions/expired] error:", err.message);
         res.status(500).json({ success: false, error: err.message ?? "List failed" });
       }
     },

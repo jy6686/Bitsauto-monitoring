@@ -133,6 +133,26 @@ export async function listPendingApproval() {
   } finally { await pool.end(); }
 }
 
+// ── listExpiredApprovals ──────────────────────────────────────────────────────
+// Returns recently auto-expired approval actions for the operator history panel.
+// Identifies them by status='rejected' and the system-set rejection_reason prefix.
+export async function listExpiredApprovals(limit = 50) {
+  const pool = getPool();
+  try {
+    const r = await pool.query(
+      `SELECT id, account_id, account_name, action_type, primary_action,
+              requested_by, requested_by_name, rejection_reason, updated_at, created_at
+       FROM account_actions
+       WHERE status = 'rejected'
+         AND rejection_reason LIKE 'Approval expired%'
+       ORDER BY updated_at DESC
+       LIMIT $1`,
+      [limit],
+    );
+    return r.rows;
+  } finally { await pool.end(); }
+}
+
 // ── setPendingApproval ────────────────────────────────────────────────────────
 // Transitions an action to pending_approval — written immediately after
 // createAction for high-risk types when C2_EXECUTION_ENABLED=true.
