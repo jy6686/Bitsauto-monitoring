@@ -2858,6 +2858,11 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
   }
   if (runStart !== null) spikeRuns.push({ start: runStart, end: history.length - 1 });
 
+  // Find which spike run (if any) contains the hovered point
+  const hoveredSpikeRun = hoveredIdx != null
+    ? spikeRuns.find(r => hoveredIdx >= r.start && hoveredIdx <= r.end) ?? null
+    : null;
+
   return (
     <div className="flex flex-col gap-1">
       <div className="relative" style={{ width: W }}>
@@ -2980,6 +2985,20 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
             data-testid={`sip-tooltip-${vendorName}`}
           >
             <div className="font-medium text-muted-foreground mb-0.5">{hoveredEntry.date}</div>
+            {hoveredSpikeRun && (
+              <div
+                className="flex items-center gap-1 text-red-500 font-semibold bg-red-500/10 rounded px-1 py-0.5 mb-1"
+                data-testid={`spike-window-label-${vendorName}`}
+              >
+                <span>⚡</span>
+                <span>
+                  Spike: {history[hoveredSpikeRun.start].date}
+                  {hoveredSpikeRun.end > hoveredSpikeRun.start
+                    ? ` → ${history[hoveredSpikeRun.end].date} · ${hoveredSpikeRun.end - hoveredSpikeRun.start + 1} periods`
+                    : " · 1 period"}
+                </span>
+              </div>
+            )}
             {codes.map((code, ci) => {
               const rate = hoveredEntry.rates[code];
               const base = hoveredEntry.baselines?.[code];
