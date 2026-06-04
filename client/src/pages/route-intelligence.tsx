@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
   ShieldAlert, PlayCircle, Loader2, RotateCcw, History, Clock,
   UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown, Search,
-  Download, CalendarDays, Bell, TimerOff,
+  Download, CalendarDays, Bell, TimerOff, Radio, LayoutGrid,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -1374,6 +1374,9 @@ function AiCopilotPanel() {
       {/* Pending approval panel — shown to management operators when actions await sign-off */}
       {isManagement && <PendingApprovalPanel />}
 
+      {/* SIP Error Rates panel */}
+      <SipErrorPanel />
+
       {/* Loading skeleton */}
       {copilotMutation.isPending && (
         <div className="space-y-3">
@@ -1509,6 +1512,358 @@ function AiCopilotPanel() {
             onConfirm={(reason) => rollbackMutation.mutate({ recId: undoTarget.recId, actionId: undoTarget.actionId, reason: reason || undefined })}
             onCancel={() => !rollbackMutation.isPending && setUndoTarget(null)}
           />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── SIP Error Panel ────────────────────────────────────────────────────────────
+
+const SIP_CODES = [503, 486, 480, 404, 603, 487] as const;
+const CODE_LABELS: Record<number, string> = {
+  503: "503",
+  486: "486",
+  480: "480",
+  404: "404",
+  603: "603",
+  487: "487",
+};
+const CODE_FULL: Record<number, string> = {
+  503: "503 Unavailable",
+  486: "486 Busy",
+  480: "480 Temp. Unavail.",
+  404: "404 Not Found",
+  603: "603 Decline",
+  487: "487 Cancelled",
+};
+
+interface SipVendorSnapshot {
+  vendorName: string;
+  topCode: number | null;
+  maxRate: number;
+  hasCongestion: boolean;
+  hasCliRejection: boolean;
+  windows: {
+    [mins: number]: {
+      [code: number]: { count: number; rate: number };
+    };
+  };
+}
+
+interface SipPrefixRow {
+  destPrefix: string;
+  vendorName: string;
+  dominantCode: number;
+  dominantRate: number;
+  totalFailures: number;
+}
+
+interface SipErrorData {
+  success: boolean;
+  vendors: SipVendorSnapshot[];
+  prefixRows: SipPrefixRow[];
+  computedAt: string;
+}
+
+function rateColor(rate: number): string {
+  if (rate >= 10) return "text-red-500 dark:text-red-400";
+  if (rate >= 2)  return "text-amber-500 dark:text-amber-400";
+  return "text-green-600 dark:text-green-400";
+}
+
+function SipErrorPanel() {
+  const [open,       setOpen]       = useState(false);
+  const [activeWin,  setActiveWin]  = useState<15 | 60 | 240>(15);
+  const [heatmap,    setHeatmap]    = useState(false);
+
+  const { data, isLoading } = useQuery<SipErrorData>({
+    queryKey: ["/api/copilot/sip-errors"],
+    enabled: open,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: open ? 5 * 60 * 1000 : false,
+  });
+
+  const vendors = data?.vendors ?? [];
+  const prefixRows = data?.prefixRows ?? [];
+  const hasData = vendors.length > 0;
+
+  const windowLabel: Record<number, string> = { 15: "15 min", 60: "1 hr", 240: "4 hr" };
+
+  return (
+    <div className="rounded-xl border bg-card overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
+        onClick={() => setOpen(v => !v)}
+        data-testid="sip-error-panel-toggle"
+      >
+        <div className="flex items-center gap-2">
+          <Radio className="h-4 w-4 text-cyan-500" />
+          <span className="font-semibold text-sm">SIP Error Rates</span>
+          {hasData && !open && (
+            <span className="text-[10px] font-mono text-muted-foreground/60">
+              {vendors.length} vendor{vendors.length !== 1 ? "s" : ""} · {vendors.filter(v => v.maxRate > 10).length} flagged
+            </span>
+          )}
+          {vendors.some(v => v.hasCongestion || v.hasCliRejection) && (
+            <span className="text-[10px] font-bold uppercase tracking-wide text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+              Alert
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </div>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden border-t border-border/50"
+          >
+            <div className="p-4 space-y-4">
+              {/* Controls */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
+                  {([15, 60, 240] as const).map(w => (
+                    <button
+                      key={w}
+                      data-testid={`sip-window-${w}`}
+                      onClick={() => setActiveWin(w)}
+                      className={cn(
+                        "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                        activeWin === w
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {windowLabel[w]}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  data-testid="sip-heatmap-toggle"
+                  onClick={() => setHeatmap(v => !v)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
+                    heatmap
+                      ? "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30"
+                      : "bg-muted/40 text-muted-foreground border-transparent hover:border-border"
+                  )}
+                >
+                  <LayoutGrid className="h-3 w-3" />
+                  Heatmap
+                </button>
+              </div>
+
+              {isLoading && (
+                <div className="py-8 flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+
+              {!isLoading && !hasData && (
+                <div className="py-8 flex flex-col items-center justify-center text-muted-foreground">
+                  <Radio className="h-6 w-6 mb-2 opacity-25" />
+                  <p className="text-sm">No SIP error data yet</p>
+                  <p className="text-xs mt-1 opacity-60">The aggregator runs every 5 min after startup</p>
+                </div>
+              )}
+
+              {!isLoading && hasData && !heatmap && (
+                /* Table view */
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border/50">
+                        <th className="text-left py-2 px-2 text-muted-foreground font-medium">Vendor</th>
+                        {SIP_CODES.map(c => (
+                          <th key={c} className="text-right py-2 px-2 text-muted-foreground font-medium font-mono" title={CODE_FULL[c]}>
+                            {CODE_LABELS[c]}
+                          </th>
+                        ))}
+                        <th className="text-right py-2 px-2 text-muted-foreground font-medium">Signal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {vendors.map(v => {
+                        const win = v.windows[activeWin] ?? {};
+                        return (
+                          <tr key={v.vendorName} className="hover:bg-muted/20 transition-colors" data-testid={`sip-row-${v.vendorName}`}>
+                            <td className="py-2 px-2 font-medium">{v.vendorName}</td>
+                            {SIP_CODES.map(code => {
+                              const entry = win[code] ?? { rate: 0, count: 0 };
+                              return (
+                                <td key={code} className="py-2 px-2 text-right tabular-nums">
+                                  {entry.rate > 0 ? (
+                                    <div className="flex flex-col items-end gap-0.5">
+                                      <span className={cn("font-mono font-semibold text-[11px]", rateColor(entry.rate))}>
+                                        {entry.rate.toFixed(1)}%
+                                      </span>
+                                      <span className="text-[9px] text-muted-foreground/60 font-mono">
+                                        {entry.count}×
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-muted-foreground/30 font-mono text-[11px]">—</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="py-2 px-2 text-right">
+                              <div className="flex items-center justify-end gap-1 flex-wrap">
+                                {v.hasCongestion && (
+                                  <span className="text-[9px] font-bold uppercase text-red-500 bg-red-500/10 border border-red-500/20 px-1 py-0.5 rounded">
+                                    Congestion
+                                  </span>
+                                )}
+                                {v.hasCliRejection && (
+                                  <span className="text-[9px] font-bold uppercase text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1 py-0.5 rounded">
+                                    CLI Rej.
+                                  </span>
+                                )}
+                                {!v.hasCongestion && !v.hasCliRejection && v.maxRate < 2 && (
+                                  <span className="text-[9px] text-green-500 opacity-60">ok</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/30">
+                    {[
+                      { label: "< 2%",   color: "bg-green-500", text: "Normal" },
+                      { label: "2–10%",  color: "bg-amber-500", text: "Elevated" },
+                      { label: "> 10%",  color: "bg-red-500",   text: "Critical" },
+                    ].map(({ label, color, text }) => (
+                      <div key={text} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <div className={cn("w-2 h-2 rounded-full", color)} />
+                        {label} — {text}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!isLoading && hasData && heatmap && (() => {
+                /* Prefix × Vendor heatmap — shows dominant SIP error per destination prefix × vendor cell */
+                /* Rows: destination prefixes (top 12 by total failures); Columns: active vendors */
+                const activeVendors = [...new Set(vendors.map(v => v.vendorName))];
+
+                // Aggregate prefix data: find top prefixes by total failures
+                const prefixTotals = new Map<string, number>();
+                for (const row of prefixRows) {
+                  prefixTotals.set(row.destPrefix, (prefixTotals.get(row.destPrefix) ?? 0) + row.totalFailures);
+                }
+                const topPrefixes = [...prefixTotals.entries()]
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 12)
+                  .map(([pfx]) => pfx);
+
+                // Build lookup: prefix + vendor → { dominantCode, dominantRate }
+                const cellMap = new Map<string, { dominantCode: number; dominantRate: number }>();
+                for (const row of prefixRows) {
+                  const key = `${row.destPrefix}:${row.vendorName}`;
+                  const existing = cellMap.get(key);
+                  if (!existing || row.dominantRate > existing.dominantRate) {
+                    cellMap.set(key, { dominantCode: row.dominantCode, dominantRate: row.dominantRate });
+                  }
+                }
+
+                const codeDotColor: Record<number, string> = {
+                  503: "bg-red-500",
+                  486: "bg-amber-500",
+                  480: "bg-orange-400",
+                  404: "bg-blue-500",
+                  603: "bg-purple-500",
+                  487: "bg-slate-400",
+                };
+
+                if (topPrefixes.length === 0) {
+                  return (
+                    <div className="py-8 flex flex-col items-center justify-center text-muted-foreground">
+                      <LayoutGrid className="h-6 w-6 mb-2 opacity-25" />
+                      <p className="text-sm">No prefix data yet</p>
+                      <p className="text-xs mt-1 opacity-60">Prefix breakdown is computed from the 15-min window after CDR refresh</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-separate border-spacing-0.5">
+                      <thead>
+                        <tr>
+                          <th className="text-left py-2 px-2 text-muted-foreground font-medium min-w-[72px]">
+                            Dest. Prefix
+                          </th>
+                          {activeVendors.map(v => (
+                            <th key={v} className="py-2 px-1 text-muted-foreground font-medium text-center text-[10px] min-w-[80px] truncate max-w-[100px]" title={v}>
+                              {v.length > 12 ? v.slice(0, 11) + "…" : v}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {topPrefixes.map(pfx => (
+                          <tr key={pfx} data-testid={`sip-prefix-row-${pfx}`}>
+                            <td className="py-1 px-2 font-mono font-semibold text-[11px] text-foreground/80">+{pfx}</td>
+                            {activeVendors.map(v => {
+                              const cell = cellMap.get(`${pfx}:${v}`);
+                              if (!cell) {
+                                return (
+                                  <td key={v} className="py-1 px-1">
+                                    <div className="h-8 rounded bg-muted/15 flex items-center justify-center text-muted-foreground/20 text-[9px]">—</div>
+                                  </td>
+                                );
+                              }
+                              const { dominantCode, dominantRate } = cell;
+                              const intensity = Math.min(dominantRate / 20, 1);
+                              return (
+                                <td key={v} className="py-1 px-1" data-testid={`sip-cell-${pfx}-${v}`}>
+                                  <div
+                                    className={cn(
+                                      "h-8 rounded flex flex-col items-center justify-center gap-0.5 transition-all cursor-default",
+                                      dominantRate >= 10
+                                        ? "bg-red-500/80 text-white"
+                                        : dominantRate >= 2
+                                        ? "bg-amber-500/60 text-white"
+                                        : "bg-green-500/25 text-green-800 dark:text-green-200"
+                                    )}
+                                    style={{ opacity: 0.35 + intensity * 0.65 }}
+                                    title={`${pfx} via ${v}: ${CODE_FULL[dominantCode]} — ${dominantRate.toFixed(1)}% failure rate`}
+                                  >
+                                    <span className="font-mono text-[9px] font-bold leading-none">{CODE_LABELS[dominantCode]}</span>
+                                    <span className="text-[8px] leading-none opacity-80">{dominantRate.toFixed(1)}%</span>
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border/30 flex-wrap">
+                      <span className="text-[10px] text-muted-foreground font-medium">Dominant SIP error by prefix×vendor (15-min, top {topPrefixes.length} prefixes):</span>
+                      {Object.entries(codeDotColor).map(([code, bg]) => (
+                        <div key={code} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <div className={cn("w-2 h-2 rounded-sm", bg, "opacity-70")} />
+                          {CODE_FULL[Number(code)]}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

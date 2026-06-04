@@ -49,6 +49,7 @@ import { runAuthExposureScorer } from "./auth-exposure";
 import { runRecommendationEngine } from "./recommendation-engine";
 import { computeVendorPrefixIntelligence } from "./vendor-prefix-intelligence";
 import { snapshotVendorStability, getVendorTimelines } from "./vendor-stability";
+import { computeSipErrorFromCdrs } from "./services/ai/sip-error-aggregator";
 import { buildVendorRca } from "./vendor-rca";
 import { aggregateTrafficFlows } from "./live-traffic-map";
 import { executeAction, buildSippyParams, recommendationToActionType, computeIdempotencyKey } from "./action-executor";
@@ -6124,6 +6125,12 @@ export async function registerRoutes(
 
       // Recompute and broadcast live traffic snapshots after each CDR batch
       computeAndBroadcastLiveTraffic();
+
+      // SIP Error Intelligence — aggregate CDRs into per-vendor SIP code telemetry.
+      // Runs after every CDR refresh so data is always current with Mera-enriched vendor info.
+      computeSipErrorFromCdrs([...cdrCache.values()]).catch((e: any) =>
+        console.warn('[sip-error-agg] snapshot error:', e.message)
+      );
 
       // ── Seed country + destination dims from CDR history (first run only) ─────
       // entityPresenceCache is defined later in routes.ts but captured by closure;
@@ -20969,6 +20976,91 @@ export async function registerRoutes(
         issues.push({ type: 'NO_DATA', severity: 'warning', component: 'Reports', message: 'Reports module requires CDR data. All charts and tables will be empty.', suggestion: 'Warm the CDR cache. Reports are built from the same CDR dataset as Analytics.', autoFix: 'warm_cdr_cache' });
       } else {
         checks.push({ id: 'mod_reports_data', name: 'Reports Data Source', status: 'ok', detail: `${cdrSz.toLocaleString()} CDRs — reports ready`, durationMs: Date.now() - tsM });
+      }
+    }
+
+    // ROUTE INTELLIGENCE / AI COPILOT module
+    if (mod === 'route intelligence' || mod === 'ai route copilot' || mod === 'route-intelligence') {
+      const tsM = Date.now();
+      try {
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        try {
+          // Check carrier quality scores
+          const cqsRes = await pool.query(`SELECT COUNT(*)::int AS cnt FROM carrier_quality_scores`);
+          const cqsCount = cqsRes.rows[0]?.cnt ?? 0;
+          if (cqsCount === 0) {
+            checks.push({ id: 'mod_ri_cqs', name: 'Carrier Quality Scores', status: 'warn', detail: 'No carrier quality scores — Copilot has no telemetry to analyse', durationMs: Date.now() - tsM });
+            issues.push({ type: 'NO_DATA', severity: 'warning', component: 'AI Route Copilot', message: 'Carrier quality scores are empty. The AI Copilot cannot generate recommendations without telemetry.', suggestion: 'Import CDRs or connect Sippy to generate carrier quality scores. Scores are computed automatically when call data is available.', autoFix: 'warm_cdr_cache' });
+          } else {
+            checks.push({ id: 'mod_ri_cqs', name: 'Carrier Quality Scores', status: 'ok', detail: `${cqsCount} carrier score row(s) available`, durationMs: Date.now() - tsM });
+          }
+
+          // Check SIP error stats data freshness
+          const sipRes = await pool.query(`
+            SELECT COUNT(*)::int AS cnt,
+                   MAX(computed_at) AS last_computed
+            FROM sip_error_stats
+          `);
+          const sipCount = sipRes.rows[0]?.cnt ?? 0;
+          const lastSip  = sipRes.rows[0]?.last_computed ? new Date(sipRes.rows[0].last_computed) : null;
+          const sipAgeMs = lastSip ? Date.now() - lastSip.getTime() : null;
+
+          if (sipCount === 0) {
+            checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: 'No SIP error stats computed yet — aggregator may not have run', durationMs: Date.now() - tsM });
+            issues.push({ type: 'NO_DATA', severity: 'info', component: 'SIP Error Panel', message: 'SIP error rate telemetry has not been computed yet. The aggregator runs every 5 minutes after startup.', suggestion: 'Wait for the background aggregator to complete its first run (within 10 seconds of server start). If the issue persists, check that carrier quality scores are populated.', autoFix: null });
+          } else if (sipAgeMs !== null && sipAgeMs > 15 * 60 * 1000) {
+            checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: `SIP error stats last updated ${Math.round(sipAgeMs / 60000)} min ago — may be stale`, durationMs: Date.now() - tsM });
+            issues.push({ type: 'DATA_MISMATCH', severity: 'warning', component: 'SIP Error Panel', message: `SIP error telemetry is ${Math.round(sipAgeMs / 60000)} minutes old. The aggregator may have stalled.`, suggestion: 'Check server logs for [sip-error-agg] errors. The aggregator runs every 5 minutes and depends on carrier_quality_scores data.', autoFix: null });
+          } else {
+            // Check for high error rates (>15% total across error codes in 15-min window).
+            // Filter to vendor-level rows only (dest_prefix IS NULL) — prefix-level rows
+            // are per-bucket and would massively inflate totals, causing false positives.
+            const highErrRes = await pool.query(`
+              SELECT vendor_name, SUM(rate) AS total_rate
+              FROM sip_error_stats
+              WHERE window_minutes = 15
+                AND dest_prefix IS NULL
+              GROUP BY vendor_name
+              HAVING SUM(rate) > 15
+              LIMIT 5
+            `);
+            if (highErrRes.rows.length > 0) {
+              const highVendors: string[] = highErrRes.rows.map((r: any) => r.vendor_name);
+
+              // Cross-check: are these vendors already flagged in the current Copilot cycle?
+              let copilotFlagged: string[] = [];
+              try {
+                const copilotRes = await pool.query(`
+                  SELECT result FROM copilot_result_cache ORDER BY generated_at DESC LIMIT 1
+                `);
+                if (copilotRes.rows.length > 0) {
+                  const copilotResult = copilotRes.rows[0].result;
+                  const resultText = typeof copilotResult === 'string' ? copilotResult : JSON.stringify(copilotResult);
+                  copilotFlagged = highVendors.filter(v => resultText.toLowerCase().includes(v.toLowerCase()));
+                }
+              } catch { /* non-fatal */ }
+
+              const unflagged = highVendors.filter(v => !copilotFlagged.includes(v));
+              if (unflagged.length > 0) {
+                const detail = unflagged.map(v => {
+                  const row = highErrRes.rows.find((r: any) => r.vendor_name === v);
+                  return `${v} (${Number(row?.total_rate ?? 0).toFixed(1)}%)`;
+                }).join(', ');
+                checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: `High SIP error rates not yet flagged by Copilot: ${detail}`, durationMs: Date.now() - tsM });
+                issues.push({ type: 'DATA_MISMATCH', severity: 'warning', component: 'SIP Error Panel', message: `${unflagged.length} vendor(s) showing >15% SIP error rate in the 15-min window have not been flagged in the current Copilot analysis cycle: ${detail}`, suggestion: 'Run "Analyse Routes" in the AI Route Copilot to generate updated recommendations that cite these error codes. The SIP Error Rates panel shows the full breakdown.', autoFix: null });
+              } else {
+                checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: `High SIP error rates detected but already flagged by Copilot: ${highVendors.join(', ')}`, durationMs: Date.now() - tsM });
+              }
+            } else {
+              checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'ok', detail: `${sipCount} SIP error stat rows — all vendors within thresholds`, durationMs: Date.now() - tsM });
+            }
+          }
+        } finally {
+          await pool.end();
+        }
+      } catch (e: any) {
+        checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'fail', detail: e.message, durationMs: Date.now() - tsM });
       }
     }
 

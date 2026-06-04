@@ -37,6 +37,7 @@ const PAGE_NAMES: Record<string, string> = {
   "/cost-optimisation":    "Cost Optimisation",
   "/account-names":        "Account Names",
   "/traffic-map":          "Traffic Map",
+  "/route-intelligence":   "AI Route Copilot",
 };
 
 function getPageName(path: string): string {

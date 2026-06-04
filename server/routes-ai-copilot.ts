@@ -9,6 +9,7 @@
 import type { Express } from "express";
 import { runRouteCopilot, AiContractError } from "./services/ai/route-copilot";
 import type { CopilotResult } from "./services/ai/route-copilot";
+import { startSipErrorAggregator, loadSipErrorSnapshot, loadSipPrefixSnapshot, CODE_LABELS } from "./services/ai/sip-error-aggregator";
 import {
   listActions,
   createAction,
@@ -1031,5 +1032,62 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
   console.log(
     `[approval-expiry] Background job registered — sweeping every 60s, ` +
     `TTL resolved at runtime from DB settings (falls back to DUAL_APPROVAL_TTL_MINUTES env var, default 30m)`,
+  );
+
+  // ── SIP Error Stats table bootstrap ─────────────────────────────────────────
+  // Create/migrate the table via raw SQL (db:push prompt-blocks DDL in this env).
+  // Wrapped in a fire-and-forget IIFE because registerAiCopilotRoutes is sync.
+  (async () => {
+    try {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS sip_error_stats (
+          id             SERIAL PRIMARY KEY,
+          vendor_name    VARCHAR(128) NOT NULL,
+          window_minutes INTEGER      NOT NULL,
+          code           INTEGER      NOT NULL,
+          count          INTEGER      NOT NULL DEFAULT 0,
+          rate           REAL         NOT NULL DEFAULT 0,
+          computed_at    TIMESTAMP    NOT NULL DEFAULT NOW(),
+          dest_prefix    VARCHAR(12)
+        )
+      `);
+      await db.execute(sql`
+        ALTER TABLE sip_error_stats
+          ADD COLUMN IF NOT EXISTS dest_prefix VARCHAR(12)
+      `);
+      console.log("[sip-error-stats] Table ensured (with dest_prefix)");
+    } catch (err: any) {
+      console.warn("[sip-error-stats] Table bootstrap warning (non-fatal):", err.message);
+    }
+    startSipErrorAggregator();
+  })();
+
+  // ── GET /api/copilot/sip-errors ─────────────────────────────────────────────
+  // Returns per-vendor SIP error breakdown for all three windows (15/60/240 min).
+  // Used by the SIP Error Rates UI panel and the Fix Button diagnostic.
+  app.get(
+    "/api/copilot/sip-errors",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const [snapshot, prefixRows] = await Promise.all([
+          loadSipErrorSnapshot(),
+          loadSipPrefixSnapshot(),
+        ]);
+        const vendors = snapshot.map(snap => ({
+          vendorName:      snap.vendorName,
+          topCode:         snap.topCode,
+          topCodeLabel:    snap.topCode ? (CODE_LABELS[snap.topCode] ?? String(snap.topCode)) : null,
+          maxRate:         snap.maxRate,
+          hasCongestion:   snap.hasCongestion,
+          hasCliRejection: snap.hasCliRejection,
+          windows:         snap.windows,
+        }));
+        res.json({ success: true, vendors, prefixRows, computedAt: new Date().toISOString() });
+      } catch (err: any) {
+        console.error("[copilot/sip-errors] Error:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+      }
+    },
   );
 }

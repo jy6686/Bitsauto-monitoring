@@ -3379,3 +3379,19 @@ export const balanceAlertEvents = pgTable("balance_alert_events", {
 });
 export type BalanceAlertEvent = typeof balanceAlertEvents.$inferSelect;
 export type InsertBalanceAlertEvent = typeof balanceAlertEvents.$inferInsert;
+
+// ── SIP Error Stats — per-vendor error code telemetry for AI Route Copilot ───
+// Populated every 5 min by the SIP error aggregation background job.
+// windowMinutes: 15 | 60 | 240
+// code: 503 | 486 | 480 | 404 | 603 | 487
+export const sipErrorStats = pgTable("sip_error_stats", {
+  id:            serial("id").primaryKey(),
+  vendorName:    varchar("vendor_name",     { length: 128 }).notNull(),
+  windowMinutes: integer("window_minutes").notNull(),
+  code:          integer("code").notNull(),
+  count:         integer("count").notNull().default(0),
+  rate:          real("rate").notNull().default(0),
+  computedAt:    timestamp("computed_at").notNull().defaultNow(),
+  destPrefix:    varchar("dest_prefix",     { length: 12 }),
+});
+export type SipErrorStat = typeof sipErrorStats.$inferSelect;

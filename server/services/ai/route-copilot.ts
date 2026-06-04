@@ -28,6 +28,7 @@ import {
   dailyMinutesReports,
 } from "../../../shared/schema";
 import { desc, eq, gte, and, sql } from "drizzle-orm";
+import { loadSipErrorSnapshot, CODE_LABELS, type SipErrorSnapshot } from "./sip-error-aggregator";
 
 // ── Error type ─────────────────────────────────────────────────────────────────
 
@@ -475,13 +476,14 @@ export async function runRouteCopilot(
 
   // ── Load all telemetry in parallel ─────────────────────────────────────────
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles] = await Promise.all([
+  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles, sipErrors] = await Promise.all([
     db.select().from(carrierQualityScores).orderBy(desc(carrierQualityScores.lastComputedAt)),
     db.select().from(routingSuggestions).where(
       and(eq(routingSuggestions.status, "pending"), gte(routingSuggestions.createdAt, since6h))
     ),
     loadFraudProfilesPerVendor(since24h),
     loadMarginProfilesPerVendor(since7d),  // 7-day window for more stable margin signal
+    loadSipErrorSnapshot().catch(() => [] as SipErrorSnapshot[]),
   ]);
 
   // Deduplicate scores: latest 24h score per carrier
@@ -579,7 +581,7 @@ You receive route recommendations computed by a rule-based system and must:
 1. Rewrite the "action" as a clear, specific, operator-ready instruction (max 12 words).
 2. Keep "reasons" as an array of 2–4 concise factual bullet strings.
 3. Keep "expectedImpact" as one short sentence.
-4. Add an "aiInsight" field: one sentence of telecom-specific operational context (e.g. regional congestion patterns, known carrier behaviour, PSTN/mobile peering considerations, fraud risk context, or margin-impacting routing patterns). This must add genuine telecom expertise beyond what the rule engine already states — do NOT just paraphrase the reasons. Max 25 words.
+4. Add an "aiInsight" field: one sentence of telecom-specific operational context. If SIP error telemetry is provided, cite specific error codes (e.g. "503 congestion spike", "486 CLI screening") in your insight. This must add genuine telecom expertise beyond what the rule engine already states — do NOT just paraphrase the reasons. Max 30 words.
 5. Preserve all other fields (id, confidence, risk, currentVendor, targetVendor, destination) exactly as given.
 6. Return a JSON object: { "recommendations": [ ...same schema... ] }
 
@@ -587,12 +589,38 @@ Output MUST be valid JSON. The "recommendations" array MUST have ${baseline.leng
 Risk values: only "low", "medium", or "high".
 Confidence: integer 0–100 (you may adjust ±5 based on telecom best-practice judgement).`;
 
+    // ── Build SIP error telemetry context for the AI ──────────────────────────
+    let sipContext = "";
+    if (sipErrors.length > 0) {
+      const congestionVendors  = sipErrors.filter(s => s.hasCongestion).map(s => s.vendorName);
+      const rejectionVendors   = sipErrors.filter(s => s.hasCliRejection).map(s => s.vendorName);
+      const highErrorVendors   = sipErrors.filter(s => s.maxRate > 15).map(s => `${s.vendorName} (${s.maxRate.toFixed(1)}%)`);
+
+      const lines: string[] = ["SIP ERROR TELEMETRY (15-min rolling window):"];
+      for (const snap of sipErrors.slice(0, 6)) {
+        const w15 = snap.windows[15] ?? {};
+        const codes = Object.entries(w15)
+          .sort(([, a], [, b]) => b.rate - a.rate)
+          .map(([code, v]) => `${CODE_LABELS[Number(code)] ?? code}: ${v.rate.toFixed(1)}%`)
+          .join(", ");
+        if (codes) lines.push(`  ${snap.vendorName}: ${codes}`);
+      }
+      if (congestionVendors.length > 0)
+        lines.push(`CONGESTION SIGNAL (503 >10%): ${congestionVendors.join(", ")}`);
+      if (rejectionVendors.length > 0)
+        lines.push(`CLI REJECTION SIGNAL (486 >10%): ${rejectionVendors.join(", ")}`);
+      if (highErrorVendors.length > 0)
+        lines.push(`HIGH TOTAL ERROR RATE (>15%): ${highErrorVendors.join(", ")}`);
+
+      sipContext = "\n\n" + lines.join("\n");
+    }
+
     const userContent = JSON.stringify(baseline.map(r => ({
       id: r.id, action: r.action, confidence: r.confidence, reasons: r.reasons,
       risk: r.risk, expectedImpact: r.expectedImpact,
       currentVendor: r.currentVendor, targetVendor: r.targetVendor, destination: r.destination,
       fraudSignals: r.fraudSignals,
-    })));
+    }))) + sipContext;
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
