@@ -2990,12 +2990,15 @@ function SipErrorsTab() {
   const userId = user?.id ?? "guest";
   const lsVendorKey = `sip-errors-filter-vendor-${userId}`;
   const lsCodeKey = `sip-errors-filter-code-${userId}`;
+  const lsPresetKey = `sip-errors-preset-${userId}`;
+  const lsFromKey = `sip-errors-from-${userId}`;
+  const lsToKey = `sip-errors-to-${userId}`;
 
   const [activeWin, setActiveWin] = useState<15 | 60 | 240>(60);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showPrefixHeatmap, setShowPrefixHeatmap] = useState(false);
 
-  // Export date-range state
+  // Export date-range state — start with defaults; rehydration effect below restores from localStorage
   const [exportPreset, setExportPreset] = useState<SipExportPreset>(7);
   const [exportFrom, setExportFrom] = useState<string>("");
   const [exportTo, setExportTo] = useState<string>("");
@@ -3017,7 +3020,18 @@ function SipErrorsTab() {
     lastHydratedUserId.current = userId;
     setExportVendor(localStorage.getItem(lsVendorKey) ?? "");
     setExportCode(localStorage.getItem(lsCodeKey) ?? "");
-  }, [userId, lsVendorKey, lsCodeKey]);
+
+    const savedPreset = localStorage.getItem(lsPresetKey);
+    if (savedPreset === "custom") {
+      setExportPreset("custom");
+      setShowCustomRange(true);
+      setExportFrom(localStorage.getItem(lsFromKey) ?? "");
+      setExportTo(localStorage.getItem(lsToKey) ?? "");
+    } else if (savedPreset === "1" || savedPreset === "7" || savedPreset === "30") {
+      setExportPreset(Number(savedPreset) as 1 | 7 | 30);
+      setShowCustomRange(false);
+    }
+  }, [userId, lsVendorKey, lsCodeKey, lsPresetKey, lsFromKey, lsToKey]);
 
   // Persist vendor filter — only after hydration for the current user is complete
   useEffect(() => {
@@ -3038,6 +3052,21 @@ function SipErrorsTab() {
       localStorage.removeItem(lsCodeKey);
     }
   }, [exportCode, lsCodeKey, userId]);
+
+  // Persist date-range preset + custom dates — only after hydration for the current user is complete
+  useEffect(() => {
+    if (lastHydratedUserId.current !== userId) return;
+    localStorage.setItem(lsPresetKey, String(exportPreset));
+    if (exportPreset === "custom") {
+      if (exportFrom) localStorage.setItem(lsFromKey, exportFrom);
+      else localStorage.removeItem(lsFromKey);
+      if (exportTo) localStorage.setItem(lsToKey, exportTo);
+      else localStorage.removeItem(lsToKey);
+    } else {
+      localStorage.removeItem(lsFromKey);
+      localStorage.removeItem(lsToKey);
+    }
+  }, [exportPreset, exportFrom, exportTo, lsPresetKey, lsFromKey, lsToKey, userId]);
 
   const clearFilters = () => {
     setExportVendor("");
