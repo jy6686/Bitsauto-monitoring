@@ -31,10 +31,12 @@ import {
   Upload, Users, DollarSign, Info, TrendingDown, ThumbsUp, ShieldAlert,
   Download, FileText, Loader2, FileSpreadsheet, FileDown, Mail,
   Calendar, Trash2, Plus, ToggleLeft, ToggleRight, Send, Pencil,
+  Eye, CalendarDays, Hash, StickyNote, GitBranch,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
 
 interface ReconRow {
   id:                  number;
@@ -169,6 +171,215 @@ interface SippyAcct {
   description: string;
 }
 
+function ClientDetailDialog({ row, open, onClose }: {
+  row: ReconRow | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { data: allVersions = [] } = useQuery<ReconRow[]>({
+    queryKey: ["/api/client-reconciliation/versions", row?.billingPeriod, row?.clientName],
+    queryFn: () =>
+      apiRequest("GET", `/api/client-reconciliation?period=${row!.billingPeriod}`)
+        .then(r => r.json())
+        .then((rows: ReconRow[]) =>
+          rows.filter(r => r.clientName === row!.clientName).sort((a, b) => b.version - a.version)
+        ),
+    enabled: open && row !== null,
+    staleTime: 30_000,
+  });
+
+  if (!row) return null;
+
+  const sevcfg = SEVERITY_CFG[row.severity] ?? SEVERITY_CFG.low;
+  const stcfg  = STATUS_CFG[row.status]     ?? STATUS_CFG.pending;
+  const SevIcon = sevcfg.icon;
+
+  const versions = allVersions;
+
+  function FieldRow({ label, value, mono = false, highlight }: {
+    label: string; value: string; mono?: boolean; highlight?: string;
+  }) {
+    return (
+      <div className="flex items-center justify-between py-1.5">
+        <span className="text-xs text-muted-foreground w-40 flex-shrink-0">{label}</span>
+        <span className={`text-sm font-medium text-right ${mono ? 'font-mono' : ''} ${highlight ?? ''}`}>{value}</span>
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-client-detail">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Eye className="h-4 w-4 text-primary" />
+            {row.clientName}
+          </DialogTitle>
+          <DialogDescription>
+            Client reconciliation detail for billing period{' '}
+            <span className="font-semibold text-foreground font-mono">{row.billingPeriod}</span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Identifiers */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 flex items-center gap-1.5">
+              <Hash className="h-3.5 w-3.5" /> Record
+            </p>
+            <div className="divide-y divide-border/40">
+              <FieldRow label="Billing Period" value={row.billingPeriod} mono />
+              {row.clientAccountId && <FieldRow label="Account ID" value={row.clientAccountId} mono />}
+              <FieldRow label="Version" value={`v${row.version}`} />
+              <FieldRow label="Discrepancy Type" value={DISCREPANCY_LABELS[row.discrepancyType] ?? row.discrepancyType} />
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Client Reported */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5" /> Client Reported
+            </p>
+            <div className="divide-y divide-border/40">
+              <FieldRow label="Duration" value={fmtMin(row.clientDurationSec)} />
+              <FieldRow label="Amount" value={fmtUsd(row.clientAmountUsd)} />
+              <FieldRow label="Calls" value={row.clientCalls != null ? row.clientCalls.toLocaleString() : '—'} />
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* BitsAuto Invoice */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 flex items-center gap-1.5">
+              <DollarSign className="h-3.5 w-3.5" /> BitsAuto Invoice
+            </p>
+            <div className="divide-y divide-border/40">
+              <FieldRow label="Duration" value={fmtMin(row.bitsautoDurationSec)} />
+              <FieldRow label="Amount" value={fmtUsd(row.bitsautoAmountUsd)} />
+              <FieldRow label="Calls" value={row.bitsautoCalls != null ? row.bitsautoCalls.toLocaleString() : '—'} />
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* DMR Sippy */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5" /> DMR (Sippy Arbiter)
+            </p>
+            <div className="divide-y divide-border/40">
+              <FieldRow label="Duration" value={fmtMin(row.dmrDurationSec)} />
+              <FieldRow label="Amount" value={fmtUsd(row.dmrAmountUsd)} />
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Deltas & Classification */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 flex items-center gap-1.5">
+              <TrendingDown className="h-3.5 w-3.5" /> Delta & Classification
+            </p>
+            <div className="divide-y divide-border/40">
+              <FieldRow
+                label="Delta Duration"
+                value={fmtMin(row.deltaDurationSec)}
+                highlight={row.deltaDurationSec ? 'text-amber-400' : ''}
+              />
+              <FieldRow
+                label="Delta Amount"
+                value={fmtUsd(row.deltaAmountUsd)}
+                highlight={row.deltaAmountUsd ? 'text-amber-400' : ''}
+              />
+              <FieldRow
+                label="Delta %"
+                value={fmtPct(row.deltaPct)}
+                highlight={row.deltaPct != null && Math.abs(row.deltaPct) >= 2 ? 'text-amber-400' : 'text-emerald-400'}
+              />
+              <div className="flex items-center justify-between py-1.5">
+                <span className="text-xs text-muted-foreground w-40 flex-shrink-0">Severity</span>
+                <Badge variant="outline" className={`text-xs ${sevcfg.color}`}>
+                  <SevIcon className="h-3 w-3 mr-1" />
+                  {sevcfg.label}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between py-1.5">
+                <span className="text-xs text-muted-foreground w-40 flex-shrink-0">Status</span>
+                <Badge variant="outline" className={`text-xs ${stcfg.color}`}>
+                  {stcfg.label}
+                </Badge>
+              </div>
+            </div>
+          </div>
+
+          {/* Notes */}
+          {row.notes && (
+            <>
+              <Separator />
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 flex items-center gap-1.5">
+                  <StickyNote className="h-3.5 w-3.5" /> Notes
+                </p>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed bg-muted/30 rounded p-3">
+                  {row.notes}
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Version History */}
+          {versions.length > 1 && (
+            <>
+              <Separator />
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
+                  <GitBranch className="h-3.5 w-3.5" /> Version History ({versions.length})
+                </p>
+                <div className="space-y-1">
+                  {versions.map(v => {
+                    const vsev = SEVERITY_CFG[v.severity] ?? SEVERITY_CFG.low;
+                    const vst  = STATUS_CFG[v.status]    ?? STATUS_CFG.pending;
+                    const isCurrent = v.id === row.id;
+                    return (
+                      <div
+                        key={v.id}
+                        data-testid={`version-row-${v.id}`}
+                        className={`flex items-center justify-between rounded px-3 py-2 text-xs ${isCurrent ? 'bg-primary/10 border border-primary/30' : 'bg-muted/30'}`}
+                      >
+                        <span className="font-mono font-medium">v{v.version}</span>
+                        <span className="text-muted-foreground">{fmtUsd(v.deltaAmountUsd)} delta</span>
+                        <Badge variant="outline" className={`text-xs ${vsev.color}`}>{vsev.label}</Badge>
+                        <Badge variant="outline" className={`text-xs ${vst.color}`}>{vst.label}</Badge>
+                        {isCurrent && <span className="text-primary font-medium">current</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <DialogFooter className="mt-2">
+          <Button variant="outline" onClick={onClose} data-testid="button-detail-close">Close</Button>
+          <Button
+            variant="outline"
+            onClick={() => downloadRowCsv(row)}
+            data-testid="button-detail-download-csv"
+            className="gap-2"
+          >
+            <FileDown className="h-4 w-4 text-sky-400" />
+            Download CSV
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function ClientReconciliationPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -176,6 +387,7 @@ export default function ClientReconciliationPage() {
   const [activeTab, setActiveTab] = useState<'discrepancies' | 'all'>('discrepancies');
   const [filter, setFilter] = useState('');
   const [showImport, setShowImport] = useState(false);
+  const [selectedRow, setSelectedRow] = useState<ReconRow | null>(null);
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [emailForm, setEmailForm] = useState({
@@ -401,7 +613,12 @@ export default function ClientReconciliationPage() {
             const SevIcon = sevcfg.icon;
             const hasDrift = row.severity !== 'clean';
             return (
-              <TableRow key={row.id} className={sevcfg.rowBg} data-testid={`row-recon-${row.id}`}>
+              <TableRow
+                key={row.id}
+                className={`${sevcfg.rowBg} cursor-pointer hover:bg-muted/30 transition-colors`}
+                data-testid={`row-recon-${row.id}`}
+                onClick={() => setSelectedRow(row)}
+              >
                 <TableCell>
                   <div className="flex flex-col">
                     <span className="text-sm font-medium">{row.clientName}</span>
@@ -435,7 +652,7 @@ export default function ClientReconciliationPage() {
                     {stcfg.label}
                   </Badge>
                 </TableCell>
-                <TableCell>
+                <TableCell onClick={e => e.stopPropagation()}>
                   <div className="flex gap-1">
                     <Button
                       data-testid={`button-recalc-recon-${row.id}`}
@@ -653,6 +870,13 @@ export default function ClientReconciliationPage() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Client Detail Dialog */}
+      <ClientDetailDialog
+        row={selectedRow}
+        open={selectedRow !== null}
+        onClose={() => setSelectedRow(null)}
+      />
 
       {/* Email Report dialog */}
       <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
