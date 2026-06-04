@@ -6562,58 +6562,116 @@ export async function registerRoutes(
         const { Pool } = await import('pg');
         const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-        // Build WHERE clause — prefer from/to ISO dates, fall back to days
-        let whereClause: string;
+        // Build date range — prefer from/to ISO dates, fall back to days.
+        // exportCutoff is anchored at UTC midnight so baseline windows are day-aligned.
+        let exportCutoff: Date;
+        let fetchEnd: Date;
         let filenameRange: string;
         const fromParam = String(req.query.from ?? '').trim();
         const toParam = String(req.query.to ?? '').trim();
         const isoDateRe = /^\d{4}-\d{2}-\d{2}$/;
         if (isoDateRe.test(fromParam) && isoDateRe.test(toParam)) {
-          // Validate dates are sensible
-          const fromDate = new Date(fromParam);
-          const toDate = new Date(toParam);
+          const fromDate = new Date(fromParam + 'T00:00:00Z');
+          const toDate = new Date(toParam + 'T00:00:00Z');
           if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime()) || fromDate > toDate) {
             return res.status(400).json({ success: false, error: 'Invalid from/to date range' });
           }
-          whereClause = `snapshot_at >= '${fromParam}'::date AND snapshot_at < ('${toParam}'::date + INTERVAL '1 day')`;
+          exportCutoff = fromDate;
+          fetchEnd = new Date(toDate.getTime() + 24 * 3600 * 1000); // exclusive upper bound
           filenameRange = `${fromParam}_to_${toParam}`;
         } else {
           const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? '7'), 10) || 7));
-          whereClause = `snapshot_at > NOW() - INTERVAL '${days} days'`;
+          exportCutoff = new Date();
+          exportCutoff.setUTCDate(exportCutoff.getUTCDate() - days);
+          exportCutoff.setUTCHours(0, 0, 0, 0);
+          fetchEnd = new Date();
           filenameRange = `last-${days}d`;
         }
 
-        let rows: any[];
+        // fetchStart: exactly 24h before exportCutoff so the first export day always
+        // has a full preceding 24h of baseline data — matches loadSipErrorSnapshotWithSpikes().
+        const fetchStart = new Date(exportCutoff.getTime() - 24 * 3600 * 1000);
+
+        let hourlyRows: any[];
         try {
-          const result = await pool.query(`
-            SELECT
-              DATE(snapshot_at)::text AS date,
-              vendor_name,
-              code,
-              ROUND(AVG(rate)::numeric, 4) AS avg_rate,
-              AVG(AVG(rate)) OVER (PARTITION BY vendor_name, code) AS period_baseline
-            FROM sip_error_history
-            WHERE ${whereClause}
-            GROUP BY DATE(snapshot_at), vendor_name, code
-            ORDER BY date ASC, vendor_name, code
-          `);
-          rows = result.rows;
+          const result = await pool.query(
+            `SELECT snapshot_at, vendor_name, code, rate
+             FROM sip_error_history
+             WHERE snapshot_at >= $1 AND snapshot_at < $2
+             ORDER BY snapshot_at ASC`,
+            [fetchStart.toISOString(), fetchEnd.toISOString()],
+          );
+          hourlyRows = result.rows;
         } finally {
           await pool.end();
         }
 
+        // Group hourly rows by (vendor_name, code, day) for daily averages
+        // and retain raw timestamps for per-day 24h baseline computation.
+        type HourlyEntry = { ts: number; rate: number };
+        // key: `${vendorName}\0${code}` → day ISO string → entries
+        const byVendorCode = new Map<string, Map<string, HourlyEntry[]>>();
+
+        for (const row of hourlyRows) {
+          const ts = new Date(row.snapshot_at).getTime();
+          const day = new Date(ts).toISOString().slice(0, 10);
+          const vcKey = `${row.vendor_name}\0${row.code}`;
+          if (!byVendorCode.has(vcKey)) byVendorCode.set(vcKey, new Map());
+          const dayMap = byVendorCode.get(vcKey)!;
+          if (!dayMap.has(day)) dayMap.set(day, []);
+          dayMap.get(day)!.push({ ts, rate: parseFloat(row.rate ?? '0') });
+        }
+
+        // Build export rows
+        type ExportRow = { date: string; vendor_name: string; code: string; avg_rate: number; baseline_rate: number };
+        const exportRows: ExportRow[] = [];
+
+        for (const [vcKey, dayMap] of byVendorCode) {
+          const [vendor_name, code] = vcKey.split('\0');
+          // All hourly entries for this vendor+code across all fetched days (incl. baseline day)
+          const allEntries: HourlyEntry[] = [];
+          for (const entries of dayMap.values()) allEntries.push(...entries);
+
+          for (const [day, entries] of dayMap) {
+            const dayStartMs = new Date(day + 'T00:00:00Z').getTime();
+            // Only emit rows within the requested export range
+            if (dayStartMs < exportCutoff.getTime()) continue;
+
+            // Daily average rate
+            const avg_rate = entries.reduce((s, e) => s + e.rate, 0) / entries.length;
+
+            // 24h rolling baseline: average of snapshots in [dayStart-24h, dayStart)
+            // Mirrors loadSipErrorSnapshotWithSpikes() dashboard definition
+            const baselineEntries = allEntries.filter(
+              e => e.ts >= dayStartMs - 24 * 3600 * 1000 && e.ts < dayStartMs,
+            );
+            const baseline_rate = baselineEntries.length > 0
+              ? baselineEntries.reduce((s, e) => s + e.rate, 0) / baselineEntries.length
+              : 0;
+
+            exportRows.push({ date: day, vendor_name, code, avg_rate, baseline_rate });
+          }
+        }
+
+        exportRows.sort((a, b) =>
+          a.date.localeCompare(b.date) ||
+          a.vendor_name.localeCompare(b.vendor_name) ||
+          a.code.localeCompare(b.code),
+        );
+
         const filename = `sip-error-history-${filenameRange}.csv`;
 
-        const csvLines: string[] = ['date,vendor_name,code,avg_rate,spike_flag'];
-        for (const row of rows) {
-          const avgRate = parseFloat(row.avg_rate ?? '0');
-          const baseline = parseFloat(row.period_baseline ?? '0');
-          const spikeFlag = avgRate >= 2 && baseline > 0 && avgRate >= 2 * baseline;
+        const csvLines: string[] = ['date,vendor_name,code,avg_rate,baseline_rate,spike_flag'];
+        for (const row of exportRows) {
+          // Spike criteria: current rate ≥ 2% absolute AND ≥ 2× 24h rolling baseline
+          // Identical to loadSipErrorSnapshotWithSpikes()
+          const spikeFlag = row.avg_rate >= 2 && row.baseline_rate > 0 && row.avg_rate >= 2 * row.baseline_rate;
           csvLines.push([
             row.date,
             `"${String(row.vendor_name).replace(/"/g, '""')}"`,
             row.code,
-            avgRate.toFixed(4),
+            row.avg_rate.toFixed(4),
+            row.baseline_rate.toFixed(4),
             spikeFlag ? '1' : '0',
           ].join(','));
         }
