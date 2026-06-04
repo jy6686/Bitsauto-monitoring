@@ -6,7 +6,8 @@ import {
   Wallet, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
   TrendingUp, Plus, Settings2, Loader2, Bell, BellOff,
   CreditCard, ShieldAlert, Minus, Server, Hash, Shield,
-  Network, SlidersHorizontal,
+  Network, SlidersHorizontal, Save, History, ChevronDown, ChevronUp,
+  Play, Trash2, Globe, TriangleAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,8 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -506,6 +509,385 @@ function ThresholdModal({
   );
 }
 
+// ─── Global Thresholds Panel ──────────────────────────────────────────────────
+
+const SEVERITIES: Array<{ key: 'warning' | 'urgent' | 'critical'; label: string; color: string; bgCls: string }> = [
+  { key: 'warning',  label: 'Warning',  color: 'text-amber-400',  bgCls: 'bg-amber-500/10 border-amber-500/20'  },
+  { key: 'urgent',   label: 'Urgent',   color: 'text-orange-400', bgCls: 'bg-orange-500/10 border-orange-500/20' },
+  { key: 'critical', label: 'Critical', color: 'text-red-400',    bgCls: 'bg-red-500/10 border-red-500/20'      },
+];
+
+function GlobalThresholdsPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { role } = useAuth();
+  const canEdit = role === 'admin' || role === 'management';
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Record<string, string>>({});
+
+  // Per-account override editor state
+  const [showAddOverride, setShowAddOverride] = useState(false);
+  const [overrideAcctId, setOverrideAcctId]   = useState('');
+  const [overrideAcctName, setOverrideAcctName] = useState('');
+  const [overrideVals, setOverrideVals]         = useState<Record<string, string>>({ warning: '', urgent: '', critical: '' });
+
+  const { data, isLoading } = useQuery<{ thresholds: any[] }>({
+    queryKey: ['/api/balance-alert-thresholds'],
+    staleTime: 30_000,
+  });
+  const thresholds = data?.thresholds ?? [];
+  const globals = thresholds.filter((t: any) => !t.accountId);
+
+  const runMut = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/noc/balance-alerts/run').then(r => r.json()),
+    onSuccess: (d: any) => {
+      qc.invalidateQueries({ queryKey: ['/api/noc/balance-alerts'] });
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Balance check complete', description: `Checked ${d.checked ?? 0} accounts, ${d.triggered ?? 0} triggered.` });
+    },
+    onError: (e: any) => toast({ title: 'Check failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (body: { severity: string; thresholdUsd: number; accountId?: null }) =>
+      apiRequest('POST', '/api/balance-alert-thresholds', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Threshold saved' });
+      setEditing({});
+    },
+    onError: (e: any) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/balance-alert-thresholds/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Threshold removed' });
+    },
+    onError: (e: any) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
+  });
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+      <button
+        data-testid="button-toggle-thresholds-panel"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <TriangleAlert className="w-4 h-4 text-amber-500" />
+          <span className="font-semibold text-sm">Balance Alert Thresholds</span>
+          <span className="text-xs text-muted-foreground">
+            Global defaults + per-account overrides
+          </span>
+          {globals.length === 0 && !isLoading && (
+            <Badge variant="destructive" className="text-xs ml-1">No defaults set</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1"
+            onClick={(e) => { e.stopPropagation(); runMut.mutate(); }}
+            disabled={runMut.isPending}
+            data-testid="button-run-alert-check"
+          >
+            {runMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+            Run check
+          </Button>
+          {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-border/60 p-4 space-y-4">
+          {/* Global defaults */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+              <Globe className="w-3 h-3" /> Global defaults (apply to all accounts without overrides)
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {SEVERITIES.map(({ key, label, color, bgCls }) => {
+                const existing = globals.find((t: any) => t.severity === key);
+                const editKey = `global-${key}`;
+                const editVal = editing[editKey];
+                const displayVal = editVal !== undefined ? editVal : (existing ? String(existing.thresholdUsd) : '');
+                return (
+                  <div key={key} className={`p-3 rounded-lg border ${bgCls}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-xs font-bold uppercase tracking-wide ${color}`}>{label}</span>
+                      {existing && canEdit && (
+                        <button
+                          data-testid={`button-delete-threshold-${key}`}
+                          onClick={() => deleteMut.mutate(existing.id)}
+                          className="text-muted-foreground/50 hover:text-red-400 transition-colors"
+                          title="Remove threshold"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    {canEdit ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground">$</span>
+                        <Input
+                          data-testid={`input-global-threshold-${key}`}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={displayVal}
+                          placeholder={key === 'warning' ? '100' : key === 'urgent' ? '50' : '10'}
+                          onChange={e => setEditing(prev => ({ ...prev, [editKey]: e.target.value }))}
+                          className="h-7 text-xs px-2 bg-background/60"
+                        />
+                        <Button
+                          data-testid={`button-save-threshold-${key}`}
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          disabled={saveMut.isPending || editVal === undefined || editVal === ''}
+                          onClick={() => {
+                            const v = parseFloat(displayVal);
+                            if (isNaN(v) || v < 0) return;
+                            saveMut.mutate({ severity: key, thresholdUsd: v, accountId: null });
+                          }}
+                        >
+                          <Save className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className={`text-base font-bold font-mono ${color}`}>
+                        {existing ? `$${existing.thresholdUsd}` : '—'}
+                      </p>
+                    )}
+                    {existing && (
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        Alert when balance &lt; ${existing.thresholdUsd}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Per-account overrides section */}
+          <Separator />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Per-account overrides
+              </p>
+              {canEdit && (
+                <Button
+                  data-testid="button-add-account-override"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setShowAddOverride(o => !o)}
+                >
+                  <Plus className="w-3 h-3" />
+                  {showAddOverride ? 'Cancel' : 'Add override'}
+                </Button>
+              )}
+            </div>
+
+            {/* Add per-account override form */}
+            {showAddOverride && canEdit && (
+              <div className="mb-3 p-3 rounded-lg border border-border/60 bg-muted/20 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Set custom warning / urgent / critical thresholds for a specific account.
+                  Leave a level blank to inherit the global default.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Account ID</Label>
+                    <Input
+                      data-testid="input-override-account-id"
+                      placeholder="e.g. 12345"
+                      value={overrideAcctId}
+                      onChange={e => setOverrideAcctId(e.target.value.trim())}
+                      className="h-7 text-xs mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Account name (label)</Label>
+                    <Input
+                      data-testid="input-override-account-name"
+                      placeholder="e.g. Acme Corp"
+                      value={overrideAcctName}
+                      onChange={e => setOverrideAcctName(e.target.value)}
+                      className="h-7 text-xs mt-1"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {SEVERITIES.map(({ key, label, color }) => (
+                    <div key={key}>
+                      <Label className={`text-xs ${color}`}>{label} ($)</Label>
+                      <Input
+                        data-testid={`input-override-${key}`}
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder={key === 'warning' ? '100' : key === 'urgent' ? '50' : '10'}
+                        value={overrideVals[key] ?? ''}
+                        onChange={e => setOverrideVals(p => ({ ...p, [key]: e.target.value }))}
+                        className="h-7 text-xs mt-1"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    data-testid="button-save-account-override"
+                    size="sm"
+                    className="h-7 text-xs gap-1"
+                    disabled={saveMut.isPending || !overrideAcctId}
+                    onClick={async () => {
+                      if (!overrideAcctId) return;
+                      const tasks = SEVERITIES
+                        .filter(({ key }) => overrideVals[key] && !isNaN(parseFloat(overrideVals[key])))
+                        .map(({ key }) =>
+                          saveMut.mutateAsync({
+                            severity: key,
+                            thresholdUsd: parseFloat(overrideVals[key]),
+                            accountId: overrideAcctId as any,
+                            accountName: overrideAcctName || undefined,
+                          } as any)
+                        );
+                      if (tasks.length === 0) {
+                        toast({ title: 'Enter at least one threshold value', variant: 'destructive' });
+                        return;
+                      }
+                      await Promise.all(tasks);
+                      setShowAddOverride(false);
+                      setOverrideAcctId('');
+                      setOverrideAcctName('');
+                      setOverrideVals({ warning: '', urgent: '', critical: '' });
+                    }}
+                  >
+                    <Save className="w-3 h-3" /> Save override
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {thresholds.filter((t: any) => t.accountId).length === 0 && !showAddOverride ? (
+              <p className="text-xs text-muted-foreground py-1">
+                No per-account overrides. Global defaults apply to all accounts.
+              </p>
+            ) : (
+              <div className="divide-y divide-border/40">
+                {/* Group by account */}
+                {Object.entries(
+                  thresholds
+                    .filter((t: any) => t.accountId)
+                    .reduce((acc: Record<string, any[]>, t: any) => {
+                      const key = t.accountId;
+                      acc[key] = acc[key] ?? [];
+                      acc[key].push(t);
+                      return acc;
+                    }, {})
+                )
+                  .sort(([, a], [, b]) => ((a[0]?.accountName ?? '') as string).localeCompare((b[0]?.accountName ?? '') as string))
+                  .map(([acctId, rows]) => (
+                    <div key={acctId} className="py-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{(rows[0] as any)?.accountName ?? `#${acctId}`}</span>
+                        <span className="text-muted-foreground font-mono text-[10px]">#{acctId}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {(rows as any[]).sort((a, b) => {
+                          const rank: Record<string, number> = { warning: 0, urgent: 1, critical: 2 };
+                          return (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3);
+                        }).map((t: any) => {
+                          const sev = SEVERITIES.find(s => s.key === t.severity);
+                          return (
+                            <span key={t.id} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${sev?.bgCls ?? ''}`}>
+                              <span className={`font-mono font-bold uppercase text-[10px] ${sev?.color ?? ''}`}>{t.severity}</span>
+                              <span className="text-muted-foreground text-[10px]">&lt;${t.thresholdUsd}</span>
+                              {canEdit && (
+                                <button
+                                  data-testid={`button-delete-override-${t.id}`}
+                                  onClick={() => deleteMut.mutate(t.id)}
+                                  className="text-muted-foreground/40 hover:text-red-400 transition-colors"
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Per-Account Alert History ─────────────────────────────────────────────────
+
+function AccountAlertHistory({ accountId, accountName }: { accountId: number; accountName: string }) {
+  const [open, setOpen] = useState(false);
+
+  const { data, isLoading } = useQuery<{ events: any[]; history: any[] }>({
+    queryKey: ['/api/accounts', String(accountId), 'balance-alert-history'],
+    queryFn: () => apiRequest('GET', `/api/accounts/${accountId}/balance-alert-history`).then(r => r.json()),
+    enabled: open,
+    staleTime: 60_000,
+  });
+  const events = data?.events ?? data?.history ?? [];
+
+  return (
+    <div className="border-t border-border/40 mt-2 pt-2">
+      <button
+        data-testid={`button-toggle-history-${accountId}`}
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        <History className="w-3 h-3" />
+        Alert history
+        {open ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1">
+          {isLoading ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : events.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-1">No alerts in the last 30 days.</p>
+          ) : (
+            events.slice(0, 8).map((e: any) => {
+              const sevCls =
+                e.severity === 'critical' ? 'text-red-400' :
+                e.severity === 'urgent'   ? 'text-orange-400' : 'text-amber-400';
+              const resolvedAt = e.resolvedAt ? new Date(e.resolvedAt) : null;
+              const triggeredAt = new Date(e.triggeredAt);
+              return (
+                <div key={e.id} className="flex items-start gap-2 text-[10px] py-1 border-b border-border/20 last:border-0">
+                  <span className={`font-mono font-bold uppercase shrink-0 ${sevCls}`}>{e.severity}</span>
+                  <span className="text-muted-foreground shrink-0">${Number(e.currentBalance).toFixed(0)}</span>
+                  <span className="text-muted-foreground flex-1 text-right">
+                    {triggeredAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                    {resolvedAt ? <span className="ml-1 text-emerald-500">✓ resolved</span> : <span className="ml-1 text-amber-500">open</span>}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Account Card ─────────────────────────────────────────────────────────────
 
 function AccountCard({ account }: { account: BalanceAccount }) {
@@ -666,6 +1048,9 @@ function AccountCard({ account }: { account: BalanceAccount }) {
             </Button>
           </div>
         )}
+
+        {/* Alert history expandable */}
+        <AccountAlertHistory accountId={account.iAccount} accountName={account.username} />
       </div>
 
       <TopUpModal account={account} open={showTopUp} onClose={() => setShowTopUp(false)} />
@@ -726,7 +1111,7 @@ export default function BalanceMonitorPage() {
             <h2 className="text-2xl font-bold tracking-tight">Account Balance Monitor</h2>
           </div>
           <p className="text-muted-foreground text-sm mt-1">
-            Live balances · auto-refresh every 2 min
+            Live balances · auto-refresh every 5 min · alert thresholds enforced
             {lastUpdated && <span className="ml-2 text-muted-foreground/60">· updated {lastUpdated}</span>}
           </p>
           {isViewer && assignedIds.length > 0 && assignedAccountsData?.kamName && (
@@ -795,6 +1180,9 @@ export default function BalanceMonitorPage() {
           </Button>
         </div>
       </div>
+
+      {/* Global Alert Thresholds Panel */}
+      <GlobalThresholdsPanel />
 
       {/* Cache-fallback notice — shown when live XML-RPC balance fetch failed */}
       {data?.fromCache && (

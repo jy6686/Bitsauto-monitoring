@@ -8,7 +8,7 @@ import {
   Minus, BrainCircuit, Siren, Maximize2, Minimize, Moon, Sun,
   ArrowRight, RefreshCw, AlertOctagon, GitBranch, Network,
   ChevronRight, Clock, Zap, ChevronDown, ChevronUp, ExternalLink,
-  PlayCircle, Loader2, AlertCircle, BarChart2, Sparkles,
+  PlayCircle, Loader2, AlertCircle, BarChart2, Sparkles, Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -847,6 +847,14 @@ export default function NocDashboardPage() {
     refetchInterval: 90_000,
   });
 
+  const { data: balAlertData } = useQuery<{ alerts: any[] }>({
+    queryKey: ["/api/noc/balance-alerts"],
+    refetchInterval: 5 * 60_000,
+  });
+  const balAlerts = balAlertData?.alerts ?? [];
+  const criticalBalAlerts = balAlerts.filter(a => a.severity === "critical");
+  const urgentBalAlerts   = balAlerts.filter(a => a.severity === "urgent");
+
   const { data: copilotSummary } = useQuery<CopilotSummary>({
     queryKey: ["/api/ai/route-copilot/summary"],
     refetchInterval: 5 * 60 * 1000,
@@ -892,6 +900,8 @@ export default function NocDashboardPage() {
       toast({ title: "Apply failed", description: err.message, variant: "destructive" });
     },
   });
+
+  const showLowBalanceStrip = (criticalBalAlerts.length + urgentBalAlerts.length) > 0;
 
   const activeCalls       = liveSummary?.totalActiveCalls ?? 0;
   const allActiveInc      = [
@@ -1015,6 +1025,40 @@ export default function NocDashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Low Balance Alert Strip ── */}
+      {showLowBalanceStrip && (
+        <div className="flex-shrink-0 bg-amber-950/40 border-b border-amber-500/30 px-4 py-1.5 flex items-center gap-3 overflow-x-auto">
+          <Wallet className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400 shrink-0">
+            Low Balance
+          </span>
+          <div className="flex items-center gap-2 flex-1 overflow-x-auto">
+            {[...criticalBalAlerts, ...urgentBalAlerts].slice(0, 8).map((a: any) => (
+              <span
+                key={a.id}
+                className={`text-[10px] font-mono shrink-0 px-1.5 py-0.5 rounded border ${
+                  a.severity === "critical"
+                    ? "bg-red-500/20 text-red-300 border-red-500/30"
+                    : "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                }`}
+              >
+                {a.accountName ?? `#${a.accountId}`} ${Number(a.currentBalance).toFixed(0)}
+              </span>
+            ))}
+            {(criticalBalAlerts.length + urgentBalAlerts.length) > 8 && (
+              <span className="text-[10px] text-amber-600 font-mono shrink-0">
+                +{criticalBalAlerts.length + urgentBalAlerts.length - 8} more
+              </span>
+            )}
+          </div>
+          <Link href="/balance">
+            <a className="text-[10px] text-amber-500 hover:text-amber-300 transition-colors flex items-center gap-1 shrink-0">
+              Monitor <ChevronRight className="h-3 w-3" />
+            </a>
+          </Link>
+        </div>
+      )}
 
       {/* ── Approval Expiry Banners ── */}
       <AnimatePresence>
@@ -1222,8 +1266,66 @@ export default function NocDashboardPage() {
           </ScrollArea>
         </div>
 
-        {/* ── RIGHT: AI Recommendations (3 cols) ── */}
+        {/* ── RIGHT: Balance Alerts + AI Recommendations (3 cols) ── */}
         <div className="col-span-12 lg:col-span-3 flex flex-col">
+
+          {/* Balance Alerts Panel — all accounts below any threshold, sorted by balance asc */}
+          <div className="flex flex-col border-b border-slate-800/60" style={{ maxHeight: '45%' }}>
+            <div className="px-3 py-2 border-b border-slate-800/60 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-3.5 w-3.5 text-amber-400" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Low Balance
+                </span>
+                {balAlerts.length > 0 && (
+                  <span className="text-[10px] font-mono text-amber-400">({balAlerts.length})</span>
+                )}
+              </div>
+              <Link href="/balance">
+                <a className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1">
+                  Monitor <ChevronRight className="h-3 w-3" />
+                </a>
+              </Link>
+            </div>
+            <ScrollArea className="flex-1">
+              <div className="p-2 space-y-0.5">
+                {balAlerts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-6 text-slate-600">
+                    <Wallet className="h-5 w-5 mb-1.5 text-slate-700" />
+                    <p className="text-[10px] font-mono">No low balance alerts</p>
+                  </div>
+                ) : (
+                  [...balAlerts]
+                    .sort((a: any, b: any) => Number(a.currentBalance) - Number(b.currentBalance))
+                    .map((a: any) => {
+                      const sevCls =
+                        a.severity === 'critical' ? 'text-red-300 border-red-500/30 bg-red-500/10' :
+                        a.severity === 'urgent'   ? 'text-orange-300 border-orange-500/30 bg-orange-500/10' :
+                                                    'text-amber-300 border-amber-500/30 bg-amber-500/10';
+                      return (
+                        <div
+                          key={a.id}
+                          data-testid={`noc-balance-alert-${a.id}`}
+                          className="flex items-center justify-between rounded border px-2 py-1 text-[10px] bg-slate-900/30"
+                        >
+                          <span className="font-mono text-slate-300 truncate max-w-[100px]" title={a.accountName ?? `#${a.accountId}`}>
+                            {a.accountName ?? `#${a.accountId}`}
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`font-mono font-bold px-1 py-0.5 rounded border ${sevCls}`}>
+                              ${Number(a.currentBalance).toFixed(0)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+
+          {/* AI Recommendations Panel */}
+          <div className="flex flex-col flex-1 min-h-0">
           <div className="px-3 py-2 border-b border-slate-800/60 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
               <BrainCircuit className="h-3.5 w-3.5 text-violet-400" />
@@ -1285,7 +1387,8 @@ export default function NocDashboardPage() {
               })}
             </div>
           </ScrollArea>
-        </div>
+          </div> {/* end AI Recommendations panel */}
+        </div> {/* end RIGHT col */}
       </div>
     </div>
   );

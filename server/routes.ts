@@ -60,9 +60,9 @@ import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
 import { initSyntheticScheduler, computeInitialNextRunAt } from "./synthetic-scheduler";
 import { initCarrierScoringEngine, recomputeCarrierScores, setCdrProvider } from "./carrier-scoring-engine";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents } from "@shared/schema";
 import { db } from "./db";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode, searchDialCodes } from "./dial-lookup";
 import { readFileSync } from "fs";
@@ -11736,6 +11736,109 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
   });
 
+  // ── Balance Alert Thresholds & Events ─────────────────────────────────────────
+
+  // GET /api/balance-alert-thresholds — list all thresholds (global + per-account)
+  app.get('/api/balance-alert-thresholds', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (_req, res) => {
+    try {
+      const rows = await db.select().from(balanceAlertThresholds).orderBy(balanceAlertThresholds.severity);
+      res.json({ thresholds: rows });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/balance-alert-thresholds — create or upsert a threshold
+  app.post('/api/balance-alert-thresholds', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const { accountId, accountName, thresholdUsd, severity } = req.body as {
+        accountId?: string | null; accountName?: string; thresholdUsd: number; severity: string;
+      };
+      if (thresholdUsd == null || isNaN(Number(thresholdUsd))) return res.status(400).json({ error: 'thresholdUsd required' });
+      if (!['warning', 'urgent', 'critical'].includes(severity)) return res.status(400).json({ error: 'severity must be warning|urgent|critical' });
+      const normalizedAccountId = accountId || null;
+      // Upsert: if same accountId+severity exists, update it
+      const existing = await db.select({ id: balanceAlertThresholds.id })
+        .from(balanceAlertThresholds)
+        .where(
+          normalizedAccountId
+            ? and(eq(balanceAlertThresholds.accountId, normalizedAccountId), eq(balanceAlertThresholds.severity, severity))
+            : and(isNull(balanceAlertThresholds.accountId), eq(balanceAlertThresholds.severity, severity))
+        );
+      if (existing.length > 0) {
+        await db.update(balanceAlertThresholds)
+          .set({ thresholdUsd: Number(thresholdUsd), accountName: accountName ?? null, updatedAt: new Date() })
+          .where(eq(balanceAlertThresholds.id, existing[0].id));
+        res.json({ ok: true, id: existing[0].id, action: 'updated' });
+      } else {
+        const [inserted] = await db.insert(balanceAlertThresholds).values({
+          accountId: normalizedAccountId,
+          accountName: accountName ?? null,
+          thresholdUsd: Number(thresholdUsd),
+          severity,
+        }).returning({ id: balanceAlertThresholds.id });
+        res.json({ ok: true, id: inserted.id, action: 'created' });
+      }
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/balance-alert-thresholds/:id — remove a threshold
+  app.delete('/api/balance-alert-thresholds/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+      await db.delete(balanceAlertThresholds).where(eq(balanceAlertThresholds.id, id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/noc/balance-alerts — active threshold violations sorted by balance ascending
+  app.get('/api/noc/balance-alerts', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin'], req, res, next), async (_req, res) => {
+    try {
+      const rows = await db.select().from(balanceAlertEvents)
+        .where(isNull(balanceAlertEvents.resolvedAt))
+        .orderBy(balanceAlertEvents.currentBalance);
+      res.json({ alerts: rows });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/accounts/:id/balance-alert-history — last 30 days of threshold events for one account
+  app.get('/api/accounts/:id/balance-alert-history', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'viewer'], req, res, next), async (req, res) => {
+    try {
+      const accountId = req.params.id;
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      // Viewer IDOR guard: viewers may only access KAM-assigned accounts.
+      // Default-deny: if viewer has no KAM mapping OR empty assignment list → 403.
+      const currentUserId = (req as any).user?.claims?.sub;
+      const allUsers = await storage.getAllUsersWithRoles?.() ?? [];
+      const currentUser = allUsers.find((u: any) => u.id === currentUserId);
+      if (currentUser?.role === 'viewer') {
+        const userEmail = currentUser.email;
+        const allKams = await storage.getKams?.() ?? [];
+        const matchedKam = allKams.find((k: any) => k.email?.toLowerCase() === userEmail?.toLowerCase());
+        if (!matchedKam) {
+          return res.status(403).json({ error: 'Access denied — no KAM assignment found for this account.' });
+        }
+        const kamAccts = await storage.getKamAccounts?.(matchedKam.id) ?? [];
+        const allowed = kamAccts.map((a: any) => String(a.accountId));
+        if (!allowed.includes(accountId)) {
+          return res.status(403).json({ error: 'Access denied to this account.' });
+        }
+      }
+      const rows = await db.select().from(balanceAlertEvents)
+        .where(and(eq(balanceAlertEvents.accountId, accountId), gte(balanceAlertEvents.triggeredAt, since)))
+        .orderBy(desc(balanceAlertEvents.triggeredAt))
+        .limit(100);
+      res.json({ events: rows, history: rows }); // dual key for compat
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/noc/balance-alerts/run — manually trigger a balance check cycle
+  app.post('/api/noc/balance-alerts/run', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (_req, res) => {
+    try {
+      const result = await runBalanceAlertEngine();
+      res.json({ ok: true, ...result });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Web User Block / Unblock (docs 3000121328, Sippy 2023+) ─────────────────
 
   // POST /api/sippy/web-users/:id/block — block a web user (admin+management)
@@ -13897,6 +14000,143 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Balance Alert Engine ─────────────────────────────────────────────────────
+  // Compares current account balances against configured thresholds, creates/resolves
+  // balance_alert_events, and runs every 5 minutes reusing the existing balance poll infra.
+  let _balanceAlertRunning = false;
+  async function runBalanceAlertEngine(): Promise<{ checked: number; triggered: number; resolved: number }> {
+    if (_balanceAlertRunning) return { checked: 0, triggered: 0, resolved: 0 };
+    _balanceAlertRunning = true;
+    let checked = 0; let triggered = 0; let resolved = 0;
+    try {
+      if (xmlRpcIsBlocked()) return { checked, triggered, resolved };
+      const settings = await storage.getSippySettings();
+      if (!settings) return { checked, triggered, resolved };
+      const portalUrl = sippyPortalUrl(settings);
+      // Fetch all thresholds (global defaults + per-account overrides)
+      const allThresholds = await db.select().from(balanceAlertThresholds);
+      if (allThresholds.length === 0) return { checked, triggered, resolved };
+      // Fetch all active open alert events (for resolution checking)
+      const openEvents = await db.select().from(balanceAlertEvents).where(isNull(balanceAlertEvents.resolvedAt));
+      // Fetch live accounts + balances — use the existing credit pair retry
+      // IMPORTANT: never fall back to a zero-balance cache; if live fetch is unavailable
+      // we must skip the cycle entirely to avoid a false-alert storm.
+      const { accounts: liveAccounts } = await withSippyCreds(settings, (u, p) =>
+        sippy.listSippyAccounts(u, p, {}, portalUrl));
+      const accounts = liveAccounts;
+      if (!accounts?.length) {
+        console.warn('[balance-alert-engine] Skipping cycle — live account fetch returned empty (Sippy may be unreachable)');
+        return { checked, triggered, resolved };
+      }
+      const now = new Date();
+      for (const acct of accounts) {
+        const iAccountStr = String(acct.iAccount ?? '');
+        if (!iAccountStr) continue;
+        const balance: number = Number(acct.balance ?? 0);
+        const accountName = accountNameCache.get(iAccountStr) || acct.username || acct.description || `Account #${iAccountStr}`;
+        // Determine applicable thresholds: per-account overrides win over global defaults
+        const perAccount = allThresholds.filter(t => t.accountId === iAccountStr);
+        const globals    = allThresholds.filter(t => !t.accountId);
+        // For each severity, use per-account if exists, else global
+        const severities: Array<'warning' | 'urgent' | 'critical'> = ['warning', 'urgent', 'critical'];
+        for (const sev of severities) {
+          const threshold = (perAccount.find(t => t.severity === sev) ?? globals.find(t => t.severity === sev));
+          if (!threshold) continue;
+          const isBelow = balance < threshold.thresholdUsd;
+          const existingOpen = openEvents.find(e => e.accountId === iAccountStr && e.severity === sev && !e.resolvedAt);
+          if (isBelow) {
+            if (!existingOpen) {
+              // Create new alert event
+              await db.insert(balanceAlertEvents).values({
+                accountId: iAccountStr,
+                accountName,
+                thresholdUsd: threshold.thresholdUsd,
+                severity: sev,
+                currentBalance: balance,
+                triggeredAt: now,
+                checkedAt: now,
+              });
+              triggered++;
+              // For critical/urgent alerts: create or update a NOC incident
+              if (sev === 'critical' || sev === 'urgent') {
+                const nocTitle = `Low Balance ${sev === 'critical' ? '🔴 CRITICAL' : '🟠 URGENT'}: ${accountName} ($${balance.toFixed(2)} < $${threshold.thresholdUsd})`;
+                // Use per-severity entityId so critical doesn't collide with an existing urgent incident
+                const entityId = `balance-alert-${iAccountStr}-${sev}`;
+                const nocSeverity = sev === 'critical' ? 'high' : 'medium';
+                // Check if an open NOC incident already exists for this account+severity
+                const existingNocInc = await db.select({ id: nocIncidents.id, severity: nocIncidents.severity })
+                  .from(nocIncidents)
+                  .where(
+                    and(
+                      eq(nocIncidents.entityId, entityId),
+                      isNull(nocIncidents.resolvedAt)
+                    )
+                  ).limit(1);
+                if (existingNocInc.length === 0) {
+                  await db.insert(nocIncidents).values({
+                    title: nocTitle,
+                    type: 'balance_alert',
+                    severity: nocSeverity,
+                    status: 'open',
+                    entityType: 'account',
+                    entityId,
+                    entityName: accountName,
+                    description: `Account ${accountName} (ID: ${iAccountStr}) has dropped below the ${sev} balance threshold of $${threshold.thresholdUsd}. Current balance: $${balance.toFixed(2)}.`,
+                    suggestedAction: `Top up account ${accountName} via Balance Monitor → Top-Up, or review credit limits.`,
+                    source: 'balance_alert_engine',
+                    tags: ['balance', sev, 'auto-detected'],
+                    openedAt: now,
+                    updatedAt: now,
+                  });
+                }
+              }
+            } else {
+              // Update currentBalance on existing open event (keep it fresh)
+              await db.update(balanceAlertEvents)
+                .set({ currentBalance: balance, checkedAt: now })
+                .where(eq(balanceAlertEvents.id, existingOpen.id));
+            }
+          } else if (!isBelow && existingOpen) {
+            // Balance rose above threshold — auto-resolve
+            await db.update(balanceAlertEvents)
+              .set({ resolvedAt: now, currentBalance: balance, checkedAt: now })
+              .where(eq(balanceAlertEvents.id, existingOpen.id));
+            resolved++;
+            // Auto-resolve associated NOC incident if balance recovered
+            if (sev === 'critical' || sev === 'urgent') {
+              const entityId = `balance-alert-${iAccountStr}-${sev}`;
+              await db.update(nocIncidents)
+                .set({ resolvedAt: now, status: 'resolved', updatedAt: now })
+                .where(and(eq(nocIncidents.entityId, entityId), isNull(nocIncidents.resolvedAt)));
+            }
+          }
+        }
+        checked++;
+      }
+      console.log(`[balance-alert-engine] checked=${checked} triggered=${triggered} resolved=${resolved}`);
+    } catch (e: any) {
+      console.warn('[balance-alert-engine] error:', e.message);
+    } finally { _balanceAlertRunning = false; }
+    return { checked, triggered, resolved };
+  }
+
+  // ── Seed global balance alert defaults if the table is empty ─────────────────
+  async function seedBalanceAlertDefaults() {
+    try {
+      const existing = await db.select({ id: balanceAlertThresholds.id })
+        .from(balanceAlertThresholds).where(isNull(balanceAlertThresholds.accountId)).limit(1);
+      if (existing.length > 0) return; // already seeded
+      await db.insert(balanceAlertThresholds).values([
+        { accountId: null, accountName: null, thresholdUsd: 100, severity: 'warning' },
+        { accountId: null, accountName: null, thresholdUsd: 50,  severity: 'urgent'  },
+        { accountId: null, accountName: null, thresholdUsd: 10,  severity: 'critical' },
+      ]);
+      console.log('[balance-alert-engine] Seeded global defaults: warning=$100, urgent=$50, critical=$10');
+    } catch (e: any) {
+      console.warn('[balance-alert-engine] seed failed:', e.message);
+    }
+  }
+
   // ── Boot-time caches + 30-min refresh ────────────────────────────────────────
   // Stagger the two fetches slightly so they don't hit the switch simultaneously.
   // Use a short delay so the DB is ready but still much faster than the previous 3s
@@ -13910,6 +14150,11 @@ export async function registerRoutes(
   // Stores timestamped vendor balance snapshots for balance-delta vendor cost computation.
   setTimeout(() => refreshVendorBalances(), 9000);   // first snapshot ~9 s after boot
   setInterval(() => refreshVendorBalances(), 60_000); // then every 60 s
+
+  // ── Balance alert engine (every 5 min) ────────────────────────────────────────
+  // Checks all account balances against configured thresholds after balance data is warm.
+  setTimeout(() => seedBalanceAlertDefaults().then(() => runBalanceAlertEngine()), 35_000); // seed first, then first run ~35s after boot
+  setInterval(() => runBalanceAlertEngine(), 5 * 60_000); // then every 5 min
 
   // ── Call snapshot background poller (every 60 s) ──────────────────────────
   // Polls live Sippy calls and upserts each into call_snapshots for 24h history.

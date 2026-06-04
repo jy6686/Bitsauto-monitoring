@@ -3346,3 +3346,36 @@ export const vendorProbeResults = pgTable("vendor_probe_results", {
 export type VendorProbeResult       = typeof vendorProbeResults.$inferSelect;
 export type InsertVendorProbeResult = typeof vendorProbeResults.$inferInsert;
 export const insertVendorProbeResultSchema = createInsertSchema(vendorProbeResults).omit({ id: true });
+
+// ── Balance Alert Thresholds ──────────────────────────────────────────────────
+// account_id NULL = global default threshold applied to all accounts
+// account_id set = per-account override
+export const balanceAlertThresholds = pgTable("balance_alert_thresholds", {
+  id:           serial("id").primaryKey(),
+  accountId:    varchar("account_id",    { length: 32 }),   // null = global default
+  accountName:  varchar("account_name",  { length: 128 }),  // denormalized display name
+  thresholdUsd: real("threshold_usd").notNull(),             // USD balance trigger value
+  severity:     varchar("severity",      { length: 16 }).notNull().default('warning'), // warning | urgent | critical
+  createdAt:    timestamp("created_at").defaultNow(),
+  updatedAt:    timestamp("updated_at").defaultNow(),
+});
+export type BalanceAlertThreshold = typeof balanceAlertThresholds.$inferSelect;
+export type InsertBalanceAlertThreshold = typeof balanceAlertThresholds.$inferInsert;
+export const insertBalanceAlertThresholdSchema = createInsertSchema(balanceAlertThresholds)
+  .omit({ id: true, createdAt: true, updatedAt: true });
+
+// ── Balance Alert Events ──────────────────────────────────────────────────────
+// One row per threshold crossing, resolved when balance rises back above threshold.
+export const balanceAlertEvents = pgTable("balance_alert_events", {
+  id:             serial("id").primaryKey(),
+  accountId:      varchar("account_id",    { length: 32 }).notNull(),
+  accountName:    varchar("account_name",  { length: 128 }),
+  thresholdUsd:   real("threshold_usd").notNull(),
+  severity:       varchar("severity",      { length: 16 }).notNull(), // warning | urgent | critical
+  currentBalance: real("current_balance").notNull(),
+  triggeredAt:    timestamp("triggered_at").defaultNow().notNull(),
+  resolvedAt:     timestamp("resolved_at"),
+  checkedAt:      timestamp("checked_at").defaultNow().notNull(),
+});
+export type BalanceAlertEvent = typeof balanceAlertEvents.$inferSelect;
+export type InsertBalanceAlertEvent = typeof balanceAlertEvents.$inferInsert;

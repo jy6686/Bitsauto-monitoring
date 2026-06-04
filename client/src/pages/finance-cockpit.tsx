@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,9 +8,12 @@ import { Separator } from "@/components/ui/separator";
 import {
   DollarSign, AlertTriangle, TrendingDown, TrendingUp,
   FileText, RefreshCw, ArrowRight, BrainCircuit, Scale,
-  BarChart3, Activity, ShieldAlert, Users, Clock,
+  BarChart3, Activity, ShieldAlert, Users, Clock, Wallet,
+  AlertOctagon, CheckCircle2, Play,
 } from "lucide-react";
 import { Link } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number | undefined | null, prefix = "$") {
@@ -162,8 +165,40 @@ function AiAlertRow({ alert }: { alert: any }) {
   );
 }
 
+// ── Balance Alert row ─────────────────────────────────────────────────────────
+const SEVERITY_CONFIG: Record<string, { color: string; badge: "destructive" | "outline" | "secondary"; label: string }> = {
+  critical: { color: "text-red-500",   badge: "destructive", label: "CRITICAL" },
+  urgent:   { color: "text-amber-500", badge: "outline",      label: "URGENT"   },
+  warning:  { color: "text-yellow-500",badge: "secondary",    label: "WARNING"  },
+};
+
+function BalanceAlertRow({ alert: a }: { alert: any }) {
+  const cfg = SEVERITY_CONFIG[a.severity] ?? SEVERITY_CONFIG.warning;
+  return (
+    <div className="flex items-center justify-between py-2">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{a.accountName ?? `Account #${a.accountId}`}</p>
+        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
+          <span className={cfg.color}>
+            ${Number(a.currentBalance).toFixed(2)} / threshold ${Number(a.thresholdUsd).toFixed(0)}
+          </span>
+          <span className="text-muted-foreground/60">
+            · {new Date(a.triggeredAt).toLocaleDateString()}
+          </span>
+        </p>
+      </div>
+      <Badge variant={cfg.badge} className="text-xs shrink-0 ml-2">
+        {cfg.label}
+      </Badge>
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function FinanceCockpitPage() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
   const { data: invoiceData,    isLoading: invLoading }    = useQuery<any>({ queryKey: ["/api/invoices"] });
   const { data: disputeData,    isLoading: dispLoading }   = useQuery<any>({ queryKey: ["/api/billing-disputes"] });
   const { data: dmrData,        isLoading: dmrLoading }    = useQuery<any>({ queryKey: ["/api/dmr"] });
@@ -171,14 +206,30 @@ export default function FinanceCockpitPage() {
   const { data: aiData,         isLoading: aiLoading }     = useQuery<any>({ queryKey: ["/api/ai-assurance/alerts"] });
   const { data: marginData,     isLoading: marginLoading } = useQuery<any>({ queryKey: ["/api/margin-intelligence/alerts"] });
   const { data: identityData }                             = useQuery<any>({ queryKey: ["/api/identity"] });
+  const { data: balAlertData,   isLoading: balAlertLoading } = useQuery<any>({
+    queryKey: ["/api/noc/balance-alerts"],
+    refetchInterval: 5 * 60 * 1000,
+  });
 
-  const invoices   = invoiceData?.invoices    ?? invoiceData?.data ?? [];
-  const disputes   = disputeData?.disputes    ?? disputeData?.data ?? [];
-  const dmrRows    = dmrData?.reports         ?? dmrData?.data     ?? [];
-  const reconRows  = reconcData?.reconciliations ?? reconcData?.data ?? [];
-  const aiAlerts   = aiData?.alerts           ?? aiData?.data      ?? [];
-  const marginAl   = marginData?.alerts       ?? marginData?.data  ?? [];
-  const identities = identityData?.identities ?? [];
+  const runAlertMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/noc/balance-alerts/run").then(r => r.json()),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/noc/balance-alerts"] });
+      toast({ title: "Balance check complete", description: `Checked ${data.checked ?? 0} accounts, ${data.triggered ?? 0} triggered, ${data.resolved ?? 0} resolved.` });
+    },
+    onError: (e: any) => toast({ title: "Balance check failed", description: e.message, variant: "destructive" }),
+  });
+
+  const invoices      = invoiceData?.invoices    ?? invoiceData?.data ?? [];
+  const disputes      = disputeData?.disputes    ?? disputeData?.data ?? [];
+  const dmrRows       = dmrData?.reports         ?? dmrData?.data     ?? [];
+  const reconRows     = reconcData?.reconciliations ?? reconcData?.data ?? [];
+  const aiAlerts      = aiData?.alerts           ?? aiData?.data      ?? [];
+  const marginAl      = marginData?.alerts       ?? marginData?.data  ?? [];
+  const identities    = identityData?.identities ?? [];
+  const balAlerts     = balAlertData?.alerts     ?? [];
+  const criticalBalAlerts = balAlerts.filter((a: any) => a.severity === "critical").length;
+  const urgentBalAlerts   = balAlerts.filter((a: any) => a.severity === "urgent").length;
 
   // KPI computations
   const totalBilled    = invoices.filter((i: any) => i.status !== "void").reduce((s: number, i: any) => s + (i.totalAmount ?? 0), 0);
@@ -252,13 +303,13 @@ export default function FinanceCockpitPage() {
 
       {/* ── KPI Strip ──────────────────────────────────────────────────────── */}
       {anyLoading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-          {Array.from({ length: 7 }).map((_, i) => (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+          {Array.from({ length: 8 }).map((_, i) => (
             <Card key={i}><CardContent className="pt-4 pb-3"><Skeleton className="h-12 w-full" /></CardContent></Card>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
           <KpiCard
             label="Billed MTD"
             value={fmt(totalBilled)}
@@ -319,6 +370,15 @@ export default function FinanceCockpitPage() {
             accent={identityCount === 0 ? "warn" : "ok"}
             href="/client-identity"
             testId="kpi-identity-records"
+          />
+          <KpiCard
+            label="Low Balance"
+            value={String(balAlerts.length)}
+            sub={criticalBalAlerts > 0 ? `${criticalBalAlerts} critical` : urgentBalAlerts > 0 ? `${urgentBalAlerts} urgent` : balAlerts.length === 0 ? "all healthy" : ""}
+            icon={Wallet}
+            accent={criticalBalAlerts > 0 ? "danger" : urgentBalAlerts > 0 ? "warn" : balAlerts.length > 0 ? "warn" : "ok"}
+            href="/balance"
+            testId="kpi-balance-alerts"
           />
         </div>
       )}
@@ -478,6 +538,74 @@ export default function FinanceCockpitPage() {
         </Card>
       </div>
 
+      {/* ── Balance Alerts panel ──────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-amber-500" />
+              Balance Alerts
+              {balAlerts.length > 0 && (
+                <Badge variant={criticalBalAlerts > 0 ? "destructive" : "outline"} className="text-xs">
+                  {balAlerts.length} active
+                </Badge>
+              )}
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => runAlertMutation.mutate()}
+                disabled={runAlertMutation.isPending}
+                data-testid="button-run-balance-check"
+              >
+                {runAlertMutation.isPending
+                  ? <RefreshCw className="w-3 h-3 animate-spin" />
+                  : <Play className="w-3 h-3" />
+                }
+                Run check
+              </Button>
+              <Link href="/balance">
+                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
+                  Balance Monitor <ArrowRight className="w-3 h-3" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Accounts below configured thresholds · auto-refreshes every 5 min
+          </p>
+        </CardHeader>
+        <Separator />
+        <CardContent className="p-0">
+          {balAlertLoading ? (
+            <div className="px-4 py-3 space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+            </div>
+          ) : balAlerts.length === 0 ? (
+            <div className="flex items-center gap-3 px-4 py-5 text-sm text-muted-foreground">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+              All monitored accounts are above their balance thresholds.
+            </div>
+          ) : (
+            <ScrollArea className="max-h-[280px]">
+              <div className="px-4 divide-y">
+                {[...balAlerts]
+                  .sort((a: any, b: any) => {
+                    const rank: Record<string, number> = { critical: 0, urgent: 1, warning: 2 };
+                    return (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3);
+                  })
+                  .map((a: any, i: number) => (
+                    <BalanceAlertRow key={a.id ?? i} alert={a} />
+                  ))
+                }
+              </div>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
+
       {/* ── Finance navigation shortcuts ──────────────────────────────────── */}
       <Card>
         <CardHeader className="pb-3">
@@ -501,6 +629,7 @@ export default function FinanceCockpitPage() {
               { href: "/margin-intelligence",    label: "Margin Intelligence" },
               { href: "/client-identity",        label: "Client Identity Map" },
               { href: "/executive-reports",      label: "Executive Reports" },
+              { href: "/balance",                label: "Balance Monitor" },
             ].map(m => (
               <Link key={m.href} href={m.href}>
                 <Button
