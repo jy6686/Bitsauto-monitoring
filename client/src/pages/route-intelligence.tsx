@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef, Fragment } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   GitBranch, TrendingDown, TrendingUp, Minus, AlertTriangle,
@@ -3942,7 +3943,7 @@ function VendorCompareChart({
                   width={32}
                   tickFormatter={(v: number) => `${v}%`}
                 />
-                <Tooltip
+                <RechartsTooltip
                   contentStyle={{
                     background: "hsl(var(--card))",
                     border: "1px solid hsl(var(--border))",
@@ -4125,6 +4126,16 @@ function CdrAnalyticsPanel() {
               <AlertTriangle className="h-3 w-3" />
               No snapshots yet
             </span>
+          )}
+          {incidentsByVendor.size > 0 && (
+            <Link
+              href={`/noc-incidents?type=cdr_anomaly`}
+              data-testid="ri-open-incident-count-badge"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors whitespace-nowrap"
+            >
+              <AlertCircle className="h-3 w-3" />
+              {incidentsByVendor.size} vendor{incidentsByVendor.size !== 1 ? "s" : ""} with open incidents
+            </Link>
           )}
         </div>
         <div className="flex items-center gap-2">
