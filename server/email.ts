@@ -371,6 +371,40 @@ export function buildIncidentAlertEmail(opts: {
   };
 }
 
+export function buildApprovalExpiryAlertEmail(opts: {
+  actionId: number;
+  accountName: string;
+  actionType: string;
+  requestedByName: string;
+  ttlMinutes: number;
+  expiredAt: string;
+  approvalPanelUrl: string;
+}): { subject: string; bodyHtml: string } {
+  return {
+    subject: `⏰ Approval Expired — ${opts.actionType} for ${opts.accountName} [#${opts.actionId}]`,
+    bodyHtml: baseTemplate('Pending Approval Expired', `
+      <p>A pending approval request was <strong style="color:#f87171">automatically rejected</strong> because no second operator acted within the ${opts.ttlMinutes}-minute window.</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:16px">
+        <tr style="border-bottom:1px solid #2a2a3e"><td style="padding:8px;color:#aaa">Action ID</td><td style="padding:8px;font-family:monospace">#${opts.actionId}</td></tr>
+        <tr style="border-bottom:1px solid #2a2a3e"><td style="padding:8px;color:#aaa">Account</td><td style="padding:8px;font-weight:bold">${opts.accountName}</td></tr>
+        <tr style="border-bottom:1px solid #2a2a3e"><td style="padding:8px;color:#aaa">Action Type</td><td style="padding:8px">${opts.actionType}</td></tr>
+        <tr style="border-bottom:1px solid #2a2a3e"><td style="padding:8px;color:#aaa">Requested By</td><td style="padding:8px">${opts.requestedByName}</td></tr>
+        <tr style="border-bottom:1px solid #2a2a3e"><td style="padding:8px;color:#aaa">Expiry Window</td><td style="padding:8px">${opts.ttlMinutes} minutes</td></tr>
+        <tr><td style="padding:8px;color:#aaa">Expired At</td><td style="padding:8px;font-family:monospace">${opts.expiredAt}</td></tr>
+      </table>
+      <p style="margin-top:20px">To resubmit this action, visit the Approval Panel:</p>
+      <a href="${opts.approvalPanelUrl}"
+         style="display:inline-block;margin-top:8px;padding:10px 20px;background:#4f46e5;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;font-size:13px">
+        Open Approval Panel →
+      </a>
+      <p style="margin-top:16px;color:#aaa;font-size:12px">
+        You are receiving this alert because approval expiry email notifications are enabled in Settings.
+        To opt out, go to Settings → Security — Approval Timeout and disable "Email on Expiry".
+      </p>
+    `),
+  };
+}
+
 export function buildWrongNumberAlertEmail(opts: {
   caller: string;
   callee: string;

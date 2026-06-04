@@ -15,6 +15,7 @@ import {
   type LedgerVerificationState,
 } from './action-ledger';
 import { broadcastApprovalExpired } from './noc-ws';
+import { sendApprovalExpiryNotifications } from './approval-notifications';
 
 type AuditEntry = {
   timestamp: string;
@@ -814,6 +815,19 @@ export async function expireStaleApprovals(): Promise<number> {
         ttlMinutes,
         expiredAt:       now,
       });
+
+      // Out-of-band notifications (email + Slack) — best-effort, never blocks
+      sendApprovalExpiryNotifications({
+        actionId:        row.id,
+        accountName:     row.account_name,
+        actionType:      row.action_type,
+        requestedBy:     row.requested_by,
+        requestedByName: row.requested_by_name,
+        ttlMinutes,
+        expiredAt:       now,
+      }).catch((e: any) =>
+        console.warn(`[approval-notify] Notification dispatch failed for action ${row.id}:`, e.message),
+      );
 
       appendToLedger({
         ledgerId:          ledgerIdForC2Action(row.idempotency_key),

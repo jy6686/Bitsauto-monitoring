@@ -376,6 +376,13 @@ export async function runSafeMigrations(): Promise<void> {
       )
     `);
 
+    // ── Approval expiry out-of-band notifications ──────────────────────────────
+    // Global email/Slack settings for notifying operators when a pending approval
+    // expires, plus a per-operator opt-out flag on watcher_recipients.
+    await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS approval_expiry_email_enabled BOOLEAN DEFAULT true`);
+    await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS approval_expiry_slack_webhook_url VARCHAR(512)`);
+    await client.query(`ALTER TABLE watcher_recipients ADD COLUMN IF NOT EXISTS notify_approval_expiry BOOLEAN NOT NULL DEFAULT true`);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

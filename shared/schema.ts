@@ -136,6 +136,9 @@ export const settings = pgTable("settings", {
   metaWabaId:              varchar("meta_waba_id",               { length: 64 }),
   metaFlowsEnabled:        boolean("meta_flows_enabled").default(false),
   metaFlowsPublicKey:      text("meta_flows_public_key"),
+  // Approval expiry out-of-band notifications
+  approvalExpiryEmailEnabled:      boolean("approval_expiry_email_enabled").default(true),
+  approvalExpirySlackWebhookUrl:   varchar("approval_expiry_slack_webhook_url", { length: 512 }),
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports
@@ -719,12 +722,14 @@ export type MosHourly = typeof mosHourly.$inferSelect;
 
 // Watcher alert recipients — team members / emails that receive Sippy change alerts
 export const watcherRecipients = pgTable("watcher_recipients", {
-  id:          serial("id").primaryKey(),
-  email:       varchar("email",        { length: 255 }).notNull(),
-  displayName: varchar("display_name", { length: 255 }),
-  userId:      varchar("user_id",      { length: 255 }),  // optional link to a system user
-  active:      boolean("active").default(true).notNull(),
-  createdAt:   timestamp("created_at").defaultNow().notNull(),
+  id:                   serial("id").primaryKey(),
+  email:                varchar("email",        { length: 255 }).notNull(),
+  displayName:          varchar("display_name", { length: 255 }),
+  userId:               varchar("user_id",      { length: 255 }),  // optional link to a system user
+  active:               boolean("active").default(true).notNull(),
+  createdAt:            timestamp("created_at").defaultNow().notNull(),
+  // Per-operator notification preference — when false this operator won't receive approval expiry emails
+  notifyApprovalExpiry: boolean("notify_approval_expiry").default(true).notNull(),
 });
 
 export const insertWatcherRecipientSchema = createInsertSchema(watcherRecipients).omit({ id: true, createdAt: true });

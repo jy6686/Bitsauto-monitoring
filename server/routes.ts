@@ -1217,6 +1217,7 @@ export async function registerRoutes(
     'whatsappApiKey',
     'portalSessionToken',
     'metaAccessToken',
+    'approvalExpirySlackWebhookUrl',
   ] as const;
 
   // Settings — GET (authenticated; admins see all fields, others get passwords redacted)

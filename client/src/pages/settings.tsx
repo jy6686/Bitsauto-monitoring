@@ -40,6 +40,8 @@ const formSchema = insertSettingsSchema.pick({
   grafanaDefaultRange: true,
   grafanaPanelHeight: true,
   dualApprovalTtlMinutes: true,
+  approvalExpiryEmailEnabled: true,
+  approvalExpirySlackWebhookUrl: true,
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -603,6 +605,7 @@ interface WatcherRecipient {
   userId: string | null;
   active: boolean;
   createdAt: string;
+  notifyApprovalExpiry: boolean;
 }
 
 function SippyWatcherPanel() {
@@ -655,6 +658,14 @@ function SippyWatcherPanel() {
   const toggleMut = useMutation({
     mutationFn: async ({ id, active }: { id: number; active: boolean }) => {
       const res = await apiRequest('PATCH', `/api/watcher-recipients/${id}`, { active });
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/watcher-recipients'] }),
+  });
+
+  const toggleApprovalExpiryMut = useMutation({
+    mutationFn: async ({ id, notifyApprovalExpiry }: { id: number; notifyApprovalExpiry: boolean }) => {
+      const res = await apiRequest('PATCH', `/api/watcher-recipients/${id}`, { notifyApprovalExpiry });
       return res.json();
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/watcher-recipients'] }),
@@ -817,7 +828,7 @@ function SippyWatcherPanel() {
                   <p className="text-sm font-semibold">Alert Recipients</p>
                   <span className="ml-auto text-xs text-muted-foreground">{recipients.filter(r => r.active).length} active</span>
                 </div>
-                <p className="text-xs text-muted-foreground">These members receive every Sippy change detection alert email, in addition to the Admin Alert Email above.</p>
+                <p className="text-xs text-muted-foreground">These members receive Sippy change detection alerts. Operators linked by User ID also receive approval expiry emails — toggle "Appr. Expiry" per-row to opt out.</p>
 
                 {/* Recipient list */}
                 {recipientsLoading ? (
@@ -847,6 +858,16 @@ function SippyWatcherPanel() {
                           className="text-xs px-2 py-1 rounded border border-border hover:bg-muted/50 text-muted-foreground hover:text-foreground disabled:opacity-50"
                         >
                           {r.active ? 'Pause' : 'Enable'}
+                        </button>
+                        <button
+                          type="button"
+                          title={r.notifyApprovalExpiry ? 'Receiving approval expiry emails — click to opt out' : 'Not receiving approval expiry emails — click to opt in'}
+                          data-testid={`btn-toggle-approval-expiry-${r.id}`}
+                          onClick={() => toggleApprovalExpiryMut.mutate({ id: r.id, notifyApprovalExpiry: !r.notifyApprovalExpiry })}
+                          disabled={toggleApprovalExpiryMut.isPending}
+                          className={`text-xs px-2 py-1 rounded border disabled:opacity-50 ${r.notifyApprovalExpiry ? 'border-violet-500/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20' : 'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`}
+                        >
+                          Appr. Expiry {r.notifyApprovalExpiry ? 'On' : 'Off'}
                         </button>
                         <button
                           type="button"
@@ -2319,6 +2340,8 @@ export default function SettingsPage() {
       grafanaDefaultRange: '1h',
       grafanaPanelHeight: 480,
       dualApprovalTtlMinutes: 30,
+      approvalExpiryEmailEnabled: true,
+      approvalExpirySlackWebhookUrl: '',
     },
   });
 
@@ -3046,6 +3069,47 @@ export default function SettingsPage() {
             </div>
             <div className="rounded-lg bg-violet-500/10 border border-violet-500/20 px-4 py-3 text-xs text-violet-300">
               This value is stored in the database and takes effect immediately — no server restart needed. The expiry sweep runs every 60 seconds.
+            </div>
+
+            {/* ── Approval expiry notifications ── */}
+            <div className="border-t border-border/50 pt-5 space-y-4">
+              <div>
+                <h4 className="text-sm font-medium mb-0.5">Expiry Notifications</h4>
+                <p className="text-xs text-muted-foreground">
+                  When an approval expires, send an out-of-band alert so the requesting operator is notified even if they are not watching the browser.
+                </p>
+              </div>
+
+              {/* Email toggle */}
+              <div className="flex items-start gap-3">
+                <input
+                  {...form.register("approvalExpiryEmailEnabled")}
+                  data-testid="input-approval-expiry-email-enabled"
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                />
+                <div>
+                  <label className="text-sm font-medium cursor-pointer">Email on Expiry</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Send an email alert to the configured admin address when a pending approval expires. Requires "Email Alerts" to be enabled above.
+                  </p>
+                </div>
+              </div>
+
+              {/* Slack webhook */}
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Slack Incoming Webhook URL</label>
+                <p className="text-xs text-muted-foreground">
+                  Paste a Slack Incoming Webhook URL to receive a Slack message whenever an approval expires. Leave blank to disable.
+                </p>
+                <input
+                  {...form.register("approvalExpirySlackWebhookUrl")}
+                  data-testid="input-approval-expiry-slack-webhook"
+                  type="url"
+                  placeholder="https://hooks.slack.com/services/T.../B.../..."
+                  className="bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                />
+              </div>
             </div>
           </div>
         </div>
