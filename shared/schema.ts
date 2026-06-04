@@ -3448,3 +3448,40 @@ export const capAlertEvents = pgTable("cap_alert_events", {
   resolvedAt:     timestamp("resolved_at"),
 });
 export type CapAlertEvent = typeof capAlertEvents.$inferSelect;
+
+// ── Route Testing Engine ──────────────────────────────────────────────────────
+
+export const routeTestJobs = pgTable("route_test_jobs", {
+  id:                serial("id").primaryKey(),
+  name:              varchar("name", { length: 128 }).notNull(),
+  destinationPrefix: varchar("destination_prefix", { length: 32 }).notNull(),
+  vendorIds:         text("vendor_ids").array().notNull().default([]),
+  vendorNames:       text("vendor_names").array().notNull().default([]),
+  scheduleMinutes:   integer("schedule_minutes").notNull().default(0),
+  enabled:           boolean("enabled").notNull().default(true),
+  createdBy:         varchar("created_by", { length: 128 }),
+  lastRunAt:         timestamp("last_run_at"),
+  nextRunAt:         timestamp("next_run_at"),
+  createdAt:         timestamp("created_at").defaultNow(),
+});
+export type RouteTestJob = typeof routeTestJobs.$inferSelect;
+export type InsertRouteTestJob = typeof routeTestJobs.$inferInsert;
+export const insertRouteTestJobSchema = createInsertSchema(routeTestJobs)
+  .omit({ id: true, createdAt: true, lastRunAt: true, nextRunAt: true });
+
+export const routeTestResults = pgTable("route_test_results", {
+  id:          serial("id").primaryKey(),
+  jobId:       integer("job_id").references(() => routeTestJobs.id),
+  vendorId:    varchar("vendor_id",   { length: 64  }),
+  vendorName:  varchar("vendor_name", { length: 128 }),
+  destination: varchar("destination", { length: 32  }),
+  startedAt:   timestamp("started_at").defaultNow().notNull(),
+  connected:   boolean("connected").notNull().default(false),
+  sipCode:     integer("sip_code"),
+  pddMs:       integer("pdd_ms"),
+  durationMs:  integer("duration_ms"),
+  cliReceived: varchar("cli_received", { length: 32 }),
+  notes:       text("notes"),
+  rawResponse: jsonb("raw_response"),
+});
+export type RouteTestResult = typeof routeTestResults.$inferSelect;

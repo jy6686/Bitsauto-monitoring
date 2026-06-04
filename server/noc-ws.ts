@@ -77,6 +77,23 @@ export function broadcastPendingApproval(data: PendingApprovalData): void {
   }
 }
 
+export interface RouteTestEventData {
+  jobId: number;
+  ran: number;
+  failed: number;
+  resultIds: number[];
+}
+
+export function broadcastRouteTestEvent(data: RouteTestEventData): void {
+  if (nocClients.size === 0) return;
+  const payload = JSON.stringify({ type: "route_test_completed", ...data });
+  for (const client of nocClients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      try { client.ws.send(payload); } catch { /* ignore */ }
+    }
+  }
+}
+
 export function nocClientCount(): number {
   return nocClients.size;
 }

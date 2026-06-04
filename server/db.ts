@@ -457,7 +457,7 @@ export async function runSafeMigrations(): Promise<void> {
     await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS revenue_usd REAL`);
     await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS margin_usd  REAL`);
 
-    // ── Account cap monitoring tables (Task #149) ────────────────────────────
+    // ── Account cap monitoring tables ────────────────────────────────────────
     // account_caps caches session/CPS limits from Sippy getAccountInfo (synced hourly).
     // cap_alert_events persists every threshold-crossing event for history/audit.
     await client.query(`
@@ -486,6 +486,40 @@ export async function runSafeMigrations(): Promise<void> {
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_cap_alert_events_account_triggered ON cap_alert_events (account_id, triggered_at DESC)`);
+
+    // ── Route Testing Engine tables ───────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS route_test_jobs (
+        id                  SERIAL PRIMARY KEY,
+        name                VARCHAR(256) NOT NULL,
+        destination_prefix  VARCHAR(64)  NOT NULL,
+        vendor_ids          TEXT[]       NOT NULL DEFAULT '{}',
+        vendor_names        TEXT[]       NOT NULL DEFAULT '{}',
+        schedule_minutes    INTEGER      NOT NULL DEFAULT 0,
+        enabled             BOOLEAN      NOT NULL DEFAULT true,
+        created_by          VARCHAR(128),
+        last_run_at         TIMESTAMP,
+        next_run_at         TIMESTAMP,
+        created_at          TIMESTAMP    NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS route_test_results (
+        id           SERIAL PRIMARY KEY,
+        job_id       INTEGER REFERENCES route_test_jobs(id) ON DELETE SET NULL,
+        vendor_id    VARCHAR(128),
+        vendor_name  VARCHAR(256),
+        destination  VARCHAR(64),
+        started_at   TIMESTAMP    NOT NULL DEFAULT NOW(),
+        connected    BOOLEAN      NOT NULL DEFAULT false,
+        sip_code     INTEGER,
+        pdd_ms       INTEGER,
+        duration_ms  INTEGER,
+        cli_received VARCHAR(64),
+        notes        TEXT,
+        raw_response JSONB
+      )
+    `);
 
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {

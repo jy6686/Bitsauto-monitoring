@@ -7,6 +7,7 @@ import { registerCallGovernanceRoutes } from './routes-call-governance';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { registerAiCopilotRoutes } from './routes-ai-copilot';
 import { registerVendorProbeRoutes, initVendorProbeScheduler } from './routes-vendor-probe';
+import { registerRouteTestRoutes } from './routes-route-tester';
 import { createServer, type Server } from "http";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import * as net from "net";
@@ -70,10 +71,9 @@ import {
 } from "./route-intelligence-engine";
 import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents } from "@shared/schema";
 import { db } from "./db";
-import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql } from "drizzle-orm";
-const sqlExpr = sql;
-const drizzleSql = sql;
-import { broadcastNocTick } from "./noc-ws";
+import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
+const drizzleSql = sqlExpr;
+import { broadcastNocTick, broadcastRouteTestEvent } from "./noc-ws";
 import { lookupDialCode, searchDialCodes } from "./dial-lookup";
 import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
@@ -31544,6 +31544,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   const { setVendorPrefixDataProvider } = await import('./routes-ai-copilot');
   setVendorPrefixDataProvider(() => computeVendorPrefixIntelligence(cdrCache));
   registerAiCopilotRoutes(app, requireRole);
+
+  // ── Route Testing Engine ─────────────────────────────────────────────────────
+  registerRouteTestRoutes(app, requireRole);
+  const { initRouteTestScheduler, setRouteTestBroadcast } = await import("./services/route-tester");
+  setRouteTestBroadcast((event, data) => {
+    if (event === 'route-test:completed') {
+      broadcastRouteTestEvent({ jobId: data.jobId, ran: data.ran, failed: data.failed, resultIds: data.resultIds });
+    }
+  });
+  initRouteTestScheduler();
 
   // ── Call Governance — Billing Check (needs cdrCache in scope) ────────────
   {

@@ -2194,6 +2194,166 @@ export async function makeCall(
   };
 }
 
+// ── testSippyConnectivity() — lightweight non-call probe to detect Sippy availability
+// Uses system.listMethods (a read-only, zero-cost XML-RPC introspection call) to check
+// if the Sippy XML-RPC endpoint is reachable and responding to requests.
+// Returns true if Sippy responded (even with an auth error — it's still reachable);
+// returns false only when a TCP/TLS connection failure or hard timeout occurs.
+export async function testSippyConnectivity(
+  username: string,
+  password: string,
+  explicitPortalUrl?: string,
+): Promise<boolean> {
+  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
+  if (!base) return false;
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  try {
+    const resp = await sippyPost(apiUrl, xmlRpcCall('system.listMethods', {}), username, password, 5000);
+    // Any HTTP response (even 401/403/500) means Sippy is reachable at the network level.
+    return resp.statusCode > 0;
+  } catch {
+    return false;
+  }
+}
+
+// ── makeTestCall() — initiates a proactive route test call and measures metrics
+// Calls makeCall then polls listActiveCalls XML-RPC to detect connect/disconnect,
+// giving real ACD (duration) and PDD measurements for route quality monitoring.
+//
+// Parameters: username, password, { cld, cli, maxDuration (sec) }, portalUrl
+// Returns: { connected, sipCode, duration (sec), pdd (ms) } | null on error
+export async function makeTestCall(
+  username: string,
+  password: string,
+  opts: { cld: string; cli?: string; maxDuration?: number; iAccount?: number; billingCode?: string },
+  explicitPortalUrl?: string,
+): Promise<{ connected: boolean; sipCode?: number; duration?: number; pdd?: number; actualVendorName?: string; actualVendorId?: string } | null> {
+  const cli           = opts.cli ?? '100';
+  const cld           = opts.cld;
+  const maxDuration   = opts.maxDuration ?? 10; // seconds
+  const portalUrl     = explicitPortalUrl;
+
+  const initMs = Date.now();
+
+  // 1. Initiate the call
+  let callId: string | undefined;
+  try {
+    const callOpts = {
+      ...(opts.iAccount   ? { iAccount:    opts.iAccount   } : {}),
+      ...(opts.billingCode ? { billingCode: opts.billingCode } : {}),
+    };
+    const initResult = await makeCall(cli, cld, callOpts, username, password, portalUrl);
+    if (!initResult.success) {
+      const sipCode = initResult.errorType === 'auth_failed' ? 401
+        : initResult.errorType === 'method_not_found' ? 501
+        : 503;
+      return { connected: false, sipCode, pdd: Math.round(Date.now() - initMs) };
+    }
+    callId = initResult.callId;
+  } catch {
+    return null;
+  }
+
+  const base   = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  const apiUrl = base ? `${base}/xmlapi/xmlapi` : null;
+
+  // 2. Poll listActiveCalls XML-RPC (lightweight — no portal scraping) to track call lifecycle.
+  //    We look for our callId in active calls to measure PDD and ACD.
+  //    When found, we also extract VENDOR_NAME / I_VENDOR_ID to identify the actual carrier.
+  let connected       = false;
+  let connectMs: number | null = null;
+  let disconnectMs: number | null = null;
+  let actualVendorName: string | undefined;
+  let actualVendorId: string | undefined;
+  const deadline      = Date.now() + (maxDuration + 8) * 1000; // hard cap
+  const pollInterval  = 2000; // 2s between polls
+
+  // Parse listActiveCalls XML body → map of CALL_ID → {vendorName, vendorId}
+  const parseCalls = (body: string): Map<string, { vendorName?: string; vendorId?: string }> => {
+    const result = new Map<string, { vendorName?: string; vendorId?: string }>();
+    // Split into struct blocks — each active call is one <struct>...</struct>
+    const structRe = /<struct>([\s\S]*?)<\/struct>/gi;
+    let sm: RegExpExecArray | null;
+    while ((sm = structRe.exec(body)) !== null) {
+      const block = sm[1];
+      const get = (field: string): string | undefined => {
+        const re = new RegExp(`<name>${field}<\\/name>\\s*<value>\\s*(?:<string>)?([^<]*)(?:<\\/string>)?\\s*<\\/value>`, 'i');
+        return re.exec(block)?.[1]?.trim() || undefined;
+      };
+      const id = get('CALL_ID');
+      if (!id) continue;
+      result.set(id, {
+        vendorName: get('VENDOR_NAME') || get('vendor_name'),
+        vendorId:   get('I_VENDOR_ID') || get('i_vendor'),
+      });
+    }
+    return result;
+  };
+
+  const pollActiveCalls = async (): Promise<Map<string, { vendorName?: string; vendorId?: string }>> => {
+    if (!apiUrl || !callId || callId === 'unknown') return new Map();
+    try {
+      const resp = await sippyPost(apiUrl, xmlRpcCall('listActiveCalls', {}), username, password);
+      if (resp.statusCode !== 200) return new Map();
+      return parseCalls(resp.body);
+    } catch { return new Map(); }
+  };
+
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, pollInterval));
+
+    const activeCalls = await pollActiveCalls();
+
+    if (!connected) {
+      if (callId && callId !== 'unknown' && activeCalls.has(callId)) {
+        connected  = true;
+        connectMs  = Date.now();
+        const info = activeCalls.get(callId);
+        actualVendorName = info?.vendorName;
+        actualVendorId   = info?.vendorId;
+        console.log(`[route-test] callId=${callId} connected — pdd=${connectMs - initMs}ms vendor=${actualVendorName ?? 'unknown'}`);
+      } else if (Date.now() - initMs > (maxDuration + 4) * 1000) {
+        break;
+      }
+    } else {
+      if (!activeCalls.has(callId!)) {
+        disconnectMs = Date.now();
+        console.log(`[route-test] callId=${callId} disconnected — duration=${disconnectMs - connectMs!}ms`);
+        break;
+      }
+      if (connectMs && Date.now() - connectMs > maxDuration * 1000 + 3000) {
+        disconnectMs = Date.now();
+        break;
+      }
+    }
+  }
+
+  // 3. Compute final metrics.
+  //    pdd      = time from call initiation to first confirmation in listActiveCalls (real PDD).
+  //    duration = time call was visible as connected in listActiveCalls (real ACD, in seconds).
+  //    actualVendorName = VENDOR_NAME field from the active call struct (Sippy's authoritative carrier).
+  //    If the call was never confirmed via listActiveCalls, report sipCode=408 (no confirmation).
+  const pdd = connectMs != null
+    ? Math.round(connectMs - initMs)
+    : Math.round(Date.now() - initMs);
+
+  const duration = connectMs != null && disconnectMs != null
+    ? Math.round((disconnectMs - connectMs) / 1000)
+    : connected ? maxDuration
+    : 0;
+
+  const finalSipCode = connected ? 200 : (callId && callId !== 'unknown' ? 408 : 503);
+
+  return {
+    connected,
+    sipCode:  finalSipCode,
+    pdd,
+    duration,
+    actualVendorName,
+    actualVendorId,
+  };
+}
+
 // ── disconnectAccount() — docs 107462 (post 1.7.1+) ─────────────────────────
 // Disconnects ALL active calls for a given i_account.
 // Returns { success, count, message }.

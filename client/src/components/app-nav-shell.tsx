@@ -108,6 +108,7 @@ const DOMAINS: Domain[] = [
         { href: '/test-call',           label: 'Route Tester',    desc: 'On-demand route test calls',         icon: PhoneCall },
         { href: '/call-flow-simulator', label: 'Route Simulator', desc: 'Simulate routing decisions',         icon: ArrowRightLeft },
         { href: '/self-heal',           label: 'Self-Heal',       desc: 'Auto-healing & failover engine',     icon: HeartPulse },
+        { href: '/route-testing',       label: 'Route Testing',   desc: 'Proactive scheduled route test calls',  icon: FlaskConical },
       ]},
       { label: 'Messaging', desc: 'BhaooSMS gateway, SMS delivery monitoring and A2P operations', icon: MessageSquare, items: [
         { href: '/sms-monitor',        label: 'SMS Monitor',         desc: 'Live delivery rates and gateway status',       icon: MessageSquare },

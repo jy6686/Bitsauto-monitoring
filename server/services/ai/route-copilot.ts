@@ -30,6 +30,7 @@ import {
 import { desc, eq, gte, and, sql } from "drizzle-orm";
 import { loadSipErrorSnapshot, CODE_LABELS, type SipErrorSnapshot } from "./sip-error-aggregator";
 import { getCopilotVendorSignals } from "../../route-intelligence-engine";
+import { loadRouteTestEvidence } from "../route-tester";
 
 // ── Error type ─────────────────────────────────────────────────────────────────
 
@@ -477,7 +478,7 @@ export async function runRouteCopilot(
 
   // ── Load all telemetry in parallel ─────────────────────────────────────────
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles, sipErrors, snapshotSignals] = await Promise.all([
+  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles, sipErrors, snapshotSignals, testEvidence] = await Promise.all([
     db.select().from(carrierQualityScores).orderBy(desc(carrierQualityScores.lastComputedAt)),
     db.select().from(routingSuggestions).where(
       and(eq(routingSuggestions.status, "pending"), gte(routingSuggestions.createdAt, since6h))
@@ -486,6 +487,7 @@ export async function runRouteCopilot(
     loadMarginProfilesPerVendor(since7d),  // 7-day window for more stable margin signal
     loadSipErrorSnapshot().catch(() => [] as SipErrorSnapshot[]),
     getCopilotVendorSignals().catch(() => new Map()), // route quality snapshots — non-fatal
+    loadRouteTestEvidence(6).catch(() => [] as Awaited<ReturnType<typeof loadRouteTestEvidence>>),
   ]);
 
   // Merge snapshot signals into carrier scores to improve copilot accuracy.
@@ -555,7 +557,7 @@ export async function runRouteCopilot(
         criticalCarriers: criticalScores.length,
         fraudAlertCarriers,
         topSignal,
-        analysisNote: `Analysed ${scores.length} carrier${scores.length > 1 ? "s" : ""}, ${fraudProfiles.size} fraud profiles, ${marginProfiles.size} margin profiles${negativeMarginVendors > 0 ? ` (${negativeMarginVendors} negative-margin)` : ""} · Rule-based preview · ${baseline.length} recommendation${baseline.length !== 1 ? "s" : ""}`,
+        analysisNote: `Analysed ${scores.length} carrier${scores.length > 1 ? "s" : ""}, ${fraudProfiles.size} fraud profiles, ${marginProfiles.size} margin profiles${negativeMarginVendors > 0 ? ` (${negativeMarginVendors} negative-margin)` : ""}${testEvidence.length > 0 ? `, ${testEvidence.length} test-call signal${testEvidence.length > 1 ? "s" : ""}` : ""} · Rule-based preview · ${baseline.length} recommendation${baseline.length !== 1 ? "s" : ""}`,
       },
     };
   }
@@ -641,12 +643,21 @@ Confidence: integer 0–100 (you may adjust ±5 based on telecom best-practice j
       sipContext = "\n\n" + lines.join("\n");
     }
 
+    // ── Build proactive test-call evidence block for the AI ───────────────────
+    const testEvidenceBlock = testEvidence.length > 0
+      ? "\n\nProactive test call evidence (last 6h):\n" +
+        testEvidence.map(e =>
+          `  ${e.vendorName} → ${e.destination}: ${e.passRate}% pass (${e.successCount}/${e.totalTests}), ` +
+          `avg PDD ${e.avgPddMs ?? "?"}ms, SIP codes: ${e.recentSipCodes.join(",") || "none"}`
+        ).join("\n")
+      : "";
+
     const userContent = JSON.stringify(baseline.map(r => ({
       id: r.id, action: r.action, confidence: r.confidence, reasons: r.reasons,
       risk: r.risk, expectedImpact: r.expectedImpact,
       currentVendor: r.currentVendor, targetVendor: r.targetVendor, destination: r.destination,
       fraudSignals: r.fraudSignals,
-    }))) + sipContext;
+    }))) + sipContext + testEvidenceBlock;
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
