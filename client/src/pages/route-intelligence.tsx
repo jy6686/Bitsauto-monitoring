@@ -3204,16 +3204,23 @@ function SipErrorsTab() {
     return count;
   }, [data, exportVendor, exportCode, activeWin]);
 
-  // When a custom date range is selected, fetch the server-confirmed row count
-  // so operators see the exact number of export rows, not the snapshot estimate.
+  // Fetch the server-confirmed row count for all date presets so operators always
+  // see an exact number rather than a client-side snapshot estimate.
   const isCustomDateRange = exportPreset === "custom" && !!exportFrom && !!exportTo;
   const countQueryKey = useMemo(() => {
-    if (!isCustomDateRange) return null;
-    const params = new URLSearchParams({ from: exportFrom, to: exportTo });
+    // Skip if custom-range is chosen but the dates aren't filled in yet.
+    if (exportPreset === "custom" && !isCustomDateRange) return null;
+    const params = new URLSearchParams();
+    if (isCustomDateRange) {
+      params.set("from", exportFrom);
+      params.set("to", exportTo);
+    } else {
+      params.set("days", String(exportPreset));
+    }
     if (exportVendor) params.set("vendor", exportVendor);
     if (exportCode) params.set("code", exportCode);
     return `/api/route-intelligence/sip-errors/count?${params.toString()}`;
-  }, [isCustomDateRange, exportFrom, exportTo, exportVendor, exportCode]);
+  }, [exportPreset, isCustomDateRange, exportFrom, exportTo, exportVendor, exportCode]);
 
   const { data: countData, isLoading: countLoading } = useQuery<{ success: boolean; count: number }>({
     queryKey: countQueryKey ? [countQueryKey] : ["sip-count-disabled"],
@@ -3223,12 +3230,12 @@ function SipErrorsTab() {
     gcTime: 10 * 60 * 1000,
   });
 
-  // Resolved display count: server-confirmed when custom date range is active,
+  // Resolved display count: server-confirmed when any date range is active,
   // falling back to the snapshot estimate while the request is in flight.
-  const displayRowCount = isCustomDateRange
+  const displayRowCount = countQueryKey
     ? (countLoading ? estimatedRows : (countData?.count ?? estimatedRows))
     : estimatedRows;
-  const displayRowCountIsEstimate = isCustomDateRange ? countLoading : true;
+  const displayRowCountIsEstimate = countQueryKey ? countLoading : true;
   const spikeVendorNames = new Set(spikeVendors.map(v => v.vendorName));
   const windowLabel: Record<number, string> = { 15: "15 min", 60: "1 hr", 240: "4 hr" };
   const prefixRows = copilotData?.prefixRows ?? [];

@@ -6555,6 +6555,7 @@ export async function registerRoutes(
   );
 
   // GET /api/route-intelligence/sip-errors/count?from=YYYY-MM-DD&to=YYYY-MM-DD[&vendor=...][&code=...]
+  // Also accepts ?days=7 (or 1, 30) for preset ranges — mirrors the export endpoint logic.
   // Returns the number of export rows (one per vendor+code+day) for the given date range.
   app.get('/api/route-intelligence/sip-errors/count',
     (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
@@ -6563,18 +6564,31 @@ export async function registerRoutes(
         const isoDateRe = /^\d{4}-\d{2}-\d{2}$/;
         const fromParam = String(req.query.from ?? '').trim();
         const toParam = String(req.query.to ?? '').trim();
-        if (!isoDateRe.test(fromParam) || !isoDateRe.test(toParam)) {
-          return res.status(400).json({ success: false, error: 'from and to (YYYY-MM-DD) are required' });
+
+        let exportCutoff: Date;
+        let fetchEnd: Date;
+
+        if (isoDateRe.test(fromParam) && isoDateRe.test(toParam)) {
+          // Custom date range
+          const fromDate = new Date(fromParam + 'T00:00:00Z');
+          const toDate = new Date(toParam + 'T00:00:00Z');
+          if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime()) || fromDate > toDate) {
+            return res.status(400).json({ success: false, error: 'Invalid date range' });
+          }
+          exportCutoff = fromDate;
+          fetchEnd = new Date(toDate.getTime() + 24 * 3600 * 1000);
+        } else {
+          // Preset range — resolve server-side exactly as the export endpoint does
+          const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? '7'), 10) || 7));
+          exportCutoff = new Date();
+          exportCutoff.setUTCDate(exportCutoff.getUTCDate() - days);
+          exportCutoff.setUTCHours(0, 0, 0, 0);
+          fetchEnd = new Date();
         }
-        const fromDate = new Date(fromParam + 'T00:00:00Z');
-        const toDate = new Date(toParam + 'T00:00:00Z');
-        if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime()) || fromDate > toDate) {
-          return res.status(400).json({ success: false, error: 'Invalid date range' });
-        }
-        // fetchStart goes 24h before fromDate so every day within the range has baseline data —
-        // mirrors the export endpoint. We then count only rows on/after fromDate.
-        const fetchStart = new Date(fromDate.getTime() - 24 * 3600 * 1000);
-        const fetchEnd = new Date(toDate.getTime() + 24 * 3600 * 1000);
+
+        // fetchStart goes 24h before exportCutoff so every day within the range has baseline data —
+        // mirrors the export endpoint. We then count only rows on/after exportCutoff.
+        const fetchStart = new Date(exportCutoff.getTime() - 24 * 3600 * 1000);
 
         const filterVendor = String(req.query.vendor ?? '').trim() || null;
         const filterCode = String(req.query.code ?? '').trim() || null;
