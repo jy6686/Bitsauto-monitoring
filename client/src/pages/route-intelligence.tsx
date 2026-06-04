@@ -2729,10 +2729,18 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
   );
 }
 
+type SipExportPreset = 1 | 7 | 30 | "custom";
+
 function SipErrorsTab() {
   const [activeWin, setActiveWin] = useState<15 | 60 | 240>(60);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showPrefixHeatmap, setShowPrefixHeatmap] = useState(false);
+
+  // Export date-range state
+  const [exportPreset, setExportPreset] = useState<SipExportPreset>(7);
+  const [exportFrom, setExportFrom] = useState<string>("");
+  const [exportTo, setExportTo] = useState<string>("");
+  const [showCustomRange, setShowCustomRange] = useState(false);
 
   const { data, isLoading, refetch, isFetching } = useQuery<SipErrorsTabData>({
     queryKey: ["/api/route-intelligence/sip-errors"],
@@ -2759,6 +2767,20 @@ function SipErrorsTab() {
     return next;
   });
 
+  // Build the export URL from the current selection
+  const exportUrl = (() => {
+    if (exportPreset === "custom" && exportFrom && exportTo) {
+      return `/api/route-intelligence/sip-errors/export?from=${exportFrom}&to=${exportTo}`;
+    }
+    if (exportPreset === "custom") return null; // not ready yet
+    return `/api/route-intelligence/sip-errors/export?days=${exportPreset}`;
+  })();
+
+  const handlePresetClick = (p: SipExportPreset) => {
+    setExportPreset(p);
+    setShowCustomRange(p === "custom");
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -2779,19 +2801,76 @@ function SipErrorsTab() {
               : "Error code distribution per vendor · Spike = ≥2× 24h baseline AND ≥2% absolute · 7-day history preserved"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {(isLoading || isFetching || (showPrefixHeatmap && prefixLoading)) && (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           )}
-          <a
-            data-testid="sip-errors-export-csv"
-            href="/api/route-intelligence/sip-errors/export?days=7"
-            download
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md border border-border/40 hover:border-border"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export CSV
-          </a>
+
+          {/* Date-range selector */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Preset buttons */}
+            <div className="flex items-center bg-muted/50 rounded-md p-0.5 gap-0.5" data-testid="sip-export-preset-group">
+              {([1, 7, 30, "custom"] as SipExportPreset[]).map(p => (
+                <button
+                  key={String(p)}
+                  data-testid={`sip-export-preset-${p}`}
+                  onClick={() => handlePresetClick(p)}
+                  className={cn(
+                    "px-2 py-1 text-xs font-medium rounded transition-colors",
+                    exportPreset === p
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {p === "custom" ? "Custom" : `${p}d`}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom date inputs */}
+            {showCustomRange && (
+              <div className="flex items-center gap-1" data-testid="sip-export-custom-range">
+                <input
+                  type="date"
+                  data-testid="sip-export-from"
+                  value={exportFrom}
+                  onChange={e => setExportFrom(e.target.value)}
+                  className="text-xs border border-border/60 rounded px-1.5 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <span className="text-xs text-muted-foreground">–</span>
+                <input
+                  type="date"
+                  data-testid="sip-export-to"
+                  value={exportTo}
+                  onChange={e => setExportTo(e.target.value)}
+                  min={exportFrom || undefined}
+                  className="text-xs border border-border/60 rounded px-1.5 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            )}
+
+            {/* Export button */}
+            {exportUrl ? (
+              <a
+                data-testid="sip-errors-export-csv"
+                href={exportUrl}
+                download
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md border border-border/40 hover:border-border"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </a>
+            ) : (
+              <span
+                data-testid="sip-errors-export-csv-disabled"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground/40 px-2 py-1 rounded-md border border-border/20 cursor-not-allowed select-none"
+                title="Select a from and to date to export"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </span>
+            )}
+          </div>
           <button
             data-testid="sip-errors-tab-refresh"
             onClick={() => refetch()}

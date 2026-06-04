@@ -6550,14 +6550,35 @@ export async function registerRoutes(
     },
   );
 
-  // GET /api/route-intelligence/sip-errors/export?days=7 — download SIP error history as CSV
+  // GET /api/route-intelligence/sip-errors/export?days=7 OR ?from=YYYY-MM-DD&to=YYYY-MM-DD — download SIP error history as CSV
   app.get('/api/route-intelligence/sip-errors/export',
     (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
     async (req: any, res: any) => {
       try {
-        const days = Math.min(8, Math.max(1, parseInt(String(req.query.days ?? '7'), 10) || 7));
         const { Pool } = await import('pg');
         const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+        // Build WHERE clause — prefer from/to ISO dates, fall back to days
+        let whereClause: string;
+        let filenameRange: string;
+        const fromParam = String(req.query.from ?? '').trim();
+        const toParam = String(req.query.to ?? '').trim();
+        const isoDateRe = /^\d{4}-\d{2}-\d{2}$/;
+        if (isoDateRe.test(fromParam) && isoDateRe.test(toParam)) {
+          // Validate dates are sensible
+          const fromDate = new Date(fromParam);
+          const toDate = new Date(toParam);
+          if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime()) || fromDate > toDate) {
+            return res.status(400).json({ success: false, error: 'Invalid from/to date range' });
+          }
+          whereClause = `snapshot_at >= '${fromParam}'::date AND snapshot_at < ('${toParam}'::date + INTERVAL '1 day')`;
+          filenameRange = `${fromParam}_to_${toParam}`;
+        } else {
+          const days = Math.min(90, Math.max(1, parseInt(String(req.query.days ?? '7'), 10) || 7));
+          whereClause = `snapshot_at > NOW() - INTERVAL '${days} days'`;
+          filenameRange = `last-${days}d`;
+        }
+
         let rows: any[];
         try {
           const result = await pool.query(`
@@ -6568,7 +6589,7 @@ export async function registerRoutes(
               ROUND(AVG(rate)::numeric, 4) AS avg_rate,
               AVG(AVG(rate)) OVER (PARTITION BY vendor_name, code) AS period_baseline
             FROM sip_error_history
-            WHERE snapshot_at > NOW() - INTERVAL '${days} days'
+            WHERE ${whereClause}
             GROUP BY DATE(snapshot_at), vendor_name, code
             ORDER BY date ASC, vendor_name, code
           `);
@@ -6577,8 +6598,7 @@ export async function registerRoutes(
           await pool.end();
         }
 
-        const today = new Date().toISOString().slice(0, 10);
-        const filename = `sip-error-history-${today}.csv`;
+        const filename = `sip-error-history-${filenameRange}.csv`;
 
         const csvLines: string[] = ['date,vendor_name,code,avg_rate,spike_flag'];
         for (const row of rows) {
