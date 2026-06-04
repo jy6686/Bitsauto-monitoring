@@ -3349,8 +3349,11 @@ function SipErrorsTab() {
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
                 {displayRowCount !== null && (
-                  <span data-testid="sip-errors-export-row-count" className="text-muted-foreground/50">
+                  <span data-testid="sip-errors-export-row-count" className="flex items-center gap-1 text-muted-foreground/50">
                     · {displayRowCountIsEstimate ? "~" : ""}{displayRowCount} rows
+                    {isCustomDateRange && countLoading && (
+                      <Loader2 data-testid="sip-errors-count-spinner" className="h-3 w-3 animate-spin" />
+                    )}
                   </span>
                 )}
               </a>
@@ -3363,8 +3366,11 @@ function SipErrorsTab() {
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
                 {displayRowCount !== null && (
-                  <span data-testid="sip-errors-export-row-count" className="text-muted-foreground/25">
+                  <span data-testid="sip-errors-export-row-count" className="flex items-center gap-1 text-muted-foreground/25">
                     · {displayRowCountIsEstimate ? "~" : ""}{displayRowCount} rows
+                    {isCustomDateRange && countLoading && (
+                      <Loader2 data-testid="sip-errors-count-spinner" className="h-3 w-3 animate-spin" />
+                    )}
                   </span>
                 )}
               </span>
