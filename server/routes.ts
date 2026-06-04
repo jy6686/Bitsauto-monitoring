@@ -6592,14 +6592,28 @@ export async function registerRoutes(
         // has a full preceding 24h of baseline data — matches loadSipErrorSnapshotWithSpikes().
         const fetchStart = new Date(exportCutoff.getTime() - 24 * 3600 * 1000);
 
+        // Optional vendor/code filters
+        const filterVendor = String(req.query.vendor ?? '').trim() || null;
+        const filterCode = String(req.query.code ?? '').trim() || null;
+
         let hourlyRows: any[];
         try {
+          const conditions: string[] = ['snapshot_at >= $1', 'snapshot_at < $2'];
+          const params: any[] = [fetchStart.toISOString(), fetchEnd.toISOString()];
+          if (filterVendor) {
+            params.push(filterVendor);
+            conditions.push(`vendor_name = $${params.length}`);
+          }
+          if (filterCode) {
+            params.push(filterCode);
+            conditions.push(`code = $${params.length}`);
+          }
           const result = await pool.query(
             `SELECT snapshot_at, vendor_name, code, rate
              FROM sip_error_history
-             WHERE snapshot_at >= $1 AND snapshot_at < $2
+             WHERE ${conditions.join(' AND ')}
              ORDER BY snapshot_at ASC`,
-            [fetchStart.toISOString(), fetchEnd.toISOString()],
+            params,
           );
           hourlyRows = result.rows;
         } finally {
@@ -6659,7 +6673,11 @@ export async function registerRoutes(
           a.code.localeCompare(b.code),
         );
 
-        const filename = `sip-error-history-${filenameRange}.csv`;
+        const filterSuffix = [
+          filterVendor ? `vendor-${filterVendor.replace(/[^a-zA-Z0-9_-]/g, '_')}` : '',
+          filterCode ? `code-${filterCode}` : '',
+        ].filter(Boolean).join('_');
+        const filename = `sip-error-history-${filenameRange}${filterSuffix ? '_' + filterSuffix : ''}.csv`;
 
         const csvLines: string[] = ['date,vendor_name,code,avg_rate,baseline_rate,spike_flag'];
         for (const row of exportRows) {

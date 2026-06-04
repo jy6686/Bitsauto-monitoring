@@ -2791,6 +2791,10 @@ function SipErrorsTab() {
   const [exportTo, setExportTo] = useState<string>("");
   const [showCustomRange, setShowCustomRange] = useState(false);
 
+  // Export filter state
+  const [exportVendor, setExportVendor] = useState<string>("");
+  const [exportCode, setExportCode] = useState<string>("");
+
   const { data, isLoading, refetch, isFetching } = useQuery<SipErrorsTabData>({
     queryKey: ["/api/route-intelligence/sip-errors"],
     staleTime: 5 * 60 * 1000,
@@ -2816,13 +2820,19 @@ function SipErrorsTab() {
     return next;
   });
 
-  // Build the export URL from the current selection
+  // Build the export URL from the current selection + optional filters
   const exportUrl = (() => {
+    let base: string;
     if (exportPreset === "custom" && exportFrom && exportTo) {
-      return `/api/route-intelligence/sip-errors/export?from=${exportFrom}&to=${exportTo}`;
+      base = `/api/route-intelligence/sip-errors/export?from=${exportFrom}&to=${exportTo}`;
+    } else if (exportPreset === "custom") {
+      return null; // not ready yet
+    } else {
+      base = `/api/route-intelligence/sip-errors/export?days=${exportPreset}`;
     }
-    if (exportPreset === "custom") return null; // not ready yet
-    return `/api/route-intelligence/sip-errors/export?days=${exportPreset}`;
+    if (exportVendor) base += `&vendor=${encodeURIComponent(exportVendor)}`;
+    if (exportCode) base += `&code=${encodeURIComponent(exportCode)}`;
+    return base;
   })();
 
   const handlePresetClick = (p: SipExportPreset) => {
@@ -2897,6 +2907,34 @@ function SipErrorsTab() {
                 />
               </div>
             )}
+
+            {/* Vendor filter */}
+            <select
+              data-testid="sip-export-vendor-filter"
+              value={exportVendor}
+              onChange={e => setExportVendor(e.target.value)}
+              title="Filter export by vendor"
+              className="text-xs border border-border/60 rounded px-1.5 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring max-w-[130px]"
+            >
+              <option value="">All vendors</option>
+              {vendors.map(v => (
+                <option key={v.vendorName} value={v.vendorName}>{v.vendorName}</option>
+              ))}
+            </select>
+
+            {/* Error code filter */}
+            <select
+              data-testid="sip-export-code-filter"
+              value={exportCode}
+              onChange={e => setExportCode(e.target.value)}
+              title="Filter export by SIP error code"
+              className="text-xs border border-border/60 rounded px-1.5 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="">All codes</option>
+              {SIP_CODES.map(c => (
+                <option key={c} value={String(c)}>{CODE_FULL[c]}</option>
+              ))}
+            </select>
 
             {/* Export button */}
             {exportUrl ? (
