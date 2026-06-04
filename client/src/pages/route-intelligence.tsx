@@ -2830,6 +2830,34 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
 
   const hoveredEntry = hoveredIdx != null ? history[hoveredIdx] : null;
 
+  // Compute contiguous spike runs across all codes (any code spiking counts)
+  const spikeIndices = new Set<number>(
+    history.flatMap((h, i) =>
+      codes.some((code) => {
+        const rate = h.rates[code] ?? 0;
+        const base = h.baselines?.[code];
+        return base != null && base > 0 && rate >= 2 * base;
+      })
+        ? [i]
+        : [],
+    ),
+  );
+
+  // Group consecutive spiking indices into runs
+  const spikeRuns: Array<{ start: number; end: number }> = [];
+  let runStart: number | null = null;
+  for (let i = 0; i < history.length; i++) {
+    if (spikeIndices.has(i)) {
+      if (runStart === null) runStart = i;
+    } else {
+      if (runStart !== null) {
+        spikeRuns.push({ start: runStart, end: i - 1 });
+        runStart = null;
+      }
+    }
+  }
+  if (runStart !== null) spikeRuns.push({ start: runStart, end: history.length - 1 });
+
   return (
     <div className="flex flex-col gap-1">
       <div className="relative" style={{ width: W }}>
@@ -2840,6 +2868,25 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
           data-testid={`sip-sparkline-${vendorName}`}
           onMouseLeave={() => setHoveredIdx(null)}
         >
+          {/* Spike period bands — rendered behind lines and dots */}
+          {spikeRuns
+            .filter((r) => r.end > r.start)
+            .map((r, ri) => {
+              const x1 = r.start * stepX - stepX * 0.4;
+              const x2 = r.end * stepX + stepX * 0.4;
+              return (
+                <rect
+                  key={ri}
+                  x={x1}
+                  y={0}
+                  width={Math.max(x2 - x1, 2)}
+                  height={H}
+                  fill="rgba(239,68,68,0.13)"
+                  rx={2}
+                  data-testid={`spike-band-${vendorName}-${ri}`}
+                />
+              );
+            })}
           {codes.map((code, ci) => {
             const ratePts = history.map((h, i) => `${i * stepX},${toY(h.rates[code] ?? 0)}`);
             const basePts = history
