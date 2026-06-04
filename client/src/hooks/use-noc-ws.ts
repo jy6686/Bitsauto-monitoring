@@ -38,12 +38,25 @@ export interface ApprovalExpiredEvent {
   expiredAt:       string;
 }
 
+export interface SipSpikeEvent {
+  vendorName:   string;
+  code:         number;
+  codeLabel:    string;
+  currentRate:  number;
+  baselineRate: number;
+  multiplier:   number;
+  severity:     string;
+  incidentId:   number;
+  detectedAt:   string;
+}
+
 interface UseNocWebSocketResult {
   lastTick: NocTickData | null;
   lastVoiceOtpUpdate: VoiceOtpUpdateEvent | null;
   lastRollbackFailure: RollbackFailureAlert | null;
   lastPendingApproval: PendingApprovalEvent | null;
   lastApprovalExpired: ApprovalExpiredEvent | null;
+  lastSipSpike: SipSpikeEvent | null;
   connected: boolean;
 }
 
@@ -53,6 +66,7 @@ export function useNocWebSocket(): UseNocWebSocketResult {
   const [lastRollbackFailure, setLastRollbackFailure] = useState<RollbackFailureAlert | null>(null);
   const [lastPendingApproval, setLastPendingApproval] = useState<PendingApprovalEvent | null>(null);
   const [lastApprovalExpired, setLastApprovalExpired] = useState<ApprovalExpiredEvent | null>(null);
+  const [lastSipSpike, setLastSipSpike] = useState<SipSpikeEvent | null>(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,6 +122,18 @@ export function useNocWebSocket(): UseNocWebSocketResult {
               ttlMinutes:      data.ttlMinutes,
               expiredAt:       data.expiredAt,
             });
+          } else if (data.type === "sip_spike_detected") {
+            setLastSipSpike({
+              vendorName:   data.vendorName,
+              code:         data.code,
+              codeLabel:    data.codeLabel,
+              currentRate:  data.currentRate,
+              baselineRate: data.baselineRate,
+              multiplier:   data.multiplier,
+              severity:     data.severity,
+              incidentId:   data.incidentId,
+              detectedAt:   data.detectedAt,
+            });
           }
         } catch { /* ignore malformed messages */ }
       };
@@ -135,5 +161,5 @@ export function useNocWebSocket(): UseNocWebSocketResult {
     };
   }, [connect]);
 
-  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, lastPendingApproval, lastApprovalExpired, connected };
+  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, lastPendingApproval, lastApprovalExpired, lastSipSpike, connected };
 }

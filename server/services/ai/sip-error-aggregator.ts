@@ -35,6 +35,7 @@ import { runSipErrorRateCheck } from "../../incident-engine";
 import { storage } from "../../storage";
 import { sendWhatsAppAlert, formatSipErrorAlert } from "../../whatsapp";
 import { EventEmitter } from "events";
+import { broadcastSipSpikeDetected } from "../../noc-ws";
 
 export const SIP_ERROR_CODES = [503, 486, 480, 408, 404, 403] as const;
 export type SipErrorCode = typeof SIP_ERROR_CODES[number];
@@ -320,8 +321,6 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
       rate: number;
     }[] = [];
 
-    const computedAt = new Date().toISOString();
-
     for (const { minutes, ms } of WINDOWS_MS) {
       const vb = windowBuckets.get(ms)!;
       for (const [vendor, codes] of vb) {
@@ -330,7 +329,6 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
           const count = codes.get(code) ?? 0;
           const rate  = total > 0 ? Math.round((count / total) * 10000) / 100 : 0;
           rows.push({ vendor_name: vendor, window_minutes: minutes, code, count, rate, dest_prefix: null, computed_at: computedAt, time_bucket: timeBucket.toISOString() });
-          rows.push({ vendor_name: vendor, window_minutes: minutes, code, count, rate, dest_prefix: null, computed_at: computedAt });
 
           // Also collect 60-min window rows for history
           if (minutes === 60) {
@@ -457,10 +455,140 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
     if (vendor503Rates.size > 0) {
       checkSustained503(vendor503Rates);
     }
+
+    // ── SIP spike incident detection & NOC broadcast ──────────────────────────
+    processSpikesAfterAggregation(rows).catch((e: any) =>
+      console.warn('[sip-error-agg] Spike processing error (non-fatal):', e.message)
+    );
   } catch (err: any) {
     console.warn('[sip-error-agg] Aggregation error (non-fatal):', err.message);
   } finally {
     _isRunning = false;
+  }
+}
+
+// ── In-memory spike state: key = `${vendorName}:${code}` → noc_incident id ───
+const _activeSpikeIncidents = new Map<string, number>();
+
+/**
+ * Detect new SIP spikes and resolve cleared ones.
+ * Called asynchronously from computeSipErrorFromCdrs() after each aggregation run.
+ *
+ * Spike criteria (60-min window):  currentRate ≥ 2% AND ≥ 2× 24h baseline
+ * Resolution criteria:             currentRate < 1.5× baseline (hysteresis gap)
+ *
+ * New spikes → noc_incidents row (type: sip_spike) + NOC WebSocket broadcast
+ * Cleared spikes → noc_incidents resolved + in-memory state removed
+ */
+async function processSpikesAfterAggregation(
+  rows: Array<{ vendor_name: string; window_minutes: number; code: number; rate: number; dest_prefix: string | null }>,
+): Promise<void> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    // Query 24h baseline from sip_error_history
+    const baselineRes = await pool.query(`
+      SELECT vendor_name, code, AVG(rate) AS baseline_rate
+      FROM sip_error_history
+      WHERE snapshot_at > NOW() - INTERVAL '24 hours'
+      GROUP BY vendor_name, code
+    `).catch(() => ({ rows: [] as any[] }));
+
+    const baselineMap = new Map<string, number>();
+    for (const row of baselineRes.rows) {
+      baselineMap.set(`${row.vendor_name}:${row.code}`, parseFloat(row.baseline_rate ?? '0'));
+    }
+
+    // Identify currently spiking vendor+code pairs (60-min window, no prefix)
+    const currentSpikeRows = new Map<string, { vendorName: string; code: number; rate: number; baselineRate: number; multiplier: number }>();
+    for (const row of rows) {
+      if (row.window_minutes !== 60 || row.dest_prefix !== null) continue;
+      const key = `${row.vendor_name}:${row.code}`;
+      const baselineRate = baselineMap.get(key) ?? 0;
+      const isSpiking = row.rate >= 2 && baselineRate > 0 && row.rate >= 2 * baselineRate;
+      if (isSpiking) {
+        const multiplier = row.rate / baselineRate;
+        currentSpikeRows.set(key, { vendorName: row.vendor_name, code: row.code, rate: row.rate, baselineRate, multiplier });
+      }
+    }
+
+    // ── Open incidents for new spikes ─────────────────────────────────────────
+    for (const [key, spike] of currentSpikeRows) {
+      if (_activeSpikeIncidents.has(key)) continue; // already tracked
+
+      const codeLabel = CODE_LABELS[spike.code] ?? String(spike.code);
+      const severity  = spike.multiplier >= 3 ? 'high' : 'medium';
+      const description = `${codeLabel} error rate is ${spike.rate.toFixed(1)}% — ${spike.multiplier.toFixed(1)}× the 24h baseline of ${spike.baselineRate.toFixed(1)}%. Window: 60 min.`;
+      const suggestedAction = spike.code === 503
+        ? 'Check carrier congestion; consider route failover to an alternate vendor.'
+        : spike.code === 486
+        ? 'High busy rate — check destination capacity and trunk group limits.'
+        : 'Investigate vendor routing and SIP signalling for this error pattern.';
+
+      try {
+        const incRes = await pool.query(
+          `INSERT INTO noc_incidents (title, type, severity, status, entity_type, entity_id, entity_name, description, suggested_action, source, tags, opened_at, updated_at)
+           VALUES ($1, 'sip_spike', $2, 'open', 'vendor', $3, $4, $5, $6, 'sip_error_aggregator', '{}', NOW(), NOW())
+           RETURNING id`,
+          [
+            `SIP spike: ${spike.vendorName} — ${codeLabel} ${spike.rate.toFixed(1)}% (${spike.multiplier.toFixed(1)}× baseline)`,
+            severity,
+            key,
+            spike.vendorName,
+            description,
+            suggestedAction,
+          ],
+        );
+        const incId: number | undefined = incRes.rows[0]?.id;
+        if (incId) {
+          _activeSpikeIncidents.set(key, incId);
+          broadcastSipSpikeDetected({
+            vendorName:   spike.vendorName,
+            code:         spike.code,
+            codeLabel,
+            currentRate:  spike.rate,
+            baselineRate: spike.baselineRate,
+            multiplier:   spike.multiplier,
+            severity,
+            incidentId:   incId,
+            detectedAt:   new Date().toISOString(),
+          });
+          console.warn(
+            `[sip-error-agg] SIP spike detected: ${key} → ` +
+            `${spike.rate.toFixed(1)}% (${spike.multiplier.toFixed(1)}× baseline) — incident #${incId}`,
+          );
+        }
+      } catch (e: any) {
+        console.warn(`[sip-error-agg] Failed to create spike incident for ${key}:`, e.message);
+      }
+    }
+
+    // ── Auto-resolve incidents where spike has cleared ─────────────────────────
+    for (const [key, incId] of Array.from(_activeSpikeIncidents)) {
+      if (currentSpikeRows.has(key)) continue; // still active
+
+      const [vendorName, codeStr] = key.split(':');
+      const code = parseInt(codeStr, 10);
+      const baselineRate = baselineMap.get(key) ?? 0;
+      const row = rows.find(r => r.vendor_name === vendorName && r.code === code && r.window_minutes === 60 && !r.dest_prefix);
+      const currentRate = row?.rate ?? 0;
+
+      // Only resolve when rate has dropped below 1.5× baseline (hysteresis)
+      const belowThreshold = baselineRate === 0 || currentRate < 1.5 * baselineRate;
+      if (!belowThreshold) continue;
+
+      try {
+        await pool.query(
+          `UPDATE noc_incidents SET status='resolved', resolved_at=NOW(), updated_at=NOW() WHERE id=$1 AND resolved_at IS NULL`,
+          [incId],
+        );
+        _activeSpikeIncidents.delete(key);
+        console.log(`[sip-error-agg] SIP spike auto-resolved: ${key} (incident #${incId}, rate now ${currentRate.toFixed(1)}%)`);
+      } catch (e: any) {
+        console.warn(`[sip-error-agg] Failed to resolve spike incident #${incId}:`, e.message);
+      }
+    }
+  } finally {
+    await pool.end();
   }
 }
 

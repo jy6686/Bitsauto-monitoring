@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useNocWebSocket, type RollbackFailureAlert, type ApprovalExpiredEvent } from "@/hooks/use-noc-ws";
+import { useNocWebSocket, type RollbackFailureAlert, type ApprovalExpiredEvent, type SipSpikeEvent } from "@/hooks/use-noc-ws";
 import { X, WrenchIcon } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -436,6 +436,78 @@ function RollbackFailureBanner({
           </button>
         </motion.div>
       ))}
+    </div>
+  );
+}
+
+// ── SIP Spike Banner ────────────────────────────────────────────────────────────
+
+function SipSpikeBanner({
+  spikes,
+  onDismiss,
+}: {
+  spikes: SipSpikeEvent[];
+  onDismiss: (key: string) => void;
+}) {
+  if (spikes.length === 0) return null;
+  return (
+    <div className="flex-shrink-0 flex flex-col gap-1 px-3 py-2 bg-red-950/60 border-b border-red-700/50">
+      {spikes.map((spike) => {
+        const key = `${spike.vendorName}:${spike.code}:${spike.detectedAt}`;
+        const isHigh = spike.severity === 'high';
+        return (
+          <motion.div
+            key={key}
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.2 }}
+            data-testid={`sip-spike-banner-${spike.vendorName}-${spike.code}`}
+            className={cn(
+              "flex items-start gap-2.5 rounded-lg border px-3 py-2",
+              isHigh ? "border-red-600/50 bg-red-900/40" : "border-amber-600/40 bg-amber-950/40",
+            )}
+          >
+            <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+              <span className="relative flex h-2 w-2">
+                <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", isHigh ? "bg-red-400" : "bg-amber-400")} />
+                <span className={cn("relative inline-flex rounded-full h-2 w-2", isHigh ? "bg-red-500" : "bg-amber-500")} />
+              </span>
+              <AlertOctagon className={cn("h-3.5 w-3.5 flex-shrink-0", isHigh ? "text-red-400" : "text-amber-400")} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn(
+                  "text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border font-mono flex-shrink-0",
+                  isHigh ? "text-red-300 bg-red-500/20 border-red-500/30" : "text-amber-300 bg-amber-500/20 border-amber-500/30",
+                )}>
+                  SIP SPIKE {isHigh ? "HIGH" : "MEDIUM"}
+                </span>
+                <span className={cn("text-[11px] font-semibold font-mono", isHigh ? "text-red-200" : "text-amber-200")}>
+                  {spike.vendorName} — {spike.codeLabel}
+                </span>
+                <span className={cn("text-[10px] font-mono px-1.5 py-0.5 rounded border", isHigh ? "text-red-400 bg-red-500/10 border-red-500/20" : "text-amber-400 bg-amber-500/10 border-amber-500/20")}>
+                  {spike.currentRate.toFixed(1)}% ({spike.multiplier.toFixed(1)}× baseline)
+                </span>
+              </div>
+              <p className={cn("text-[11px] mt-0.5 leading-snug", isHigh ? "text-red-300/80" : "text-amber-300/80")}>
+                Error rate is {spike.multiplier.toFixed(1)}× the 24h baseline ({spike.baselineRate.toFixed(1)}%). Incident #{spike.incidentId} opened.{" "}
+                <a href="/noc-incidents" className={cn("underline underline-offset-2", isHigh ? "text-red-300 hover:text-red-100" : "text-amber-300 hover:text-amber-100")}>
+                  View incidents →
+                </a>
+              </p>
+            </div>
+            <button
+              data-testid={`sip-spike-dismiss-${spike.vendorName}-${spike.code}`}
+              onClick={() => onDismiss(key)}
+              className={cn("flex-shrink-0 p-1 rounded transition-colors", isHigh ? "hover:bg-red-700/40 text-red-400 hover:text-red-200" : "hover:bg-amber-700/30 text-amber-400 hover:text-amber-200")}
+              aria-label="Dismiss SIP spike alert"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </motion.div>
+        );
+      })}
     </div>
   );
 }
@@ -903,9 +975,11 @@ export default function NocDashboardPage() {
   const [expiredApprovals, setExpiredApprovals] = useState<ApprovalExpiredEvent[]>([]);
   const [dismissedExpiry, setDismissedExpiry] = useState<Set<string>>(new Set());
   const [dismissedSslCerts, setDismissedSslCerts] = useState<Set<string>>(new Set());
+  const [sipSpikeAlerts, setSipSpikeAlerts] = useState<SipSpikeEvent[]>([]);
+  const [dismissedSpikes, setDismissedSpikes] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const { isManagement } = useAuth();
-  const { lastRollbackFailure, lastApprovalExpired } = useNocWebSocket();
+  const { lastRollbackFailure, lastApprovalExpired, lastSipSpike } = useNocWebSocket();
 
   useEffect(() => {
     document.documentElement.classList.add('dark');
@@ -930,6 +1004,16 @@ export default function NocDashboardPage() {
       return [lastApprovalExpired, ...prev];
     });
   }, [lastApprovalExpired]);
+
+  useEffect(() => {
+    if (!lastSipSpike) return;
+    const key = `${lastSipSpike.vendorName}:${lastSipSpike.code}:${lastSipSpike.detectedAt}`;
+    if (dismissedSpikes.has(key)) return;
+    setSipSpikeAlerts(prev => {
+      if (prev.some(s => s.vendorName === lastSipSpike.vendorName && s.code === lastSipSpike.code && s.detectedAt === lastSipSpike.detectedAt)) return prev;
+      return [lastSipSpike, ...prev];
+    });
+  }, [lastSipSpike]);
 
   const { data: liveSummary } = useQuery<LiveSummary>({
     queryKey: ["/api/sippy/live-calls"],
@@ -1201,6 +1285,17 @@ export default function NocDashboardPage() {
               setDismissedExpiry(prev => new Set([...prev, key]));
             }
             setExpiredApprovals(prev => prev.filter(e => e.expiredAt !== expiredAt));
+          }}
+        />
+      </AnimatePresence>
+
+      {/* ── SIP Spike Banners ── */}
+      <AnimatePresence>
+        <SipSpikeBanner
+          spikes={sipSpikeAlerts}
+          onDismiss={(key) => {
+            setDismissedSpikes(prev => new Set([...prev, key]));
+            setSipSpikeAlerts(prev => prev.filter(s => `${s.vendorName}:${s.code}:${s.detectedAt}` !== key));
           }}
         />
       </AnimatePresence>

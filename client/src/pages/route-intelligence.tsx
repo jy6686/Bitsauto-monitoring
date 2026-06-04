@@ -12,8 +12,9 @@ import {
   Settings, Save, LineChart as LineChartIcon, Layers,
 } from "lucide-react";
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
-  ResponsiveContainer, ReferenceLine, Legend,
+  AreaChart, Area, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend,
+  LineChart,
 } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -24,10 +25,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useNocWebSocket } from "@/hooks/use-noc-ws";
-import {
-  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, LineChart,
-} from "recharts";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -2460,7 +2457,7 @@ interface SipHistoryEntry {
   rates: Record<number, number>;
 }
 
-function SipErrorSparkline({ vendorName }: { vendorName: string }) {
+function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
   const { data } = useQuery<{ success: boolean; history: SipHistoryEntry[] }>({
     queryKey: ["/api/route-intelligence/vendor", vendorName, "error-history"],
     queryFn: () => fetch(`/api/route-intelligence/vendor/${encodeURIComponent(vendorName)}/error-history?days=7`).then(r => r.json()),
@@ -2712,7 +2709,7 @@ function SipErrorsTab() {
                           )}
                         </td>
                         <td className="py-1.5 px-3">
-                          {isOpen && <SipErrorSparkline vendorName={v.vendorName} />}
+                          {isOpen && <SipErrorHistoryChart vendorName={v.vendorName} />}
                           {!isOpen && <span className="text-[10px] text-muted-foreground/40">click</span>}
                         </td>
                         <td className="py-2.5 px-2 text-muted-foreground/50">
@@ -2727,7 +2724,7 @@ function SipErrorsTab() {
                                 <span className="text-xs font-semibold text-foreground">{v.vendorName} — 7-day SIP Error Trend</span>
                                 <span className="text-[10px] text-muted-foreground">(503 red · 486 amber · 480 orange)</span>
                               </div>
-                              <SipErrorSparkline vendorName={v.vendorName} />
+                              <SipErrorHistoryChart vendorName={v.vendorName} />
                               {/* Show all window rates for this vendor */}
                               <div className="grid grid-cols-3 gap-3">
                                 {([15, 60, 240] as const).map(w => {

@@ -132,3 +132,25 @@ export function broadcastApprovalExpired(data: ApprovalExpiredData): void {
     }
   }
 }
+
+export interface SipSpikeDetectedData {
+  vendorName:   string;
+  code:         number;
+  codeLabel:    string;
+  currentRate:  number;
+  baselineRate: number;
+  multiplier:   number;
+  severity:     string;
+  incidentId:   number;
+  detectedAt:   string;
+}
+
+export function broadcastSipSpikeDetected(data: SipSpikeDetectedData): void {
+  if (nocClients.size === 0) return;
+  const payload = JSON.stringify({ type: "sip_spike_detected", ...data });
+  for (const client of nocClients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      try { client.ws.send(payload); } catch { /* ignore send errors */ }
+    }
+  }
+}
