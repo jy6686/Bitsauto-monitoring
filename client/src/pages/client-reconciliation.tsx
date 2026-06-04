@@ -406,6 +406,19 @@ export default function ClientReconciliationPage() {
     cronHour: 8,
   });
 
+  function parseEmailList(raw: string): string[] {
+    return raw.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  function validateEmailList(raw: string): string | null {
+    const parts = parseEmailList(raw);
+    if (parts.length === 0) return 'At least one email address is required.';
+    const invalid = parts.filter(e => !EMAIL_RE.test(e));
+    if (invalid.length > 0) return `Invalid address${invalid.length > 1 ? 'es' : ''}: ${invalid.join(', ')}`;
+    return null;
+  }
+  const emailListError = emailForm.to ? validateEmailList(emailForm.to) : null;
+
   const emailMutation = useMutation({
     mutationFn: (data: typeof emailForm) =>
       apiRequest("POST", "/api/client-reconciliation/export/email", {
@@ -414,7 +427,9 @@ export default function ClientReconciliationPage() {
         excludeClean: activeTab === 'discrepancies',
       }).then(r => r.json()),
     onSuccess: (data: any) => {
-      toast({ title: 'Report emailed', description: `Sent ${data.filename} to ${emailForm.to}` });
+      const recipients = parseEmailList(emailForm.to);
+      const recipientDesc = recipients.length > 1 ? `${recipients.length} recipients` : emailForm.to.trim();
+      toast({ title: 'Report emailed', description: `Sent ${data.filename} to ${recipientDesc}` });
       setShowEmailDialog(false);
     },
     onError: (err: any) => {
@@ -892,14 +907,18 @@ export default function ClientReconciliationPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label className="text-xs mb-1.5 block">Recipient Email *</Label>
+              <Label className="text-xs mb-1.5 block">Recipient Email(s) *</Label>
               <Input
                 data-testid="input-email-to"
-                type="email"
-                placeholder="client@example.com"
+                type="text"
+                placeholder="alice@example.com, bob@example.com"
                 value={emailForm.to}
                 onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
               />
+              {emailListError && (
+                <p data-testid="text-email-error" className="text-xs text-destructive mt-1">{emailListError}</p>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">Separate multiple addresses with commas.</p>
             </div>
             <div>
               <Label className="text-xs mb-1.5 block">Subject *</Label>
@@ -936,7 +955,7 @@ export default function ClientReconciliationPage() {
               <Button
                 data-testid="button-email-send"
                 onClick={() => emailMutation.mutate(emailForm)}
-                disabled={emailMutation.isPending || !emailForm.to || !emailForm.subject}
+                disabled={emailMutation.isPending || !emailForm.to || !emailForm.subject || !!emailListError}
               >
                 {emailMutation.isPending
                   ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending…</>

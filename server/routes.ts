@@ -29579,8 +29579,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // POST /api/billing/reconciliation/export/email — email carrier reconciliation report as attachment
   app.post('/api/billing/reconciliation/export/email', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
-      const { to, subject, message, format = 'pdf', mode, iTariff, periodStart, periodEnd, snapStatus, reconStatus, vendor } = req.body;
-      if (!to || !subject) return res.status(400).json({ error: 'to and subject are required' });
+      const { to: toRaw, subject, message, format = 'pdf', mode, iTariff, periodStart, periodEnd, snapStatus, reconStatus, vendor } = req.body;
+      if (!toRaw || !subject) return res.status(400).json({ error: 'to and subject are required' });
+      const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const toList = String(toRaw).split(',').map((s: string) => s.trim()).filter(Boolean);
+      if (toList.length === 0) return res.status(400).json({ error: 'At least one recipient email is required' });
+      const invalidEmails = toList.filter((e: string) => !EMAIL_RE.test(e));
+      if (invalidEmails.length > 0) return res.status(400).json({ error: `Invalid email address(es): ${invalidEmails.join(', ')}` });
+      const to = toList.join(', ');
 
       const { buildCarrierSnapshotCSV, buildCarrierReconSummaryCSV, buildCarrierReconPDF } = await import('./services/billing/reconciliation-export');
       const { sendDirectEmailWithAttachment } = await import('./email');
@@ -29700,8 +29706,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // POST /api/client-reconciliation/export/email — email client reconciliation report as attachment
   app.post('/api/client-reconciliation/export/email', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
-      const { to, subject, message, format = 'pdf', period, status, severity, excludeClean } = req.body;
-      if (!to || !subject) return res.status(400).json({ error: 'to and subject are required' });
+      const { to: toRaw, subject, message, format = 'pdf', period, status, severity, excludeClean } = req.body;
+      if (!toRaw || !subject) return res.status(400).json({ error: 'to and subject are required' });
+      const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const toList = String(toRaw).split(',').map((s: string) => s.trim()).filter(Boolean);
+      if (toList.length === 0) return res.status(400).json({ error: 'At least one recipient email is required' });
+      const invalidEmails = toList.filter((e: string) => !EMAIL_RE.test(e));
+      if (invalidEmails.length > 0) return res.status(400).json({ error: `Invalid email address(es): ${invalidEmails.join(', ')}` });
+      const to = toList.join(', ');
 
       const { buildClientReconCSV, buildClientReconPDF } = await import('./services/billing/reconciliation-export');
       const { sendDirectEmailWithAttachment } = await import('./email');
