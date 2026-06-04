@@ -28,7 +28,11 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle2, AlertTriangle, XCircle, Clock, RefreshCw, Search,
   Upload, Users, DollarSign, Info, TrendingDown, ThumbsUp, ShieldAlert,
+  Download, FileText, Loader2, FileSpreadsheet,
 } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface ReconRow {
   id:                  number;
@@ -123,6 +127,44 @@ export default function ClientReconciliationPage() {
   const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
   const [filter, setFilter] = useState('');
   const [showImport, setShowImport] = useState(false);
+  const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null);
+
+  async function handleExport(type: 'csv' | 'pdf') {
+    setExporting(type);
+    try {
+      const params = new URLSearchParams({ period });
+      const baseUrl = `/api/client-reconciliation/export/${type}`;
+      const url = `${baseUrl}?${params}`;
+      const res = await fetch(url);
+      const ct = res.headers.get('content-type') ?? '';
+
+      if (ct.includes('application/json')) {
+        const j = await res.json();
+        if (j.large) {
+          const dl = await fetch(`/api/client-reconciliation/export/download/${j.token}`);
+          const blob = await dl.blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = j.filename;
+          a.click();
+          toast({ title: `Export ready — ${(j.rowCount ?? '').toLocaleString()} rows` });
+        }
+      } else {
+        const blob = await res.blob();
+        const cd = res.headers.get('content-disposition') ?? '';
+        const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? `client-reconciliation.${type}`;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fn;
+        a.click();
+        toast({ title: type === 'csv' ? 'CSV exported' : 'PDF report exported' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Export failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setExporting(null);
+    }
+  }
 
   const { data: sippyAccounts = [] } = useQuery<SippyAcct[]>({
     queryKey: ["/api/sippy/accounts"],
@@ -326,6 +368,30 @@ export default function ClientReconciliationPage() {
             onChange={e => setPeriod(e.target.value)}
             className="w-44"
           />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" data-testid="button-export-dropdown" disabled={exporting !== null}>
+                {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                data-testid="button-export-csv"
+                onClick={() => handleExport('csv')}
+              >
+                <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-400" />
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="button-export-pdf"
+                onClick={() => handleExport('pdf')}
+              >
+                <FileText className="h-4 w-4 mr-2 text-red-400" />
+                Export PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             data-testid="button-import-open"
             onClick={() => {

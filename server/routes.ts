@@ -28274,6 +28274,160 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Billing Reconciliation Export ─────────────────────────────────────────────
+  // GET /api/billing/reconciliation/export/csv    — CDR snapshot CSV (scoped to filters)
+  // GET /api/billing/reconciliation/export/csv-summary — reconciliation summary CSV
+  // GET /api/billing/reconciliation/export/pdf    — formatted PDF report
+  // GET /api/billing/reconciliation/export/download/:token — retrieve pre-generated large export
+
+  app.get('/api/billing/reconciliation/export/csv', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { buildCarrierSnapshotCSV, buildCarrierReconSummaryCSV, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
+      const reconStatus = req.query.reconStatus ? String(req.query.reconStatus) : undefined;
+      const vendor      = req.query.vendor      ? String(req.query.vendor)      : undefined;
+      const opts = {
+        iTariff:     req.query.iTariff     ? String(req.query.iTariff)     : undefined,
+        periodStart: req.query.periodStart ? String(req.query.periodStart) : undefined,
+        periodEnd:   req.query.periodEnd   ? String(req.query.periodEnd)   : undefined,
+        snapStatus:  req.query.snapStatus  ? String(req.query.snapStatus)  : undefined,
+        reconStatus,
+        vendor,
+      };
+      const mode = req.query.mode === 'summary' ? 'summary' : 'cdr';
+      const { csv, rowCount } = mode === 'summary'
+        ? await buildCarrierReconSummaryCSV({ status: reconStatus, iTariff: opts.iTariff, carrierName: vendor })
+        : await buildCarrierSnapshotCSV(opts);
+
+      const vendorSlug = (opts.vendor ?? opts.iTariff ?? 'all').replace(/[^a-zA-Z0-9]/g, '-');
+      const dateSlug   = `${opts.periodStart ?? 'all'}_${opts.periodEnd ?? 'all'}`;
+      const filename   = `reconciliation_${vendorSlug}_${dateSlug}.csv`;
+
+      if (rowCount > LARGE_EXPORT_THRESHOLD) {
+        const token = storeTempFile(csv, filename, 'text/csv');
+        return res.json({ large: true, token, rowCount, filename });
+      }
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/billing/reconciliation/export/pdf', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { buildCarrierReconPDF, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
+      const opts = {
+        iTariff:     req.query.iTariff     ? String(req.query.iTariff)     : undefined,
+        periodStart: req.query.periodStart ? String(req.query.periodStart) : undefined,
+        periodEnd:   req.query.periodEnd   ? String(req.query.periodEnd)   : undefined,
+        snapStatus:  req.query.snapStatus  ? String(req.query.snapStatus)  : undefined,
+        reconStatus: req.query.reconStatus ? String(req.query.reconStatus) : undefined,
+        vendor:      req.query.vendor      ? String(req.query.vendor)      : undefined,
+      };
+
+      const vendorSlug = (opts.vendor ?? opts.iTariff ?? 'all').replace(/[^a-zA-Z0-9]/g, '-');
+      const dateSlug   = `${opts.periodStart ?? 'all'}_${opts.periodEnd ?? 'all'}`;
+      const filename   = `reconciliation_${vendorSlug}_${dateSlug}.pdf`;
+
+      const { buf, rowCount } = await buildCarrierReconPDF(opts);
+
+      if (rowCount > LARGE_EXPORT_THRESHOLD) {
+        const token = storeTempFile(buf, filename, 'application/pdf');
+        return res.json({ large: true, token, rowCount, filename });
+      }
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buf);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/billing/reconciliation/export/download/:token', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { getTempFile } = await import('./services/billing/reconciliation-export');
+      const entry = getTempFile(req.params.token);
+      if (!entry) return res.status(404).json({ error: 'Export not found or expired (TTL 10 min)' });
+      res.setHeader('Content-Type', entry.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
+      const { readFileSync } = await import('fs');
+      res.send(readFileSync(entry.path));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Client Reconciliation Export ───────────────────────────────────────────────
+  // GET /api/client-reconciliation/export/csv — client reconciliation CSV
+  // GET /api/client-reconciliation/export/pdf — client reconciliation PDF
+
+  app.get('/api/client-reconciliation/export/csv', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { buildClientReconCSV, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
+      const opts = {
+        period:   req.query.period   ? String(req.query.period)   : undefined,
+        status:   req.query.status   ? String(req.query.status)   : undefined,
+        severity: req.query.severity ? String(req.query.severity) : undefined,
+      };
+      const { csv, rowCount } = await buildClientReconCSV(opts);
+      const periodSlug = (opts.period ?? 'all').replace(/[^a-zA-Z0-9]/g, '-');
+      const filename = `client-reconciliation_${periodSlug}.csv`;
+
+      if (rowCount > LARGE_EXPORT_THRESHOLD) {
+        const token = storeTempFile(csv, filename, 'text/csv');
+        return res.json({ large: true, token, rowCount, filename });
+      }
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/client-reconciliation/export/pdf', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { buildClientReconPDF, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
+      const opts = {
+        period:   req.query.period   ? String(req.query.period)   : undefined,
+        status:   req.query.status   ? String(req.query.status)   : undefined,
+        severity: req.query.severity ? String(req.query.severity) : undefined,
+      };
+      const { buf, rowCount } = await buildClientReconPDF(opts);
+      const periodSlug = (opts.period ?? 'all').replace(/[^a-zA-Z0-9]/g, '-');
+      const filename = `client-reconciliation_${periodSlug}.pdf`;
+
+      if (rowCount > LARGE_EXPORT_THRESHOLD) {
+        const token = storeTempFile(buf, filename, 'application/pdf');
+        return res.json({ large: true, token, rowCount, filename });
+      }
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buf);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/client-reconciliation/export/download/:token', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { getTempFile } = await import('./services/billing/reconciliation-export');
+      const entry = getTempFile(req.params.token);
+      if (!entry) return res.status(404).json({ error: 'Export not found or expired (TTL 10 min)' });
+      res.setHeader('Content-Type', entry.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
+      const { readFileSync } = await import('fs');
+      res.send(readFileSync(entry.path));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Communication Policies Engine ─────────────────────────────────────────────
   // GET    /api/communication-policies         — list all (optional ?enabled=true)
   // GET    /api/communication-policies/:id     — single policy

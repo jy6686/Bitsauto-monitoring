@@ -20,8 +20,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   ArrowRightLeft, Play, AlertTriangle, CheckCircle2, TrendingDown,
-  Eye, DollarSign, ShieldAlert, Info,
+  Eye, DollarSign, ShieldAlert, Info, Download, FileText, Loader2, FileSpreadsheet,
 } from "lucide-react";
 
 interface CarrierReconciliation {
@@ -100,14 +103,42 @@ function DiscrepancyTypeLabel({ type }: { type: string }) {
   return <span>{map[type] ?? type}</span>;
 }
 
+function buildExportUrl(
+  base: string,
+  params: {
+    iTariff?: string;
+    periodStart?: string;
+    periodEnd?: string;
+    status?: string;
+    reconStatus?: string;
+    vendor?: string;
+    mode?: string;
+  },
+): string {
+  const p = new URLSearchParams();
+  if (params.iTariff)     p.set('iTariff',     params.iTariff);
+  if (params.periodStart) p.set('periodStart', params.periodStart);
+  if (params.periodEnd)   p.set('periodEnd',   params.periodEnd);
+  if (params.status && params.status !== 'all') p.set('status', params.status);
+  if (params.reconStatus && params.reconStatus !== 'all') p.set('reconStatus', params.reconStatus);
+  if (params.vendor)      p.set('vendor',      params.vendor);
+  if (params.mode)        p.set('mode',        params.mode);
+  const qs = p.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 export default function CarrierReconciliationPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [showForm, setShowForm]     = useState(false);
-  const [detailId, setDetailId]     = useState<number | null>(null);
-  const [lastResult, setLastResult] = useState<ReconciliationResult | null>(null);
+  const [showForm, setShowForm]       = useState(false);
+  const [detailId, setDetailId]       = useState<number | null>(null);
+  const [lastResult, setLastResult]   = useState<ReconciliationResult | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterTariff, setFilterTariff] = useState("");
+  const [filterPeriodStart, setFilterPeriodStart] = useState("");
+  const [filterPeriodEnd, setFilterPeriodEnd]     = useState("");
+  const [exporting, setExporting]     = useState<'csv' | 'pdf' | null>(null);
 
   const [form, setForm] = useState({
     carrierName: "", iTariff: "", invoiceRef: "", invoiceDate: "",
@@ -173,9 +204,127 @@ export default function CarrierReconciliationPage() {
             Compare vendor invoices against Sippy actuals and BitsAuto reproduced costs. Shadow verification mode — intelligence only, no automatic accounting actions.
           </p>
         </div>
-        <Button data-testid="button-run-reconciliation" onClick={() => setShowForm(true)}>
-          <Play className="h-4 w-4 mr-2" />Run Reconciliation
-        </Button>
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" data-testid="button-export-dropdown" disabled={exporting !== null}>
+                {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                data-testid="button-export-csv-cdr"
+                onClick={async () => {
+                  setExporting('csv');
+                  try {
+                    const url = buildExportUrl('/api/billing/reconciliation/export/csv', {
+                      mode: 'cdr',
+                      iTariff: filterTariff || undefined,
+                      vendor: filterTariff || undefined,
+                      periodStart: filterPeriodStart || undefined,
+                      periodEnd: filterPeriodEnd || undefined,
+                      reconStatus: filterStatus !== 'all' ? filterStatus : undefined,
+                    });
+                    const res = await fetch(url);
+                    const ct = res.headers.get('content-type') ?? '';
+                    if (ct.includes('application/json')) {
+                      const j = await res.json();
+                      if (j.large) {
+                        const dl = await fetch(`/api/billing/reconciliation/export/download/${j.token}`);
+                        const blob = await dl.blob();
+                        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = j.filename; a.click();
+                        toast({ title: `Export ready — ${j.rowCount.toLocaleString()} rows` });
+                      }
+                    } else {
+                      const blob = await res.blob();
+                      const cd = res.headers.get('content-disposition') ?? '';
+                      const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? 'reconciliation.csv';
+                      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fn; a.click();
+                      toast({ title: 'CSV exported' });
+                    }
+                  } catch (e: any) { toast({ title: 'Export failed', description: e.message, variant: 'destructive' }); }
+                  finally { setExporting(null); }
+                }}
+              >
+                <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-400" />
+                CDR Snapshot CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="button-export-csv-summary"
+                onClick={async () => {
+                  setExporting('csv');
+                  try {
+                    const url = buildExportUrl('/api/billing/reconciliation/export/csv', {
+                      mode: 'summary',
+                      iTariff: filterTariff || undefined,
+                      vendor: filterTariff || undefined,
+                      reconStatus: filterStatus !== 'all' ? filterStatus : undefined,
+                    });
+                    const res = await fetch(url);
+                    const ct = res.headers.get('content-type') ?? '';
+                    if (ct.includes('application/json')) {
+                      const j = await res.json();
+                      if (j.large) {
+                        const dl = await fetch(`/api/billing/reconciliation/export/download/${j.token}`);
+                        const blob = await dl.blob();
+                        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = j.filename; a.click();
+                      }
+                    } else {
+                      const blob = await res.blob();
+                      const cd = res.headers.get('content-disposition') ?? '';
+                      const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? 'reconciliation-summary.csv';
+                      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fn; a.click();
+                    }
+                    toast({ title: 'Summary CSV exported' });
+                  } catch (e: any) { toast({ title: 'Export failed', description: e.message, variant: 'destructive' }); }
+                  finally { setExporting(null); }
+                }}
+              >
+                <FileSpreadsheet className="h-4 w-4 mr-2 text-blue-400" />
+                Summary CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="button-export-pdf"
+                onClick={async () => {
+                  setExporting('pdf');
+                  try {
+                    const url = buildExportUrl('/api/billing/reconciliation/export/pdf', {
+                      iTariff: filterTariff || undefined,
+                      vendor: filterTariff || undefined,
+                      periodStart: filterPeriodStart || undefined,
+                      periodEnd: filterPeriodEnd || undefined,
+                      reconStatus: filterStatus !== 'all' ? filterStatus : undefined,
+                    });
+                    const res = await fetch(url);
+                    const ct = res.headers.get('content-type') ?? '';
+                    if (ct.includes('application/json')) {
+                      const j = await res.json();
+                      if (j.large) {
+                        const dl = await fetch(`/api/billing/reconciliation/export/download/${j.token}`);
+                        const blob = await dl.blob();
+                        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = j.filename; a.click();
+                      }
+                    } else {
+                      const blob = await res.blob();
+                      const cd = res.headers.get('content-disposition') ?? '';
+                      const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? 'reconciliation.pdf';
+                      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fn; a.click();
+                    }
+                    toast({ title: 'PDF report exported' });
+                  } catch (e: any) { toast({ title: 'Export failed', description: e.message, variant: 'destructive' }); }
+                  finally { setExporting(null); }
+                }}
+              >
+                <FileText className="h-4 w-4 mr-2 text-red-400" />
+                PDF Report
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button data-testid="button-run-reconciliation" onClick={() => setShowForm(true)}>
+            <Play className="h-4 w-4 mr-2" />Run Reconciliation
+          </Button>
+        </div>
       </div>
 
       {/* Shadow mode notice */}
@@ -255,18 +404,43 @@ export default function CarrierReconciliationPage() {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle className="text-base">Reconciliation History</CardTitle>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger data-testid="select-filter-status" className="w-36 h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {["all","shadow","pending","reviewed","resolved","disputed"].map(s => (
-                  <SelectItem key={s} value={s}>{s === "all" ? "All statuses" : s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                data-testid="input-filter-tariff"
+                placeholder="Filter tariff / vendor…"
+                value={filterTariff}
+                onChange={e => setFilterTariff(e.target.value)}
+                className="h-8 text-xs w-44"
+              />
+              <Input
+                data-testid="input-filter-period-start"
+                type="date"
+                value={filterPeriodStart}
+                onChange={e => setFilterPeriodStart(e.target.value)}
+                title="Export period start"
+                className="h-8 text-xs w-36"
+              />
+              <Input
+                data-testid="input-filter-period-end"
+                type="date"
+                value={filterPeriodEnd}
+                onChange={e => setFilterPeriodEnd(e.target.value)}
+                title="Export period end"
+                className="h-8 text-xs w-36"
+              />
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger data-testid="select-filter-status" className="w-36 h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["all","shadow","pending","reviewed","resolved","disputed"].map(s => (
+                    <SelectItem key={s} value={s}>{s === "all" ? "All statuses" : s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <CardDescription className="text-xs">{reconciliations.length} reconciliation(s)</CardDescription>
+          <CardDescription className="text-xs">{reconciliations.length} reconciliation(s) · Use tariff/period inputs to scope exports</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
