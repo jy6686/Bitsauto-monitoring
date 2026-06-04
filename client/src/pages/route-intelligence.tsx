@@ -12,9 +12,8 @@ import {
   Settings, Save, LineChart as LineChartIcon, Layers,
 } from "lucide-react";
 import {
-  AreaChart, Area, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Legend,
-  LineChart,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
+  ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, Line, LineChart,
 } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -183,9 +182,9 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
-// ── SIP Error Sparkline ────────────────────────────────────────────────────────
+// ── SIP Cell Sparkline (mini rate trajectory: 5min→15min→1hr) ──────────────────
 
-function SipErrorSparkline({ rates, code, label }: {
+function SipCellSparkline({ rates, code, label }: {
   rates: { min5: number; min15: number; min60: number };
   code: number;
   label: string;
@@ -757,7 +756,7 @@ function AiRecCard({
             <p className="text-[9px] uppercase tracking-wide font-semibold text-cyan-500/70">
               Error Rate Trend (5 min → 15 min → 1 hr)
             </p>
-            <SipErrorSparkline
+            <SipCellSparkline
               rates={rec.sipErrorTrend.rates}
               code={rec.sipErrorTrend.code}
               label={rec.sipErrorTrend.label}
@@ -2381,7 +2380,7 @@ function SipErrorPanel() {
                           <p className="text-[9px] uppercase tracking-wide font-semibold text-cyan-500/70 mb-1">
                             5 min → 15 min → 1 hr trajectory
                           </p>
-                          <SipErrorSparkline
+                          <SipCellSparkline
                             rates={selSparkRates}
                             code={selectedCell.code}
                             label={CODE_LABELS[selectedCell.code] ?? String(selectedCell.code)}
@@ -2427,6 +2426,229 @@ function SipErrorPanel() {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Prefix × Vendor Heatmap Grid ───────────────────────────────────────────────
+
+const CODE_DOT_CLR: Record<number, string> = {
+  503: "bg-red-500",
+  486: "bg-amber-500",
+  480: "bg-orange-400",
+  408: "bg-yellow-500",
+  404: "bg-blue-500",
+  403: "bg-purple-500",
+};
+
+function prefixCellBg(code: number, rate: number): string {
+  const tiers: Record<number, [string, string, string]> = {
+    503: [
+      "bg-red-500/18 border-red-500/20 dark:text-red-300 text-red-800",
+      "bg-red-500/48 border-red-500/40 text-white",
+      "bg-red-500/78 border-red-500/60 text-white",
+    ],
+    486: [
+      "bg-amber-500/18 border-amber-500/20 dark:text-amber-300 text-amber-800",
+      "bg-amber-500/48 border-amber-500/40 text-white",
+      "bg-amber-500/78 border-amber-500/60 text-white",
+    ],
+    480: [
+      "bg-orange-400/18 border-orange-400/20 dark:text-orange-300 text-orange-800",
+      "bg-orange-400/48 border-orange-400/40 text-white",
+      "bg-orange-400/78 border-orange-400/60 text-white",
+    ],
+    408: [
+      "bg-yellow-500/18 border-yellow-500/20 dark:text-yellow-300 text-yellow-800",
+      "bg-yellow-500/48 border-yellow-500/40 text-white",
+      "bg-yellow-500/78 border-yellow-500/60 text-white",
+    ],
+    404: [
+      "bg-blue-500/18 border-blue-500/20 dark:text-blue-300 text-blue-800",
+      "bg-blue-500/48 border-blue-500/40 text-white",
+      "bg-blue-500/78 border-blue-500/60 text-white",
+    ],
+    403: [
+      "bg-purple-500/18 border-purple-500/20 dark:text-purple-300 text-purple-800",
+      "bg-purple-500/48 border-purple-500/40 text-white",
+      "bg-purple-500/78 border-purple-500/60 text-white",
+    ],
+  };
+  const tier = rate >= 10 ? 2 : rate >= 2 ? 1 : 0;
+  return (tiers[code] ?? [
+    "bg-muted/15 border-transparent text-muted-foreground/50",
+    "bg-muted/30 border-transparent text-muted-foreground",
+    "bg-muted/50 border-transparent text-muted-foreground",
+  ])[tier];
+}
+
+function SipPrefixHeatmapGrid({
+  prefixRows,
+  spikeVendorNames,
+}: {
+  prefixRows: SipPrefixRow[];
+  spikeVendorNames: Set<string>;
+}) {
+  const [selectedCell, setSelectedCell] = useState<{ prefix: string; vendor: string } | null>(null);
+
+  const prefixes = [...new Set(prefixRows.map(r => r.destPrefix))].sort();
+  const vendors = [...new Set(prefixRows.map(r => r.vendorName))].sort((a, b) => {
+    const as_ = spikeVendorNames.has(a) ? 0 : 1;
+    const bs_ = spikeVendorNames.has(b) ? 0 : 1;
+    if (as_ !== bs_) return as_ - bs_;
+    return a.localeCompare(b);
+  });
+
+  const rowMap = new Map<string, SipPrefixRow>();
+  for (const r of prefixRows) rowMap.set(`${r.destPrefix}|${r.vendorName}`, r);
+
+  if (prefixes.length === 0) {
+    return (
+      <div className="rounded-xl border bg-card flex flex-col items-center justify-center py-16 text-muted-foreground">
+        <LayoutGrid className="h-8 w-8 mb-3 opacity-20" />
+        <p className="text-sm font-medium">No prefix data available</p>
+        <p className="text-xs mt-1 opacity-60">Prefix breakdown is computed after the CDR cache refreshes</p>
+      </div>
+    );
+  }
+
+  const selRow = selectedCell ? rowMap.get(`${selectedCell.prefix}|${selectedCell.vendor}`) : undefined;
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="text-xs border-separate border-spacing-0.5 p-1.5">
+            <thead>
+              <tr>
+                <th className="text-left py-2 px-3 text-muted-foreground font-medium text-[10px] min-w-[90px] sticky left-0 bg-card z-10">
+                  Prefix
+                </th>
+                {vendors.map(v => (
+                  <th
+                    key={v}
+                    className={cn(
+                      "py-2 px-1.5 text-center text-[10px] font-medium min-w-[82px]",
+                      spikeVendorNames.has(v) ? "text-amber-500" : "text-muted-foreground"
+                    )}
+                    title={spikeVendorNames.has(v) ? `${v} — spike active` : v}
+                  >
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="truncate max-w-[72px]">
+                        {v.length > 9 ? `${v.slice(0, 8)}…` : v}
+                      </span>
+                      {spikeVendorNames.has(v) && (
+                        <span className="text-[8px] font-bold uppercase text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1 py-0.5 rounded leading-none">
+                          spike
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {prefixes.map(prefix => (
+                <tr key={prefix} data-testid={`prefix-heatmap-row-${prefix}`}>
+                  <td className="py-1 px-3 font-mono text-[10px] font-semibold text-foreground/80 sticky left-0 bg-card z-10 whitespace-nowrap">
+                    +{prefix}
+                  </td>
+                  {vendors.map(v => {
+                    const row = rowMap.get(`${prefix}|${v}`);
+                    const isSel = selectedCell?.prefix === prefix && selectedCell?.vendor === v;
+                    return (
+                      <td key={v} className="py-0.5 px-0.5">
+                        {row ? (
+                          <button
+                            data-testid={`prefix-heatmap-cell-${prefix}-${v}`}
+                            onClick={() => setSelectedCell(isSel ? null : { prefix, vendor: v })}
+                            className={cn(
+                              "w-full h-10 rounded border flex flex-col items-center justify-center gap-0.5 transition-all hover:opacity-90",
+                              prefixCellBg(row.dominantCode, row.dominantRate),
+                              isSel && "ring-2 ring-cyan-400 ring-offset-1 ring-offset-background"
+                            )}
+                            title={`+${prefix} via ${v}: ${CODE_FULL[row.dominantCode] ?? row.dominantCode} — ${row.dominantRate.toFixed(1)}% (${row.totalFailures} failures) — click for detail`}
+                          >
+                            <span className="font-mono text-[9px] font-bold leading-tight">
+                              {CODE_LABELS[row.dominantCode] ?? row.dominantCode}
+                            </span>
+                            <span className="text-[8px] leading-tight opacity-80">
+                              {row.dominantRate.toFixed(1)}%
+                            </span>
+                          </button>
+                        ) : (
+                          <div className="w-full h-10 rounded border border-transparent flex items-center justify-center">
+                            <span className="text-[9px] text-muted-foreground/20">—</span>
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Cell detail panel */}
+        {selectedCell && selRow && (
+          <div
+            data-testid="prefix-heatmap-detail"
+            className="border-t border-border/40 px-4 py-3 bg-cyan-500/5 space-y-2"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Radio className="h-3.5 w-3.5 text-cyan-500" />
+                <span className="font-mono text-sm font-semibold">+{selectedCell.prefix}</span>
+                <span className="text-[10px] text-muted-foreground/50">via</span>
+                <span className="text-sm font-medium">{selectedCell.vendor}</span>
+                {spikeVendorNames.has(selectedCell.vendor) && (
+                  <span className="text-[9px] font-bold uppercase text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                    spike vendor
+                  </span>
+                )}
+              </div>
+              <button
+                data-testid="prefix-heatmap-detail-close"
+                onClick={() => setSelectedCell(null)}
+                className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-0.5">Dominant Code</p>
+                <p className="font-mono font-bold text-sm">{CODE_FULL[selRow.dominantCode] ?? selRow.dominantCode}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-0.5">Error Rate</p>
+                <p className={cn("font-mono font-bold text-sm", rateColor(selRow.dominantRate))}>
+                  {selRow.dominantRate.toFixed(1)}%
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-0.5">Total Failures</p>
+                <p className="font-mono font-bold text-sm">{selRow.totalFailures}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Legend */}
+        <div className="border-t border-border/30 px-4 py-2.5 bg-muted/10 flex items-center gap-3 flex-wrap">
+          <span className="text-[10px] text-muted-foreground font-medium">Dominant SIP code per prefix × vendor:</span>
+          {([503, 486, 480, 408, 404, 403] as const).map(code => (
+            <div key={code} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <div className={cn("w-2 h-2 rounded-sm", CODE_DOT_CLR[code])} />
+              {CODE_FULL[code]}
+            </div>
+          ))}
+          <span className="ml-auto text-[10px] text-muted-foreground/40 italic">
+            intensity = rate (low / elevated / critical)
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2509,6 +2731,7 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
 function SipErrorsTab() {
   const [activeWin, setActiveWin] = useState<15 | 60 | 240>(60);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [showPrefixHeatmap, setShowPrefixHeatmap] = useState(false);
 
   const { data, isLoading, refetch, isFetching } = useQuery<SipErrorsTabData>({
     queryKey: ["/api/route-intelligence/sip-errors"],
@@ -2516,9 +2739,18 @@ function SipErrorsTab() {
     refetchInterval: 5 * 60 * 1000,
   });
 
+  const { data: copilotData, isLoading: prefixLoading } = useQuery<SipErrorData>({
+    queryKey: ["/api/copilot/sip-errors"],
+    enabled: showPrefixHeatmap,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: showPrefixHeatmap ? 5 * 60 * 1000 : false,
+  });
+
   const vendors = data?.vendors ?? [];
   const spikeVendors = vendors.filter(v => v.hasSpike);
+  const spikeVendorNames = new Set(spikeVendors.map(v => v.vendorName));
   const windowLabel: Record<number, string> = { 15: "15 min", 60: "1 hr", 240: "4 hr" };
+  const prefixRows = copilotData?.prefixRows ?? [];
 
   const toggleExpand = (name: string) => setExpanded(prev => {
     const next = new Set(prev);
@@ -2541,11 +2773,15 @@ function SipErrorsTab() {
             )}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Error code distribution per vendor · Spike = ≥2× 24h baseline AND ≥2% absolute · 7-day history preserved
+            {showPrefixHeatmap
+              ? "Prefix × vendor heatmap — dominant SIP code per destination range per carrier"
+              : "Error code distribution per vendor · Spike = ≥2× 24h baseline AND ≥2% absolute · 7-day history preserved"}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {(isLoading || isFetching) && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          {(isLoading || isFetching || (showPrefixHeatmap && prefixLoading)) && (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          )}
           <a
             data-testid="sip-errors-export-csv"
             href="/api/route-intelligence/sip-errors/export?days=7"
@@ -2596,34 +2832,65 @@ function SipErrorsTab() {
         </div>
       )}
 
-      {/* Window selector */}
-      <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5 w-fit">
-        {([15, 60, 240] as const).map(w => (
-          <button
-            key={w}
-            data-testid={`sip-tab-window-${w}`}
-            onClick={() => setActiveWin(w)}
-            className={cn(
-              "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-              activeWin === w
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {windowLabel[w]}
-          </button>
-        ))}
+      {/* Controls row: window selector + prefix heatmap toggle */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {!showPrefixHeatmap && (
+          <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
+            {([15, 60, 240] as const).map(w => (
+              <button
+                key={w}
+                data-testid={`sip-tab-window-${w}`}
+                onClick={() => setActiveWin(w)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                  activeWin === w
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {windowLabel[w]}
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          data-testid="sip-prefix-heatmap-toggle"
+          onClick={() => setShowPrefixHeatmap(v => !v)}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
+            showPrefixHeatmap
+              ? "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30"
+              : "bg-muted/40 text-muted-foreground border-border/40 hover:border-border hover:text-foreground"
+          )}
+        >
+          <LayoutGrid className="h-3.5 w-3.5" />
+          Prefix Heatmap
+        </button>
       </div>
 
+      {/* Prefix heatmap view */}
+      {showPrefixHeatmap && (
+        prefixLoading ? (
+          <div className="rounded-xl border bg-card flex items-center justify-center py-20">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <SipPrefixHeatmapGrid
+            prefixRows={prefixRows}
+            spikeVendorNames={spikeVendorNames}
+          />
+        )
+      )}
+
       {/* Loading */}
-      {isLoading && (
+      {!showPrefixHeatmap && isLoading && (
         <div className="rounded-xl border bg-card flex items-center justify-center py-20">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       )}
 
       {/* Empty */}
-      {!isLoading && vendors.length === 0 && (
+      {!showPrefixHeatmap && !isLoading && vendors.length === 0 && (
         <div className="rounded-xl border bg-card flex flex-col items-center justify-center py-20 text-muted-foreground">
           <Radio className="h-8 w-8 mb-3 opacity-25" />
           <p className="text-sm font-medium">No SIP error data yet</p>
@@ -2632,7 +2899,7 @@ function SipErrorsTab() {
       )}
 
       {/* Vendor table */}
-      {!isLoading && vendors.length > 0 && (
+      {!showPrefixHeatmap && !isLoading && vendors.length > 0 && (
         <div className="rounded-xl border bg-card overflow-hidden">
           {/* Table header */}
           <div className="overflow-x-auto">
@@ -3448,7 +3715,7 @@ function VendorChartPanel({
                   width={32}
                   tickFormatter={(v: number) => `${v}%`}
                 />
-                <Tooltip
+                <RechartsTooltip
                   contentStyle={{
                     background: "hsl(var(--card))",
                     border: "1px solid hsl(var(--border))",
