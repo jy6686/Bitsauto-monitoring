@@ -2978,6 +2978,12 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
           </svg>
           <span>base</span>
         </span>
+        <span className="flex items-center gap-0.5 ml-1 opacity-80" data-testid="legend-spike-marker">
+          <svg width="10" height="10" className="inline-block">
+            <circle cx="5" cy="5" r="2.5" fill="#f59e0b" stroke="white" strokeWidth="0.8" />
+          </svg>
+          <span>spike</span>
+        </span>
       </div>
     </div>
   );
