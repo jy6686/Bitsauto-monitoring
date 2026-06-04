@@ -19,6 +19,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useNocWebSocket } from "@/hooks/use-noc-ws";
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -2598,7 +2602,188 @@ interface PrefixRow {
   marginUsd: number | null;
 }
 
-interface TrendPoint { hour: string; asr: number | null }
+interface TrendPoint { hour: string; asr: number | null; callCount?: number }
+
+// ── VendorChartPanel ─────────────────────────────────────────────────────────
+
+function VendorChartPanel({
+  vendorId,
+  vendorName,
+  onClose,
+}: {
+  vendorId: string;
+  vendorName: string;
+  onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery<{ vendorId: string; trend: TrendPoint[] }>({
+    queryKey: ["/api/route-intelligence/vendor", vendorId, "trend"],
+    queryFn: () => fetch(`/api/route-intelligence/vendor/${vendorId}/trend`).then(r => r.json()),
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const trend = data?.trend ?? [];
+
+  const chartData = trend.map(p => ({
+    label: p.hour
+      ? new Date(p.hour).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+      : "—",
+    calls: p.callCount ?? 0,
+    asr: p.asr,
+  }));
+
+  const maxCalls = Math.max(...chartData.map(d => d.calls), 1);
+  const hasData = chartData.length > 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.18 }}
+      className="rounded-xl border bg-card shadow-sm overflow-hidden"
+      data-testid="vendor-chart-panel"
+    >
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
+        <div className="flex items-center gap-2">
+          <BarChart2 className="h-4 w-4 text-primary" />
+          <span className="font-semibold text-sm text-foreground">{vendorName}</span>
+          <span className="text-[11px] text-muted-foreground">— 24h call volume &amp; ASR trend</span>
+        </div>
+        <button
+          data-testid="vendor-chart-close"
+          onClick={onClose}
+          className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Chart body */}
+      <div className="px-4 py-4">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-48 gap-2 text-muted-foreground text-sm">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Loading trend data…
+          </div>
+        ) : !hasData ? (
+          <div className="flex flex-col items-center justify-center h-48 text-muted-foreground text-sm gap-2">
+            <Database className="h-8 w-8 opacity-20" />
+            <span>No hourly data yet — run a snapshot to populate the trend.</span>
+          </div>
+        ) : (
+          <div>
+            {/* Legend row */}
+            <div className="flex items-center gap-5 mb-3 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-sm bg-primary/40" />
+                Call Volume
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-6 border-t-2 border-green-500" />
+                ASR %
+              </span>
+            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <ComposedChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  yAxisId="calls"
+                  orientation="left"
+                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={[0, maxCalls]}
+                  width={36}
+                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)}
+                />
+                <YAxis
+                  yAxisId="asr"
+                  orientation="right"
+                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={[0, 100]}
+                  width={32}
+                  tickFormatter={(v: number) => `${v}%`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    color: "hsl(var(--foreground))",
+                  }}
+                  formatter={(value: number, name: string) => {
+                    if (name === "calls") return [value.toLocaleString(), "Calls"];
+                    if (name === "asr") return [`${value != null ? value.toFixed(1) : "—"}%`, "ASR"];
+                    return [value, name];
+                  }}
+                />
+                <Bar
+                  yAxisId="calls"
+                  dataKey="calls"
+                  fill="hsl(var(--primary) / 0.35)"
+                  stroke="hsl(var(--primary) / 0.6)"
+                  strokeWidth={1}
+                  radius={[3, 3, 0, 0]}
+                  maxBarSize={28}
+                  data-testid="chart-bar-volume"
+                />
+                <Line
+                  yAxisId="asr"
+                  dataKey="asr"
+                  stroke="#22c55e"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4, fill: "#22c55e" }}
+                  connectNulls
+                  data-testid="chart-line-asr"
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+
+            {/* Summary stats row */}
+            {chartData.length > 0 && (() => {
+              const validAsr = chartData.filter(d => d.asr != null).map(d => d.asr as number);
+              const avgAsr = validAsr.length ? validAsr.reduce((s, v) => s + v, 0) / validAsr.length : null;
+              const totalCalls = chartData.reduce((s, d) => s + d.calls, 0);
+              const peakCalls = Math.max(...chartData.map(d => d.calls));
+              return (
+                <div className="flex items-center gap-6 mt-3 pt-3 border-t border-border/40 text-xs text-muted-foreground">
+                  <span>
+                    <span className="font-semibold text-foreground">{totalCalls.toLocaleString()}</span> total calls
+                  </span>
+                  <span>
+                    <span className="font-semibold text-foreground">{peakCalls.toLocaleString()}</span> peak/hr
+                  </span>
+                  {avgAsr != null && (
+                    <span>
+                      Avg ASR:{" "}
+                      <span className={cn(
+                        "font-semibold",
+                        avgAsr >= 65 ? "text-green-600 dark:text-green-400" : avgAsr >= 45 ? "text-amber-500" : "text-red-500"
+                      )}>{avgAsr.toFixed(1)}%</span>
+                    </span>
+                  )}
+                  <span className="text-muted-foreground/60">{chartData.length} hourly slots</span>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
 
 function Sparkline({ points }: { points: { asr: number | null }[] }) {
   const vals = points.map(p => p.asr ?? 0);
@@ -2636,6 +2821,7 @@ function relTimeFromIso(iso: string | null) {
 function CdrAnalyticsPanel() {
   const [window, setWindow] = useState<RiWindow>("4h");
   const [expandedVendor, setExpandedVendor] = useState<string | null>(null);
+  const [chartVendorId, setChartVendorId] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<"callCount" | "asr" | "acdSeconds" | "pddMs" | "marginUsd" | "revenueUsd">("callCount");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -2685,6 +2871,8 @@ function CdrAnalyticsPanel() {
     const bv = b[sortKey] ?? (sortDir === "desc" ? -Infinity : Infinity);
     return sortDir === "desc" ? (bv as number) - (av as number) : (av as number) - (bv as number);
   });
+
+  const chartVendor = vendors.find(v => v.vendorId === chartVendorId) ?? null;
 
   function toggleSort(key: typeof sortKey) {
     if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
@@ -2748,6 +2936,18 @@ function CdrAnalyticsPanel() {
           </button>
         </div>
       </div>
+
+      {/* Chart panel — appears when a vendor row is focused */}
+      <AnimatePresence>
+        {chartVendor && (
+          <VendorChartPanel
+            key={chartVendor.vendorId}
+            vendorId={chartVendor.vendorId}
+            vendorName={chartVendor.vendorName}
+            onClose={() => setChartVendorId(null)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Main table */}
       {isLoading ? (
@@ -2846,7 +3046,10 @@ function CdrAnalyticsPanel() {
                         "border-b border-border/40 transition-colors cursor-pointer",
                         isExpanded ? "bg-primary/5" : "hover:bg-muted/30",
                       )}
-                      onClick={() => setExpandedVendor(isExpanded ? null : vendor.vendorId)}
+                      onClick={() => {
+                        setExpandedVendor(isExpanded ? null : vendor.vendorId);
+                        setChartVendorId(vendor.vendorId);
+                      }}
                     >
                       <td className="px-3 py-3">
                         <div className="font-medium text-foreground">{vendor.vendorName}</div>

@@ -325,26 +325,31 @@ export async function queryVendorPrefixes(vendorId: string, windowHours: number)
     .sort((a, b) => b.callCount - a.callCount);
 }
 
-// Trend sparkline: hourly ASR for the vendor over last 24h (max 24 data points).
+// Trend sparkline: hourly ASR + call volume for the vendor over last 24h (max 24 data points).
 // Uses window_hours = 1 snapshots exclusively so each point covers exactly one hour.
-export async function queryVendorTrend(vendorId: string): Promise<{ hour: string; asr: number | null }[]> {
+export async function queryVendorTrend(vendorId: string): Promise<{ hour: string; asr: number | null; callCount: number }[]> {
+  // Each hour bucket may contain multiple overlapping window_hours=1 snapshots
+  // (the engine runs every ~15 min). We pick the most-recent snapshot per
+  // calendar-hour slot so call_count and asr reflect one canonical measurement,
+  // not a sum/average of several overlapping windows.
   const result = await db.execute(sql`
-    SELECT
+    SELECT DISTINCT ON (date_trunc('hour', computed_at))
       date_trunc('hour', computed_at) AS hour,
-      AVG(asr) AS asr
+      asr,
+      call_count
     FROM route_quality_snapshots
     WHERE vendor_id = ${vendorId}
       AND prefix = '__all__'
       AND window_hours = 1
       AND computed_at > NOW() - INTERVAL '24 hours'
-    GROUP BY date_trunc('hour', computed_at)
-    ORDER BY hour ASC
+    ORDER BY date_trunc('hour', computed_at) ASC, computed_at DESC
     LIMIT 24
   `);
 
   return (result.rows as any[]).map(r => ({
-    hour: r.hour instanceof Date ? r.hour.toISOString() : String(r.hour),
-    asr:  r.asr != null ? parseFloat(Number(r.asr).toFixed(1)) : null,
+    hour:      r.hour instanceof Date ? r.hour.toISOString() : String(r.hour),
+    asr:       r.asr != null ? parseFloat(Number(r.asr).toFixed(1)) : null,
+    callCount: r.call_count != null ? parseInt(String(r.call_count), 10) : 0,
   }));
 }
 
