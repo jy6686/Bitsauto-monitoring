@@ -115,6 +115,15 @@ async function sendSlackWebhook(webhookUrl: string, payload: ApprovalExpiryPaylo
   }
 }
 
+export type NotificationResult = {
+  emailAttempted: boolean;
+  emailSent:      boolean;
+  emailError:     string | null;
+  slackAttempted: boolean;
+  slackSent:      boolean;
+  slackError:     string | null;
+};
+
 /**
  * Dispatch email + Slack notifications for a single expired approval action.
  *
@@ -124,21 +133,34 @@ async function sendSlackWebhook(webhookUrl: string, payload: ApprovalExpiryPaylo
  *   2. The global alertAdminEmail — always included as a fallback recipient so that
  *      there is always at least one person informed of the expiry.
  *
- * All errors are caught and logged — never throws so the caller is not affected.
+ * All channel errors are caught and logged — never throws so the caller is not affected.
+ * Returns a per-channel result so callers can surface accurate status to the user.
  */
-export async function sendApprovalExpiryNotifications(payload: ApprovalExpiryPayload): Promise<void> {
+export async function sendApprovalExpiryNotifications(payload: ApprovalExpiryPayload): Promise<NotificationResult> {
+  const result: NotificationResult = {
+    emailAttempted: false,
+    emailSent:      false,
+    emailError:     null,
+    slackAttempted: false,
+    slackSent:      false,
+    slackError:     null,
+  };
+
   let settings: Awaited<ReturnType<typeof storage.getSettings>> | null = null;
   try {
     settings = await storage.getSettings();
   } catch (err: any) {
     console.warn('[approval-notify] Could not read settings — skipping notifications:', err.message);
-    return;
+    result.emailError = 'Could not read settings';
+    result.slackError = 'Could not read settings';
+    return result;
   }
 
   const panelUrl = buildApprovalPanelUrl();
 
   // ── 1. Email ────────────────────────────────────────────────────────────────
   if (settings.approvalExpiryEmailEnabled !== false && settings.alertEnabled) {
+    result.emailAttempted = true;
     try {
       // Resolve the requesting operator's personal email + opt-in flag
       let requesterEmail: string | null = null;
@@ -163,34 +185,49 @@ export async function sendApprovalExpiryNotifications(payload: ApprovalExpiryPay
       if (settings.alertAdminEmail) recipientSet.add(settings.alertAdminEmail);
 
       if (recipientSet.size === 0) {
-        console.warn(`[approval-notify] No email recipients for action #${payload.actionId} — add admin email in Settings`);
+        const msg = 'No email recipients configured — add an admin email in Settings → Email Alerts';
+        console.warn(`[approval-notify] ${msg} (action #${payload.actionId})`);
+        result.emailError = msg;
       } else {
         const sent = await sendAlertEmail({
           subject,
           bodyHtml,
-          // Pass requester's email as clientEmail so sendAlertEmail adds it to the set
           clientEmail: requesterEmail ?? null,
           includeWatcherRecipients: false,
         });
         if (sent) {
+          result.emailSent = true;
           console.log(`[approval-notify] Email sent for action #${payload.actionId} → ${Array.from(recipientSet).join(', ')}`);
         } else {
+          result.emailError = 'Email delivery failed or SMTP is not configured';
           console.warn(`[approval-notify] Email skipped for action #${payload.actionId} (delivery failed or not configured)`);
         }
       }
     } catch (err: any) {
+      result.emailError = err.message ?? 'Unknown email error';
       console.warn(`[approval-notify] Email failed for action #${payload.actionId}:`, err.message);
     }
+  } else {
+    result.emailError = settings.alertEnabled === false
+      ? 'Email alerts are disabled — enable them in Settings → Email Alerts'
+      : 'Email-on-expiry is disabled in Settings → Security — Approval Timeout';
   }
 
   // ── 2. Slack webhook ────────────────────────────────────────────────────────
   const slackUrl = settings.approvalExpirySlackWebhookUrl?.trim();
   if (slackUrl) {
+    result.slackAttempted = true;
     try {
       await sendSlackWebhook(slackUrl, payload);
+      result.slackSent = true;
       console.log(`[approval-notify] Slack webhook sent for action #${payload.actionId}`);
     } catch (err: any) {
+      result.slackError = err.message ?? 'Unknown Slack error';
       console.warn(`[approval-notify] Slack webhook failed for action #${payload.actionId}:`, err.message);
     }
+  } else {
+    result.slackError = 'No Slack webhook URL configured';
   }
+
+  return result;
 }

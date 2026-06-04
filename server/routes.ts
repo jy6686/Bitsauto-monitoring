@@ -35,6 +35,7 @@ import { setupChatWebSocket } from "./chat-ws";
 import { broadcastLiveTrafficSnapshot, getLastLiveTrafficSnapshot } from "./live-traffic-ws";
 import type { LiveTrafficRow, LiveTrafficWindow, LiveTrafficSnapshot } from "./live-traffic-ws";
 import { submitApprovalRequest, approveRequest, rejectRequest, submitRollback, canSubmit, type OperationType } from "./approvals";
+import { sendApprovalExpiryNotifications, type ApprovalExpiryPayload } from "./approval-notifications";
 import * as mfaSvc from "./security/mfa";
 import { sessionActivityMiddleware, listActiveSessions, revokeSession, revokeAllUserSessions, getSessionStats, upsertSessionRecord } from "./security/sessions";
 import { ipGuardMiddleware, listRestrictions, addRestriction, deleteRestriction, toggleRestriction } from "./security/ip-guard";
@@ -1263,6 +1264,43 @@ export async function registerRoutes(
   // Settings — reset simulation (admin only)
   app.post(api.settings.resetSimulation.path, (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req, res) => {
     res.json({ message: "Simulation reset acknowledged" });
+  });
+
+  // Settings — send test approval-expiry notification (admin only)
+  app.post('/api/settings/test-approval-expiry-notification', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    const userId = req.user?.claims?.sub ?? 'test-user';
+    const userName = req.user?.claims?.name ?? req.user?.claims?.email ?? 'Test Operator';
+    const syntheticPayload: ApprovalExpiryPayload = {
+      actionId:        0,
+      accountName:     'Test Account',
+      actionType:      'TEST_NOTIFICATION',
+      requestedBy:     userId,
+      requestedByName: userName,
+      ttlMinutes:      30,
+      expiredAt:       new Date().toISOString(),
+    };
+    try {
+      const result = await sendApprovalExpiryNotifications(syntheticPayload);
+      const anySent = result.emailSent || result.slackSent;
+      const noneConfigured = !result.emailAttempted && !result.slackAttempted;
+      if (noneConfigured) {
+        return res.status(400).json({
+          ok: false,
+          message: 'No notification channels are configured. Enable email alerts and/or add a Slack webhook URL.',
+          channels: result,
+        });
+      }
+      if (!anySent) {
+        return res.status(502).json({
+          ok: false,
+          message: 'All channels failed to deliver the test notification.',
+          channels: result,
+        });
+      }
+      res.json({ ok: true, message: 'Test notification dispatched.', channels: result });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, message: err.message ?? 'Unknown error' });
+    }
   });
 
   // Management Feature Permissions — lightweight public-ish endpoint (any logged-in user)

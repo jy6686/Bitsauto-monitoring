@@ -57,6 +57,93 @@ const SWITCH_TYPES = [
   },
 ] as const;
 
+type TestNotifChannels = {
+  emailAttempted: boolean; emailSent: boolean; emailError: string | null;
+  slackAttempted: boolean; slackSent:  boolean; slackError:  string | null;
+};
+
+function TestApprovalExpiryNotificationButton() {
+  const { toast } = useToast();
+  const [lastResult, setLastResult] = useState<{ ok: boolean; channels?: TestNotifChannels } | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/settings/test-approval-expiry-notification'),
+    onSuccess: async (res: any) => {
+      const data = await res.json().catch(() => ({}));
+      setLastResult({ ok: data.ok !== false, channels: data.channels });
+      const ch: TestNotifChannels | undefined = data.channels;
+      const parts: string[] = [];
+      if (ch) {
+        if (ch.emailAttempted)  parts.push(ch.emailSent ? 'Email ✓' : `Email ✗ — ${ch.emailError ?? 'failed'}`);
+        else if (ch.emailError) parts.push(`Email skipped — ${ch.emailError}`);
+        if (ch.slackAttempted)  parts.push(ch.slackSent ? 'Slack ✓' : `Slack ✗ — ${ch.slackError ?? 'failed'}`);
+        else if (ch.slackError) parts.push(`Slack skipped — ${ch.slackError}`);
+      }
+      toast({
+        title: data.ok === false ? 'Test alert failed' : 'Test alert sent',
+        description: parts.length > 0 ? parts.join(' · ') : (data.message ?? ''),
+        variant: data.ok === false ? 'destructive' : 'default',
+      });
+    },
+    onError: (err: any) => {
+      setLastResult({ ok: false });
+      toast({
+        title: 'Test alert failed',
+        description: err?.message ?? 'Could not reach the server.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          data-testid="button-test-approval-expiry-notification"
+          disabled={mutation.isPending}
+          onClick={() => mutation.mutate()}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-violet-500/40 bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 hover:text-violet-200 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {mutation.isPending ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Send className="w-4 h-4" />
+          )}
+          Send Test Alert
+        </button>
+        <p className="text-xs text-muted-foreground">
+          Fires a synthetic expiry event to verify your email and Slack credentials are working.
+        </p>
+      </div>
+
+      {lastResult?.channels && (
+        <div className="rounded-lg border border-border/50 bg-muted/20 px-4 py-3 text-xs space-y-1" data-testid="test-notification-result">
+          {(() => {
+            const ch = lastResult.channels!;
+            const rows: { label: string; ok: boolean; detail: string | null }[] = [];
+            if (ch.emailAttempted || ch.emailError)
+              rows.push({ label: 'Email', ok: ch.emailSent, detail: ch.emailSent ? null : (ch.emailError ?? 'failed') });
+            if (ch.slackAttempted || ch.slackError)
+              rows.push({ label: 'Slack', ok: ch.slackSent, detail: ch.slackSent ? null : (ch.slackError ?? 'failed') });
+            return rows.map((r) => (
+              <div key={r.label} className="flex items-start gap-2">
+                {r.ok
+                  ? <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 text-green-400 shrink-0" />
+                  : <XCircle className="w-3.5 h-3.5 mt-0.5 text-red-400 shrink-0" />}
+                <span className={r.ok ? 'text-green-300' : 'text-red-300'}>
+                  <span className="font-medium">{r.label}</span>
+                  {r.detail ? ` — ${r.detail}` : ' — delivered'}
+                </span>
+              </div>
+            ));
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function useSippySession() {
   return useQuery<{ active: boolean; username?: string; connectedAt?: string; portalBase?: string; mode?: 'xmlrpc' | 'portal' }>({
     queryKey: ['/api/sippy/session'],
@@ -3110,6 +3197,9 @@ export default function SettingsPage() {
                   className="bg-background border border-border rounded-lg px-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
                 />
               </div>
+
+              {/* Send Test Alert button */}
+              <TestApprovalExpiryNotificationButton />
             </div>
           </div>
         </div>
