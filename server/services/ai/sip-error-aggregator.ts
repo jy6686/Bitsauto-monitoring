@@ -770,32 +770,57 @@ export async function loadSipErrorSnapshotWithSpikes(windowMinutes: 15 | 60 | 24
 export async function loadVendorErrorHistory(
   vendorName: string,
   days: number = 7,
-): Promise<{ date: string; rates: Record<number, number> }[]> {
+): Promise<{ date: string; rates: Record<number, number>; baselines: Record<number, number> }[]> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
+    const safeDays = Math.min(days, 8);
+    // For each (day, code) pair compute:
+    //   rate     = AVG(rate) across all snapshots on that calendar day
+    //   baseline = AVG(rate) across all raw rows in the 24h window
+    //              *before* that day starts — identical semantics to the
+    //              trailing-24h window used in loadSipErrorSnapshotWithSpikes().
     const res = await pool.query(`
+      WITH daily AS (
+        SELECT
+          DATE(snapshot_at AT TIME ZONE 'UTC') AS day,
+          code,
+          AVG(rate)                             AS avg_rate
+        FROM sip_error_history
+        WHERE LOWER(vendor_name) = LOWER($1)
+          AND snapshot_at > NOW() - INTERVAL '${safeDays} days'
+        GROUP BY DATE(snapshot_at AT TIME ZONE 'UTC'), code
+      )
       SELECT
-        DATE(snapshot_at) AS day,
-        code,
-        AVG(rate) AS avg_rate
-      FROM sip_error_history
-      WHERE LOWER(vendor_name) = LOWER($1)
-        AND snapshot_at > NOW() - INTERVAL '${Math.min(days, 8)} days'
-      GROUP BY DATE(snapshot_at), code
-      ORDER BY day ASC
+        d.day,
+        d.code,
+        d.avg_rate   AS rate,
+        (
+          SELECT AVG(h.rate)
+          FROM   sip_error_history h
+          WHERE  LOWER(h.vendor_name) = LOWER($1)
+            AND  h.code = d.code
+            AND  h.snapshot_at >= (d.day::timestamp - INTERVAL '24 hours')
+            AND  h.snapshot_at <   d.day::timestamp
+        )            AS baseline_rate
+      FROM daily d
+      ORDER BY d.day ASC
     `, [vendorName]);
 
-    // Build a date → code → rate map
-    const dateMap = new Map<string, Record<number, number>>();
+    // Build a date → code → rate/baseline maps
+    const dateMap = new Map<string, { rates: Record<number, number>; baselines: Record<number, number> }>();
     for (const row of res.rows) {
       const day = row.day instanceof Date
         ? row.day.toISOString().slice(0, 10)
         : String(row.day).slice(0, 10);
-      if (!dateMap.has(day)) dateMap.set(day, {});
-      dateMap.get(day)![row.code] = parseFloat(row.avg_rate ?? '0');
+      if (!dateMap.has(day)) dateMap.set(day, { rates: {}, baselines: {} });
+      const entry = dateMap.get(day)!;
+      entry.rates[row.code] = parseFloat(row.rate ?? '0');
+      if (row.baseline_rate != null) {
+        entry.baselines[row.code] = parseFloat(row.baseline_rate);
+      }
     }
 
-    return [...dateMap.entries()].map(([date, rates]) => ({ date, rates }));
+    return [...dateMap.entries()].map(([date, { rates, baselines }]) => ({ date, rates, baselines }));
   } finally {
     await pool.end();
   }

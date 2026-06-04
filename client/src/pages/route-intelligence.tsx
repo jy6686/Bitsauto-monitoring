@@ -2798,9 +2798,12 @@ interface SipErrorsTabData {
 interface SipHistoryEntry {
   date: string;
   rates: Record<number, number>;
+  baselines: Record<number, number>;
 }
 
 function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
   const { data } = useQuery<{ success: boolean; history: SipHistoryEntry[] }>({
     queryKey: ["/api/route-intelligence/vendor", vendorName, "error-history"],
     queryFn: () => fetch(`/api/route-intelligence/vendor/${encodeURIComponent(vendorName)}/error-history?days=7`).then(r => r.json()),
@@ -2810,40 +2813,135 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
   const history = data?.history ?? [];
   if (history.length === 0) return <span className="text-[10px] text-muted-foreground/40">No 7d data</span>;
 
-  const maxRate = Math.max(...history.flatMap(h => Object.values(h.rates)), 5);
-  const H = 28, W = Math.max(history.length * 8, 60);
+  const codes = [503, 486, 480] as const;
+  const colors = ["#ef4444", "#f59e0b", "#fb923c"] as const;
+
+  const maxRate = Math.max(
+    ...history.flatMap(h => [
+      ...Object.values(h.rates),
+      ...Object.values(h.baselines ?? {}),
+    ]),
+    5,
+  );
+  const H = 36, W = Math.max(history.length * 10, 70);
+  const stepX = W / Math.max(history.length - 1, 1);
+
+  const toY = (rate: number) => H - (rate / maxRate) * H;
+
+  const hoveredEntry = hoveredIdx != null ? history[hoveredIdx] : null;
 
   return (
-    <div className="flex flex-col gap-0.5">
-      <svg width={W} height={H} className="overflow-visible" data-testid={`sip-sparkline-${vendorName}`}>
-        {[503, 486, 480].map((code, ci) => {
-          const colors = ["#ef4444", "#f59e0b", "#fb923c"];
-          const pts = history.map((h, i) => {
-            const rate = h.rates[code] ?? 0;
-            const x = i * (W / Math.max(history.length - 1, 1));
-            const y = H - (rate / maxRate) * H;
-            return `${x},${y}`;
-          });
-          if (pts.length < 2) return null;
-          return (
-            <polyline
-              key={code}
-              points={pts.join(" ")}
-              fill="none"
-              stroke={colors[ci]}
-              strokeWidth={1.2}
-              opacity={0.7}
+    <div className="flex flex-col gap-1">
+      <div className="relative" style={{ width: W }}>
+        <svg
+          width={W}
+          height={H}
+          className="overflow-visible"
+          data-testid={`sip-sparkline-${vendorName}`}
+          onMouseLeave={() => setHoveredIdx(null)}
+        >
+          {codes.map((code, ci) => {
+            const ratePts = history.map((h, i) => `${i * stepX},${toY(h.rates[code] ?? 0)}`);
+            const basePts = history
+              .map((h, i) => (h.baselines?.[code] != null ? `${i * stepX},${toY(h.baselines[code])}` : null))
+              .filter(Boolean) as string[];
+
+            return (
+              <g key={code}>
+                {ratePts.length >= 2 && (
+                  <polyline
+                    points={ratePts.join(" ")}
+                    fill="none"
+                    stroke={colors[ci]}
+                    strokeWidth={1.3}
+                    opacity={0.8}
+                  />
+                )}
+                {basePts.length >= 2 && (
+                  <polyline
+                    points={basePts.join(" ")}
+                    fill="none"
+                    stroke={colors[ci]}
+                    strokeWidth={1}
+                    strokeDasharray="3 2"
+                    opacity={0.45}
+                  />
+                )}
+              </g>
+            );
+          })}
+
+          {history.map((_, i) => (
+            <rect
+              key={i}
+              x={i * stepX - stepX / 2}
+              y={0}
+              width={stepX}
+              height={H}
+              fill="transparent"
+              onMouseEnter={() => setHoveredIdx(i)}
+              style={{ cursor: "default" }}
             />
-          );
-        })}
-      </svg>
+          ))}
+
+          {hoveredIdx != null && (
+            <line
+              x1={hoveredIdx * stepX}
+              y1={0}
+              x2={hoveredIdx * stepX}
+              y2={H}
+              stroke="currentColor"
+              strokeWidth={0.5}
+              opacity={0.3}
+              className="text-foreground"
+            />
+          )}
+        </svg>
+
+        {hoveredEntry && hoveredIdx != null && (
+          <div
+            className="absolute z-10 pointer-events-none bg-popover border border-border rounded shadow-md text-[10px] p-1.5 min-w-[110px]"
+            style={{
+              left: hoveredIdx * stepX > W / 2 ? undefined : hoveredIdx * stepX + 6,
+              right: hoveredIdx * stepX > W / 2 ? W - hoveredIdx * stepX + 6 : undefined,
+              top: 0,
+            }}
+            data-testid={`sip-tooltip-${vendorName}`}
+          >
+            <div className="font-medium text-muted-foreground mb-0.5">{hoveredEntry.date}</div>
+            {codes.map((code, ci) => {
+              const rate = hoveredEntry.rates[code];
+              const base = hoveredEntry.baselines?.[code];
+              if (rate == null && base == null) return null;
+              return (
+                <div key={code} className="flex items-center gap-1 leading-snug">
+                  <span style={{ color: colors[ci] }} className="font-semibold">{code}</span>
+                  <span className="text-foreground">{(rate ?? 0).toFixed(1)}%</span>
+                  {base != null && (
+                    <span className="text-muted-foreground/60">
+                      / <span className="text-[9px]">base</span> {base.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-2 text-[9px] text-muted-foreground/70">
-        {[[503, "#ef4444"], [486, "#f59e0b"], [480, "#fb923c"]].map(([code, color]) => (
+        {codes.map((code, ci) => (
           <span key={code} className="flex items-center gap-0.5">
-            <span style={{ background: color as string }} className="inline-block w-2 h-0.5 rounded-full opacity-70" />
+            <span style={{ background: colors[ci] }} className="inline-block w-2 h-0.5 rounded-full opacity-70" />
             {code}
           </span>
         ))}
+        <span className="flex items-center gap-0.5 ml-1 opacity-60">
+          <svg width="10" height="4" className="inline-block">
+            <line x1="0" y1="2" x2="10" y2="2" stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5" />
+          </svg>
+          <span>base</span>
+        </span>
       </div>
     </div>
   );
