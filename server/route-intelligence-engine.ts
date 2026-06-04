@@ -83,6 +83,41 @@ function extractPrefix(callee: string | null | undefined): string {
   return digits.slice(0, 2) || "unknown";
 }
 
+// ── SIP error code mapping ─────────────────────────────────────────────────────
+// Tracked codes: 503, 486, 480, 408, 404, 403 (per task #146 spec)
+
+const SIP_TRACKED = [503, 486, 480, 408, 404, 403] as const;
+type SipCode = typeof SIP_TRACKED[number];
+
+function mapResultToSipCode(
+  result: string | number | null | undefined,
+  q850: string | number | null | undefined,
+): SipCode | null {
+  const n = typeof result === 'number' ? result : parseInt(String(result ?? ''), 10);
+  if (!isNaN(n) && n > 0) {
+    if (n === 200) return null; // answered
+    if ((SIP_TRACKED as readonly number[]).includes(n)) return n as SipCode;
+    if (n === 487 || n === 488 || n === 491) return 480;
+    if (n === 410 || n === 414 || n === 484) return 404;
+    if (n >= 400 && n < 500) return 403;
+    if (n >= 500 && n < 600) return 503;
+    if (n >= 600) return 403;
+  }
+  const q = typeof q850 === 'number' ? q850 : parseInt(String(q850 ?? ''), 10);
+  if (!isNaN(q) && q > 0) {
+    if (q === 16) return null; // Normal clearing
+    const Q850_MAP: Record<number, SipCode> = {
+      1:404, 2:404, 3:404, 17:486, 18:408, 19:408, 20:480, 21:403,
+      22:404, 27:503, 28:404, 29:403, 31:480, 34:503, 38:503,
+      41:503, 42:503, 44:503, 47:503, 50:403, 55:403, 57:403,
+      58:503, 65:503, 69:503, 79:503, 87:403, 88:503, 95:503,
+      96:503, 97:503, 99:503, 100:503, 101:503, 102:408, 111:503, 127:503,
+    };
+    return Q850_MAP[q] ?? 480;
+  }
+  return null;
+}
+
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
 interface AggBucket {
@@ -96,10 +131,12 @@ interface AggBucket {
   totalVendorCost: number;
   /** vendorCostCdrs: number of CDRs with a Mera-enriched vendorCost (for margin confidence) */
   vendorCostCdrs: number;
+  /** SIP error code counts: code → count of CDRs with that error */
+  sipErrors: Map<SipCode, number>;
 }
 
 function emptyBucket(): AggBucket {
-  return { callCount: 0, answeredCount: 0, totalDurSec: 0, pddSamples: [], totalRevenue: 0, totalVendorCost: 0, vendorCostCdrs: 0 };
+  return { callCount: 0, answeredCount: 0, totalDurSec: 0, pddSamples: [], totalRevenue: 0, totalVendorCost: 0, vendorCostCdrs: 0, sipErrors: new Map() };
 }
 
 function bucketMetrics(b: AggBucket): {
@@ -183,6 +220,8 @@ export async function runRouteIntelligenceAggregation(
         const vendorCostRaw = cdr.vendorCost !== undefined && cdr.vendorCost !== null
           ? Number(cdr.vendorCost) : null;
 
+        const sipCode = mapResultToSipCode((cdr as any).result, (cdr as any).q850Code);
+
         for (const bkt of [allBkt, pfxBkt]) {
           bkt.callCount++;
           if (answered) {
@@ -195,13 +234,28 @@ export async function runRouteIntelligenceAggregation(
             bkt.totalVendorCost += vendorCostRaw;
             bkt.vendorCostCdrs++;
           }
+          if (sipCode !== null) {
+            bkt.sipErrors.set(sipCode, (bkt.sipErrors.get(sipCode) ?? 0) + 1);
+          }
         }
       }
 
       // Build insert rows
       for (const [vendorId, vb] of vendorBuckets) {
+        // Helper: compute SIP error rates from bucket
+        const sipRates = (bkt: AggBucket) => {
+          const total = bkt.callCount;
+          if (total === 0) return { rate503: null, rate486: null, rate480: null, rate408: null, rate404: null, rate403: null };
+          const r = (code: SipCode) => {
+            const cnt = bkt.sipErrors.get(code);
+            return cnt ? Math.round((cnt / total) * 10000) / 100 : null;
+          };
+          return { rate503: r(503), rate486: r(486), rate480: r(480), rate408: r(408), rate404: r(404), rate403: r(403) };
+        };
+
         // Vendor-level aggregate row (prefix = '__all__')
         const allMetrics = bucketMetrics(vb.all);
+        const allRates = sipRates(vb.all);
         rows.push({
           vendorId,
           vendorName: vb.name,
@@ -211,6 +265,10 @@ export async function runRouteIntelligenceAggregation(
           callCount: vb.all.callCount,
           answeredCount: vb.all.answeredCount,
           ...allMetrics,
+          ...allRates,
+          // spike_flags computed after all windows are written (requires history baseline)
+          // Will be updated via a separate UPDATE pass below
+          spikeFlags: null,
         });
 
         // Per-prefix rows (limit to top 50 prefixes by call volume per vendor)
@@ -221,6 +279,7 @@ export async function runRouteIntelligenceAggregation(
         for (const [prefix, pfxBkt] of sortedPrefixes) {
           if (pfxBkt.callCount < 2) continue; // skip low-volume noise
           const pfxMetrics = bucketMetrics(pfxBkt);
+          const pfxRates = sipRates(pfxBkt);
           rows.push({
             vendorId,
             vendorName: vb.name,
@@ -230,6 +289,8 @@ export async function runRouteIntelligenceAggregation(
             callCount: pfxBkt.callCount,
             answeredCount: pfxBkt.answeredCount,
             ...pfxMetrics,
+            ...pfxRates,
+            spikeFlags: null,
           });
         }
       }
@@ -253,6 +314,56 @@ export async function runRouteIntelligenceAggregation(
       const chunk = rows.slice(i, i + CHUNK);
       await db.insert(routeQualitySnapshots).values(chunk);
       inserted += chunk.length;
+    }
+
+    // ── Spike flag computation (UPDATE pass) ───────────────────────────────────
+    // For vendor-level rows (__all__), compare current 1h-window SIP rates against
+    // 24h rolling average from sip_error_history. Flag codes with current ≥ 2× avg AND ≥ 2%.
+    try {
+      // Load 24h baseline per vendor per code from sip_error_history (if table exists)
+      const baselineRes = await db.execute(sql`
+        SELECT vendor_name, code, AVG(rate) AS avg_rate
+        FROM sip_error_history
+        WHERE snapshot_at > NOW() - INTERVAL '24 hours'
+        GROUP BY vendor_name, code
+      `).catch(() => ({ rows: [] as any[] }));
+
+      if (baselineRes.rows.length > 0) {
+        // Build baseline map
+        const baseMap = new Map<string, number>(); // vendorName:code → avg_rate
+        for (const r of baselineRes.rows) {
+          baseMap.set(`${r.vendor_name}:${r.code}`, parseFloat(r.avg_rate ?? '0'));
+        }
+
+        // For each latest 1h-window vendor row, compute spike_flags and update
+        const latestRows = rows.filter(r => r.prefix === '__all__' && r.windowHours === 1);
+        for (const row of latestRows) {
+          const spikeCodes: number[] = [];
+          const rateFields: Array<[number, keyof typeof row]> = [
+            [503, 'rate503'], [486, 'rate486'], [480, 'rate480'],
+            [408, 'rate408'], [404, 'rate404'], [403, 'rate403'],
+          ];
+          for (const [code, field] of rateFields) {
+            const currentRate = (row[field] as number | null) ?? 0;
+            const baseline = baseMap.get(`${row.vendorName}:${code}`) ?? 0;
+            if (currentRate >= 2 && baseline > 0 && currentRate >= 2 * baseline) {
+              spikeCodes.push(code);
+            }
+          }
+          if (spikeCodes.length > 0) {
+            await db.execute(sql`
+              UPDATE route_quality_snapshots
+              SET spike_flags = ${JSON.stringify(spikeCodes)}::jsonb
+              WHERE vendor_name = ${row.vendorName}
+                AND prefix = '__all__'
+                AND window_hours = 1
+                AND computed_at = ${computedAt}
+            `);
+          }
+        }
+      }
+    } catch (spikeErr: any) {
+      console.warn("[route-intelligence] spike flag update skipped (non-fatal):", spikeErr.message);
     }
 
     _lastRunAt = new Date();

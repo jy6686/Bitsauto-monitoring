@@ -28,7 +28,7 @@ import {
   dailyMinutesReports,
 } from "../../../shared/schema";
 import { desc, eq, gte, and, sql } from "drizzle-orm";
-import { loadSipErrorProfilesPerVendor, CODE_LABELS, type SipErrorSnapshot } from "./sip-error-aggregator";
+import { loadSipErrorSnapshot, loadSipErrorSnapshotWithSpikes, CODE_LABELS, type SipErrorSnapshot, type SipErrorVendorWithSpikes } from "./sip-error-aggregator";
 import { getCopilotVendorSignals } from "../../route-intelligence-engine";
 import { loadRouteTestEvidence } from "../route-tester";
 import { buildVoiceQualityDigest, type VoiceQualityDigest } from "../../rtp-quality-aggregator";
@@ -195,7 +195,7 @@ function buildRuleBasedRecommendations(
   fraudProfiles: Map<string, FraudProfile>,
   marginProfiles: Map<string, VendorMarginProfile>,
   vendorPrefixData?: any,
-  sipProfiles?: SipErrorSnapshot[],
+  sipErrorVendors?: SipErrorVendorWithSpikes[],
 ): AiRouteRecommendation[] {
   const degradedScores  = scores.filter(isDegraded);
   const healthyScores   = scores.filter(isHealthy);
@@ -438,140 +438,57 @@ function buildRuleBasedRecommendations(
     });
   }
 
-  // ── Rule 6: Congestion Alert (503) ─────────────────────────────────────────
-  if (sipProfiles) {
-    for (const snap of sipProfiles) {
-      const w5  = snap.windows[5]  ?? {};
-      const w15 = snap.windows[15] ?? {};
-      const w60 = snap.windows[60] ?? {};
-      const rate5  = w5[503]?.rate  ?? 0;
-      const rate15 = w15[503]?.rate ?? 0;
-      const rate60 = w60[503]?.rate ?? 0;
-      if (rate15 < 10) continue;
-      if (recs.some(r => r.currentVendor === snap.vendorName)) continue;
+  // ── Rule 6: SIP error spike detection ────────────────────────────────────────
+  // Generated when a vendor has a spike: current rate ≥ 2× 24h baseline AND ≥ 2%
+  if (sipErrorVendors && sipErrorVendors.length > 0) {
+    for (const vendor of sipErrorVendors) {
+      if (!vendor.hasSpike || !vendor.spikes.length) continue;
+      // Skip if already covered by Rules 1–5
+      if (recs.some(r => r.currentVendor === vendor.vendorName)) continue;
 
-      const spiking = rate5 > rate15;
-      const confidence = Math.round(Math.min(90, 65 + Math.min(rate15 * 0.8, 18) + (spiking ? 5 : 0)));
+      const topSpike = vendor.spikes.sort((a, b) => b.multiplier - a.multiplier)[0];
+      const codeLabel = CODE_LABELS[topSpike.code] ?? String(topSpike.code);
+      const alternatives = healthyScores.filter(h => h.carrierName !== vendor.vendorName);
+      const fraud = fraudProfiles.get(vendor.vendorName);
+
+      const confidence = Math.round(Math.min(88,
+        60 + Math.min(topSpike.multiplier * 4, 20) + (alternatives.length > 0 ? 8 : 0)
+      ));
+
+      const reasons: string[] = [
+        `${codeLabel} spike: ${topSpike.currentRate.toFixed(1)}% (was ${topSpike.baselineRate.toFixed(1)}% baseline — ${topSpike.multiplier.toFixed(1)}× increase)`,
+        `Spike threshold: ≥ 2× 24h average AND ≥ 2% absolute — active alert`,
+      ];
+      if (vendor.spikes.length > 1) {
+        const otherSpikes = vendor.spikes.slice(1).map(s => `${CODE_LABELS[s.code] ?? s.code}: ${s.currentRate.toFixed(1)}%`).join(", ");
+        reasons.push(`Additional codes spiking: ${otherSpikes}`);
+      }
+      if (alternatives.length > 0) {
+        reasons.push(`Healthy alternative available: ${alternatives[0].carrierName} (stability ${alternatives[0].stabilityScore?.toFixed(0) ?? '?'}/100)`);
+      }
+
+      const action = alternatives.length > 0
+        ? `Shift traffic from ${vendor.vendorName} — ${codeLabel} spike (${topSpike.multiplier.toFixed(1)}× baseline)`
+        : `Investigate ${vendor.vendorName} — ${codeLabel} spike (${topSpike.multiplier.toFixed(1)}× 24h baseline)`;
+
       recs.push({
-        id: `sip-503-${snap.vendorName}`,
-        action: `Shift traffic away from ${snap.vendorName} — 503 congestion spike`,
+        id: `sip-spike-${vendor.vendorName}-${topSpike.code}`,
+        action,
         confidence,
-        reasons: [
-          `503 Service Unavailable rate: ${rate15.toFixed(1)}% in 15-min window (threshold: 10%)`,
-          spiking
-            ? `Rate accelerating: ${rate5.toFixed(1)}% in last 5 min — spike still growing`
-            : `5-min rate: ${rate5.toFixed(1)}% — congestion persisting`,
-          rate60 > 0
-            ? `1-hr baseline: ${rate60.toFixed(1)}% — delta: +${Math.max(0, rate15 - rate60).toFixed(1)}pp above baseline`
-            : '503 spike above normal congestion threshold — no 1-hr baseline yet',
-          '503 Unavailable signals network congestion or capacity exhaustion on this carrier',
-        ].filter(Boolean),
-        risk: rate15 > 20 ? "high" : "medium",
-        expectedImpact: `Redirecting traffic reduces congestion-induced failures (503 rate currently ${rate15.toFixed(1)}%)`,
-        currentVendor: snap.vendorName,
-        sipErrorTrend: { code: 503, label: "503 Unavailable", vendorName: snap.vendorName, rates: { min5: rate5, min15: rate15, min60: rate60 } },
-        fraudSignals: fraudProfiles.get(snap.vendorName) ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
-        simulate: { asrDelta: -(rate15 * 0.6), stabilityDelta: null, projectedAsr: null, projectedStability: null },
-      });
-    }
-  }
-
-  // ── Rule 7: Routing Failure Alert (404) ────────────────────────────────────
-  if (sipProfiles) {
-    for (const snap of sipProfiles) {
-      const w5  = snap.windows[5]  ?? {};
-      const w15 = snap.windows[15] ?? {};
-      const w60 = snap.windows[60] ?? {};
-      const rate5  = w5[404]?.rate  ?? 0;
-      const rate15 = w15[404]?.rate ?? 0;
-      const rate60 = w60[404]?.rate ?? 0;
-      if (rate15 < 8) continue;
-      if (recs.some(r => r.currentVendor === snap.vendorName)) continue;
-
-      const confidence = Math.round(Math.min(85, 58 + Math.min(rate15 * 0.9, 20)));
-      recs.push({
-        id: `sip-404-${snap.vendorName}`,
-        action: `Investigate ${snap.vendorName} prefix routing — high 404 failure rate`,
-        confidence,
-        reasons: [
-          `404 Not Found rate: ${rate15.toFixed(1)}% in 15-min window (threshold: 8%)`,
-          `404 indicates misrouted or unrecognised destination prefixes on this vendor`,
-          rate5 > 0 ? `Recent 5-min rate: ${rate5.toFixed(1)}%` : '',
-          rate60 > 0 ? `1-hr baseline: ${rate60.toFixed(1)}%` : 'Review destination prefix table for stale routes',
-        ].filter(Boolean),
-        risk: rate15 > 15 ? "high" : "medium",
-        expectedImpact: `Fixing prefix routing recovers up to ${rate15.toFixed(1)}% of failing calls`,
-        currentVendor: snap.vendorName,
-        sipErrorTrend: { code: 404, label: "404 Not Found", vendorName: snap.vendorName, rates: { min5: rate5, min15: rate15, min60: rate60 } },
-        fraudSignals: fraudProfiles.get(snap.vendorName) ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
-        simulate: { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
-      });
-    }
-  }
-
-  // ── Rule 8: Availability Alert (480) ──────────────────────────────────────
-  if (sipProfiles) {
-    for (const snap of sipProfiles) {
-      const w5  = snap.windows[5]  ?? {};
-      const w15 = snap.windows[15] ?? {};
-      const w60 = snap.windows[60] ?? {};
-      const rate5  = w5[480]?.rate  ?? 0;
-      const rate15 = w15[480]?.rate ?? 0;
-      const rate60 = w60[480]?.rate ?? 0;
-      if (rate15 < 12) continue;
-      if (recs.some(r => r.currentVendor === snap.vendorName)) continue;
-
-      const spiking = rate5 > rate15;
-      const confidence = Math.round(Math.min(85, 60 + Math.min(rate15 * 0.7, 18) + (spiking ? 5 : 0)));
-      recs.push({
-        id: `sip-480-${snap.vendorName}`,
-        action: `Reduce traffic exposure on ${snap.vendorName} — 480 unavailability spike`,
-        confidence,
-        reasons: [
-          `480 Temporarily Unavailable rate: ${rate15.toFixed(1)}% in 15-min window (threshold: 12%)`,
-          spiking ? `Accelerating: ${rate5.toFixed(1)}% in 5-min window` : `5-min rate: ${rate5.toFixed(1)}%`,
-          '480 typically indicates subscriber or server-side temporary overload',
-          rate60 > 0 ? `1-hr baseline: ${rate60.toFixed(1)}% — sustained outage pattern` : 'Reduce traffic to limit call failure exposure',
-        ].filter(Boolean),
-        risk: rate15 > 25 ? "high" : "medium",
-        expectedImpact: `Reducing load on ${snap.vendorName} limits 480-induced failure impact (${rate15.toFixed(1)}% current rate)`,
-        currentVendor: snap.vendorName,
-        sipErrorTrend: { code: 480, label: "480 Temp. Unavail.", vendorName: snap.vendorName, rates: { min5: rate5, min15: rate15, min60: rate60 } },
-        fraudSignals: fraudProfiles.get(snap.vendorName) ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
-        simulate: { asrDelta: -(rate15 * 0.5), stabilityDelta: null, projectedAsr: null, projectedStability: null },
-      });
-    }
-  }
-
-  // ── Rule 9: Fraud Signal Alert (603) ─────────────────────────────────────
-  if (sipProfiles) {
-    for (const snap of sipProfiles) {
-      const w5  = snap.windows[5]  ?? {};
-      const w15 = snap.windows[15] ?? {};
-      const w60 = snap.windows[60] ?? {};
-      const rate5  = w5[603]?.rate  ?? 0;
-      const rate15 = w15[603]?.rate ?? 0;
-      const rate60 = w60[603]?.rate ?? 0;
-      if (rate15 < 8) continue;
-      if (recs.some(r => r.currentVendor === snap.vendorName)) continue;
-
-      const confidence = Math.round(Math.min(82, 55 + Math.min(rate15 * 0.85, 22)));
-      recs.push({
-        id: `sip-603-${snap.vendorName}`,
-        action: `Flag ${snap.vendorName} for review — 603 Decline indicates possible CLI filtering`,
-        confidence,
-        reasons: [
-          `603 Decline rate: ${rate15.toFixed(1)}% in 15-min window (threshold: 8%)`,
-          '603 Decline is a strong indicator of CLI screening or IRSF-related call rejection',
-          rate5 > 0 ? `5-min rate: ${rate5.toFixed(1)}%` : '',
-          rate60 > 0 ? `1-hr baseline: ${rate60.toFixed(1)}% — pattern is persistent` : 'Flag for manual fraud review',
-        ].filter(Boolean),
-        risk: rate15 > 15 ? "high" : "medium",
-        expectedImpact: `Identifying CLI filtering avoids revenue loss and potential IRSF exposure`,
-        currentVendor: snap.vendorName,
-        sipErrorTrend: { code: 603, label: "603 Decline", vendorName: snap.vendorName, rates: { min5: rate5, min15: rate15, min60: rate60 } },
-        fraudSignals: fraudProfiles.get(snap.vendorName) ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
-        simulate: { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
+        reasons,
+        risk: topSpike.currentRate >= 15 ? "high" : "medium",
+        expectedImpact: alternatives.length > 0
+          ? `Avoids ${topSpike.currentRate.toFixed(0)}% ${codeLabel} failure rate on ${vendor.vendorName}`
+          : `Reduces exposure to active SIP error spike on ${vendor.vendorName}`,
+        currentVendor: vendor.vendorName,
+        targetVendor: alternatives.length > 0 ? alternatives[0].carrierName : undefined,
+        fraudSignals: fraud ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
+        simulate: {
+          asrDelta: alternatives.length > 0 ? ((alternatives[0].rollingAsr ?? 0) - (scores.find(s => s.carrierName === vendor.vendorName)?.rollingAsr ?? 0)) : null,
+          stabilityDelta: null,
+          projectedAsr: alternatives.length > 0 ? alternatives[0].rollingAsr : null,
+          projectedStability: alternatives.length > 0 ? alternatives[0].stabilityScore : null,
+        },
       });
     }
   }
@@ -731,7 +648,7 @@ export async function runRouteCopilot(
     ),
     loadFraudProfilesPerVendor(since24h),
     loadMarginProfilesPerVendor(since7d),  // 7-day window for more stable margin signal
-    loadSipErrorProfilesPerVendor().catch(() => [] as SipErrorSnapshot[]),
+    loadSipErrorSnapshotWithSpikes().catch(() => [] as SipErrorVendorWithSpikes[]),
     getCopilotVendorSignals().catch(() => new Map()), // route quality snapshots — non-fatal
     loadRouteTestEvidence(6).catch(() => [] as Awaited<ReturnType<typeof loadRouteTestEvidence>>),
     buildVoiceQualityDigest().catch(() => null as VoiceQualityDigest | null),
@@ -779,7 +696,7 @@ export async function runRouteCopilot(
   // Note: simulate projections are computed server-side from carrier score deltas.
   // The server has the authoritative carrier telemetry; client-side projection
   // would duplicate this work without access to the raw score data.
-  const baseline = buildRuleBasedRecommendations(scores, pendingSuggestions, fraudProfiles, marginProfiles, vendorPrefixData, sipErrors);
+  const baseline = buildRuleBasedRecommendations(scores, pendingSuggestions, fraudProfiles, marginProfiles, vendorPrefixData, sipErrors as SipErrorVendorWithSpikes[]);
 
   // ── Summary fields ─────────────────────────────────────────────────────────
   const topSignal = criticalScores.length > 0

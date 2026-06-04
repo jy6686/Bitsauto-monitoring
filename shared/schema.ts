@@ -3412,12 +3412,21 @@ export const routeQualitySnapshots = pgTable("route_quality_snapshots", {
   computedAt:    timestamp("computed_at").notNull().defaultNow(),
   callCount:     integer("call_count").notNull().default(0),
   answeredCount: integer("answered_count").notNull().default(0),
-  asr:           real("asr"),
-  acdSeconds:    real("acd_seconds"),
-  pddMs:         real("pdd_ms"),
-  totalCostUsd:  real("total_cost_usd"),
-  revenueUsd:    real("revenue_usd"),
-  marginUsd:     real("margin_usd"),
+  asr:           real("asr"),              // answered / call_count × 100
+  acdSeconds:    real("acd_seconds"),      // avg duration of answered calls
+  pddMs:         real("pdd_ms"),           // avg post-dial delay in ms (null if not available)
+  totalCostUsd:  real("total_cost_usd"),   // vendor cost (from Mera enrichment)
+  revenueUsd:    real("revenue_usd"),      // gross revenue (CDR cost field = customer billing)
+  marginUsd:     real("margin_usd"),       // margin = revenue - vendor cost
+  // SIP error code rates (% of total attempts) — tracked codes: 503, 486, 480, 408, 404, 403
+  rate503:       real("rate_503"),         // 503 Service Unavailable rate %
+  rate486:       real("rate_486"),         // 486 Busy Here rate %
+  rate480:       real("rate_480"),         // 480 Temporarily Unavailable rate %
+  rate408:       real("rate_408"),         // 408 Request Timeout rate %
+  rate404:       real("rate_404"),         // 404 Not Found rate %
+  rate403:       real("rate_403"),         // 403 Forbidden rate %
+  // Spike flags: JSONB array of code numbers currently spiking (≥2× 24h baseline AND ≥2% absolute)
+  spikeFlags:    jsonb("spike_flags").$type<number[]>(),
 });
 export type RouteQualitySnapshot = typeof routeQualitySnapshots.$inferSelect;
 export type InsertRouteQualitySnapshot = typeof routeQualitySnapshots.$inferInsert;

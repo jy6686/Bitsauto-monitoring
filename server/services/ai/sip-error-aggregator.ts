@@ -8,9 +8,9 @@
  *   503 Service Unavailable  (congestion / network failure)
  *   486 Busy Here
  *   480 Temporarily Unavailable
+ *   408 Request Timeout
  *   404 Not Found / Wrong Number
- *   603 Decline / Rejected
- *   487 Request Terminated / Cancelled
+ *   403 Forbidden
  *
  * Results are written to sip_error_stats with three rolling windows:
  *   15 min, 60 min, 240 min
@@ -20,6 +20,10 @@
  * History: each aggregation run writes a new time_bucket row (5-min rounded).
  * Rows older than 24 hours are pruned on each run. This gives sparklines up to
  * 12 samples per vendor+code (one per 5-min run over a 1-hour lookback).
+ * sip_error_history stores 60-min snapshots over 8 days for:
+ *   - Baseline detection (24h rolling avg per vendor+code)
+ *   - 7-day trend charts
+ *   - Spike flagging (current rate ≥ 2× baseline AND ≥ 2%)
  *
  * Reference: RFC 3398 (ISUP → SIP mapping), ITU-T Q.850
  */
@@ -32,47 +36,48 @@ import { storage } from "../../storage";
 import { sendWhatsAppAlert, formatSipErrorAlert } from "../../whatsapp";
 import { EventEmitter } from "events";
 
-export const SIP_ERROR_CODES = [503, 486, 480, 404, 603, 487] as const;
+export const SIP_ERROR_CODES = [503, 486, 480, 408, 404, 403] as const;
 export type SipErrorCode = typeof SIP_ERROR_CODES[number];
 
 export const CODE_LABELS: Record<number, string> = {
   503: "503 Unavailable",
   486: "486 Busy",
   480: "480 Temp. Unavail.",
+  408: "408 Timeout",
   404: "404 Not Found",
-  603: "603 Decline",
-  487: "487 Cancelled",
+  403: "403 Forbidden",
 };
 
 // Q.850/Q.931 cause code → SIP error code mapping (RFC 3398)
+// Tracked codes: 503, 486, 480, 408, 404, 403
 const Q850_TO_SIP: Record<number, SipErrorCode> = {
   1:   404, // Unallocated/unassigned number
   2:   404, // No route to transit network
   3:   404, // No route to destination
   17:  486, // User busy
-  18:  480, // No user responding
-  19:  480, // No answer from user (alerted)
+  18:  408, // No user responding (timeout)
+  19:  408, // No answer from user (timeout, alerted)
   20:  480, // Subscriber absent
-  21:  603, // Call rejected
+  21:  403, // Call rejected (forbidden)
   22:  404, // Number changed
-  27:  603, // Destination out of order
+  27:  503, // Destination out of order
   28:  404, // Invalid number format
-  29:  603, // Facility rejected
-  31:  487, // Normal, unspecified
+  29:  403, // Facility rejected
+  31:  480, // Normal, unspecified → temp. unavail.
   34:  503, // No circuit/channel available
   38:  503, // Network out of order
   41:  503, // Temporary failure
   42:  503, // Switching equipment congestion
   44:  503, // Requested circuit unavailable
   47:  503, // Resource unavailable, unspecified
-  50:  603, // Requested facility not subscribed
-  55:  603, // Incoming calls barred
-  57:  603, // Bearer capability not authorized
+  50:  403, // Requested facility not subscribed
+  55:  403, // Incoming calls barred
+  57:  403, // Bearer capability not authorized
   58:  503, // Bearer capability not presently available
   65:  503, // Bearer capability not implemented
   69:  503, // Requested facility not implemented
   79:  503, // Service/option not implemented
-  87:  603, // User not a member
+  87:  403, // User not a member
   88:  503, // Incompatible destination
   95:  503, // Invalid message, unspecified
   96:  503, // Mandatory IE missing
@@ -80,7 +85,7 @@ const Q850_TO_SIP: Record<number, SipErrorCode> = {
   99:  503, // IE non-existent
   100: 503, // Invalid IE contents
   101: 503, // Message not compatible with call state
-  102: 503, // Recovery on timer expiry
+  102: 408, // Recovery on timer expiry → timeout
   111: 503, // Protocol error, unspecified
   127: 503, // Interworking, unspecified
 };
@@ -120,28 +125,25 @@ function mapToSipCode(
   if (!isNaN(resultNum) && resultNum > 0) {
     if (resultNum === 200) return null; // answered
     if ((SIP_ERROR_CODES as readonly number[]).includes(resultNum)) return resultNum as SipErrorCode;
-    // Map adjacent SIP codes to our 6
-    if (resultNum === 408) return 480;
-    if (resultNum === 410 || resultNum === 414) return 404;
-    if (resultNum === 403 || resultNum === 423 || resultNum === 491) return 603;
-    if (resultNum >= 400 && resultNum < 500) return 404;
+    // Map adjacent SIP codes to our 6 tracked codes: 503, 486, 480, 408, 404, 403
+    if (resultNum === 487 || resultNum === 488 || resultNum === 491) return 480; // other 4xx → temp unavail
+    if (resultNum === 410 || resultNum === 414 || resultNum === 484) return 404;
+    if (resultNum === 406 || resultNum === 415 || resultNum === 420 || resultNum === 423) return 403;
+    if (resultNum >= 400 && resultNum < 500) return 403; // generic 4xx → Forbidden
     if (resultNum >= 500 && resultNum < 600) return 503;
-    if (resultNum === 600 || resultNum === 606) return 603;
-    if (resultNum >= 600) return 603;
+    if (resultNum >= 600) return 403; // 6xx Decline → Forbidden
   }
 
   // 2. Try result as named string
   const resultStr = String(result ?? '').toLowerCase().trim();
   if (resultStr === 'success' || resultStr === 'ok' || resultStr === 'answered' || resultStr === '0') return null;
-  if (resultStr === 'failed' || resultStr === 'failure') {
-    // No specific code — use Q.850 if available, else skip
-  }
+  // "failed"/"failure" with no code — fall through to Q.850
 
   // 3. Try Q.850 code
   const q850Num = typeof q850 === 'number' ? q850 : parseInt(String(q850 ?? ''), 10);
   if (!isNaN(q850Num) && q850Num > 0) {
     if (q850Num === 16) return null; // Normal call clearing = answered
-    return Q850_TO_SIP[q850Num] ?? 487; // Default to 487 for unknown Q.850 codes
+    return Q850_TO_SIP[q850Num] ?? 480; // Default to 480 for unknown Q.850 codes
   }
 
   return null;
@@ -310,6 +312,16 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
       time_bucket: string;
     }[] = [];
 
+    // History rows (60-min window only — stable signal for baseline)
+    const historyRows: {
+      vendor_name: string;
+      code: number;
+      count: number;
+      rate: number;
+    }[] = [];
+
+    const computedAt = new Date().toISOString();
+
     for (const { minutes, ms } of WINDOWS_MS) {
       const vb = windowBuckets.get(ms)!;
       for (const [vendor, codes] of vb) {
@@ -318,6 +330,12 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
           const count = codes.get(code) ?? 0;
           const rate  = total > 0 ? Math.round((count / total) * 10000) / 100 : 0;
           rows.push({ vendor_name: vendor, window_minutes: minutes, code, count, rate, dest_prefix: null, computed_at: computedAt, time_bucket: timeBucket.toISOString() });
+          rows.push({ vendor_name: vendor, window_minutes: minutes, code, count, rate, dest_prefix: null, computed_at: computedAt });
+
+          // Also collect 60-min window rows for history
+          if (minutes === 60) {
+            historyRows.push({ vendor_name: vendor, code, count, rate });
+          }
         }
       }
     }
@@ -361,6 +379,26 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
              DO UPDATE SET count = EXCLUDED.count, rate = EXCLUDED.rate, computed_at = EXCLUDED.computed_at`,
             vals,
           );
+        }
+      }
+
+      // ── Append 60-min snapshot to sip_error_history ────────────────────────
+      if (historyRows.length > 0) {
+        try {
+          const histVals: any[] = [];
+          const histPlaceholders = historyRows.map((r, j) => {
+            const b = j * 4;
+            histVals.push(r.vendor_name, r.code, r.count, r.rate);
+            return `($${b+1},$${b+2},$${b+3},$${b+4},NOW())`;
+          }).join(',');
+          await pool.query(
+            `INSERT INTO sip_error_history (vendor_name, code, count, rate, snapshot_at) VALUES ${histPlaceholders}`,
+            histVals,
+          );
+          // Prune records older than 8 days
+          await pool.query(`DELETE FROM sip_error_history WHERE snapshot_at < NOW() - INTERVAL '8 days'`);
+        } catch (histErr: any) {
+          console.warn('[sip-error-agg] History write failed (non-fatal):', histErr.message);
         }
       }
     } finally {
@@ -469,6 +507,18 @@ export interface SipVendorHistory {
   points: SipHistoryPoint[]; // ordered oldest→newest, max 12
 }
 
+export interface SipSpikeFlag {
+  code: number;
+  currentRate: number;
+  baselineRate: number;
+  multiplier: number; // currentRate / baselineRate
+}
+
+export interface SipErrorVendorWithSpikes extends SipErrorSnapshot {
+  spikes: SipSpikeFlag[];      // active spikes (currentRate >= 2× baseline AND >= 2%)
+  hasSpike: boolean;
+}
+
 export async function loadSipErrorSnapshot(): Promise<SipErrorSnapshot[]> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
@@ -507,6 +557,117 @@ export async function loadSipErrorSnapshot(): Promise<SipErrorSnapshot[]> {
     }
 
     return [...byVendor.values()].sort((a, b) => b.maxRate - a.maxRate);
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
+ * Load current SIP error snapshot with 24h-baseline spike detection.
+ * @param windowMinutes - comparison window in minutes: 15 | 60 | 240 (default 60).
+ *   Controls which sip_error_stats rows are used for spike computation.
+ *   All windows are returned in the `windows` field regardless.
+ */
+export async function loadSipErrorSnapshotWithSpikes(windowMinutes: 15 | 60 | 240 = 60): Promise<SipErrorVendorWithSpikes[]> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const [snapRes, baselineRes] = await Promise.all([
+      pool.query(`SELECT * FROM sip_error_stats WHERE dest_prefix IS NULL`),
+      pool.query(`
+        SELECT vendor_name, code, AVG(rate) AS baseline_rate
+        FROM sip_error_history
+        WHERE snapshot_at > NOW() - INTERVAL '24 hours'
+        GROUP BY vendor_name, code
+      `).catch(() => ({ rows: [] as any[] })),
+    ]);
+
+    // Build baseline map: vendorName+code → avg rate
+    const baselineMap = new Map<string, number>();
+    for (const row of baselineRes.rows) {
+      baselineMap.set(`${row.vendor_name}:${row.code}`, parseFloat(row.baseline_rate ?? '0'));
+    }
+
+    const byVendor = new Map<string, SipErrorVendorWithSpikes>();
+    for (const row of snapRes.rows) {
+      if (!byVendor.has(row.vendor_name)) {
+        byVendor.set(row.vendor_name, {
+          vendorName: row.vendor_name,
+          windows: {},
+          topCode: null,
+          maxRate: 0,
+          hasCongestion: false,
+          hasCliRejection: false,
+          spikes: [],
+          hasSpike: false,
+        });
+      }
+      const snap = byVendor.get(row.vendor_name)!;
+      if (!snap.windows[row.window_minutes]) snap.windows[row.window_minutes] = {};
+      snap.windows[row.window_minutes][row.code] = { count: row.count, rate: parseFloat(row.rate) };
+
+      const rate = parseFloat(row.rate);
+      if (rate > snap.maxRate) { snap.maxRate = rate; snap.topCode = row.code; }
+      if (row.code === 503 && rate > 10) snap.hasCongestion = true;
+      if (row.code === 486 && rate > 10) snap.hasCliRejection = true;
+
+      // Spike detection: use the requested windowMinutes for comparison
+      if (row.window_minutes === windowMinutes) {
+        const baselineRate = baselineMap.get(`${row.vendor_name}:${row.code}`) ?? 0;
+        const currentRate = rate;
+        // Criteria: current ≥ 2% absolute AND ≥ 2× 24h baseline
+        const isSpiking = currentRate >= 2 && baselineRate > 0 && currentRate >= 2 * baselineRate;
+        if (isSpiking) {
+          const multiplier = baselineRate > 0 ? currentRate / baselineRate : 0;
+          snap.spikes.push({ code: row.code, currentRate, baselineRate, multiplier });
+          snap.hasSpike = true;
+        }
+      }
+    }
+
+    return [...byVendor.values()].sort((a, b) => {
+      // Sort: spikes first, then by maxRate
+      if (a.hasSpike && !b.hasSpike) return -1;
+      if (!a.hasSpike && b.hasSpike) return 1;
+      return b.maxRate - a.maxRate;
+    });
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
+ * Load 7-day error rate history for a vendor (grouped by day).
+ * vendorName is matched case-insensitively.
+ */
+export async function loadVendorErrorHistory(
+  vendorName: string,
+  days: number = 7,
+): Promise<{ date: string; rates: Record<number, number> }[]> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const res = await pool.query(`
+      SELECT
+        DATE(snapshot_at) AS day,
+        code,
+        AVG(rate) AS avg_rate
+      FROM sip_error_history
+      WHERE LOWER(vendor_name) = LOWER($1)
+        AND snapshot_at > NOW() - INTERVAL '${Math.min(days, 8)} days'
+      GROUP BY DATE(snapshot_at), code
+      ORDER BY day ASC
+    `, [vendorName]);
+
+    // Build a date → code → rate map
+    const dateMap = new Map<string, Record<number, number>>();
+    for (const row of res.rows) {
+      const day = row.day instanceof Date
+        ? row.day.toISOString().slice(0, 10)
+        : String(row.day).slice(0, 10);
+      if (!dateMap.has(day)) dateMap.set(day, {});
+      dateMap.get(day)![row.code] = parseFloat(row.avg_rate ?? '0');
+    }
+
+    return [...dateMap.entries()].map(([date, rates]) => ({ date, rates }));
   } finally {
     await pool.end();
   }

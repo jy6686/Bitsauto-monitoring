@@ -453,6 +453,14 @@ export async function runSafeMigrations(): Promise<void> {
     `);
     await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS revenue_usd REAL`);
     await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS margin_usd  REAL`);
+    // SIP error rate columns (Task #146) — tracked codes: 503, 486, 480, 408, 404, 403
+    await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS rate_503    REAL`);
+    await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS rate_486    REAL`);
+    await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS rate_480    REAL`);
+    await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS rate_408    REAL`);
+    await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS rate_404    REAL`);
+    await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS rate_403    REAL`);
+    await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS spike_flags JSONB`);
 
     // ── Account cap monitoring tables ────────────────────────────────────────
     await client.query(`

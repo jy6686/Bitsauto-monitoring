@@ -1864,22 +1864,22 @@ function AiCopilotPanel() {
 
 // ── SIP Error Panel ────────────────────────────────────────────────────────────
 
-const SIP_CODES = [503, 486, 480, 404, 603, 487] as const;
+const SIP_CODES = [503, 486, 480, 408, 404, 403] as const;
 const CODE_LABELS: Record<number, string> = {
   503: "503",
   486: "486",
   480: "480",
+  408: "408",
   404: "404",
-  603: "603",
-  487: "487",
+  403: "403",
 };
 const CODE_FULL: Record<number, string> = {
   503: "503 Unavailable",
   486: "486 Busy",
   480: "480 Temp. Unavail.",
+  408: "408 Timeout",
   404: "404 Not Found",
-  603: "603 Decline",
-  487: "487 Cancelled",
+  403: "403 Forbidden",
 };
 
 interface SipVendorSnapshot {
@@ -2284,6 +2284,24 @@ function SipErrorPanel() {
                   min15: selV.windows[15]?.[selectedCell.code]?.rate ?? 0,
                   min60: selV.windows[60]?.[selectedCell.code]?.rate ?? 0,
                 } : null;
+                const codeDotColor: Record<number, string> = {
+                  503: "bg-red-500",
+                  486: "bg-amber-500",
+                  480: "bg-orange-400",
+                  408: "bg-yellow-500",
+                  404: "bg-blue-500",
+                  403: "bg-purple-500",
+                };
+
+                if (topPrefixes.length === 0) {
+                  return (
+                    <div className="py-8 flex flex-col items-center justify-center text-muted-foreground">
+                      <LayoutGrid className="h-6 w-6 mb-2 opacity-25" />
+                      <p className="text-sm">No prefix data yet</p>
+                      <p className="text-xs mt-1 opacity-60">Prefix breakdown is computed from the 15-min window after CDR refresh</p>
+                    </div>
+                  );
+                }
 
                 return (
                   <div className="space-y-3">
@@ -2412,6 +2430,355 @@ function SipErrorPanel() {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ── SIP Errors Tab ─────────────────────────────────────────────────────────────
+
+interface SipSpikeFlag {
+  code: number;
+  currentRate: number;
+  baselineRate: number;
+  multiplier: number;
+}
+
+interface SipErrorVendorWithSpikes extends SipVendorSnapshot {
+  spikes: SipSpikeFlag[];
+  hasSpike: boolean;
+}
+
+interface SipErrorsTabData {
+  success: boolean;
+  vendors: SipErrorVendorWithSpikes[];
+  spikeCount: number;
+  computedAt: string;
+}
+
+interface SipHistoryEntry {
+  date: string;
+  rates: Record<number, number>;
+}
+
+function SipErrorSparkline({ vendorName }: { vendorName: string }) {
+  const { data } = useQuery<{ success: boolean; history: SipHistoryEntry[] }>({
+    queryKey: ["/api/route-intelligence/vendor", vendorName, "error-history"],
+    queryFn: () => fetch(`/api/route-intelligence/vendor/${encodeURIComponent(vendorName)}/error-history?days=7`).then(r => r.json()),
+    staleTime: 15 * 60 * 1000,
+  });
+
+  const history = data?.history ?? [];
+  if (history.length === 0) return <span className="text-[10px] text-muted-foreground/40">No 7d data</span>;
+
+  const maxRate = Math.max(...history.flatMap(h => Object.values(h.rates)), 5);
+  const H = 28, W = Math.max(history.length * 8, 60);
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <svg width={W} height={H} className="overflow-visible" data-testid={`sip-sparkline-${vendorName}`}>
+        {[503, 486, 480].map((code, ci) => {
+          const colors = ["#ef4444", "#f59e0b", "#fb923c"];
+          const pts = history.map((h, i) => {
+            const rate = h.rates[code] ?? 0;
+            const x = i * (W / Math.max(history.length - 1, 1));
+            const y = H - (rate / maxRate) * H;
+            return `${x},${y}`;
+          });
+          if (pts.length < 2) return null;
+          return (
+            <polyline
+              key={code}
+              points={pts.join(" ")}
+              fill="none"
+              stroke={colors[ci]}
+              strokeWidth={1.2}
+              opacity={0.7}
+            />
+          );
+        })}
+      </svg>
+      <div className="flex gap-2 text-[9px] text-muted-foreground/70">
+        {[[503, "#ef4444"], [486, "#f59e0b"], [480, "#fb923c"]].map(([code, color]) => (
+          <span key={code} className="flex items-center gap-0.5">
+            <span style={{ background: color as string }} className="inline-block w-2 h-0.5 rounded-full opacity-70" />
+            {code}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SipErrorsTab() {
+  const [activeWin, setActiveWin] = useState<15 | 60 | 240>(60);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const { data, isLoading, refetch, isFetching } = useQuery<SipErrorsTabData>({
+    queryKey: ["/api/route-intelligence/sip-errors"],
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const vendors = data?.vendors ?? [];
+  const spikeVendors = vendors.filter(v => v.hasSpike);
+  const windowLabel: Record<number, string> = { 15: "15 min", 60: "1 hr", 240: "4 hr" };
+
+  const toggleExpand = (name: string) => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="font-semibold text-base flex items-center gap-2">
+            <Radio className="h-4 w-4 text-cyan-500" />
+            SIP Error Intelligence
+            {spikeVendors.length > 0 && (
+              <span className="text-[11px] font-bold uppercase tracking-wide text-amber-500 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded-full">
+                {spikeVendors.length} spike{spikeVendors.length > 1 ? "s" : ""} active
+              </span>
+            )}
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Error code distribution per vendor · Spike = ≥2× 24h baseline AND ≥2% absolute · 7-day history preserved
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {(isLoading || isFetching) && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          <button
+            data-testid="sip-errors-tab-refresh"
+            onClick={() => refetch()}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md border border-border/40 hover:border-border"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Spike Alert Banners */}
+      {spikeVendors.length > 0 && (
+        <div className="space-y-2" data-testid="sip-spike-banners">
+          {spikeVendors.map(v => (
+            <div key={v.vendorName} className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-4 py-3">
+              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                  {v.vendorName} — SIP Error Spike Detected
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                  {v.spikes.map(spike => (
+                    <span key={spike.code} className="text-xs text-muted-foreground" data-testid={`spike-${v.vendorName}-${spike.code}`}>
+                      <span className="font-mono font-semibold text-amber-500">{CODE_FULL[spike.code] ?? spike.code}</span>
+                      {" — "}
+                      <span className="font-mono">{spike.currentRate.toFixed(1)}%</span>
+                      {" vs "}
+                      <span className="font-mono">{spike.baselineRate.toFixed(1)}%</span>
+                      {" baseline ("}
+                      <span className="font-semibold text-red-500">{spike.multiplier.toFixed(1)}×</span>
+                      {")"}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Window selector */}
+      <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5 w-fit">
+        {([15, 60, 240] as const).map(w => (
+          <button
+            key={w}
+            data-testid={`sip-tab-window-${w}`}
+            onClick={() => setActiveWin(w)}
+            className={cn(
+              "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+              activeWin === w
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {windowLabel[w]}
+          </button>
+        ))}
+      </div>
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="rounded-xl border bg-card flex items-center justify-center py-20">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {/* Empty */}
+      {!isLoading && vendors.length === 0 && (
+        <div className="rounded-xl border bg-card flex flex-col items-center justify-center py-20 text-muted-foreground">
+          <Radio className="h-8 w-8 mb-3 opacity-25" />
+          <p className="text-sm font-medium">No SIP error data yet</p>
+          <p className="text-xs mt-1 opacity-60">The aggregator runs every 5 min after the first CDR cache refresh</p>
+        </div>
+      )}
+
+      {/* Vendor table */}
+      {!isLoading && vendors.length > 0 && (
+        <div className="rounded-xl border bg-card overflow-hidden">
+          {/* Table header */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border/50 bg-muted/30">
+                  <th className="text-left py-2.5 px-4 text-muted-foreground font-medium min-w-[160px]">Vendor</th>
+                  {SIP_CODES.map(c => (
+                    <th key={c} className="text-right py-2.5 px-3 text-muted-foreground font-medium font-mono min-w-[72px]" title={CODE_FULL[c]}>
+                      {CODE_LABELS[c]}
+                    </th>
+                  ))}
+                  <th className="text-center py-2.5 px-3 text-muted-foreground font-medium min-w-[60px]">Status</th>
+                  <th className="text-center py-2.5 px-3 text-muted-foreground font-medium min-w-[80px]">7d Trend</th>
+                  <th className="w-8"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/30">
+                {vendors.map(v => {
+                  const win = v.windows[activeWin] ?? {};
+                  const isOpen = expanded.has(v.vendorName);
+                  return (
+                    <>
+                      <tr
+                        key={v.vendorName}
+                        className={cn(
+                          "hover:bg-muted/20 transition-colors cursor-pointer",
+                          v.hasSpike && "bg-amber-500/5"
+                        )}
+                        onClick={() => toggleExpand(v.vendorName)}
+                        data-testid={`sip-errors-row-${v.vendorName}`}
+                      >
+                        <td className="py-2.5 px-4">
+                          <div className="flex items-center gap-2">
+                            {v.hasSpike && (
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                            )}
+                            <span className="font-medium truncate max-w-[140px]" title={v.vendorName}>
+                              {v.vendorName}
+                            </span>
+                          </div>
+                        </td>
+                        {SIP_CODES.map(code => {
+                          const entry = win[code] ?? { rate: 0, count: 0 };
+                          const spike = v.spikes.find(s => s.code === code);
+                          return (
+                            <td key={code} className="py-2.5 px-3 text-right tabular-nums">
+                              {entry.rate > 0 ? (
+                                <div className="flex flex-col items-end gap-0.5">
+                                  <div className="flex items-center gap-1">
+                                    {spike && (
+                                      <span className="text-[8px] font-bold text-amber-500 bg-amber-500/15 border border-amber-500/25 px-1 py-0.5 rounded leading-none" title={`${spike.multiplier.toFixed(1)}× spike`}>
+                                        ↑{spike.multiplier.toFixed(1)}×
+                                      </span>
+                                    )}
+                                    <span className={cn("font-mono font-semibold text-[11px]", rateColor(entry.rate))}>
+                                      {entry.rate.toFixed(1)}%
+                                    </span>
+                                  </div>
+                                  <span className="text-[9px] text-muted-foreground/60 font-mono">{entry.count}×</span>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground/25 font-mono text-[11px]">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td className="py-2.5 px-3 text-center">
+                          {v.hasSpike ? (
+                            <span className="text-[9px] font-bold uppercase text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                              Spike
+                            </span>
+                          ) : v.hasCongestion ? (
+                            <span className="text-[9px] font-bold uppercase text-red-500 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">
+                              Congestion
+                            </span>
+                          ) : v.hasCliRejection ? (
+                            <span className="text-[9px] font-bold uppercase text-orange-500 bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 rounded">
+                              CLI Rej.
+                            </span>
+                          ) : (
+                            <span className="text-[9px] text-green-500 opacity-60">ok</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-3">
+                          {isOpen && <SipErrorSparkline vendorName={v.vendorName} />}
+                          {!isOpen && <span className="text-[10px] text-muted-foreground/40">click</span>}
+                        </td>
+                        <td className="py-2.5 px-2 text-muted-foreground/50">
+                          {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr key={`${v.vendorName}-detail`} className="bg-muted/10">
+                          <td colSpan={SIP_CODES.length + 4} className="px-4 py-3">
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-foreground">{v.vendorName} — 7-day SIP Error Trend</span>
+                                <span className="text-[10px] text-muted-foreground">(503 red · 486 amber · 480 orange)</span>
+                              </div>
+                              <SipErrorSparkline vendorName={v.vendorName} />
+                              {/* Show all window rates for this vendor */}
+                              <div className="grid grid-cols-3 gap-3">
+                                {([15, 60, 240] as const).map(w => {
+                                  const wWin = v.windows[w] ?? {};
+                                  return (
+                                    <div key={w} className="rounded-lg bg-background border border-border/40 p-2.5">
+                                      <p className="text-[10px] text-muted-foreground font-semibold mb-1.5">{windowLabel[w]} window</p>
+                                      {SIP_CODES.filter(c => (wWin[c]?.rate ?? 0) > 0).map(c => (
+                                        <div key={c} className="flex items-center justify-between text-[10px]">
+                                          <span className="text-muted-foreground font-mono">{CODE_FULL[c]}</span>
+                                          <span className={cn("font-mono font-semibold", rateColor(wWin[c]?.rate ?? 0))}>
+                                            {(wWin[c]?.rate ?? 0).toFixed(1)}%
+                                          </span>
+                                        </div>
+                                      ))}
+                                      {SIP_CODES.filter(c => (wWin[c]?.rate ?? 0) > 0).length === 0 && (
+                                        <p className="text-[10px] text-muted-foreground/40">No errors in window</p>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center gap-4 px-4 py-2.5 border-t border-border/30 bg-muted/10">
+            {[
+              { label: "< 2%",   color: "bg-green-500", text: "Normal" },
+              { label: "2–10%",  color: "bg-amber-500", text: "Elevated" },
+              { label: "> 10%",  color: "bg-red-500",   text: "Critical" },
+            ].map(({ label, color, text }) => (
+              <div key={text} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <div className={cn("w-2 h-2 rounded-full", color)} />
+                {label} — {text}
+              </div>
+            ))}
+            <span className="ml-auto text-[10px] text-muted-foreground/50">
+              Spike = ≥2× 24h avg AND ≥2% · Data: {data?.computedAt ? new Date(data.computedAt).toLocaleTimeString() : "—"}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4284,6 +4651,7 @@ const TABS = [
   { key: "cdr-analytics",  label: "CDR Analytics",      icon: BarChart3   },
   { key: "degradation",    label: "Degradation Alert",  icon: TrendingDown },
   { key: "qos",            label: "QoS Analysis",       icon: Zap         },
+  { key: "sip-errors",     label: "SIP Errors",          icon: Radio       },
   { key: "copilot",        label: "AI Copilot",          icon: Sparkles    },
   { key: "recs",           label: "Account Recs",        icon: BrainCircuit },
   { key: "history",        label: "Rollback History",    icon: History     },
@@ -4676,6 +5044,8 @@ export default function RouteIntelligencePage() {
         </div>
       )}
 
+      {/* ── SIP Errors Tab ── */}
+      {activeTab === "sip-errors" && <SipErrorsTab />}
 
       {/* ── Rollback History Tab ── */}
       {activeTab === "history" && <RollbackHistoryPanel />}

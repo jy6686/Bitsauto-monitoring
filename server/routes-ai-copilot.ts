@@ -9,7 +9,7 @@
 import type { Express } from "express";
 import { runRouteCopilot, AiContractError, enqueueAutoTriggeredAnalysis, setAutoTriggerCompleteCallback } from "./services/ai/route-copilot";
 import type { CopilotResult } from "./services/ai/route-copilot";
-import { startSipErrorAggregator, loadSipErrorSnapshot, loadSipPrefixSnapshot, loadSipErrorHistory, CODE_LABELS, sipErrorEmitter, updateSustained503Settings } from "./services/ai/sip-error-aggregator";
+import { startSipErrorAggregator, loadSipErrorSnapshot, loadSipPrefixSnapshot, loadSipErrorHistory, loadSipErrorSnapshotWithSpikes, CODE_LABELS, sipErrorEmitter, updateSustained503Settings } from "./services/ai/sip-error-aggregator";
 import {
   listActions,
   createAction,
@@ -1176,6 +1176,8 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
 
   // ── SIP Error Stats table bootstrap ─────────────────────────────────────────
   // Create/migrate the table via raw SQL (db:push prompt-blocks DDL in this env).
+  // ── SIP Error Stats + History table bootstrap ────────────────────────────────
+  // Create/migrate the tables via raw SQL (db:push prompt-blocks DDL in this env).
   // Wrapped in a fire-and-forget IIFE because registerAiCopilotRoutes is sync.
   (async () => {
     try {
@@ -1201,14 +1203,10 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           ADD COLUMN IF NOT EXISTS time_bucket TIMESTAMPTZ
       `);
       // Add unique constraint to support ON CONFLICT upserts and prevent duplicates.
-      // Uses COALESCE to handle nullable dest_prefix in the unique key.
-      // We use a partial unique index on a computed expression instead of a constraint
-      // because PostgreSQL NULL != NULL in unique constraints.
       await db.execute(sql`
         CREATE UNIQUE INDEX IF NOT EXISTS sip_error_stats_uniq
           ON sip_error_stats (vendor_name, window_minutes, code, time_bucket, COALESCE(dest_prefix, ''))
       `);
-      console.log("[sip-error-stats] Table ensured (with time_bucket + unique index)");
 
       // ── Copilot settings table bootstrap ──────────────────────────────────
       await db.execute(sql`
@@ -1236,6 +1234,22 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
       } catch {
         // No persisted settings — use defaults
       }
+      // History table — append-only, stores 60-min window snapshots for 8-day trend
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS sip_error_history (
+          id          SERIAL PRIMARY KEY,
+          vendor_name VARCHAR(128) NOT NULL,
+          code        INTEGER      NOT NULL,
+          count       INTEGER      NOT NULL DEFAULT 0,
+          rate        REAL         NOT NULL DEFAULT 0,
+          snapshot_at TIMESTAMP    NOT NULL DEFAULT NOW()
+        )
+      `);
+      await db.execute(sql`
+        CREATE INDEX IF NOT EXISTS idx_sip_error_history_vendor_ts
+          ON sip_error_history (vendor_name, snapshot_at DESC)
+      `);
+      console.log("[sip-error-stats] Tables ensured (stats + history + unique index)");
     } catch (err: any) {
       console.warn("[sip-error-stats] Table bootstrap warning (non-fatal):", err.message);
     }

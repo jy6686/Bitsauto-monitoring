@@ -50,7 +50,7 @@ import { runAuthExposureScorer } from "./auth-exposure";
 import { runRecommendationEngine } from "./recommendation-engine";
 import { computeVendorPrefixIntelligence } from "./vendor-prefix-intelligence";
 import { snapshotVendorStability, getVendorTimelines } from "./vendor-stability";
-import { computeSipErrorFromCdrs } from "./services/ai/sip-error-aggregator";
+import { computeSipErrorFromCdrs, loadSipErrorSnapshotWithSpikes, loadVendorErrorHistory } from "./services/ai/sip-error-aggregator";
 import { buildVendorRca } from "./vendor-rca";
 import { aggregateTrafficFlows } from "./live-traffic-map";
 import { executeAction, buildSippyParams, recommendationToActionType, computeIdempotencyKey } from "./action-executor";
@@ -6488,6 +6488,47 @@ export async function registerRoutes(
         res.json({ vendorId, trend });
       } catch (e: any) {
         res.status(500).json({ error: e.message });
+      }
+    },
+  );
+
+  // GET /api/route-intelligence/sip-errors — per-vendor SIP error breakdown + spike flags
+  // window param: 15m | 60m | 240m (default 60m). Returns current snapshot + 24h baseline spikes.
+  app.get('/api/route-intelligence/sip-errors',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        // Honor ?window=15|60|240 (minutes). Default 60.
+        const rawW = parseInt(String(req.query.window ?? '60'), 10);
+        const windowMinutes = ([15, 60, 240] as const).includes(rawW as any)
+          ? (rawW as 15 | 60 | 240) : 60;
+        const vendors = await loadSipErrorSnapshotWithSpikes(windowMinutes);
+        const spikeVendors = vendors.filter(v => v.hasSpike);
+        res.json({
+          success: true,
+          vendors,
+          spikeCount: spikeVendors.length,
+          windowMinutes,
+          computedAt: new Date().toISOString(),
+        });
+      } catch (e: any) {
+        res.status(500).json({ success: false, error: e.message });
+      }
+    },
+  );
+
+  // GET /api/route-intelligence/vendor/:id/error-history?days=7 — daily SIP error rates
+  // :id is the vendor name (URL-encoded). Returns daily avg rates for 7-day trend sparklines.
+  app.get('/api/route-intelligence/vendor/:id/error-history',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const vendorName = decodeURIComponent(req.params.id);
+        const days = Math.min(7, Math.max(1, parseInt(String(req.query.days ?? '7'), 10) || 7));
+        const history = await loadVendorErrorHistory(vendorName, days);
+        res.json({ success: true, vendorName, history });
+      } catch (e: any) {
+        res.status(500).json({ success: false, error: e.message });
       }
     },
   );
@@ -21616,71 +21657,36 @@ export async function registerRoutes(
             checks.push({ id: 'mod_ri_cqs', name: 'Carrier Quality Scores', status: 'ok', detail: `${cqsCount} carrier score row(s) available`, durationMs: Date.now() - tsM });
           }
 
-          // Check SIP error stats data freshness
-          const sipRes = await pool.query(`
-            SELECT COUNT(*)::int AS cnt,
-                   MAX(computed_at) AS last_computed
-            FROM sip_error_stats
-          `);
-          const sipCount = sipRes.rows[0]?.cnt ?? 0;
-          const lastSip  = sipRes.rows[0]?.last_computed ? new Date(sipRes.rows[0].last_computed) : null;
-          const sipAgeMs = lastSip ? Date.now() - lastSip.getTime() : null;
-
-          if (sipCount === 0) {
-            checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: 'No SIP error stats computed yet — aggregator may not have run', durationMs: Date.now() - tsM });
-            issues.push({ type: 'NO_DATA', severity: 'info', component: 'SIP Error Panel', message: 'SIP error rate telemetry has not been computed yet. The aggregator runs every 5 minutes after startup.', suggestion: 'Wait for the background aggregator to complete its first run (within 10 seconds of server start). If the issue persists, check that carrier quality scores are populated.', autoFix: null });
-          } else if (sipAgeMs !== null && sipAgeMs > 15 * 60 * 1000) {
-            checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: `SIP error stats last updated ${Math.round(sipAgeMs / 60000)} min ago — may be stale`, durationMs: Date.now() - tsM });
-            issues.push({ type: 'DATA_MISMATCH', severity: 'warning', component: 'SIP Error Panel', message: `SIP error telemetry is ${Math.round(sipAgeMs / 60000)} minutes old. The aggregator may have stalled.`, suggestion: 'Check server logs for [sip-error-agg] errors. The aggregator runs every 5 minutes and depends on carrier_quality_scores data.', autoFix: null });
-          } else {
-            // Check for high error rates (>15% total across error codes in 15-min window).
-            // Filter to vendor-level rows only (dest_prefix IS NULL) — prefix-level rows
-            // are per-bucket and would massively inflate totals, causing false positives.
-            const highErrRes = await pool.query(`
-              SELECT vendor_name, SUM(rate) AS total_rate
-              FROM sip_error_stats
-              WHERE window_minutes = 15
-                AND dest_prefix IS NULL
-              GROUP BY vendor_name
-              HAVING SUM(rate) > 15
-              LIMIT 5
-            `);
-            if (highErrRes.rows.length > 0) {
-              const highVendors: string[] = highErrRes.rows.map((r: any) => r.vendor_name);
-
-              // Cross-check: are these vendors already flagged in the current Copilot cycle?
-              let copilotFlagged: string[] = [];
-              try {
-                const copilotRes = await pool.query(`
-                  SELECT result FROM copilot_result_cache ORDER BY generated_at DESC LIMIT 1
-                `);
-                if (copilotRes.rows.length > 0) {
-                  const copilotResult = copilotRes.rows[0].result;
-                  const resultText = typeof copilotResult === 'string' ? copilotResult : JSON.stringify(copilotResult);
-                  copilotFlagged = highVendors.filter(v => resultText.toLowerCase().includes(v.toLowerCase()));
-                }
-              } catch { /* non-fatal */ }
-
-              const unflagged = highVendors.filter(v => !copilotFlagged.includes(v));
-              if (unflagged.length > 0) {
-                const detail = unflagged.map(v => {
-                  const row = highErrRes.rows.find((r: any) => r.vendor_name === v);
-                  return `${v} (${Number(row?.total_rate ?? 0).toFixed(1)}%)`;
-                }).join(', ');
-                checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: `High SIP error rates not yet flagged by Copilot: ${detail}`, durationMs: Date.now() - tsM });
-                issues.push({ type: 'DATA_MISMATCH', severity: 'warning', component: 'SIP Error Panel', message: `${unflagged.length} vendor(s) showing >15% SIP error rate in the 15-min window have not been flagged in the current Copilot analysis cycle: ${detail}`, suggestion: 'Run "Analyse Routes" in the AI Route Copilot to generate updated recommendations that cite these error codes. The SIP Error Rates panel shows the full breakdown.', autoFix: null });
-              } else {
-                checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: `High SIP error rates detected but already flagged by Copilot: ${highVendors.join(', ')}`, durationMs: Date.now() - tsM });
-              }
+          // SIP error spike detection using real spike flags from the aggregator.
+          // Criteria: current_rate >= 2% AND >= 2× 24h rolling baseline (per Task #146 spec).
+          let sipVendors: any[] = [];
+          try {
+            sipVendors = await loadSipErrorSnapshotWithSpikes(60);
+          } catch (sipLoadErr: any) {
+            checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: `Could not load SIP error snapshot: ${sipLoadErr.message}`, drilldown: '/route-intelligence?tab=sip-errors', durationMs: Date.now() - tsM });
+          }
+          if (sipVendors.length > 0) {
+            const spikeVendors = sipVendors.filter((v: any) => v.hasSpike);
+            if (spikeVendors.length > 0) {
+              const spikeDetails = spikeVendors.slice(0, 5).map((v: any) => {
+                const topSpike = v.spikes[0];
+                return topSpike ? `${v.vendorName} (SIP ${topSpike.code}: ${topSpike.currentRate.toFixed(1)}%, ${topSpike.multiplier.toFixed(1)}× baseline)` : v.vendorName;
+              }).join(', ');
+              checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: `Active SIP error spikes detected: ${spikeDetails}`, drilldown: '/route-intelligence?tab=sip-errors', durationMs: Date.now() - tsM });
+              issues.push({ type: 'SIP_SPIKE', severity: 'warning', component: 'SIP Error Panel', message: `${spikeVendors.length} vendor(s) have SIP error code spikes (≥2× 24h baseline, ≥2% rate): ${spikeDetails}`, suggestion: 'Open the SIP Errors tab in Route Intelligence for the full breakdown. Run "Analyse Routes" in AI Copilot to generate recommendations for these vendors.', autoFix: null });
             } else {
-              checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'ok', detail: `${sipCount} SIP error stat rows — all vendors within thresholds`, durationMs: Date.now() - tsM });
+              checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'ok', detail: `${sipVendors.length} vendor(s) monitored — no active SIP error spikes vs 24h baseline`, drilldown: '/route-intelligence?tab=sip-errors', durationMs: Date.now() - tsM });
             }
+          } else if (sipVendors !== null) {
+            // Empty array = no data yet
+            checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'warn', detail: 'No SIP error stats computed yet — aggregator may not have run', drilldown: '/route-intelligence?tab=sip-errors', durationMs: Date.now() - tsM });
+            issues.push({ type: 'NO_DATA', severity: 'info', component: 'SIP Error Panel', message: 'SIP error rate telemetry has not been computed yet. The aggregator runs every 5 minutes after startup.', suggestion: 'Wait for the background aggregator to complete its first run. If the issue persists, check server logs for [sip-error-agg] errors.', autoFix: null });
           }
         } finally {
           await pool.end();
         }
       } catch (e: any) {
-        checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'fail', detail: e.message, durationMs: Date.now() - tsM });
+        checks.push({ id: 'mod_ri_sip_errors', name: 'SIP Error Telemetry', status: 'fail', detail: e.message, drilldown: '/route-intelligence?tab=sip-errors', durationMs: Date.now() - tsM });
       }
     }
 
