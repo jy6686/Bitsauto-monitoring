@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -70,6 +70,7 @@ interface VendorHistoryPoint {
   reliabilityScore: number;
   fraudScore: number;
   marginScore: number;
+  details?: { acd?: number | null; [key: string]: unknown };
 }
 
 interface RouteHealthScore {
@@ -281,10 +282,19 @@ function VendorHistoryChart({ vendorName }: { vendorName: string }) {
 
   const chartData = history.map(p => ({
     label: new Date(p.scoredAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    time: new Date(p.scoredAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
     score: p.overallScore,
     quality: p.qualityScore,
     reliability: p.reliabilityScore,
   }));
+
+  const acdData = history
+    .filter(p => p.details?.acd != null)
+    .map(p => ({
+      label: new Date(p.scoredAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      time: new Date(p.scoredAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+      acd: p.details!.acd as number,
+    }));
 
   return (
     <div className="mt-3 col-span-full" data-testid={`history-chart-${vendorName.replace(/\s+/g, "-")}`}>
@@ -305,7 +315,68 @@ function VendorHistoryChart({ vendorName }: { vendorName: string }) {
           <Line type="monotone" dataKey="reliability" stroke="#3b82f6" strokeWidth={1.5} dot={false} name="Reliability" strokeDasharray="4 2" />
         </LineChart>
       </ResponsiveContainer>
+
+      {acdData.length >= 2 && (
+        <div className="mt-3" data-testid={`acd-trend-chart-${vendorName.replace(/\s+/g, "-")}`}>
+          <div className="text-[10px] text-slate-500 mb-1 uppercase tracking-wide">ACD Trend (seconds)</div>
+          <ResponsiveContainer width="100%" height={70}>
+            <LineChart data={acdData} margin={{ top: 4, right: 8, left: -28, bottom: 0 }}>
+              <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#64748b" }} tickLine={false} axisLine={false} />
+              <YAxis
+                tick={{ fontSize: 9, fill: "#64748b" }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: number) => `${v}s`}
+              />
+              <RechartsTooltip
+                contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 6, fontSize: 11 }}
+                labelStyle={{ color: "#94a3b8" }}
+                formatter={(val: number) => [`${val.toFixed(0)}s`, "Avg ACD"]}
+              />
+              <Line
+                type="monotone"
+                dataKey="acd"
+                stroke="#f59e0b"
+                strokeWidth={1.5}
+                dot={{ r: 2, fill: "#f59e0b", strokeWidth: 0 }}
+                activeDot={{ r: 3.5, fill: "#f59e0b", strokeWidth: 1, stroke: "#0f172a" }}
+                name="ACD"
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
+  );
+}
+
+function AcdTrendBadge({ vendorName, currentAcd }: { vendorName: string; currentAcd: number }) {
+  const { data: history } = useVendorHistory(vendorName);
+  if (!history || history.length < 2) return null;
+
+  const now = Date.now();
+  const target24h = now - 24 * 3600_000;
+
+  const ref = history.reduce((closest, p) => {
+    const diff = Math.abs(new Date(p.scoredAt).getTime() - target24h);
+    const closestDiff = Math.abs(new Date(closest.scoredAt).getTime() - target24h);
+    return diff < closestDiff ? p : closest;
+  }, history[0]);
+
+  const refAcd = ref.details?.acd;
+  if (refAcd == null || Math.abs(currentAcd - refAcd) < 1) return null;
+
+  const delta = currentAcd - refAcd;
+  const isGood = delta > 0;
+
+  return (
+    <span
+      className={cn("text-[9px] font-mono leading-none", isGood ? "text-emerald-400" : "text-yellow-400")}
+      data-testid={`acd-delta-${vendorName.replace(/\s+/g, "-")}`}
+    >
+      {delta > 0 ? "+" : ""}{delta.toFixed(0)}s vs 24h
+    </span>
   );
 }
 
@@ -397,7 +468,12 @@ function VendorCard({ vendor }: { vendor: VendorHealthScore }) {
             <DetailStat label="ASR" value={`${vendor.details.asr.toFixed(1)}%`} good={vendor.details.asr >= 60} />
           )}
           {vendor.details.acd != null && (
-            <DetailStat label="Avg ACD" value={`${vendor.details.acd.toFixed(0)}s`} good={vendor.details.acd >= 30} />
+            <DetailStat
+              label="Avg ACD"
+              value={`${vendor.details.acd.toFixed(0)}s`}
+              good={vendor.details.acd >= 30}
+              extra={<AcdTrendBadge vendorName={vendor.vendorName} currentAcd={vendor.details.acd} />}
+            />
           )}
           {vendor.details.pddMs != null && (
             <DetailStat label="Avg PDD" value={`${(vendor.details.pddMs / 1000).toFixed(2)}s`} good={vendor.details.pddMs < 3000} />
@@ -435,10 +511,12 @@ function DetailStat({
   label,
   value,
   good,
+  extra,
 }: {
   label: string;
   value: string;
   good: boolean;
+  extra?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -451,6 +529,7 @@ function DetailStat({
       >
         {value}
       </span>
+      {extra && <span>{extra}</span>}
     </div>
   );
 }
