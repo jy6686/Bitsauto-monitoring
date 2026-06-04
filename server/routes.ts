@@ -29635,9 +29635,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const { buildClientReconCSV, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
       const opts = {
-        period:   req.query.period   ? String(req.query.period)   : undefined,
-        status:   req.query.status   ? String(req.query.status)   : undefined,
-        severity: req.query.severity ? String(req.query.severity) : undefined,
+        period:      req.query.period      ? String(req.query.period)   : undefined,
+        status:      req.query.status      ? String(req.query.status)   : undefined,
+        severity:    req.query.severity    ? String(req.query.severity) : undefined,
+        excludeClean: req.query.excludeClean === '1' || req.query.excludeClean === 'true',
       };
       const { csv, rowCount } = await buildClientReconCSV(opts);
       const periodSlug = (opts.period ?? 'all').replace(/[^a-zA-Z0-9]/g, '-');
@@ -29660,9 +29661,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const { buildClientReconPDF, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
       const opts = {
-        period:   req.query.period   ? String(req.query.period)   : undefined,
-        status:   req.query.status   ? String(req.query.status)   : undefined,
-        severity: req.query.severity ? String(req.query.severity) : undefined,
+        period:      req.query.period      ? String(req.query.period)   : undefined,
+        status:      req.query.status      ? String(req.query.status)   : undefined,
+        severity:    req.query.severity    ? String(req.query.severity) : undefined,
+        excludeClean: req.query.excludeClean === '1' || req.query.excludeClean === 'true',
       };
       const { buf, rowCount } = await buildClientReconPDF(opts);
       const periodSlug = (opts.period ?? 'all').replace(/[^a-zA-Z0-9]/g, '-');
@@ -29698,13 +29700,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // POST /api/client-reconciliation/export/email — email client reconciliation report as attachment
   app.post('/api/client-reconciliation/export/email', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
-      const { to, subject, message, format = 'pdf', period, status, severity } = req.body;
+      const { to, subject, message, format = 'pdf', period, status, severity, excludeClean } = req.body;
       if (!to || !subject) return res.status(400).json({ error: 'to and subject are required' });
 
       const { buildClientReconCSV, buildClientReconPDF } = await import('./services/billing/reconciliation-export');
       const { sendDirectEmailWithAttachment } = await import('./email');
 
-      const opts = { period, status, severity };
+      const opts = { period, status, severity, excludeClean: !!excludeClean };
       const periodSlug = (period ?? 'all').replace(/[^a-zA-Z0-9]/g, '-');
 
       let attachContent: Buffer | string;

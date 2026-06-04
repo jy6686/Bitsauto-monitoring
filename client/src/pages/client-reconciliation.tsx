@@ -173,6 +173,7 @@ export default function ClientReconciliationPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7));
+  const [activeTab, setActiveTab] = useState<'discrepancies' | 'all'>('discrepancies');
   const [filter, setFilter] = useState('');
   const [showImport, setShowImport] = useState(false);
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null);
@@ -198,6 +199,7 @@ export default function ClientReconciliationPage() {
       apiRequest("POST", "/api/client-reconciliation/export/email", {
         ...data,
         period,
+        excludeClean: activeTab === 'discrepancies',
       }).then(r => r.json()),
     onSuccess: (data: any) => {
       toast({ title: 'Report emailed', description: `Sent ${data.filename} to ${emailForm.to}` });
@@ -258,6 +260,7 @@ export default function ClientReconciliationPage() {
     setExporting(type);
     try {
       const params = new URLSearchParams({ period });
+      if (activeTab === 'discrepancies') params.set('excludeClean', '1');
       const baseUrl = `/api/client-reconciliation/export/${type}`;
       const url = `${baseUrl}?${params}`;
       const res = await fetch(url);
@@ -625,7 +628,7 @@ export default function ClientReconciliationPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <Tabs defaultValue="discrepancies">
+          <Tabs value={activeTab} onValueChange={v => setActiveTab(v as 'discrepancies' | 'all')}>
             <div className="px-4 pt-0 pb-0">
               <TabsList className="h-8 mb-2">
                 <TabsTrigger value="discrepancies" className="text-xs" data-testid="tab-discrepancies">

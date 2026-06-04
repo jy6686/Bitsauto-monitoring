@@ -319,13 +319,15 @@ export async function buildClientReconCSV(opts: {
   period?: string;
   status?: string;
   severity?: string;
+  excludeClean?: boolean;
 }): Promise<{ csv: string; rowCount: number }> {
-  const rows = await storage.listClientReconciliations({
+  let rows = await storage.listClientReconciliations({
     billingPeriod: opts.period || undefined,
     status: opts.status && opts.status !== 'all' ? opts.status : undefined,
     severity: opts.severity && opts.severity !== 'all' ? opts.severity : undefined,
     latestVersionOnly: true,
   });
+  if (opts.excludeClean) rows = rows.filter(r => r.severity !== 'clean');
 
   const headers = [
     'id', 'billing_period', 'version', 'client_name', 'client_account_id',
@@ -585,13 +587,15 @@ export async function buildClientReconPDF(opts: {
   period?: string;
   status?: string;
   severity?: string;
+  excludeClean?: boolean;
 }): Promise<{ buf: Buffer; rowCount: number }> {
-  const rows = await storage.listClientReconciliations({
+  let rows = await storage.listClientReconciliations({
     billingPeriod: opts.period || undefined,
     status: opts.status && opts.status !== 'all' ? opts.status : undefined,
     severity: opts.severity && opts.severity !== 'all' ? opts.severity : undefined,
     latestVersionOnly: true,
   });
+  if (opts.excludeClean) rows = rows.filter(r => r.severity !== 'clean');
 
   const total = rows.length;
   const clean = rows.filter(r => r.severity === 'clean').length;
