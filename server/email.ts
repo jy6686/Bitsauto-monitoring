@@ -411,6 +411,54 @@ export function buildIncidentAlertEmail(opts: {
   };
 }
 
+export function buildBalanceThresholdAlertEmail(opts: {
+  accountName: string;
+  accountId: string;
+  balance: number;
+  thresholdUsd: number;
+  severity: 'warning' | 'urgent' | 'critical';
+  triggeredAt: Date;
+}): { subject: string; bodyHtml: string } {
+  const sevColor  = opts.severity === 'critical' ? '#ef4444' : opts.severity === 'urgent' ? '#f97316' : '#f59e0b';
+  const sevIcon   = opts.severity === 'critical' ? '🔴' : opts.severity === 'urgent' ? '🟠' : '🟡';
+  const sevLabel  = opts.severity.toUpperCase();
+  const ts        = opts.triggeredAt.toUTCString();
+  return {
+    subject: `${sevIcon} Balance Alert [${sevLabel}] — ${opts.accountName} ($${opts.balance.toFixed(2)})`,
+    bodyHtml: baseTemplate(`Balance Alert — ${sevLabel}`, `
+      <div style="display:inline-block;padding:4px 10px;border-radius:4px;background:${sevColor}22;border:1px solid ${sevColor};color:${sevColor};font-size:12px;font-weight:bold;letter-spacing:.5px;margin-bottom:16px">${sevLabel}</div>
+      <p style="font-size:14px;color:#ccc;margin:0 0 16px">
+        Account <strong style="color:#fff">${opts.accountName}</strong> (ID: ${opts.accountId}) has dropped below the
+        <strong>${sevLabel}</strong> balance threshold of <strong style="color:${sevColor}">$${opts.thresholdUsd.toFixed(2)}</strong>.
+      </p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:8px 4px;color:#888;font-size:12px;width:38%">Current Balance</td>
+          <td style="padding:8px 4px;font-weight:bold;font-size:14px;color:${sevColor}">$${opts.balance.toFixed(2)}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:8px 4px;color:#888;font-size:12px">Alert Threshold</td>
+          <td style="padding:8px 4px;font-size:13px">$${opts.thresholdUsd.toFixed(2)}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:8px 4px;color:#888;font-size:12px">Severity</td>
+          <td style="padding:8px 4px;font-size:13px;color:${sevColor};font-weight:bold">${sevLabel}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 4px;color:#888;font-size:12px">Triggered At</td>
+          <td style="padding:8px 4px;font-size:13px;font-family:monospace">${ts}</td>
+        </tr>
+      </table>
+      <div style="background:#1e2235;border-left:3px solid ${sevColor};padding:12px 16px;border-radius:0 6px 6px 0">
+        <p style="margin:0;font-size:12px;color:#aaa;font-weight:bold;text-transform:uppercase;margin-bottom:4px">Suggested Action</p>
+        <p style="margin:0;font-size:13px;color:#e0e0e0;line-height:1.5">
+          Top up account <strong>${opts.accountName}</strong> via Balance Monitor → Top-Up, or review credit limits to avoid service disruption.
+        </p>
+      </div>
+    `),
+  };
+}
+
 export function buildApprovalExpiryAlertEmail(opts: {
   actionId: number;
   accountName: string;

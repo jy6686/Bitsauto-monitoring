@@ -1446,10 +1446,19 @@ export default function NocDashboardPage() {
                           data-testid={`noc-balance-alert-${a.id}`}
                           className="flex items-center justify-between rounded border px-2 py-1 text-[10px] bg-slate-900/30"
                         >
-                          <span className="font-mono text-slate-300 truncate max-w-[100px]" title={a.accountName ?? `#${a.accountId}`}>
+                          <span className="font-mono text-slate-300 truncate max-w-[90px]" title={a.accountName ?? `#${a.accountId}`}>
                             {a.accountName ?? `#${a.accountId}`}
                           </span>
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-center gap-1 shrink-0">
+                            {a.notificationSentAt && (
+                              <span
+                                title={`Notification sent at ${new Date(a.notificationSentAt).toLocaleString()}`}
+                                className="text-blue-400 opacity-75"
+                                data-testid={`noc-notif-sent-${a.id}`}
+                              >
+                                ✉
+                              </span>
+                            )}
                             <span className={`font-mono font-bold px-1 py-0.5 rounded border ${sevCls}`}>
                               ${Number(a.currentBalance).toFixed(0)}
                             </span>

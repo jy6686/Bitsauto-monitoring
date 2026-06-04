@@ -3367,15 +3367,16 @@ export const insertBalanceAlertThresholdSchema = createInsertSchema(balanceAlert
 // ── Balance Alert Events ──────────────────────────────────────────────────────
 // One row per threshold crossing, resolved when balance rises back above threshold.
 export const balanceAlertEvents = pgTable("balance_alert_events", {
-  id:             serial("id").primaryKey(),
-  accountId:      varchar("account_id",    { length: 32 }).notNull(),
-  accountName:    varchar("account_name",  { length: 128 }),
-  thresholdUsd:   real("threshold_usd").notNull(),
-  severity:       varchar("severity",      { length: 16 }).notNull(), // warning | urgent | critical
-  currentBalance: real("current_balance").notNull(),
-  triggeredAt:    timestamp("triggered_at").defaultNow().notNull(),
-  resolvedAt:     timestamp("resolved_at"),
-  checkedAt:      timestamp("checked_at").defaultNow().notNull(),
+  id:                   serial("id").primaryKey(),
+  accountId:            varchar("account_id",    { length: 32 }).notNull(),
+  accountName:          varchar("account_name",  { length: 128 }),
+  thresholdUsd:         real("threshold_usd").notNull(),
+  severity:             varchar("severity",      { length: 16 }).notNull(), // warning | urgent | critical
+  currentBalance:       real("current_balance").notNull(),
+  triggeredAt:          timestamp("triggered_at").defaultNow().notNull(),
+  resolvedAt:           timestamp("resolved_at"),
+  checkedAt:            timestamp("checked_at").defaultNow().notNull(),
+  notificationSentAt:   timestamp("notification_sent_at"),
 });
 export type BalanceAlertEvent = typeof balanceAlertEvents.$inferSelect;
 export type InsertBalanceAlertEvent = typeof balanceAlertEvents.$inferInsert;
@@ -3485,3 +3486,17 @@ export const routeTestResults = pgTable("route_test_results", {
   rawResponse: jsonb("raw_response"),
 });
 export type RouteTestResult = typeof routeTestResults.$inferSelect;
+
+// ── Balance Alert Notification Settings ──────────────────────────────────────
+// Singleton row (id=1) holding email/webhook dispatch config for the alert engine.
+export const balanceAlertNotificationSettings = pgTable("balance_alert_notification_settings", {
+  id:               serial("id").primaryKey(),
+  emailList:        text("email_list"),             // comma-separated recipient addresses
+  webhookUrl:       varchar("webhook_url", { length: 512 }),
+  notifyOnWarning:  boolean("notify_on_warning").notNull().default(true),
+  notifyOnUrgent:   boolean("notify_on_urgent").notNull().default(true),
+  notifyOnCritical: boolean("notify_on_critical").notNull().default(true),
+  enabled:          boolean("enabled").notNull().default(true),
+  updatedAt:        timestamp("updated_at").defaultNow(),
+});
+export type BalanceAlertNotificationSettings = typeof balanceAlertNotificationSettings.$inferSelect;

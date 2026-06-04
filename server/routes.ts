@@ -69,7 +69,7 @@ import {
   queryVendorTrend,
   getRouteIntelligenceLastRun,
 } from "./route-intelligence-engine";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
 const drizzleSql = sqlExpr;
@@ -12058,6 +12058,82 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/balance-alert-notification-settings — fetch singleton notification config
+  app.get('/api/balance-alert-notification-settings', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (_req, res) => {
+    try {
+      const rows = await db.select().from(balanceAlertNotificationSettings).limit(1);
+      if (rows.length === 0) {
+        return res.json({ settings: null });
+      }
+      res.json({ settings: rows[0] });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PUT /api/balance-alert-notification-settings — upsert singleton notification config
+  app.put('/api/balance-alert-notification-settings', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const { emailList, webhookUrl, notifyOnWarning, notifyOnUrgent, notifyOnCritical, enabled } = req.body as {
+        emailList?: string | null; webhookUrl?: string | null;
+        notifyOnWarning?: boolean; notifyOnUrgent?: boolean; notifyOnCritical?: boolean;
+        enabled?: boolean;
+      };
+      const existing = await db.select({ id: balanceAlertNotificationSettings.id }).from(balanceAlertNotificationSettings).limit(1);
+      const payload = {
+        emailList:        emailList        ?? null,
+        webhookUrl:       webhookUrl        ?? null,
+        notifyOnWarning:  notifyOnWarning   ?? true,
+        notifyOnUrgent:   notifyOnUrgent    ?? true,
+        notifyOnCritical: notifyOnCritical  ?? true,
+        enabled:          enabled           ?? true,
+        updatedAt: new Date(),
+      };
+      if (existing.length > 0) {
+        await db.update(balanceAlertNotificationSettings).set(payload).where(eq(balanceAlertNotificationSettings.id, existing[0].id));
+        res.json({ ok: true, id: existing[0].id });
+      } else {
+        const [inserted] = await db.insert(balanceAlertNotificationSettings).values(payload).returning({ id: balanceAlertNotificationSettings.id });
+        res.json({ ok: true, id: inserted.id });
+      }
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/balance-alert-notification-settings/test — send a test email/webhook
+  app.post('/api/balance-alert-notification-settings/test', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
+    try {
+      const rows = await db.select().from(balanceAlertNotificationSettings).limit(1);
+      if (rows.length === 0 || !rows[0].enabled) return res.status(400).json({ error: 'Notifications not configured or disabled.' });
+      const cfg = rows[0];
+      const emailsSent: string[] = [];
+      const errors: string[] = [];
+      // Test email
+      if (cfg.emailList) {
+        const addrs = cfg.emailList.split(',').map(s => s.trim()).filter(Boolean);
+        for (const addr of addrs) {
+          const result = await emailSvc.sendDirectEmail({
+            to: addr,
+            subject: '✅ Balance Alert Notification — Test',
+            html: `<p style="font-family:Arial,sans-serif;color:#ccc">This is a test notification from <strong>Bitsauto Monitoring</strong>. Your balance alert email notifications are configured correctly.</p>`,
+          });
+          if (result.ok) emailsSent.push(addr);
+          else errors.push(`${addr}: ${result.error}`);
+        }
+      }
+      // Test webhook
+      if (cfg.webhookUrl) {
+        try {
+          await fetch(cfg.webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'balance_alert_test', message: 'Test notification from Bitsauto Monitoring', ts: Date.now() }),
+            signal: AbortSignal.timeout(8000),
+          });
+          emailsSent.push(`webhook:${cfg.webhookUrl}`);
+        } catch (e: any) { errors.push(`webhook: ${e.message}`); }
+      }
+      res.json({ ok: errors.length === 0, sent: emailsSent, errors });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Web User Block / Unblock (docs 3000121328, Sippy 2023+) ─────────────────
 
   // POST /api/sippy/web-users/:id/block — block a web user (admin+management)
@@ -14235,6 +14311,9 @@ export async function registerRoutes(
       // Fetch all thresholds (global defaults + per-account overrides)
       const allThresholds = await db.select().from(balanceAlertThresholds);
       if (allThresholds.length === 0) return { checked, triggered, resolved };
+      // Load notification settings once per cycle
+      const notifRows = await db.select().from(balanceAlertNotificationSettings).limit(1);
+      const notifCfg = notifRows[0] ?? null;
       // Fetch all active open alert events (for resolution checking)
       const openEvents = await db.select().from(balanceAlertEvents).where(isNull(balanceAlertEvents.resolvedAt));
       // Fetch live accounts + balances — use the existing credit pair retry
@@ -14265,6 +14344,12 @@ export async function registerRoutes(
           const existingOpen = openEvents.find(e => e.accountId === iAccountStr && e.severity === sev && !e.resolvedAt);
           if (isBelow) {
             if (!existingOpen) {
+              // Determine if we should notify for this severity
+              const shouldNotify = !!(notifCfg?.enabled && (
+                (sev === 'warning'  && notifCfg.notifyOnWarning)  ||
+                (sev === 'urgent'   && notifCfg.notifyOnUrgent)   ||
+                (sev === 'critical' && notifCfg.notifyOnCritical)
+              ) && (notifCfg.emailList || notifCfg.webhookUrl));
               // Create new alert event
               await db.insert(balanceAlertEvents).values({
                 accountId: iAccountStr,
@@ -14274,8 +14359,43 @@ export async function registerRoutes(
                 currentBalance: balance,
                 triggeredAt: now,
                 checkedAt: now,
+                notificationSentAt: shouldNotify ? now : null,
               });
               triggered++;
+              // Dispatch notifications fire-and-forget (non-blocking)
+              if (shouldNotify && notifCfg) {
+                const { subject, bodyHtml } = emailSvc.buildBalanceThresholdAlertEmail({
+                  accountName, accountId: iAccountStr, balance,
+                  thresholdUsd: threshold.thresholdUsd,
+                  severity: sev, triggeredAt: now,
+                });
+                // Email dispatch
+                if (notifCfg.emailList) {
+                  const addrs = notifCfg.emailList.split(',').map(s => s.trim()).filter(Boolean);
+                  for (const addr of addrs) {
+                    emailSvc.sendDirectEmail({ to: addr, subject, html: bodyHtml })
+                      .catch(e => console.warn(`[balance-alert-engine] Email to ${addr} failed:`, e.message));
+                  }
+                }
+                // Webhook dispatch
+                if (notifCfg.webhookUrl) {
+                  fetch(notifCfg.webhookUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      type: 'balance_alert',
+                      severity: sev,
+                      accountId: iAccountStr,
+                      accountName,
+                      currentBalance: balance,
+                      thresholdUsd: threshold.thresholdUsd,
+                      triggeredAt: now.toISOString(),
+                    }),
+                    signal: AbortSignal.timeout(8000),
+                  }).catch(e => console.warn(`[balance-alert-engine] Webhook failed:`, e.message));
+                }
+                console.log(`[balance-alert-engine] Notifications dispatched for ${sev} alert on ${accountName}`);
+              }
               // For critical/urgent alerts: create or update a NOC incident
               if (sev === 'critical' || sev === 'urgent') {
                 const nocTitle = `Low Balance ${sev === 'critical' ? '🔴 CRITICAL' : '🟠 URGENT'}: ${accountName} ($${balance.toFixed(2)} < $${threshold.thresholdUsd})`;

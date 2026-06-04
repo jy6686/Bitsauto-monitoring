@@ -7,12 +7,13 @@ import {
   TrendingUp, Plus, Settings2, Loader2, Bell, BellOff,
   CreditCard, ShieldAlert, Minus, Server, Hash, Shield,
   Network, SlidersHorizontal, Save, History, ChevronDown, ChevronUp,
-  Play, Trash2, Globe, TriangleAlert,
+  Play, Trash2, Globe, TriangleAlert, Mail, Webhook, Send, TestTube2,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer, Dot,
 } from "recharts";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -510,6 +511,213 @@ function ThresholdModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── Notification Settings Panel ─────────────────────────────────────────────
+
+interface NotifSettings {
+  id?: number;
+  emailList: string | null;
+  webhookUrl: string | null;
+  notifyOnWarning: boolean;
+  notifyOnUrgent: boolean;
+  notifyOnCritical: boolean;
+  enabled: boolean;
+}
+
+const NOTIF_DEFAULT: NotifSettings = {
+  emailList: '',
+  webhookUrl: '',
+  notifyOnWarning: true,
+  notifyOnUrgent: true,
+  notifyOnCritical: true,
+  enabled: true,
+};
+
+function NotificationSettingsPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { role } = useAuth();
+  const canEdit = role === 'admin' || role === 'management';
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<NotifSettings | null>(null);
+
+  const { data, isLoading } = useQuery<{ settings: NotifSettings | null }>({
+    queryKey: ['/api/balance-alert-notification-settings'],
+    staleTime: 30_000,
+  });
+  const saved = data?.settings ?? null;
+  const current = draft ?? (saved ? { ...NOTIF_DEFAULT, ...saved } : { ...NOTIF_DEFAULT });
+
+  const saveMut = useMutation({
+    mutationFn: (body: NotifSettings) => apiRequest('PUT', '/api/balance-alert-notification-settings', body).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-notification-settings'] });
+      setDraft(null);
+      toast({ title: 'Notification settings saved' });
+    },
+    onError: (e: any) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const testMut = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/balance-alert-notification-settings/test').then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.ok) toast({ title: 'Test sent', description: `Delivered to ${d.sent?.join(', ') ?? 'configured destinations'}.` });
+      else toast({ title: 'Test partially failed', description: d.errors?.join(', '), variant: 'destructive' });
+    },
+    onError: (e: any) => toast({ title: 'Test failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const dirty = draft !== null;
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+      <button
+        data-testid="button-toggle-notification-panel"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Bell className="w-4 h-4 text-blue-400" />
+          <span className="font-semibold text-sm">Balance Alert Notifications</span>
+          {saved && (
+            <span className={cn(
+              "text-[10px] px-1.5 py-0.5 rounded border font-mono",
+              saved.enabled
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                : "bg-slate-500/10 border-slate-500/20 text-slate-400"
+            )}>
+              {saved.enabled ? 'enabled' : 'disabled'}
+            </span>
+          )}
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+      </button>
+
+      {open && (
+        <div className="border-t border-border/60 p-4 space-y-4">
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm py-3">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+            </div>
+          ) : (
+            <>
+              {/* Enable toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Enable notifications</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Send emails and/or webhooks when a balance alert fires</p>
+                </div>
+                <Switch
+                  data-testid="switch-notif-enabled"
+                  checked={current.enabled}
+                  onCheckedChange={v => setDraft(d => ({ ...(d ?? current), enabled: v }))}
+                  disabled={!canEdit}
+                />
+              </div>
+
+              <Separator />
+
+              {/* Email list */}
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-email-list" className="flex items-center gap-1.5 text-sm">
+                  <Mail className="w-3.5 h-3.5 text-blue-400" /> Email recipients
+                </Label>
+                <Input
+                  id="notif-email-list"
+                  data-testid="input-notif-email-list"
+                  placeholder="ops@company.com, noc@company.com"
+                  value={current.emailList ?? ''}
+                  onChange={e => setDraft(d => ({ ...(d ?? current), emailList: e.target.value }))}
+                  disabled={!canEdit}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">Comma-separated. Uses the SMTP credentials configured in Settings.</p>
+              </div>
+
+              {/* Webhook URL */}
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-webhook-url" className="flex items-center gap-1.5 text-sm">
+                  <Webhook className="w-3.5 h-3.5 text-purple-400" /> Webhook URL
+                </Label>
+                <Input
+                  id="notif-webhook-url"
+                  data-testid="input-notif-webhook-url"
+                  placeholder="https://hooks.slack.com/… or https://…/webhook"
+                  value={current.webhookUrl ?? ''}
+                  onChange={e => setDraft(d => ({ ...(d ?? current), webhookUrl: e.target.value }))}
+                  disabled={!canEdit}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">Receives a JSON POST with alert details. Compatible with Slack, Teams, and generic HTTP webhooks.</p>
+              </div>
+
+              <Separator />
+
+              {/* Severity filters */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Notify on severity</p>
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    { key: 'notifyOnWarning' as const,  label: 'Warning',  cls: 'text-amber-400' },
+                    { key: 'notifyOnUrgent' as const,   label: 'Urgent',   cls: 'text-orange-400' },
+                    { key: 'notifyOnCritical' as const, label: 'Critical', cls: 'text-red-400' },
+                  ].map(s => (
+                    <label key={s.key} className="flex items-center gap-2 cursor-pointer select-none">
+                      <Switch
+                        data-testid={`switch-notif-${s.key}`}
+                        checked={current[s.key]}
+                        onCheckedChange={v => setDraft(d => ({ ...(d ?? current), [s.key]: v }))}
+                        disabled={!canEdit}
+                      />
+                      <span className={cn("text-sm font-medium", s.cls)}>{s.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">Critical alerts are always sent immediately. Warning/Urgent are sent on first detection.</p>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center gap-2 pt-1">
+                {canEdit && (
+                  <>
+                    <Button
+                      data-testid="button-save-notif-settings"
+                      size="sm"
+                      onClick={() => saveMut.mutate(current)}
+                      disabled={saveMut.isPending || !dirty}
+                      className="gap-1.5"
+                    >
+                      {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      Save
+                    </Button>
+                    <Button
+                      data-testid="button-test-notif"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => testMut.mutate()}
+                      disabled={testMut.isPending || !saved?.enabled}
+                      className="gap-1.5"
+                    >
+                      {testMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <TestTube2 className="w-3.5 h-3.5" />}
+                      Send Test
+                    </Button>
+                  </>
+                )}
+                {!canEdit && (
+                  <p className="text-xs text-muted-foreground">Admin or Management role required to edit notification settings.</p>
+                )}
+                {dirty && !saveMut.isPending && (
+                  <span className="text-[11px] text-amber-400 font-mono ml-auto">unsaved changes</span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1511,6 +1719,9 @@ export default function BalanceMonitorPage() {
           </Button>
         </div>
       </div>
+
+      {/* Notification Settings Panel */}
+      <NotificationSettingsPanel />
 
       {/* Global Alert Thresholds Panel */}
       <GlobalThresholdsPanel />

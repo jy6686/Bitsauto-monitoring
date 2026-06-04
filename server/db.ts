@@ -521,6 +521,49 @@ export async function runSafeMigrations(): Promise<void> {
       )
     `);
 
+    // ── Balance Alert Engine tables (added 2026-06-04) ────────────────────────
+    // balance_alert_thresholds: configurable per-severity thresholds
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS balance_alert_thresholds (
+        id           SERIAL PRIMARY KEY,
+        account_id   VARCHAR(32),
+        account_name VARCHAR(128),
+        threshold_usd REAL NOT NULL,
+        severity     VARCHAR(16) NOT NULL DEFAULT 'warning',
+        created_at   TIMESTAMP DEFAULT NOW(),
+        updated_at   TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    // balance_alert_events: one row per threshold crossing
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS balance_alert_events (
+        id                   SERIAL PRIMARY KEY,
+        account_id           VARCHAR(32)  NOT NULL,
+        account_name         VARCHAR(128),
+        threshold_usd        REAL         NOT NULL,
+        severity             VARCHAR(16)  NOT NULL,
+        current_balance      REAL         NOT NULL,
+        triggered_at         TIMESTAMP    NOT NULL DEFAULT NOW(),
+        resolved_at          TIMESTAMP,
+        checked_at           TIMESTAMP    NOT NULL DEFAULT NOW(),
+        notification_sent_at TIMESTAMP
+      )
+    `);
+    // Add notification_sent_at to existing balance_alert_events if upgrading
+    await client.query(`ALTER TABLE balance_alert_events ADD COLUMN IF NOT EXISTS notification_sent_at TIMESTAMP`);
+    // balance_alert_notification_settings: singleton email/webhook config
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS balance_alert_notification_settings (
+        id                SERIAL PRIMARY KEY,
+        email_list        TEXT,
+        webhook_url       VARCHAR(512),
+        notify_on_warning BOOLEAN NOT NULL DEFAULT true,
+        notify_on_urgent  BOOLEAN NOT NULL DEFAULT true,
+        notify_on_critical BOOLEAN NOT NULL DEFAULT true,
+        enabled           BOOLEAN NOT NULL DEFAULT true,
+        updated_at        TIMESTAMP DEFAULT NOW()
+      )
+    `);
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
