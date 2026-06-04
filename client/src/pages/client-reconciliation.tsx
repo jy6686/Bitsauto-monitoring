@@ -28,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle2, AlertTriangle, XCircle, Clock, RefreshCw, Search,
   Upload, Users, DollarSign, Info, TrendingDown, ThumbsUp, ShieldAlert,
-  Download, FileText, Loader2, FileSpreadsheet,
+  Download, FileText, Loader2, FileSpreadsheet, FileDown,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -102,6 +102,52 @@ function fmtPct(v?: number | null): string {
   const abs = Math.abs(v);
   const sign = v > 0 ? '+' : v < 0 ? '-' : '';
   return `${sign}${abs.toFixed(1)}%`;
+}
+
+function downloadRowCsv(row: ReconRow) {
+  const headers = [
+    'id', 'billing_period', 'version', 'client_name', 'client_account_id',
+    'client_duration_min', 'client_amount_usd', 'client_calls',
+    'bitsauto_duration_min', 'bitsauto_amount_usd', 'bitsauto_calls',
+    'dmr_duration_min', 'dmr_amount_usd',
+    'delta_duration_min', 'delta_amount_usd', 'delta_pct',
+    'discrepancy_type', 'severity', 'status', 'notes',
+  ];
+  const esc = (v: string | null | undefined) => {
+    if (v == null) return '';
+    const s = String(v);
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const fmtN = (v: number | null | undefined, d = 2) => v == null ? '' : v.toFixed(d);
+  const values = [
+    String(row.id),
+    esc(row.billingPeriod),
+    String(row.version ?? 1),
+    esc(row.clientName),
+    esc(row.clientAccountId ?? ''),
+    fmtN(row.clientDurationSec != null ? row.clientDurationSec / 60 : null),
+    fmtN(row.clientAmountUsd, 4),
+    String(row.clientCalls ?? ''),
+    fmtN(row.bitsautoDurationSec != null ? row.bitsautoDurationSec / 60 : null),
+    fmtN(row.bitsautoAmountUsd, 4),
+    String(row.bitsautoCalls ?? ''),
+    fmtN(row.dmrDurationSec != null ? row.dmrDurationSec / 60 : null),
+    fmtN(row.dmrAmountUsd, 4),
+    fmtN(row.deltaDurationSec != null ? row.deltaDurationSec / 60 : null),
+    fmtN(row.deltaAmountUsd, 4),
+    fmtN(row.deltaPct),
+    esc(row.discrepancyType),
+    esc(row.severity),
+    esc(row.status),
+    esc(row.notes ?? ''),
+  ];
+  const csv = [headers.join(','), values.join(',')].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const client = row.clientName.replace(/\s+/g, '-');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `recon-${client}-${row.billingPeriod}.csv`;
+  a.click();
 }
 
 const importSchema = z.object({
@@ -337,6 +383,14 @@ export default function ClientReconciliationPage() {
                         <ShieldAlert className="h-3.5 w-3.5 text-red-400" />
                       </Button>
                     )}
+                    <Button
+                      data-testid={`button-download-recon-${row.id}`}
+                      variant="ghost" size="sm"
+                      onClick={() => downloadRowCsv(row)}
+                      title="Download CSV for this record"
+                    >
+                      <FileDown className="h-3.5 w-3.5 text-sky-400" />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>

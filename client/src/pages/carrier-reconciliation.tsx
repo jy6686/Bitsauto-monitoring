@@ -17,7 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -138,7 +138,8 @@ export default function CarrierReconciliationPage() {
   const [filterTariff, setFilterTariff] = useState("");
   const [filterPeriodStart, setFilterPeriodStart] = useState("");
   const [filterPeriodEnd, setFilterPeriodEnd]     = useState("");
-  const [exporting, setExporting]     = useState<'csv' | 'pdf' | null>(null);
+  const [exporting, setExporting]           = useState<'csv' | 'pdf' | null>(null);
+  const [exportingDetail, setExportingDetail] = useState<'csv' | 'pdf' | null>(null);
 
   const [form, setForm] = useState({
     carrierName: "", iTariff: "", invoiceRef: "", invoiceDate: "",
@@ -183,6 +184,52 @@ export default function CarrierReconciliationPage() {
       toast({ title: "Reconciliation failed", description: err.message, variant: "destructive" });
     },
   });
+
+  async function handleDetailExport(type: 'csv' | 'pdf') {
+    if (!detail) return;
+    setExportingDetail(type);
+    try {
+      const base = type === 'csv'
+        ? '/api/billing/reconciliation/export/csv'
+        : '/api/billing/reconciliation/export/pdf';
+      const url = buildExportUrl(base, {
+        iTariff:     detail.iTariff || undefined,
+        periodStart: detail.periodStart || undefined,
+        periodEnd:   detail.periodEnd || undefined,
+        mode:        type === 'csv' ? 'cdr' : undefined,
+      });
+      const res = await fetch(url);
+      const ct = res.headers.get('content-type') ?? '';
+      if (ct.includes('application/json')) {
+        const j = await res.json();
+        if (j.large) {
+          const dl = await fetch(`/api/billing/reconciliation/export/download/${j.token}`);
+          const blob = await dl.blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = j.filename;
+          a.click();
+          toast({ title: `Export ready — ${j.rowCount.toLocaleString()} rows` });
+        }
+      } else {
+        const blob = await res.blob();
+        const cd = res.headers.get('content-disposition') ?? '';
+        const carrier = detail.carrierName.replace(/\s+/g, '-');
+        const period = detail.periodStart ?? 'all';
+        const fallback = `recon-${carrier}-${period}.${type}`;
+        const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? fallback;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fn;
+        a.click();
+        toast({ title: type === 'csv' ? 'CSV exported' : 'PDF report exported' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Export failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setExportingDetail(null);
+    }
+  }
 
   const stats = {
     total:       reconciliations.length,
@@ -646,6 +693,41 @@ export default function CarrierReconciliationPage() {
               )}
             </div>
           )}
+          <DialogFooter className="pt-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="button-detail-download"
+                  disabled={exportingDetail !== null || !detail}
+                >
+                  {exportingDetail ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Download Report
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  data-testid="button-detail-download-csv"
+                  onClick={() => handleDetailExport('csv')}
+                >
+                  <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-400" />
+                  CDR Snapshot CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  data-testid="button-detail-download-pdf"
+                  onClick={() => handleDetailExport('pdf')}
+                >
+                  <FileText className="h-4 w-4 mr-2 text-red-400" />
+                  PDF Report
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
