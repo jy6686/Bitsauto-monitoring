@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, Fragment, useMemo } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   GitBranch, TrendingDown, TrendingUp, Minus, AlertTriangle,
@@ -2803,6 +2803,7 @@ interface SipHistoryEntry {
 
 function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const [, navigate] = useLocation();
 
   const { data } = useQuery<{ success: boolean; history: SipHistoryEntry[] }>({
     queryKey: ["/api/route-intelligence/vendor", vendorName, "error-history"],
@@ -2879,6 +2880,15 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
             .map((r, ri) => {
               const x1 = r.start * stepX - stepX * 0.4;
               const x2 = r.end * stepX + stepX * 0.4;
+              const startDate = history[r.start]?.date;
+              const endDate   = history[r.end]?.date;
+              const handleBandClick = () => {
+                if (!startDate || !endDate) return;
+                const sd = encodeURIComponent(`${startDate}T00:00:00Z`);
+                const ed = encodeURIComponent(`${endDate}T23:59:59Z`);
+                const vn = encodeURIComponent(vendorName);
+                navigate(`/cdrs?view=vendor&startDate=${sd}&endDate=${ed}&vendor=${vn}`);
+              };
               return (
                 <rect
                   key={ri}
@@ -2888,8 +2898,12 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
                   height={H}
                   fill="rgba(239,68,68,0.13)"
                   rx={2}
+                  style={{ cursor: 'pointer' }}
+                  onClick={handleBandClick}
                   data-testid={`spike-band-${vendorName}-${ri}`}
-                />
+                >
+                  <title>Click to view CDRs for this spike window ({startDate} – {endDate})</title>
+                </rect>
               );
             })}
           {codes.map((code, ci) => {
@@ -2947,18 +2961,32 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
             );
           })}
 
-          {history.map((_, i) => (
-            <rect
-              key={i}
-              x={i * stepX - stepX / 2}
-              y={0}
-              width={stepX}
-              height={H}
-              fill="transparent"
-              onMouseEnter={() => setHoveredIdx(i)}
-              style={{ cursor: "default" }}
-            />
-          ))}
+          {history.map((entry, i) => {
+            const run = spikeRuns.filter(r => r.end > r.start).find(r => i >= r.start && i <= r.end);
+            const handleHoverRectClick = () => {
+              if (!run) return;
+              const startDate = history[run.start]?.date;
+              const endDate   = history[run.end]?.date;
+              if (!startDate || !endDate) return;
+              const sd = encodeURIComponent(`${startDate}T00:00:00Z`);
+              const ed = encodeURIComponent(`${endDate}T23:59:59Z`);
+              const vn = encodeURIComponent(vendorName);
+              navigate(`/cdrs?view=vendor&startDate=${sd}&endDate=${ed}&vendor=${vn}`);
+            };
+            return (
+              <rect
+                key={i}
+                x={i * stepX - stepX / 2}
+                y={0}
+                width={stepX}
+                height={H}
+                fill="transparent"
+                onMouseEnter={() => setHoveredIdx(i)}
+                onClick={handleHoverRectClick}
+                style={{ cursor: run ? "pointer" : "default" }}
+              />
+            );
+          })}
 
           {hoveredIdx != null && (
             <line

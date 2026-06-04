@@ -166,8 +166,10 @@ type CdrColId = typeof CDR_COL_CHIPS[number]['id'];
 
 export default function CDRsPage() {
   const search = useSearch();
-  const view = (new URLSearchParams(search).get('view') ?? 'client') as 'client' | 'vendor';
+  const params = new URLSearchParams(search);
+  const view = (params.get('view') ?? 'client') as 'client' | 'vendor';
   const isVendor = view === 'vendor';
+  const spikeVendor = params.get('vendor') ?? null;
   const { tz, tzAbbr } = useTimezone();
 
   const [visibleCols, setVisibleCols] = useState<Set<CdrColId>>(
@@ -180,8 +182,16 @@ export default function CDRsPage() {
     return next;
   });
 
-  const defaultStart = subHoursUTC(new Date(), 1);
-  const defaultEnd   = new Date();
+  const defaultStart = (() => {
+    const p = params.get('startDate');
+    if (p) { const d = new Date(p); if (!isNaN(d.getTime())) return d; }
+    return subHoursUTC(new Date(), 1);
+  })();
+  const defaultEnd = (() => {
+    const p = params.get('endDate');
+    if (p) { const d = new Date(p); if (!isNaN(d.getTime())) return d; }
+    return new Date();
+  })();
   const [start, setStart]       = useState(defaultStart);
   const [end,   setEnd]         = useState(defaultEnd);
   const [startInput, setStartInput] = useState(() => toInput(defaultStart, tz));
@@ -238,7 +248,14 @@ export default function CDRsPage() {
   const cdrs = data?.cdrs || [];
   const hasMore = cdrs.length === PAGE_SIZE;
 
-  const displayCdrs = sipCode === 'all' ? cdrs : cdrs.filter(c => {
+  const vendorFilteredCdrs = (isVendor && spikeVendor)
+    ? cdrs.filter(c => {
+        const name = (c.vendorName ?? c.vendor ?? '').toLowerCase();
+        return name === spikeVendor.toLowerCase();
+      })
+    : cdrs;
+
+  const displayCdrs = sipCode === 'all' ? vendorFilteredCdrs : vendorFilteredCdrs.filter(c => {
     const r = String(c.result ?? '');
     const dur = Number(c.duration || c.totalDuration || 0);
     if (sipCode === '200') return dur > 0;
@@ -340,6 +357,16 @@ export default function CDRsPage() {
 
   return (
     <div className="space-y-4">
+      {/* Spike-band context banner */}
+      {spikeVendor && (
+        <div className="flex items-center gap-2.5 rounded-lg border border-red-500/30 bg-red-500/8 px-3.5 py-2.5 text-sm" data-testid="banner-spike-context">
+          <Activity className="h-4 w-4 shrink-0 text-red-400" />
+          <span className="text-red-300/90">
+            Showing vendor CDRs for spike window on <span className="font-semibold text-red-200">{spikeVendor}</span>.
+            Time range is pre-filled from the spike band — adjust above if needed.
+          </span>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
