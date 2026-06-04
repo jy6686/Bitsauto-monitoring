@@ -3351,7 +3351,7 @@ function SipErrorsTab() {
                 {displayRowCount !== null && (
                   <span data-testid="sip-errors-export-row-count" className="flex items-center gap-1 text-muted-foreground/50">
                     · {displayRowCountIsEstimate ? "~" : ""}{displayRowCount} rows
-                    {isCustomDateRange && countLoading && (
+                    {!!countQueryKey && countLoading && (
                       <Loader2 data-testid="sip-errors-count-spinner" className="h-3 w-3 animate-spin" />
                     )}
                   </span>
@@ -3368,7 +3368,7 @@ function SipErrorsTab() {
                 {displayRowCount !== null && (
                   <span data-testid="sip-errors-export-row-count" className="flex items-center gap-1 text-muted-foreground/25">
                     · {displayRowCountIsEstimate ? "~" : ""}{displayRowCount} rows
-                    {isCustomDateRange && countLoading && (
+                    {!!countQueryKey && countLoading && (
                       <Loader2 data-testid="sip-errors-count-spinner" className="h-3 w-3 animate-spin" />
                     )}
                   </span>
