@@ -189,6 +189,82 @@ export async function buildCarrierSnapshotCSV(opts: {
   return { csv: lines.join('\n'), rowCount: filtered.length };
 }
 
+// ── Carrier Reconciliation — Full Report CSV (summary block + CDR rows) ────────
+
+export async function buildCarrierFullReportCSV(opts: {
+  reconId: number;
+}): Promise<{ csv: string; rowCount: number; filename: string }> {
+  const [run, callerMap] = await Promise.all([
+    storage.getCarrierReconciliation(opts.reconId),
+    buildCdrCallerMap(),
+  ]);
+
+  if (!run) throw new Error(`Reconciliation run #${opts.reconId} not found`);
+
+  const snapRows = await fetchSnapshotRows({
+    iTariff:     run.iTariff     ?? undefined,
+    periodStart: run.periodStart ?? undefined,
+    periodEnd:   run.periodEnd   ?? undefined,
+  });
+
+  const lines: string[] = [];
+
+  lines.push('# RECONCILIATION SUMMARY');
+  lines.push(`# Generated: ${new Date().toISOString()}`);
+  lines.push('field,value');
+  lines.push(`id,${run.id}`);
+  lines.push(`carrier_name,${escapeCSV(run.carrierName)}`);
+  lines.push(`period_start,${escapeCSV(run.periodStart ?? '')}`);
+  lines.push(`period_end,${escapeCSV(run.periodEnd ?? '')}`);
+  lines.push(`invoice_ref,${escapeCSV(run.invoiceRef ?? '')}`);
+  lines.push(`invoice_date,${escapeCSV(run.invoiceDate ?? '')}`);
+  lines.push(`carrier_total,${fmtNum(run.carrierTotal, 4)}`);
+  lines.push(`sippy_total,${fmtNum(run.sippyTotal, 4)}`);
+  lines.push(`reproduced_total,${fmtNum(run.reproducedTotal, 4)}`);
+  lines.push(`snapshot_total,${fmtNum(run.snapshotTotal, 4)}`);
+  lines.push(`delta_carrier_vs_reproduced,${fmtNum(run.deltaCarrierVsReproduced, 4)}`);
+  lines.push(`delta_carrier_vs_sippy,${fmtNum(run.deltaCarrierVsSippy, 4)}`);
+  lines.push(`discrepancy_count,${run.discrepancyCount ?? 0}`);
+  lines.push(`status,${escapeCSV(run.status)}`);
+  lines.push(`notes,${escapeCSV(run.notes ?? '')}`);
+  lines.push(`created_at,${run.createdAt ? new Date(run.createdAt).toISOString() : ''}`);
+
+  lines.push('');
+  lines.push('# CDR SNAPSHOT');
+
+  const headers = [
+    'cut_id', 'start_time', 'cli', 'cld', 'duration',
+    'our_cost', 'vendor_billed', 'discrepancy_usd', 'match_status',
+    'cdr_id', 'vendor_name', 'tariff', 'prefix',
+  ];
+  lines.push(headers.join(','));
+
+  for (const r of snapRows) {
+    const cli = r.cdrId ? (callerMap.get(r.cdrId) ?? '') : '';
+    lines.push([
+      escapeCSV(String(r.id)),
+      escapeCSV(r.cdrStartTime ?? ''),
+      escapeCSV(cli),
+      escapeCSV(r.callee ?? ''),
+      String(r.durationSecs ?? ''),
+      fmtNum(r.reproducedCost),
+      fmtNum(r.actualCost),
+      fmtNum(r.delta),
+      escapeCSV(r.verificationStatus),
+      escapeCSV(r.cdrId ?? ''),
+      escapeCSV(run.carrierName),
+      escapeCSV(r.iTariff ?? ''),
+      escapeCSV(r.prefix ?? ''),
+    ].join(','));
+  }
+
+  const carrierSlug = run.carrierName.replace(/[^a-zA-Z0-9]/g, '-');
+  const periodSlug  = run.periodStart ?? 'all';
+  const filename    = `recon-full-${carrierSlug}-${periodSlug}-id${run.id}.csv`;
+
+  return { csv: lines.join('\n'), rowCount: snapRows.length, filename };
+}
+
 // ── Carrier Reconciliation — Summary-level CSV ─────────────────────────────────
 
 export async function buildCarrierReconSummaryCSV(opts: {

@@ -139,7 +139,7 @@ export default function CarrierReconciliationPage() {
   const [filterPeriodStart, setFilterPeriodStart] = useState("");
   const [filterPeriodEnd, setFilterPeriodEnd]     = useState("");
   const [exporting, setExporting]           = useState<'csv' | 'pdf' | null>(null);
-  const [exportingDetail, setExportingDetail] = useState<'csv' | 'pdf' | null>(null);
+  const [exportingDetail, setExportingDetail] = useState<'csv' | 'pdf' | 'full-csv' | null>(null);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [emailForm, setEmailForm] = useState({
     to: '', subject: 'Carrier Reconciliation Report', message: '', format: 'pdf' as 'pdf' | 'csv', mode: 'cdr' as 'cdr' | 'summary',
@@ -208,19 +208,24 @@ export default function CarrierReconciliationPage() {
     },
   });
 
-  async function handleDetailExport(type: 'csv' | 'pdf') {
+  async function handleDetailExport(type: 'csv' | 'pdf' | 'full-csv') {
     if (!detail) return;
     setExportingDetail(type);
     try {
-      const base = type === 'csv'
-        ? '/api/billing/reconciliation/export/csv'
-        : '/api/billing/reconciliation/export/pdf';
-      const url = buildExportUrl(base, {
-        iTariff:     detail.iTariff || undefined,
-        periodStart: detail.periodStart || undefined,
-        periodEnd:   detail.periodEnd || undefined,
-        mode:        type === 'csv' ? 'cdr' : undefined,
-      });
+      let url: string;
+      if (type === 'full-csv') {
+        url = `/api/billing/reconciliation/export/csv-full?reconId=${detail.id}`;
+      } else {
+        const base = type === 'csv'
+          ? '/api/billing/reconciliation/export/csv'
+          : '/api/billing/reconciliation/export/pdf';
+        url = buildExportUrl(base, {
+          iTariff:     detail.iTariff || undefined,
+          periodStart: detail.periodStart || undefined,
+          periodEnd:   detail.periodEnd || undefined,
+          mode:        type === 'csv' ? 'cdr' : undefined,
+        });
+      }
       const res = await fetch(url);
       const ct = res.headers.get('content-type') ?? '';
       if (ct.includes('application/json')) {
@@ -239,13 +244,15 @@ export default function CarrierReconciliationPage() {
         const cd = res.headers.get('content-disposition') ?? '';
         const carrier = detail.carrierName.replace(/\s+/g, '-');
         const period = detail.periodStart ?? 'all';
-        const fallback = `recon-${carrier}-${period}.${type}`;
+        const ext = type === 'pdf' ? 'pdf' : 'csv';
+        const fallback = `recon-${carrier}-${period}.${ext}`;
         const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? fallback;
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = fn;
         a.click();
-        toast({ title: type === 'csv' ? 'CSV exported' : 'PDF report exported' });
+        const label = type === 'full-csv' ? 'Full Report CSV exported' : type === 'csv' ? 'CSV exported' : 'PDF report exported';
+        toast({ title: label });
       }
     } catch (e: any) {
       toast({ title: 'Export failed', description: e.message, variant: 'destructive' });
@@ -836,6 +843,13 @@ export default function CarrierReconciliationPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  data-testid="button-detail-download-full-csv"
+                  onClick={() => handleDetailExport('full-csv')}
+                >
+                  <FileSpreadsheet className="h-4 w-4 mr-2 text-blue-400" />
+                  Full Report CSV
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   data-testid="button-detail-download-csv"
                   onClick={() => handleDetailExport('csv')}

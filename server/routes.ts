@@ -29412,6 +29412,25 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // GET /api/billing/reconciliation/export/csv-full — single-run full report (summary block + CDR rows)
+  app.get('/api/billing/reconciliation/export/csv-full', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { buildCarrierFullReportCSV, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
+      const reconId = req.query.reconId ? Number(req.query.reconId) : NaN;
+      if (isNaN(reconId)) return res.status(400).json({ error: 'reconId query parameter is required' });
+      const { csv, rowCount, filename } = await buildCarrierFullReportCSV({ reconId });
+      if (rowCount > LARGE_EXPORT_THRESHOLD) {
+        const token = storeTempFile(csv, filename, 'text/csv');
+        return res.json({ large: true, token, rowCount, filename });
+      }
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/billing/reconciliation/export/pdf', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { buildCarrierReconPDF, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
