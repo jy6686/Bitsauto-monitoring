@@ -185,19 +185,97 @@ function ScoreRing({ score }: { score: number }) {
 
 // ── Vendor Card ───────────────────────────────────────────────────────────────
 
-function VendorHistoryChart({ vendorName }: { vendorName: string }) {
-  const { data, isLoading } = useQuery<{ current: VendorHealthScore | null; history: VendorHistoryPoint[] }>({
-    queryKey: ["/api/vendor-health", vendorName],
-    queryFn: () => fetch(`/api/vendor-health/${encodeURIComponent(vendorName)}`).then(r => r.json()),
+function useVendorHistory(vendorName: string) {
+  return useQuery<VendorHistoryPoint[]>({
+    queryKey: ["/api/vendor-health", vendorName, "history"],
+    queryFn: () => fetch(`/api/vendor-health/${encodeURIComponent(vendorName)}/history`).then(r => r.json()),
     staleTime: 5 * 60 * 1000,
   });
+}
 
-  const history = data?.history ?? [];
+function VendorSparkline({ vendorName }: { vendorName: string }) {
+  const { data: history, isLoading } = useVendorHistory(vendorName);
+
+  if (isLoading) {
+    return (
+      <div
+        className="h-10 w-full rounded bg-slate-800/50 animate-pulse"
+        data-testid={`sparkline-loading-${vendorName.replace(/\s+/g, "-")}`}
+      />
+    );
+  }
+
+  if (!history || history.length < 2) {
+    return (
+      <div className="h-10 flex items-center text-[10px] text-slate-600 italic">
+        Trend builds after 2+ scoring cycles
+      </div>
+    );
+  }
+
+  // Aggregate into one point per calendar day (latest sample wins), then take last 7 days.
+  const byDay = new Map<string, { isoDate: string; label: string; score: number; rawAt: string }>();
+  for (const p of history) {
+    const d = new Date(p.scoredAt);
+    const isoDate = d.toISOString().slice(0, 10); // "YYYY-MM-DD"
+    const label = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const existing = byDay.get(isoDate);
+    if (!existing || p.scoredAt > existing.rawAt) {
+      // Keep raw overallScore — format only at display time so tooltip shows exact value
+      byDay.set(isoDate, { isoDate, label, score: p.overallScore, rawAt: p.scoredAt });
+    }
+  }
+  const chartData = Array.from(byDay.values())
+    .sort((a, b) => a.isoDate.localeCompare(b.isoDate))
+    .slice(-7);
+
+  const minScore = Math.min(...chartData.map(d => d.score));
+  const isLow = minScore < 50;
+  const lineColor = isLow ? "#ef4444" : minScore < 75 ? "#eab308" : "#6366f1";
+
+  return (
+    <div
+      className="mt-2"
+      data-testid={`sparkline-${vendorName.replace(/\s+/g, "-")}`}
+    >
+      <div className="text-[9px] text-slate-600 uppercase tracking-wide mb-0.5">7-day trend</div>
+      <ResponsiveContainer width="100%" height={40}>
+        <LineChart data={chartData} margin={{ top: 2, right: 4, left: 4, bottom: 2 }}>
+          {/* Hidden XAxis binds the tooltip label to the "label" field (locale date string) */}
+          <XAxis dataKey="label" hide />
+          <RechartsTooltip
+            contentStyle={{
+              background: "#0f172a",
+              border: "1px solid #334155",
+              borderRadius: 4,
+              fontSize: 11,
+              padding: "4px 8px",
+            }}
+            labelStyle={{ color: "#94a3b8", fontSize: 10 }}
+            formatter={(val: number) => [val.toFixed(1), "Score"]}
+          />
+          <Line
+            type="monotone"
+            dataKey="score"
+            stroke={lineColor}
+            strokeWidth={1.5}
+            dot={{ r: 2, fill: lineColor, strokeWidth: 0 }}
+            activeDot={{ r: 3.5, fill: lineColor, strokeWidth: 1, stroke: "#0f172a" }}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function VendorHistoryChart({ vendorName }: { vendorName: string }) {
+  const { data: history, isLoading } = useVendorHistory(vendorName);
 
   if (isLoading) {
     return <div className="h-28 flex items-center justify-center text-xs text-slate-600">Loading history…</div>;
   }
-  if (history.length < 2) {
+  if (!history || history.length < 2) {
     return <div className="h-10 text-[11px] text-slate-600 italic">Score history builds after 2+ compute cycles (every 15 min).</div>;
   }
 
@@ -294,6 +372,9 @@ function VendorCard({ vendor }: { vendor: VendorHealthScore }) {
             <SubScore label="Fraud"       score={vendor.fraudScore}       weight={20} icon={Shield} />
             <SubScore label="Margin"      score={vendor.marginScore}      weight={15} icon={DollarSign} />
           </div>
+
+          {/* Inline 7-day sparkline — always visible */}
+          <VendorSparkline vendorName={vendor.vendorName} />
         </div>
 
         <button
