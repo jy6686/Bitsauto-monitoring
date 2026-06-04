@@ -3383,11 +3383,15 @@ function SipErrorsTab() {
               >
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
-                {displayRowCount !== null && (
-                  <span data-testid="sip-errors-export-row-count" className="flex items-center gap-1 text-muted-foreground/50">
-                    · {displayRowCountIsEstimate ? "~" : ""}{displayRowCount} rows
-                    {!!countQueryKey && countLoading && (
-                      <Loader2 data-testid="sip-errors-count-spinner" className="h-3 w-3 animate-spin" />
+                {!!countQueryKey && (
+                  <span
+                    data-testid="sip-errors-count-badge"
+                    className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none"
+                  >
+                    {countLoading ? (
+                      <Loader2 data-testid="sip-errors-count-spinner" className="h-2.5 w-2.5 animate-spin" />
+                    ) : (
+                      <span data-testid="sip-errors-export-row-count">{countData?.count ?? "?"} rows</span>
                     )}
                   </span>
                 )}
@@ -3400,11 +3404,15 @@ function SipErrorsTab() {
               >
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
-                {displayRowCount !== null && (
-                  <span data-testid="sip-errors-export-row-count" className="flex items-center gap-1 text-muted-foreground/25">
-                    · {displayRowCountIsEstimate ? "~" : ""}{displayRowCount} rows
-                    {!!countQueryKey && countLoading && (
-                      <Loader2 data-testid="sip-errors-count-spinner" className="h-3 w-3 animate-spin" />
+                {!!countQueryKey && (
+                  <span
+                    data-testid="sip-errors-count-badge"
+                    className="inline-flex items-center gap-1 rounded-full bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/40 leading-none"
+                  >
+                    {countLoading ? (
+                      <Loader2 data-testid="sip-errors-count-spinner" className="h-2.5 w-2.5 animate-spin opacity-40" />
+                    ) : (
+                      <span data-testid="sip-errors-export-row-count">{countData?.count ?? "?"} rows</span>
                     )}
                   </span>
                 )}
