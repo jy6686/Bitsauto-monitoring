@@ -888,6 +888,180 @@ function AccountAlertHistory({ accountId, accountName }: { accountId: number; ac
   );
 }
 
+// ─── Per-Account Balance Thresholds Panel ─────────────────────────────────────
+
+function AccountThresholdsPanel({ accountId, accountName }: { accountId: number; accountName: string }) {
+  const [open, setOpen] = useState(false);
+  const { role } = useAuth();
+  const canEdit = role === 'admin' || role === 'management';
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<Record<string, string>>({});
+
+  const { data, isLoading } = useQuery<{ thresholds: any[] }>({
+    queryKey: ['/api/balance-alert-thresholds'],
+    staleTime: 30_000,
+    enabled: open,
+  });
+
+  const thresholds = data?.thresholds ?? [];
+  const accountThresholds = thresholds.filter((t: any) => String(t.accountId) === String(accountId));
+  const globals = thresholds.filter((t: any) => !t.accountId);
+  const hasOverrides = accountThresholds.length > 0;
+
+  const saveMut = useMutation({
+    mutationFn: (body: { severity: string; thresholdUsd: number; accountId: string; accountName: string }) =>
+      apiRequest('POST', '/api/balance-alert-thresholds', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Threshold saved', description: `Custom threshold set for ${accountName}.` });
+      setEditing({});
+    },
+    onError: (e: any) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/balance-alert-thresholds/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Override removed', description: 'Global defaults now apply to this account.' });
+    },
+    onError: (e: any) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const handleResetAll = async () => {
+    await Promise.all(accountThresholds.map((t: any) => deleteMut.mutateAsync(t.id)));
+  };
+
+  return (
+    <div className="border-t border-border/40 mt-2 pt-2">
+      <button
+        data-testid={`button-toggle-thresholds-${accountId}`}
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        <TriangleAlert className="w-3 h-3" />
+        Balance thresholds
+        {hasOverrides && (
+          <span className="ml-1 px-1.5 py-0 rounded text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+            custom
+          </span>
+        )}
+        {open ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-2">
+          {isLoading ? (
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" /> Loading…
+            </p>
+          ) : (
+            <>
+              <p className="text-[10px] text-muted-foreground">
+                {hasOverrides
+                  ? 'Custom thresholds are active for this account. Blank levels inherit global defaults.'
+                  : 'No per-account overrides — global defaults apply. Enter a value to add a custom threshold.'}
+              </p>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                {SEVERITIES.map(({ key, label, color, bgCls }) => {
+                  const override = accountThresholds.find((t: any) => t.severity === key);
+                  const global   = globals.find((t: any) => t.severity === key);
+                  const editKey  = key;
+                  const editVal  = editing[editKey];
+                  const displayVal = editVal !== undefined ? editVal : (override ? String(override.thresholdUsd) : '');
+                  const placeholder = global
+                    ? `global: $${global.thresholdUsd}`
+                    : (key === 'warning' ? '100' : key === 'urgent' ? '50' : '10');
+
+                  return (
+                    <div key={key} className={`p-2 rounded-lg border ${bgCls}`}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className={`text-[9px] font-bold uppercase tracking-wide ${color}`}>{label}</span>
+                        {override && canEdit && (
+                          <button
+                            data-testid={`button-delete-acct-threshold-${accountId}-${key}`}
+                            onClick={() => deleteMut.mutate(override.id)}
+                            disabled={deleteMut.isPending}
+                            className="text-muted-foreground/50 hover:text-red-400 transition-colors disabled:opacity-40"
+                            title="Remove override — fall back to global"
+                          >
+                            <Trash2 className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {canEdit ? (
+                        <div className="flex items-center gap-0.5">
+                          <span className="text-[10px] text-muted-foreground shrink-0">$</span>
+                          <Input
+                            data-testid={`input-acct-threshold-${accountId}-${key}`}
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={displayVal}
+                            placeholder={global ? String(global.thresholdUsd) : (key === 'warning' ? '100' : key === 'urgent' ? '50' : '10')}
+                            onChange={e => setEditing(p => ({ ...p, [editKey]: e.target.value }))}
+                            className="h-6 text-[10px] px-1.5 bg-background/60 min-w-0"
+                          />
+                          <button
+                            data-testid={`button-save-acct-threshold-${accountId}-${key}`}
+                            className="h-6 w-6 shrink-0 flex items-center justify-center rounded hover:bg-muted/60 disabled:opacity-40 transition-colors"
+                            disabled={saveMut.isPending || editVal === undefined || editVal === ''}
+                            title="Save threshold"
+                            onClick={() => {
+                              const v = parseFloat(editVal ?? '');
+                              if (isNaN(v) || v < 0) return;
+                              saveMut.mutate({ severity: key, thresholdUsd: v, accountId: String(accountId), accountName });
+                            }}
+                          >
+                            <Save className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <p className={`text-sm font-bold font-mono ${color}`}>
+                          {override ? `$${override.thresholdUsd}` : (
+                            <span className="text-muted-foreground/60 text-[10px] font-normal">
+                              {global ? `$${global.thresholdUsd} (global)` : '—'}
+                            </span>
+                          )}
+                        </p>
+                      )}
+
+                      {canEdit && (
+                        <p className="text-[9px] text-muted-foreground/60 mt-0.5 truncate">
+                          {override
+                            ? `override${global ? ` (global: $${global.thresholdUsd})` : ''}`
+                            : (global ? `global: $${global.thresholdUsd}` : 'no default')}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {hasOverrides && canEdit && (
+                <button
+                  data-testid={`button-reset-thresholds-${accountId}`}
+                  onClick={handleResetAll}
+                  disabled={deleteMut.isPending}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-red-400 transition-colors mt-1 disabled:opacity-40"
+                >
+                  {deleteMut.isPending
+                    ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    : <Trash2 className="w-2.5 h-2.5" />}
+                  Reset to global defaults
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Account Card ─────────────────────────────────────────────────────────────
 
 function AccountCard({ account }: { account: BalanceAccount }) {
@@ -1048,6 +1222,9 @@ function AccountCard({ account }: { account: BalanceAccount }) {
             </Button>
           </div>
         )}
+
+        {/* Per-account balance thresholds (expandable) */}
+        <AccountThresholdsPanel accountId={account.iAccount} accountName={account.username} />
 
         {/* Alert history expandable */}
         <AccountAlertHistory accountId={account.iAccount} accountName={account.username} />
