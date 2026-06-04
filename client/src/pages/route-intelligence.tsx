@@ -3735,6 +3735,15 @@ function VendorCompareChart({
   );
 }
 
+interface CdrAnomalyIncident {
+  id: number;
+  title: string;
+  status: string;
+  severity: string;
+  entityName: string | null;
+  openedAt: string;
+}
+
 function CdrAnalyticsPanel() {
   const [window, setWindow] = useState<RiWindow>("4h");
   const [expandedVendor, setExpandedVendor] = useState<string | null>(null);
@@ -3742,6 +3751,18 @@ function CdrAnalyticsPanel() {
   const [compareMode, setCompareMode] = useState(false);
   const [sortKey, setSortKey] = useState<"callCount" | "asr" | "acdSeconds" | "pddMs" | "marginUsd" | "revenueUsd">("callCount");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const { data: openIncidents = [] } = useQuery<CdrAnomalyIncident[]>({
+    queryKey: ["/api/noc/incidents", "cdr_anomaly", "open"],
+    queryFn: () => fetch("/api/noc/incidents?type=cdr_anomaly&status=open").then(r => r.json()),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const incidentsByVendor = new Map<string, CdrAnomalyIncident>();
+  for (const inc of openIncidents) {
+    if (inc.entityName) incidentsByVendor.set(inc.entityName, inc);
+  }
 
   const { data: summaryData, isLoading, refetch, isFetching } = useQuery<{
     vendors: VendorRow[];
@@ -3997,8 +4018,21 @@ function CdrAnalyticsPanel() {
                       }}
                     >
                       <td className="px-3 py-3">
-                        <div className="font-medium text-foreground">{vendor.vendorName}</div>
-                        <div className="text-[10px] text-muted-foreground font-mono">{vendor.answeredCount}/{vendor.callCount} answered</div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-foreground">{vendor.vendorName}</span>
+                          {incidentsByVendor.has(vendor.vendorName) && (
+                            <a
+                              href={`/noc-incidents?search=${encodeURIComponent(vendor.vendorName)}`}
+                              onClick={e => e.stopPropagation()}
+                              data-testid={`ri-vendor-incident-badge-${vendor.vendorName}`}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors whitespace-nowrap"
+                            >
+                              <AlertCircle className="h-2.5 w-2.5" />
+                              Incident Open
+                            </a>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5">{vendor.answeredCount}/{vendor.callCount} answered</div>
                       </td>
                       <td className="px-3 py-3">
                         <span className="font-mono tabular-nums">{vendor.callCount.toLocaleString()}</span>

@@ -477,10 +477,14 @@ function IncidentDetailSheet({ incident, onClose }: { incident: NocIncident | nu
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function NocIncidentsPage() {
+  const [location] = useLocation();
+  const initialSearch = (() => {
+    try { return new URLSearchParams(window.location.search).get("search") ?? ""; } catch { return ""; }
+  })();
   const [activeTab, setActiveTab] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedInc, setSelectedInc] = useState<NocIncident | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
 
   const queryParams = activeTab !== "all" ? `?status=${activeTab}` : "";
   const { data: incidents = [], isFetching } = useQuery<NocIncident[]>({
