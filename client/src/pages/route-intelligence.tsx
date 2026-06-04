@@ -2950,6 +2950,11 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
 type SipExportPreset = 1 | 7 | 30 | "custom";
 
 function SipErrorsTab() {
+  const { user } = useAuth();
+  const userId = user?.id ?? "guest";
+  const lsVendorKey = `sip-errors-filter-vendor-${userId}`;
+  const lsCodeKey = `sip-errors-filter-code-${userId}`;
+
   const [activeWin, setActiveWin] = useState<15 | 60 | 240>(60);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showPrefixHeatmap, setShowPrefixHeatmap] = useState(false);
@@ -2960,9 +2965,48 @@ function SipErrorsTab() {
   const [exportTo, setExportTo] = useState<string>("");
   const [showCustomRange, setShowCustomRange] = useState(false);
 
-  // Export filter state
+  // Export filter state — persisted to localStorage per user.
+  // Start empty; a rehydration effect below populates from the correct user's keys
+  // once the userId is known (useAuth resolves asynchronously).
   const [exportVendor, setExportVendor] = useState<string>("");
   const [exportCode, setExportCode] = useState<string>("");
+
+  // Track which userId we last hydrated for to avoid re-running on unrelated renders
+  // and to gate persistence so we never overwrite real-user keys with guest/empty state.
+  const lastHydratedUserId = useRef<string | null>(null);
+
+  // Rehydrate from localStorage whenever userId resolves or changes
+  useEffect(() => {
+    if (lastHydratedUserId.current === userId) return;
+    lastHydratedUserId.current = userId;
+    setExportVendor(localStorage.getItem(lsVendorKey) ?? "");
+    setExportCode(localStorage.getItem(lsCodeKey) ?? "");
+  }, [userId, lsVendorKey, lsCodeKey]);
+
+  // Persist vendor filter — only after hydration for the current user is complete
+  useEffect(() => {
+    if (lastHydratedUserId.current !== userId) return;
+    if (exportVendor) {
+      localStorage.setItem(lsVendorKey, exportVendor);
+    } else {
+      localStorage.removeItem(lsVendorKey);
+    }
+  }, [exportVendor, lsVendorKey, userId]);
+
+  // Persist code filter — only after hydration for the current user is complete
+  useEffect(() => {
+    if (lastHydratedUserId.current !== userId) return;
+    if (exportCode) {
+      localStorage.setItem(lsCodeKey, exportCode);
+    } else {
+      localStorage.removeItem(lsCodeKey);
+    }
+  }, [exportCode, lsCodeKey, userId]);
+
+  const clearFilters = () => {
+    setExportVendor("");
+    setExportCode("");
+  };
 
   const { data, isLoading, refetch, isFetching } = useQuery<SipErrorsTabData>({
     queryKey: ["/api/route-intelligence/sip-errors"],
@@ -3104,6 +3148,17 @@ function SipErrorsTab() {
                 <option key={c} value={String(c)}>{CODE_FULL[c]}</option>
               ))}
             </select>
+
+            {/* Clear filters link — only shown when a filter is active */}
+            {(exportVendor || exportCode) && (
+              <button
+                data-testid="sip-filter-clear"
+                onClick={clearFilters}
+                className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+              >
+                Clear filters
+              </button>
+            )}
 
             {/* Export button */}
             {exportUrl ? (
