@@ -51,6 +51,7 @@ import LcrAnalyserPage from "@/pages/lcr-analyser";
 import CallFlowSimulatorPage from "@/pages/call-flow-simulator";
 import VendorSlaScorecardPage from "@/pages/vendor-sla-scorecard";
 import CarrierScoringPage from "@/pages/carrier-scoring";
+import VendorHealthPage from "@/pages/vendor-health";
 import CostOptimisationPage from "@/pages/cost-optimisation";
 import MultiSwitchPage from "@/pages/multi-switch";
 import WhatsappAlertsPage from "@/pages/whatsapp-alerts";
@@ -454,6 +455,9 @@ function Router() {
       </Route>
       <Route path="/carrier-scoring">
         {() => <ProtectedRoute component={CarrierScoringPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="carrier_scoring" />}
+      </Route>
+      <Route path="/vendor-health">
+        {() => <ProtectedRoute component={VendorHealthPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
       </Route>
       <Route path="/cost-optimisation">
         {() => <ProtectedRoute component={CostOptimisationPage} requiredRoles={['admin','management','destination_manager']} mgmtFeature="cost_optimisation" />}

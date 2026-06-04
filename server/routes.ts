@@ -71,6 +71,8 @@ import {
   getRouteIntelligenceLastRun,
 } from "./route-intelligence-engine";
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
+import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
+import { refreshVendorAcds } from "./vendor-acd-cache";
 import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
@@ -6097,6 +6099,8 @@ export async function registerRoutes(
       cdrTimeIndex.sort((a, b) => a.ts - b.ts);
 
       cdrCacheUpdatedAt = new Date();
+      // Refresh ACD per vendor for the health engine
+      try { refreshVendorAcds([...cdrCache.values()]); } catch { /* non-fatal */ }
       if (added > 0) {
         console.log(`[cdr-cache] +${added} new records, total=${cdrCache.size} idx=${cdrTimeIndex.length}`);
         // Sample log: show callee format for 3 RECENT CDRs (last 2h) to debug billing matching
@@ -22658,6 +22662,74 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Vendor & Route Health Engine ──────────────────────────────────────────────
+  // Unified 0–100 score per vendor, four sub-dimensions: Quality(35%) Reliability(30%) Fraud(20%) Margin(15%)
+
+  // GET /api/vendor-health — latest scores for all vendors
+  app.get('/api/vendor-health', (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator', 'team_lead'], req, res, next), async (_req: any, res) => {
+    try {
+      const cached = getLatestVendorHealthScores();
+      if (cached.length > 0) return res.json({ scores: cached, lastRunAt: getVendorHealthLastRunAt()?.toISOString() ?? null });
+      // DB fallback: latest score per vendor
+      const rows = await db.execute(drizzleSql`
+        SELECT DISTINCT ON (vendor_name)
+          vendor_name, overall_score, quality_score, reliability_score, fraud_score, margin_score,
+          trend, trend_delta, scored_at, details
+        FROM vendor_health_scores
+        ORDER BY vendor_name, scored_at DESC
+      `);
+      res.json({ scores: rows.rows ?? [], lastRunAt: null });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/vendor-health/:vendorName — full detail + 7-day history
+  app.get('/api/vendor-health/:vendorName', (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator', 'team_lead'], req, res, next), async (req: any, res) => {
+    try {
+      const vendorName = decodeURIComponent(req.params.vendorName);
+      const all = getLatestVendorHealthScores();
+      const current = all.find(s => s.vendorName === vendorName) ?? null;
+      const history = await loadVendorHealthHistory(vendorName);
+      res.json({ current, history });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/vendor-health/:vendorName/history — 7-day score history (backwards compat)
+  app.get('/api/vendor-health/:vendorName/history', (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator', 'team_lead'], req, res, next), async (req: any, res) => {
+    try {
+      const history = await loadVendorHealthHistory(decodeURIComponent(req.params.vendorName));
+      res.json(history);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/vendor-health/recompute — trigger on-demand recompute
+  app.post('/api/vendor-health/recompute', (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator', 'team_lead'], req, res, next), async (_req: any, res) => {
+    try {
+      const scores = await recomputeVendorHealthNow();
+      res.json({ ok: true, count: scores.length, lastRunAt: getVendorHealthLastRunAt()?.toISOString() });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/route-health — latest route-level health scores
+  app.get('/api/route-health', (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator', 'team_lead'], req, res, next), async (_req: any, res) => {
+    try {
+      const cached = getLatestRouteHealthScores();
+      res.json({ scores: cached, lastRunAt: getVendorHealthLastRunAt()?.toISOString() ?? null });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/noc/vendor-health-alerts — top 5 critical vendors for NOC strip
+  app.get('/api/noc/vendor-health-alerts', (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator', 'team_lead'], req, res, next), async (_req: any, res) => {
+    try {
+      const all = getLatestVendorHealthScores();
+      const critical = all
+        .filter(s => s.overallScore < 70)
+        .sort((a, b) => a.overallScore - b.overallScore)
+        .slice(0, 5);
+      res.json({ alerts: critical, totalVendors: all.length });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+
   // ── Carrier Health Service ────────────────────────────────────────────────────
   // Single source of truth for per-carrier ASR/ACD/PDD/MOS, derived from the CDR cache.
   // 5-minute TTL — zero Sippy XML-RPC calls. Also fires carrier-typed incidents when
@@ -32483,6 +32555,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // ── SIP OPTIONS Vendor Probe routes ───────────────────────────────────────
   registerVendorProbeRoutes(app);
   initVendorProbeScheduler();
+
+  // ── Vendor & Route Health Engine ────────────────────────────────────────────
+  initVendorHealthEngine();
 
   return httpServer;
 }

@@ -3584,3 +3584,55 @@ export const rtpQualityHistory = pgTable("rtp_quality_history", {
   snappedAt:     timestamp("snapped_at").defaultNow().notNull(),
 });
 export type RtpQualityHistory = typeof rtpQualityHistory.$inferSelect;
+
+// ── Vendor Health Scores — unified 0–100 score per vendor ─────────────────────
+// Computed every 15 min by vendor-health-engine.ts.
+// Four sub-dimensions: quality (ASR/ACD/PDD), reliability (OPTIONS/SIP errors),
+// fraud (FAS spike rate / blacklist), margin (cost vs target).
+// trend: 'improving' | 'stable' | 'declining' (based on 24h delta)
+export const vendorHealthScores = pgTable("vendor_health_scores", {
+  id:               serial("id").primaryKey(),
+  vendorName:       varchar("vendor_name",      { length: 128 }).notNull(),
+  scoredAt:         timestamp("scored_at").defaultNow().notNull(),
+  overallScore:     real("overall_score").notNull(),      // 0–100
+  qualityScore:     real("quality_score"),               // 0–100 (ASR/ACD/PDD weighted)
+  reliabilityScore: real("reliability_score"),           // 0–100 (OPTIONS uptime + SIP error inverse)
+  fraudScore:       real("fraud_score"),                 // 0–100 (FAS inverse + blacklist inverse)
+  marginScore:      real("margin_score"),                // 0–100 (margin vs target)
+  trend:            varchar("trend", { length: 16 }),    // 'improving' | 'stable' | 'declining'
+  trendDelta:       real("trend_delta"),                 // score delta vs 24h ago
+  details:          jsonb("details").$type<{
+    asr?: number | null;
+    acd?: number | null;
+    pddMs?: number | null;
+    optionsUptimePct?: number | null;
+    sipErrorRate503?: number | null;
+    sipErrorRate408?: number | null;
+    fasCount24h?: number | null;
+    blacklistHits?: number | null;
+    marginPct?: number | null;
+  }>(),
+});
+
+export type VendorHealthScore       = typeof vendorHealthScores.$inferSelect;
+export type InsertVendorHealthScore = typeof vendorHealthScores.$inferInsert;
+
+// ── Route Health Scores — composite health per routing group ──────────────────
+// Computed from vendor_health_scores weighted by traffic share.
+export const routeHealthScores = pgTable("route_health_scores", {
+  id:                serial("id").primaryKey(),
+  routingGroupId:    varchar("routing_group_id",   { length: 64 }).notNull(),
+  routingGroupName:  varchar("routing_group_name", { length: 256 }).notNull(),
+  scoredAt:          timestamp("scored_at").defaultNow().notNull(),
+  overallScore:      real("overall_score").notNull(),
+  vendorCount:       integer("vendor_count").notNull().default(0),
+  lowestVendorScore: real("lowest_vendor_score"),
+  details:           jsonb("details").$type<Array<{
+    vendorName: string;
+    score: number;
+    weight: number;
+  }>>(),
+});
+
+export type RouteHealthScore       = typeof routeHealthScores.$inferSelect;
+export type InsertRouteHealthScore = typeof routeHealthScores.$inferInsert;

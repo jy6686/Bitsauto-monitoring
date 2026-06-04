@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
-  ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, Line, LineChart,
+  Tooltip, ResponsiveContainer, ReferenceLine, Legend, ComposedChart, Bar, Line, LineChart,
 } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";

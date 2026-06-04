@@ -632,6 +632,29 @@ async function _processAutoTriggerQueue(): Promise<void> {
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 
+
+// Vendor health scores injected lazily to avoid circular deps
+async function loadVendorHealthContext(): Promise<string> {
+  try {
+    const { getLatestVendorHealthScores } = await import('../../vendor-health-engine');
+    const scores = getLatestVendorHealthScores();
+    if (scores.length === 0) return '';
+    const critical = scores.filter(s => s.overallScore < 50);
+    const declining = scores.filter(s => s.trend === 'declining');
+    const lines = [
+      `Vendor Health Engine — ${scores.length} vendors scored:`,
+      ...scores.slice(0, 10).map(s =>
+        `  ${s.vendorName}: score=${s.overallScore.toFixed(0)} (Q=${s.qualityScore?.toFixed(0)} R=${s.reliabilityScore?.toFixed(0)} F=${s.fraudScore?.toFixed(0)} M=${s.marginScore?.toFixed(0)}) trend=${s.trend}`
+      ),
+    ];
+    if (critical.length > 0) lines.push(`CRITICAL vendors (<50): ${critical.map(s => s.vendorName).join(', ')}`);
+    if (declining.length > 0) lines.push(`DECLINING vendors: ${declining.map(s => s.vendorName).join(', ')}`);
+    return lines.join('\n');
+  } catch {
+    return '';
+  }
+}
+
 export async function runRouteCopilot(
   vendorPrefixData?: any,
 ): Promise<CopilotResult> {
@@ -641,7 +664,7 @@ export async function runRouteCopilot(
 
   // ── Load all telemetry in parallel ─────────────────────────────────────────
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles, sipErrors, snapshotSignals, testEvidence, voiceQuality] = await Promise.all([
+  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles, sipErrors, snapshotSignals, testEvidence, voiceQuality, vendorHealthCtx] = await Promise.all([
     db.select().from(carrierQualityScores).orderBy(desc(carrierQualityScores.lastComputedAt)),
     db.select().from(routingSuggestions).where(
       and(eq(routingSuggestions.status, "pending"), gte(routingSuggestions.createdAt, since6h))
@@ -652,6 +675,7 @@ export async function runRouteCopilot(
     getCopilotVendorSignals().catch(() => new Map()), // route quality snapshots — non-fatal
     loadRouteTestEvidence(6).catch(() => [] as Awaited<ReturnType<typeof loadRouteTestEvidence>>),
     buildVoiceQualityDigest().catch(() => null as VoiceQualityDigest | null),
+    loadVendorHealthContext().catch(() => ''),
   ]);
 
   // Merge snapshot signals into carrier scores to improve copilot accuracy.
@@ -788,7 +812,7 @@ You receive route recommendations computed by a rule-based system and must:
 Output MUST be valid JSON. The "recommendations" array MUST have ${baseline.length} items (same order).
 Risk values: only "low", "medium", or "high".
 Confidence: integer 0–100 (you may adjust ±5 based on telecom best-practice judgement).
-${voiceQualityContext}`;
+${voiceQualityContext}${vendorHealthCtx ? `\n\nVendor & Route Health Engine (0–100 score, computed from ASR/PDD/OPTIONS uptime/FAS/margin — use as primary quality ranking signal):\n${vendorHealthCtx}` : ""}`;
 
     // ── Build SIP error telemetry context for the AI ──────────────────────────
     let sipContext = "";

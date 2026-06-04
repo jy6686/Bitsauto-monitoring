@@ -100,6 +100,7 @@ const DOMAINS: Domain[] = [
         { href: '/vendor-sla-scorecard',      label: 'SLA Scorecard',      desc: 'Carrier SLA performance',   icon: HeartPulse },
         { href: '/carrier-scoring',           label: 'Carrier Scoring',    desc: 'Quality benchmarks',        icon: BarChart3 },
         { href: '/vendor-stability-timeline', label: 'Stability Timeline', desc: 'Vendor stability history',  icon: Activity },
+        { href: '/vendor-health',           label: 'Health Engine',      desc: 'Unified 0–100 vendor & route health score', icon: HeartPulse },
       ]},
       { label: 'Routing', desc: 'Routing groups, LCR analysis, simulators and route testing', icon: GitBranch, items: [
         { href: '/routing-manager',     label: 'Routing Manager', desc: 'Groups, connections & translations', icon: GitBranch },

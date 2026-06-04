@@ -547,6 +547,61 @@ function nextInColorClass(overdueSecs: number): string {
   return "";
 }
 
+// ── Vendor Health Alert Strip ─────────────────────────────────────────────────
+
+interface VendorHealthAlert {
+  vendorName: string;
+  overallScore: number;
+  trend: string;
+  trendDelta: number;
+}
+
+function VendorHealthAlertStrip() {
+  const { data } = useQuery<{ alerts: VendorHealthAlert[]; totalVendors: number }>({
+    queryKey: ["/api/noc/vendor-health-alerts"],
+    refetchInterval: 5 * 60_000,
+  });
+  const alerts = data?.alerts ?? [];
+  if (alerts.length === 0) return null;
+  const hasCritical = alerts.some(a => a.overallScore < 50);
+  return (
+    <div className={cn(
+      "flex-shrink-0 border-b px-4 py-1.5 flex items-center gap-3 overflow-hidden",
+      hasCritical
+        ? "border-red-900/60 bg-red-950/30"
+        : "border-yellow-900/40 bg-yellow-950/20",
+    )} data-testid="vendor-health-alert-strip">
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {hasCritical ? <Pulse color="red" size={1} /> : <Pulse color="amber" size={1} />}
+        <Activity className={cn("h-3.5 w-3.5 flex-shrink-0", hasCritical ? "text-red-400" : "text-yellow-400")} />
+        <span className={cn("text-[10px] font-bold uppercase tracking-widest", hasCritical ? "text-red-400" : "text-yellow-400")}>
+          Vendor Health
+        </span>
+      </div>
+      <div className="flex items-center gap-2 overflow-x-auto flex-1">
+        {alerts.map(a => (
+          <div
+            key={a.vendorName}
+            data-testid={`vendor-health-alert-${a.vendorName.replace(/\s+/g, "-")}`}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-0.5 rounded border text-[10px] font-mono whitespace-nowrap flex-shrink-0",
+              a.overallScore < 50
+                ? "border-red-500/30 bg-red-500/10 text-red-300"
+                : "border-yellow-500/30 bg-yellow-500/10 text-yellow-300",
+            )}
+          >
+            <span className="font-semibold">{a.vendorName}</span>
+            <span className="opacity-70">{Math.round(a.overallScore)}</span>
+            {a.trend === "declining" && <TrendingDown className="h-3 w-3 text-red-400" />}
+          </div>
+        ))}
+      </div>
+      <a href="/vendor-health" className="text-[10px] text-slate-500 hover:text-slate-300 flex-shrink-0 underline">View All</a>
+    </div>
+  );
+}
+
+
 function CopilotAlertStrip({
   summary,
   canApply,
@@ -1318,6 +1373,9 @@ export default function NocDashboardPage() {
           onDismiss={(certId) => setDismissedSslCerts(prev => new Set([...prev, certId]))}
         />
       </AnimatePresence>
+
+      {/* ── Vendor Health Alert Strip ── */}
+      <VendorHealthAlertStrip />
 
       {/* ── Copilot Alert Strip ── */}
       <CopilotAlertStrip

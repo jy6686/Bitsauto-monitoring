@@ -154,6 +154,48 @@ export async function syncRoutingCache(force = false): Promise<{ ok: boolean; me
       console.warn("[routing-cache] Connection sync skipped:", e.message);
     }
 
+    // ── 4. Enrich Routing Groups with member vendor names ──────────────────
+    // For each cached routing group, fetch members from Sippy and patch raw_json
+    // to include a `memberVendors` string[] field. This allows the vendor health
+    // engine to aggregate scores only for vendors assigned to each group.
+    try {
+      const rgRows = await client.query(
+        `SELECT i_routing_group, raw_json FROM routing_groups_cache`
+      );
+      const connRows = await client.query(
+        `SELECT i_connection, vendor_name FROM connection_vendor_cache2`
+      );
+      const connVendorMap = new Map<number, string>();
+      for (const r of connRows.rows) {
+        if (r.i_connection != null && r.vendor_name)
+          connVendorMap.set(Number(r.i_connection), r.vendor_name);
+      }
+      let memberSyncCount = 0;
+      for (const rg of rgRows.rows) {
+        try {
+          const mResult = await sippy.listRoutingGroupMembers(username, password, rg.i_routing_group, { portalUrl });
+          const rawMembers = mResult.members ?? [];
+          const memberVendors = [...new Set(
+            rawMembers
+              .map((m: any) => connVendorMap.get(Number(m.iConnection)))
+              .filter((v): v is string => !!v)
+          )];
+          // Merge memberVendors into existing raw_json
+          let existing: any = {};
+          try { existing = JSON.parse(rg.raw_json ?? '{}'); } catch { /* ignore */ }
+          existing.memberVendors = memberVendors;
+          await client.query(
+            `UPDATE routing_groups_cache SET raw_json=$1 WHERE i_routing_group=$2`,
+            [JSON.stringify(existing), rg.i_routing_group]
+          );
+          memberSyncCount++;
+        } catch { /* skip per-group failures — members not critical */ }
+      }
+      if (memberSyncCount > 0) console.log(`[routing-cache] Enriched ${memberSyncCount} routing groups with member vendor names`);
+    } catch (e: any) {
+      console.warn("[routing-cache] Member vendor sync skipped:", e.message);
+    }
+
     // ── Update meta ─────────────────────────────────────────────────────────
     lastSyncAt = new Date();
     await client.query(
