@@ -34,6 +34,7 @@ export interface SippyActionParams {
   method:    string;
   params:    Record<string, unknown>;
   note:      string;
+  noOp?:     boolean;
 }
 
 export interface ExecutionResult {
@@ -118,11 +119,40 @@ export function buildSippyParams(accountId: string, actionType: ActionType): Sip
   }
 }
 
+// ── Read original routing_plan_id from Sippy before a ROUTE_BLOCK write ──────
+// Calls getAccountInfo and extracts routing_plan_id from the XML response.
+// Returns the integer ID if set, null if the account has no routing plan, or
+// undefined on any Sippy communication error (so we can distinguish "null" from
+// "couldn't fetch").
+export async function fetchOriginalRoutingPlanId(accountId: string): Promise<number | null | undefined> {
+  try {
+    const iAccount = parseInt(accountId, 10);
+    if (isNaN(iAccount)) return undefined;
+    const result = await callSippyXmlRpc('getAccountInfo', { i_account: iAccount });
+    if (!result.success || !result.rawBody) return undefined;
+    // XML-RPC struct member: <name>routing_plan_id</name><value><int>N</int></value>
+    // or <value><nil/></value> / missing member when account has no plan.
+    const match = result.rawBody.match(
+      /<name>routing_plan_id<\/name>\s*<value>\s*(?:<(?:int|i4)>(\d+)<\/(?:int|i4)>|<nil\/>)?\s*<\/value>/,
+    );
+    if (!match) return null; // member absent — account has no routing plan
+    if (match[1] !== undefined) return parseInt(match[1], 10);
+    return null; // explicit nil — no routing plan
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Rollback params ───────────────────────────────────────────────────────────
 // Derives the inverse Sippy operation for each action type.
-// ROUTE_BLOCK is not automatically reversible (the original routing_plan_id is
-// not stored), so it returns method:'none' and requires manual intervention.
-export function buildRollbackParams(accountId: string, actionType: ActionType): SippyActionParams {
+// For ROUTE_BLOCK: reads original_routing_plan_id from storedParams (captured
+// at apply-time via read-before-write). Falls back to method:'none' only when
+// the ID was never stored (legacy action) or the account had no plan (no-op).
+export function buildRollbackParams(
+  accountId:    string,
+  actionType:   ActionType,
+  storedParams?: Record<string, unknown>,
+): SippyActionParams {
   switch (actionType) {
     case 'RATE_LIMIT':
       return {
@@ -138,13 +168,34 @@ export function buildRollbackParams(accountId: string, actionType: ActionType): 
         params: { i_account: accountId, ip_auth_enabled: 0 },
         note:   'Rollback: Disable IP-based authentication. Account reverts to standard auth.',
       };
-    case 'ROUTE_BLOCK':
+    case 'ROUTE_BLOCK': {
+      if (!storedParams || !('original_routing_plan_id' in storedParams)) {
+        // Legacy action — original ID was never captured. Require manual restore.
+        return {
+          accountId,
+          method: 'none',
+          params: {},
+          note:   'Rollback: Original routing plan ID was not recorded (action predates automatic capture). Manual restore in Sippy required.',
+        };
+      }
+      const originalPlanId = storedParams.original_routing_plan_id;
+      if (originalPlanId === null || originalPlanId === undefined) {
+        // Account had no routing plan before the block — nothing to restore.
+        return {
+          accountId,
+          method: 'none',
+          params: {},
+          note:   'No routing plan to restore — account had no routing plan assigned before this action.',
+          noOp:   true,
+        };
+      }
       return {
         accountId,
-        method: 'none',
-        params: {},
-        note:   'Rollback: Routing plan was cleared — original plan ID not stored. Restore manually in Sippy.',
+        method: 'updateAccount',
+        params: { i_account: accountId, routing_plan_id: originalPlanId },
+        note:   `Rollback: Routing plan (ID: ${originalPlanId}) restored for account. Traffic will resume on the original route.`,
       };
+    }
     case 'ACCOUNT_FREEZE':
       return {
         accountId,

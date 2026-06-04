@@ -413,6 +413,15 @@ function UndoModal({
           )}
         </div>
 
+        {summary.noOriginalPlanWarning && (
+          <div className="mx-5 mt-0 mb-0 flex items-start gap-2 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/8 border border-amber-500/25 rounded-lg px-3 py-2.5">
+            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5 text-amber-500" />
+            <span>
+              <span className="font-bold">Original routing plan not recorded —</span> this action was applied before automatic capture was in place. Manual restore in Sippy may be required.
+            </span>
+          </div>
+        )}
+
         <div className="px-5 py-4 space-y-3">
           <div>
             <label className="text-xs font-semibold text-foreground mb-1.5 block">
@@ -472,6 +481,7 @@ function AiRecCard({
   canUndo,
   canApply,
   appliedAt,
+  hasOriginalPlanId,
   mode,
   onDismiss,
   onPin,
@@ -486,6 +496,7 @@ function AiRecCard({
   canUndo: boolean;
   canApply: boolean;
   appliedAt?: string;
+  hasOriginalPlanId?: boolean | null;
   mode: CopilotMode;
   onDismiss: (id: string) => void;
   onPin: (id: string) => void;
@@ -570,11 +581,12 @@ function AiRecCard({
                 <button
                   data-testid={`ai-rec-undo-${index}`}
                   onClick={() => onUndo(rec.id, appliedActionId, {
-                    actionLabel:   rec.action,
-                    destination:   rec.destination,
-                    currentVendor: rec.currentVendor,
-                    targetVendor:  rec.targetVendor,
+                    actionLabel:           rec.action,
+                    destination:           rec.destination,
+                    currentVendor:         rec.currentVendor,
+                    targetVendor:          rec.targetVendor,
                     appliedAt,
+                    noOriginalPlanWarning: hasOriginalPlanId === false,
                   })}
                   title="Undo this action"
                   className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono text-amber-500 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded hover:bg-amber-500/20 transition-colors"
@@ -1098,7 +1110,13 @@ function PendingApprovalPanel() {
 
 // ── AI Copilot Panel ───────────────────────────────────────────────────────────
 
-interface AppliedEntry { actionId: number; verificationState: string; appliedAt?: string }
+interface AppliedEntry {
+  actionId: number;
+  verificationState: string;
+  appliedAt?: string;
+  actionType?: string;
+  hasOriginalPlanId?: boolean | null;
+}
 
 interface UndoSummary {
   actionLabel: string;
@@ -1106,6 +1124,7 @@ interface UndoSummary {
   currentVendor?: string;
   targetVendor?: string;
   appliedAt?: string;
+  noOriginalPlanWarning?: boolean;
 }
 
 function AiCopilotPanel() {
@@ -1127,7 +1146,7 @@ function AiCopilotPanel() {
 
   // Hydrate Undo-eligible actions from the backend on load so Undo buttons
   // are visible for previously applied SUCCESS_CONFIRMED actions across reloads.
-  const { data: appliedActionsData } = useQuery<{ success: boolean; actions: { actionId: number; recId: string; verificationState: string }[] }>({
+  const { data: appliedActionsData } = useQuery<{ success: boolean; actions: { actionId: number; recId: string; verificationState: string; actionType?: string; hasOriginalPlanId?: boolean | null; createdAt?: string }[] }>({
     queryKey: ["/api/ai/route-copilot/applied-actions"],
     staleTime: 60_000,
   });
@@ -1140,7 +1159,13 @@ function AiCopilotPanel() {
       const next = new Map(prev);
       for (const a of appliedActionsData.actions) {
         if (!next.has(a.recId)) {
-          next.set(a.recId, { actionId: a.actionId, verificationState: a.verificationState, appliedAt: (a as any).createdAt ?? undefined });
+          next.set(a.recId, {
+            actionId:         a.actionId,
+            verificationState: a.verificationState,
+            appliedAt:        a.createdAt ?? undefined,
+            actionType:       a.actionType,
+            hasOriginalPlanId: a.hasOriginalPlanId,
+          });
         }
       }
       return next;
@@ -1451,6 +1476,7 @@ function AiCopilotPanel() {
                   applied={!!entry}
                   appliedActionId={entry?.actionId}
                   appliedAt={entry?.appliedAt}
+                  hasOriginalPlanId={entry?.hasOriginalPlanId}
                   canUndo={isManagement && isSuccessConfirmed}
                   canApply={isManagement}
                   mode={result?.mode ?? "rule_based_preview"}

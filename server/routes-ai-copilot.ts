@@ -33,6 +33,7 @@ import {
   buildRollbackParams,
   computeIdempotencyKey,
   executeAction,
+  fetchOriginalRoutingPlanId,
   isExecutionEnabled,
   type ActionType,
   requiresDualApproval,
@@ -340,6 +341,20 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
 
       const sippyParams = buildSippyParams(entityId, actionType);
 
+      // Read-before-write for ROUTE_BLOCK: capture current routing_plan_id so
+      // rollback can restore it. Stored under original_routing_plan_id in sippy_params.
+      // Non-fatal: if Sippy is unreachable the key is omitted (legacy-style record).
+      if (actionType === 'ROUTE_BLOCK') {
+        try {
+          const originalPlanId = await fetchOriginalRoutingPlanId(entityId);
+          if (originalPlanId !== undefined) {
+            (sippyParams.params as Record<string, unknown>).original_routing_plan_id = originalPlanId;
+          }
+        } catch {
+          console.warn('[ai-copilot/apply] Could not fetch original routing_plan_id — rollback will require manual restore');
+        }
+      }
+
       const idempotencyKey = computeIdempotencyKey(
         entityId,
         actionType,
@@ -504,15 +519,19 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
               r.action_type !== "ROLLBACK",
           )
           .map((r: any) => {
-            const ref = r.recommendation_ref ?? {};
+            const ref          = r.recommendation_ref ?? {};
+            const storedParams = r.sippy_params ?? {};
             return {
-              actionId:          r.id,
-              recId:             ref.id ?? null,
-              accountId:         r.account_id,
-              accountName:       r.account_name,
-              actionType:        r.action_type,
-              verificationState: r.verification_state,
-              createdAt:         r.created_at,
+              actionId:             r.id,
+              recId:                ref.id ?? null,
+              accountId:            r.account_id,
+              accountName:          r.account_name,
+              actionType:           r.action_type,
+              verificationState:    r.verification_state,
+              createdAt:            r.created_at,
+              hasOriginalPlanId:    r.action_type === 'ROUTE_BLOCK'
+                ? ('original_routing_plan_id' in storedParams)
+                : null,
             };
           })
           .filter((e: any) => !!e.recId);
@@ -717,6 +736,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
       const rollbackSippy = buildRollbackParams(
         action.account_id,
         action.action_type as ActionType,
+        (action as any).sippy_params ?? undefined,
       );
 
       // Gate: rollback requires live execution — the execution gate must be open.
@@ -729,11 +749,40 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         });
       }
 
-      // Gate: non-reversible action types (ROUTE_BLOCK, MANUAL) have method:'none'.
-      // We must NOT mark the original as rolled_back — operator must restore manually in Sippy.
+      // Gate: method:'none' can mean two things:
+      //   noOp=true  — account had no routing plan before the block; nothing to restore.
+      //                Mark as rolled_back gracefully with no Sippy call needed.
+      //   noOp=false — ID was never stored (legacy) or action type is non-reversible.
+      //                Raise a Critical NOC Incident requiring manual Sippy intervention.
       if (!rollbackSippy.method || rollbackSippy.method === "none") {
+        if (rollbackSippy.noOp) {
+          // Graceful no-op: nothing to restore, but mark the audit trail correctly
+          await createRollbackEntry({
+            originalActionId:  actionId,
+            accountId:         action.account_id,
+            accountName:       action.account_name,
+            rollbackNote:      rollbackSippy.note,
+            sippyResult:       { mode: "executed", success: true, verificationState: "NOT_APPLICABLE", result: null, error: null },
+            executedBy:        actorId,
+            executedByName:    actorName,
+            verificationState: "NOT_APPLICABLE",
+            reason,
+          });
+          await rollbackAction(actionId, actorId, actorName, reason);
+          console.log(`[ai-copilot/rollback] action=${actionId} NOOP — account had no routing plan to restore actor=${actorId}`);
+          return res.json({
+            success:           true,
+            actionId,
+            rollbackNote:      rollbackSippy.note,
+            mode:              "executed",
+            execSuccess:       true,
+            verificationState: "NOT_APPLICABLE",
+            error:             null,
+          });
+        }
+
+        // Genuine failure: NOC incident required
         const errMsg = "This action type cannot be automatically reversed — manual restoration required in Sippy.";
-        // Emit persistent NOC alert so all operators know manual intervention is needed
         try {
           const [inc] = await db.insert(nocIncidents).values({
             title:           `Rollback requires manual action — ${action.account_name} (Action #${actionId})`,
@@ -971,6 +1020,19 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         // ── Fire Sippy write ────────────────────────────────────────────────────
         const actionType  = claimed.action_type as string;
         const sippyParams = buildSippyParams(claimed.account_id, actionType as any);
+
+        // Read-before-write for ROUTE_BLOCK: capture routing_plan_id so rollback works.
+        if (actionType === 'ROUTE_BLOCK') {
+          try {
+            const originalPlanId = await fetchOriginalRoutingPlanId(claimed.account_id);
+            if (originalPlanId !== undefined) {
+              (sippyParams.params as Record<string, unknown>).original_routing_plan_id = originalPlanId;
+            }
+          } catch {
+            console.warn('[ai-actions/approve] Could not fetch original routing_plan_id — rollback will require manual restore');
+          }
+        }
+
         const execResult  = await executeAction(id, sippyParams.method, sippyParams.params);
 
         const newStatus = execResult.success
