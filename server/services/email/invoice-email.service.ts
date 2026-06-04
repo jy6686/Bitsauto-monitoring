@@ -10,10 +10,23 @@
  */
 
 import nodemailer from 'nodemailer';
+import fs from 'fs';
+import path from 'path';
 import { storage } from '../../storage';
 import { db } from '../../db';
 import { invoiceEmailDeliveries } from '@shared/schema';
 import { decryptSecret, isEncrypted } from '../../utils/crypto';
+
+function loadEmailLogoDataUri(): string {
+  try {
+    const p = path.join(__dirname, '../../assets/ichibaan-logo.png');
+    if (fs.existsSync(p)) {
+      return `data:image/png;base64,${fs.readFileSync(p).toString('base64')}`;
+    }
+  } catch { /* non-fatal */ }
+  return '';
+}
+const EMAIL_LOGO_URI = loadEmailLogoDataUri();
 
 export interface SendInvoiceEmailOpts {
   invoiceId:  number;
@@ -69,7 +82,7 @@ async function buildInvoiceTransporter(): Promise<{
       greetingTimeout:   10_000,
     } as any);
 
-    const fromName  = settings.invoiceSmtpFromName  ?? 'Bitsauto Finance';
+    const fromName  = settings.invoiceSmtpFromName  ?? 'Ichibaan Logic Billing';
     const fromEmail = settings.invoiceSmtpFromEmail ?? settings.invoiceSmtpUser;
     return { transporter, from: `"${fromName}" <${fromEmail}>` };
   }
@@ -86,7 +99,7 @@ async function buildInvoiceTransporter(): Promise<{
       socketTimeout:     15_000,
       greetingTimeout:   10_000,
     } as any);
-    return { transporter, from: `"Bitsauto Finance" <${settings.alertGmailUser}>` };
+    return { transporter, from: `"Ichibaan Logic Billing" <${settings.alertGmailUser}>` };
   }
 
   return null;
@@ -131,23 +144,51 @@ export async function sendInvoiceEmail(
     }
 
     // Email body: operator's message as primary content
+    const logoHtml = EMAIL_LOGO_URI
+      ? `<img src="${EMAIL_LOGO_URI}" alt="Ichibaan Logic" style="height:48px;width:auto;object-fit:contain;">`
+      : `<span style="font-size:18px;font-weight:bold;color:#fff;letter-spacing:1px;">ICHIBAAN LOGIC</span>`;
+
     const htmlBody = `
 <!DOCTYPE html>
 <html>
-<body style="font-family:Arial,Helvetica,sans-serif;background:#f9f9f9;margin:0;padding:24px">
-<div style="max-width:700px;margin:0 auto;background:#fff;border-radius:8px;border:1px solid #e0e0e0;overflow:hidden">
-  <div style="background:#1a1a2e;padding:20px 28px">
-    <h2 style="margin:0;color:#fff;font-size:18px;font-weight:bold">Invoice ${invoice.invoiceNumber}</h2>
-    <p style="margin:4px 0 0;color:#aaa;font-size:13px">${invoice.customerName ?? ''} · ${invoice.periodStart ?? ''} – ${invoice.periodEnd ?? ''}</p>
+<body style="font-family:Arial,Helvetica,sans-serif;background:#f4f4f4;margin:0;padding:24px">
+<div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:6px;border:1px solid #ddd;overflow:hidden">
+
+  <!-- Header -->
+  <div style="background:#1a1a2e;padding:20px 28px;display:flex;align-items:center;justify-content:space-between">
+    <div>${logoHtml}</div>
+    <div style="text-align:right">
+      <div style="color:#fff;font-size:16px;font-weight:bold">Invoice ${invoice.invoiceNumber}</div>
+      <div style="color:#aaa;font-size:12px;margin-top:3px">${invoice.customerName ?? ''}</div>
+    </div>
   </div>
-  <div style="padding:24px 28px;font-size:14px;color:#333;line-height:1.7;white-space:pre-wrap">${body.replace(/\n/g, '<br>')}</div>
+
+  <!-- Red accent bar -->
+  <div style="height:3px;background:#c0392b;"></div>
+
+  <!-- Body -->
+  <div style="padding:28px 32px;font-size:14px;color:#222;line-height:1.8">
+    ${body.replace(/\n\n/g, '</p><p style="margin:0 0 14px 0">').replace(/\n/g, '<br>').replace(/^/, '<p style="margin:0 0 14px 0">').replace(/$/, '</p>')}
+  </div>
+
   ${invoice.htmlContent ? `
-  <div style="padding:0 28px 24px">
-    <p style="font-size:12px;color:#888;margin-bottom:8px">The full invoice is attached as an HTML file. Open it in any browser to view, print, or save as PDF.</p>
+  <!-- Attachment notice -->
+  <div style="margin:0 32px 20px;padding:12px 16px;background:#fff8e1;border-left:3px solid #f39c12;border-radius:3px;font-size:12px;color:#7f6003">
+    📎 The full invoice is attached as an HTML file. Open it in any browser to view, print, or save as PDF.
   </div>` : ''}
-  <div style="padding:12px 28px;background:#f5f5f5;border-top:1px solid #e0e0e0;font-size:11px;color:#888">
-    Sent via Bitsauto Finance Platform &bull; Invoice ${invoice.invoiceNumber}
+
+  <!-- Footer -->
+  <div style="padding:16px 32px;background:#f8f8f8;border-top:1px solid #e8e8e8">
+    <div style="font-size:11px;color:#555;line-height:1.7">
+      <strong style="color:#1a1a2e">Ichibaan Logic Private Limited</strong>
+      <span style="color:#999;font-style:italic"> (formerly Bhaoo Private Limited)</span><br>
+      Unit Level 11(A), Main Office Tower, Jalan Merdeka, Financial Park Labuan, 87000 Labuan, Malaysia<br>
+      Tel: +60 11 1426 1581 &nbsp;&bull;&nbsp;
+      <a href="mailto:billing@ichibaanlogic.com" style="color:#c0392b;text-decoration:none;">billing@ichibaanlogic.com</a> &nbsp;&bull;&nbsp;
+      <a href="https://www.ichibaanlogic.com" style="color:#c0392b;text-decoration:none;">www.ichibaanlogic.com</a>
+    </div>
   </div>
+
 </div>
 </body>
 </html>`;

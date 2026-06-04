@@ -318,8 +318,19 @@ export default function InvoicesPage() {
   });
 
   async function openSendDialog(inv: Invoice) {
-    const defaultSubject = `Invoice ${inv.invoiceNumber}${inv.customerName ? ` — ${inv.customerName}` : ''}${inv.periodStart ? ` (${inv.periodStart} to ${inv.periodEnd ?? ''})` : ''}`;
-    const defaultBody    = `Dear ${inv.customerName ?? 'Customer'},\n\nPlease find attached your invoice ${inv.invoiceNumber}${inv.periodStart ? ` for the period ${inv.periodStart} to ${inv.periodEnd ?? ''}` : ''}.\n\nPlease don't hesitate to contact us if you have any queries.\n\nKind regards,\nBitsauto Finance`;
+    const fmtPeriodDate = (s?: string) => {
+      if (!s) return '';
+      const [y, m, d] = s.split('-');
+      const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${d}-${MONTHS[+m - 1]}-${y}`;
+    };
+    const todayStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
+    const custUpper = (inv.customerName ?? '').toUpperCase();
+    const defaultSubject = `ICHIBAAN LOGIC INVOICE || ${custUpper} || ${todayStr}`;
+    const periodLine = inv.periodStart
+      ? `${fmtPeriodDate(inv.periodStart)} to ${fmtPeriodDate(inv.periodEnd ?? inv.periodStart)}`
+      : '';
+    const defaultBody = `Dear Client,\n\nWe are pleased to share the invoice for the period ${periodLine}.\n\nIt is requested to please acknowledge the invoice and make sure that payment will be according to agreed term.\n\nFor dispute related questions please email to dispute@ichibaanlogic.com.\n\n\nThanks and Regards,\n\nIchibaan Billing Department\nInternational Voice Business\nIchibaan Logic Private Limited\n(formerly Bhaoo Private Limited)\n\nEmail   : billing@ichibaanlogic.com\nURL     : www.ichibaanlogic.com`;
 
     // Prefill with empty — open dialog immediately
     setSendId(inv.id);
