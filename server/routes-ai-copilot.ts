@@ -9,7 +9,7 @@
 import type { Express } from "express";
 import { runRouteCopilot, AiContractError } from "./services/ai/route-copilot";
 import type { CopilotResult } from "./services/ai/route-copilot";
-import { startSipErrorAggregator, loadSipErrorSnapshot, loadSipPrefixSnapshot, CODE_LABELS } from "./services/ai/sip-error-aggregator";
+import { startSipErrorAggregator, loadSipErrorSnapshot, loadSipPrefixSnapshot, loadSipErrorHistory, CODE_LABELS } from "./services/ai/sip-error-aggregator";
 import {
   listActions,
   createAction,
@@ -1117,7 +1117,20 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         ALTER TABLE sip_error_stats
           ADD COLUMN IF NOT EXISTS dest_prefix VARCHAR(12)
       `);
-      console.log("[sip-error-stats] Table ensured (with dest_prefix)");
+      // Add time_bucket column for history support (5-min rounded timestamp)
+      await db.execute(sql`
+        ALTER TABLE sip_error_stats
+          ADD COLUMN IF NOT EXISTS time_bucket TIMESTAMPTZ
+      `);
+      // Add unique constraint to support ON CONFLICT upserts and prevent duplicates.
+      // Uses COALESCE to handle nullable dest_prefix in the unique key.
+      // We use a partial unique index on a computed expression instead of a constraint
+      // because PostgreSQL NULL != NULL in unique constraints.
+      await db.execute(sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS sip_error_stats_uniq
+          ON sip_error_stats (vendor_name, window_minutes, code, time_bucket, COALESCE(dest_prefix, ''))
+      `);
+      console.log("[sip-error-stats] Table ensured (with time_bucket + unique index)");
     } catch (err: any) {
       console.warn("[sip-error-stats] Table bootstrap warning (non-fatal):", err.message);
     }
@@ -1202,6 +1215,27 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
       } catch (err: any) {
         console.error("[rtp-quality/trigger] error:", err.message);
         return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
+  // ── GET /api/copilot/sip-error-history ──────────────────────────────────────
+  // Returns up to 12 historical samples per (vendor, code) for the selected window.
+  // Used by the sparkline charts in the SIP Error Rates panel.
+  app.get(
+    "/api/copilot/sip-error-history",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const win = parseInt(String(req.query.window ?? '15'), 10);
+        if (win !== 15 && win !== 60 && win !== 240) {
+          return res.status(400).json({ success: false, error: "window must be 15, 60, or 240" });
+        }
+        const history = await loadSipErrorHistory(win as 15 | 60 | 240);
+        res.json({ success: true, history });
+      } catch (err: any) {
+        console.error("[copilot/sip-error-history] Error:", err.message);
+        res.status(500).json({ success: false, error: err.message });
       }
     },
   );

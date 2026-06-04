@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   GitBranch, TrendingDown, TrendingUp, Minus, AlertTriangle,
@@ -1593,10 +1593,118 @@ interface SipErrorData {
   computedAt: string;
 }
 
+interface SipHistoryPoint {
+  timeBucket: string;
+  rate: number;
+}
+
+interface SipVendorHistory {
+  vendorName: string;
+  windowMinutes: number;
+  code: number;
+  points: SipHistoryPoint[];
+}
+
+interface SipErrorHistoryData {
+  success: boolean;
+  history: SipVendorHistory[];
+}
+
 function rateColor(rate: number): string {
   if (rate >= 10) return "text-red-500 dark:text-red-400";
   if (rate >= 2)  return "text-amber-500 dark:text-amber-400";
   return "text-green-600 dark:text-green-400";
+}
+
+// ── Sparkline SVG component ────────────────────────────────────────────────────
+// Renders a tiny polyline chart of up to 12 rate samples.
+// Points are drawn as a filled area + stroke line.
+// Tooltip (title attribute) is set on each circle point for hover detail.
+function SipSparkline({
+  points,
+  width = 80,
+  height = 22,
+  code,
+}: {
+  points: SipHistoryPoint[];
+  width?: number;
+  height?: number;
+  code: number;
+}) {
+  if (points.length < 2) {
+    return (
+      <span className="text-[9px] text-muted-foreground/30 font-mono select-none">
+        {points.length === 1 ? `${points[0].rate.toFixed(1)}%` : "—"}
+      </span>
+    );
+  }
+
+  const maxRate = Math.max(...points.map(p => p.rate), 1);
+  const pad = 2;
+  const w = width - pad * 2;
+  const h = height - pad * 2;
+
+  const toX = (i: number) => pad + (i / (points.length - 1)) * w;
+  const toY = (r: number) => pad + h - (r / maxRate) * h;
+
+  const polyPoints = points.map((p, i) => `${toX(i)},${toY(p.rate)}`).join(' ');
+  const areaPath = [
+    `M ${toX(0)},${toY(points[0].rate)}`,
+    ...points.slice(1).map((p, i) => `L ${toX(i + 1)},${toY(p.rate)}`),
+    `L ${toX(points.length - 1)},${height}`,
+    `L ${toX(0)},${height}`,
+    'Z',
+  ].join(' ');
+
+  // Color based on max rate
+  const maxVal = Math.max(...points.map(p => p.rate));
+  const strokeColor = maxVal >= 10 ? '#ef4444' : maxVal >= 2 ? '#f59e0b' : '#22c55e';
+  const fillColor = maxVal >= 10 ? 'rgba(239,68,68,0.12)' : maxVal >= 2 ? 'rgba(245,158,11,0.10)' : 'rgba(34,197,94,0.10)';
+
+  const last = points[points.length - 1];
+  const formatTs = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch { return iso; }
+  };
+
+  return (
+    <div className="relative inline-flex items-center gap-1">
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        className="overflow-visible"
+        data-testid={`sparkline-${code}`}
+      >
+        <path d={areaPath} fill={fillColor} />
+        <polyline
+          points={polyPoints}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {points.map((p, i) => (
+          <circle
+            key={i}
+            cx={toX(i)}
+            cy={toY(p.rate)}
+            r={i === points.length - 1 ? 2 : 1.2}
+            fill={strokeColor}
+            opacity={i === points.length - 1 ? 1 : 0.4}
+          >
+            <title>{`${formatTs(p.timeBucket)} — ${p.rate.toFixed(1)}%`}</title>
+          </circle>
+        ))}
+      </svg>
+      <span className="text-[9px] font-mono tabular-nums" style={{ color: strokeColor }}>
+        {last.rate.toFixed(1)}%
+      </span>
+    </div>
+  );
 }
 
 function SipErrorPanel() {
@@ -1610,6 +1718,21 @@ function SipErrorPanel() {
     staleTime: 5 * 60 * 1000,
     refetchInterval: open ? 5 * 60 * 1000 : false,
   });
+
+  const { data: histData } = useQuery<SipErrorHistoryData>({
+    queryKey: ["/api/copilot/sip-error-history", activeWin],
+    queryFn: () => fetch(`/api/copilot/sip-error-history?window=${activeWin}`).then(r => r.json()),
+    enabled: open && !heatmap,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: open && !heatmap ? 5 * 60 * 1000 : false,
+  });
+
+  // Build lookup: vendorName → code → points
+  const historyMap = new Map<string, Map<number, SipHistoryPoint[]>>();
+  for (const h of histData?.history ?? []) {
+    if (!historyMap.has(h.vendorName)) historyMap.set(h.vendorName, new Map());
+    historyMap.get(h.vendorName)!.set(h.code, h.points);
+  }
 
   const vendors = data?.vendors ?? [];
   const prefixRows = data?.prefixRows ?? [];
@@ -1720,8 +1843,12 @@ function SipErrorPanel() {
                     <tbody className="divide-y divide-border/30">
                       {vendors.map(v => {
                         const win = v.windows[activeWin] ?? {};
+                        const vendorHist = historyMap.get(v.vendorName);
+                        // Check if there are any sparkline points for this vendor
+                        const hasSparklines = vendorHist && [...vendorHist.values()].some(pts => pts.length >= 2);
                         return (
-                          <tr key={v.vendorName} className="hover:bg-muted/20 transition-colors" data-testid={`sip-row-${v.vendorName}`}>
+                          <Fragment key={v.vendorName}>
+                            <tr className="hover:bg-muted/20 transition-colors" data-testid={`sip-row-${v.vendorName}`}>
                             <td className="py-2 px-2 font-medium">{v.vendorName}</td>
                             {SIP_CODES.map(code => {
                               const entry = win[code] ?? { rate: 0, count: 0 };
@@ -1760,6 +1887,33 @@ function SipErrorPanel() {
                               </div>
                             </td>
                           </tr>
+                          {hasSparklines && (
+                            <tr
+                              className="bg-muted/10 border-b border-border/20"
+                              data-testid={`sip-sparkline-row-${v.vendorName}`}
+                            >
+                              <td className="px-2 py-1.5">
+                                <span className="text-[9px] text-muted-foreground/50 font-medium uppercase tracking-wide">Trend</span>
+                              </td>
+                              {SIP_CODES.map(code => {
+                                const pts = vendorHist?.get(code) ?? [];
+                                return (
+                                  <td key={code} className="px-2 py-1.5 text-right">
+                                    <div className="flex justify-end">
+                                      <SipSparkline
+                                        points={pts}
+                                        code={code}
+                                        width={76}
+                                        height={20}
+                                      />
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                              <td />
+                            </tr>
+                          )}
+                          </Fragment>
                         );
                       })}
                     </tbody>

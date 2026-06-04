@@ -17,6 +17,10 @@
  *   dest_prefix = NULL  →  vendor-level aggregate row
  *   dest_prefix = 'XXXXX' →  prefix-level row (15-min window only, for heatmap)
  *
+ * History: each aggregation run writes a new time_bucket row (5-min rounded).
+ * Rows older than 24 hours are pruned on each run. This gives sparklines up to
+ * 12 samples per vendor+code (one per 5-min run over a 1-hour lookback).
+ *
  * Reference: RFC 3398 (ISUP → SIP mapping), ITU-T Q.850
  */
 
@@ -85,6 +89,19 @@ const WINDOWS_MS: Array<{ minutes: number; ms: number }> = [
 
 // Sentinel code used to track total CDR count per vendor-window bucket
 const SENTINEL_TOTAL = 0;
+
+// History retention: 24 hours of rows
+const HISTORY_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Round a timestamp down to the nearest 5-minute boundary.
+ * Used as the time_bucket key so each aggregation run produces exactly one row
+ * per (vendor, window, code, bucket) without duplicates.
+ */
+function to5MinBucket(ts: number): Date {
+  const fiveMin = 5 * 60 * 1000;
+  return new Date(Math.floor(ts / fiveMin) * fiveMin);
+}
 
 /**
  * Map a raw result string or q850Code string to one of the 6 target SIP error codes.
@@ -224,6 +241,10 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
       return;
     }
 
+    // ── Compute time_bucket for this run (5-min rounded) ──────────────────────
+    const timeBucket = to5MinBucket(now);
+    const computedAt = new Date().toISOString();
+
     // ── Build DB rows ──────────────────────────────────────────────────────────
     const rows: {
       vendor_name: string;
@@ -233,9 +254,8 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
       rate: number;
       dest_prefix: string | null;
       computed_at: string;
+      time_bucket: string;
     }[] = [];
-
-    const computedAt = new Date().toISOString();
 
     for (const { minutes, ms } of WINDOWS_MS) {
       const vb = windowBuckets.get(ms)!;
@@ -244,7 +264,7 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
         for (const code of SIP_ERROR_CODES) {
           const count = codes.get(code) ?? 0;
           const rate  = total > 0 ? Math.round((count / total) * 10000) / 100 : 0;
-          rows.push({ vendor_name: vendor, window_minutes: minutes, code, count, rate, dest_prefix: null, computed_at: computedAt });
+          rows.push({ vendor_name: vendor, window_minutes: minutes, code, count, rate, dest_prefix: null, computed_at: computedAt, time_bucket: timeBucket.toISOString() });
         }
       }
     }
@@ -256,26 +276,36 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
       for (const [code, count] of pb) {
         if (code === SENTINEL_TOTAL) continue;
         const rate = total > 0 ? Math.round((count / total) * 10000) / 100 : 0;
-        rows.push({ vendor_name: vendor, window_minutes: 15, code, count, rate, dest_prefix: pfx, computed_at: computedAt });
+        rows.push({ vendor_name: vendor, window_minutes: 15, code, count, rate, dest_prefix: pfx, computed_at: computedAt, time_bucket: timeBucket.toISOString() });
       }
     }
 
     // ── Atomic DB write using pg Pool ─────────────────────────────────────────
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     try {
-      await pool.query('DELETE FROM sip_error_stats');
+      // Prune history older than 24 hours
+      const cutoff = new Date(now - HISTORY_RETENTION_MS).toISOString();
+      await pool.query(`DELETE FROM sip_error_stats WHERE time_bucket < $1`, [cutoff]);
+
+      // Also prune legacy rows that have no time_bucket (written before history support)
+      // so they don't accumulate indefinitely
+      await pool.query(`DELETE FROM sip_error_stats WHERE time_bucket IS NULL`);
+
       if (rows.length > 0) {
         const CHUNK = 200;
         for (let i = 0; i < rows.length; i += CHUNK) {
           const chunk = rows.slice(i, i + CHUNK);
           const vals: any[] = [];
           const placeholders = chunk.map((r, j) => {
-            const b = j * 7;
-            vals.push(r.vendor_name, r.window_minutes, r.code, r.count, r.rate, r.computed_at, r.dest_prefix);
-            return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7})`;
+            const b = j * 8;
+            vals.push(r.vendor_name, r.window_minutes, r.code, r.count, r.rate, r.computed_at, r.dest_prefix, r.time_bucket);
+            return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8})`;
           }).join(',');
           await pool.query(
-            `INSERT INTO sip_error_stats (vendor_name, window_minutes, code, count, rate, computed_at, dest_prefix) VALUES ${placeholders}`,
+            `INSERT INTO sip_error_stats (vendor_name, window_minutes, code, count, rate, computed_at, dest_prefix, time_bucket)
+             VALUES ${placeholders}
+             ON CONFLICT (vendor_name, window_minutes, code, time_bucket, COALESCE(dest_prefix, ''))
+             DO UPDATE SET count = EXCLUDED.count, rate = EXCLUDED.rate, computed_at = EXCLUDED.computed_at`,
             vals,
           );
         }
@@ -286,7 +316,7 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
 
     const vendorCount = new Set(rows.filter(r => !r.dest_prefix).map(r => r.vendor_name)).size;
     const prefixCount = new Set(rows.filter(r => r.dest_prefix).map(r => r.dest_prefix)).size;
-    console.log(`[sip-error-agg] Computed ${rows.length} rows for ${vendorCount} vendor(s), ${prefixCount} prefix(es) from ${cdrsProcessed} CDRs`);
+    console.log(`[sip-error-agg] Bucket ${timeBucket.toISOString()} — ${rows.length} rows for ${vendorCount} vendor(s), ${prefixCount} prefix(es) from ${cdrsProcessed} CDRs`);
   } catch (err: any) {
     console.warn('[sip-error-agg] Aggregation error (non-fatal):', err.message);
   } finally {
@@ -325,10 +355,30 @@ export interface SipPrefixRow {
   totalFailures: number;
 }
 
+export interface SipHistoryPoint {
+  timeBucket: string; // ISO timestamp
+  rate: number;
+}
+
+export interface SipVendorHistory {
+  vendorName: string;
+  windowMinutes: number;
+  code: number;
+  points: SipHistoryPoint[]; // ordered oldest→newest, max 12
+}
+
 export async function loadSipErrorSnapshot(): Promise<SipErrorSnapshot[]> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
-    const res = await pool.query(`SELECT * FROM sip_error_stats WHERE dest_prefix IS NULL`);
+    // Latest snapshot: for each (vendor, window, code) get the row with the most recent time_bucket
+    const res = await pool.query(`
+      SELECT DISTINCT ON (vendor_name, window_minutes, code)
+        vendor_name, window_minutes, code, count, rate, computed_at, time_bucket
+      FROM sip_error_stats
+      WHERE dest_prefix IS NULL
+        AND time_bucket IS NOT NULL
+      ORDER BY vendor_name, window_minutes, code, time_bucket DESC
+    `);
     const rows = res.rows;
     if (rows.length === 0) return [];
 
@@ -363,36 +413,100 @@ export async function loadSipErrorSnapshot(): Promise<SipErrorSnapshot[]> {
 export async function loadSipPrefixSnapshot(): Promise<SipPrefixRow[]> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
-    // For each (prefix, vendor) find dominant code by highest rate
+    // For each (prefix, vendor) find the most recent time_bucket, then dominant code
     const res = await pool.query(`
-      SELECT
+      SELECT DISTINCT ON (dest_prefix, vendor_name, time_bucket)
         dest_prefix,
         vendor_name,
         code AS dominant_code,
         rate AS dominant_rate,
-        count AS total_failures
+        count AS total_failures,
+        time_bucket
       FROM sip_error_stats
       WHERE dest_prefix IS NOT NULL AND window_minutes = 15
-      ORDER BY dest_prefix, vendor_name, rate DESC
+        AND time_bucket IS NOT NULL
+      ORDER BY dest_prefix, vendor_name, time_bucket DESC, rate DESC
     `);
 
-    // Deduplicate: take highest-rate code per prefix+vendor
+    // For each prefix+vendor pair take only the latest time_bucket, highest rate code
     const seen = new Set<string>();
-    const out: SipPrefixRow[] = [];
+    const latest = new Map<string, { timeBucket: Date; dominantCode: number; dominantRate: number; totalFailures: number }>();
     for (const row of res.rows) {
       const key = `${row.dest_prefix}:${row.vendor_name}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        out.push({
-          destPrefix:    row.dest_prefix,
-          vendorName:    row.vendor_name,
-          dominantCode:  row.dominant_code,
-          dominantRate:  parseFloat(row.dominant_rate),
+      const tb = new Date(row.time_bucket);
+      const existing = latest.get(key);
+      if (!existing || tb > existing.timeBucket) {
+        latest.set(key, {
+          timeBucket: tb,
+          dominantCode: row.dominant_code,
+          dominantRate: parseFloat(row.dominant_rate),
           totalFailures: row.total_failures,
         });
       }
     }
+
+    const out: SipPrefixRow[] = [];
+    for (const [key, val] of latest) {
+      const [destPrefix, vendorName] = key.split(':');
+      out.push({ destPrefix, vendorName, dominantCode: val.dominantCode, dominantRate: val.dominantRate, totalFailures: val.totalFailures });
+    }
     return out;
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
+ * Load up to 12 historical samples per (vendor, window, code) for sparkline rendering.
+ * Returns vendor-level rows only (dest_prefix IS NULL).
+ */
+export async function loadSipErrorHistory(windowMinutes: 15 | 60 | 240): Promise<SipVendorHistory[]> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    // Get the 12 most recent distinct time_buckets for this window
+    const bucketsRes = await pool.query(`
+      SELECT DISTINCT time_bucket
+      FROM sip_error_stats
+      WHERE dest_prefix IS NULL
+        AND window_minutes = $1
+        AND time_bucket IS NOT NULL
+      ORDER BY time_bucket DESC
+      LIMIT 12
+    `, [windowMinutes]);
+
+    if (bucketsRes.rows.length === 0) return [];
+
+    const buckets: string[] = bucketsRes.rows.map((r: any) => r.time_bucket).reverse(); // oldest first
+
+    // Fetch all rows for those buckets
+    const res = await pool.query(`
+      SELECT vendor_name, code, rate, time_bucket
+      FROM sip_error_stats
+      WHERE dest_prefix IS NULL
+        AND window_minutes = $1
+        AND time_bucket = ANY($2::timestamptz[])
+      ORDER BY vendor_name, code, time_bucket
+    `, [windowMinutes, buckets]);
+
+    // Group by vendor+code
+    const map = new Map<string, SipVendorHistory>();
+    for (const row of res.rows) {
+      const key = `${row.vendor_name}::${row.code}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          vendorName: row.vendor_name,
+          windowMinutes,
+          code: row.code,
+          points: [],
+        });
+      }
+      map.get(key)!.points.push({
+        timeBucket: new Date(row.time_bucket).toISOString(),
+        rate: parseFloat(row.rate),
+      });
+    }
+
+    return [...map.values()];
   } finally {
     await pool.end();
   }

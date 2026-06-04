@@ -3385,6 +3385,8 @@ export type InsertBalanceAlertEvent = typeof balanceAlertEvents.$inferInsert;
 // Populated every 5 min by the SIP error aggregation background job.
 // windowMinutes: 15 | 60 | 240
 // code: 503 | 486 | 480 | 404 | 603 | 487
+// timeBucket: 5-minute rounded timestamp — used to preserve up to 24hr of history
+// Unique constraint: (vendor_name, window_minutes, code, time_bucket, dest_prefix)
 export const sipErrorStats = pgTable("sip_error_stats", {
   id:            serial("id").primaryKey(),
   vendorName:    varchar("vendor_name",     { length: 128 }).notNull(),
@@ -3394,6 +3396,7 @@ export const sipErrorStats = pgTable("sip_error_stats", {
   rate:          real("rate").notNull().default(0),
   computedAt:    timestamp("computed_at").notNull().defaultNow(),
   destPrefix:    varchar("dest_prefix",     { length: 12 }),
+  timeBucket:    timestamp("time_bucket"),
 });
 export type SipErrorStat = typeof sipErrorStats.$inferSelect;
 
