@@ -271,8 +271,9 @@ async function computeVendorScores(): Promise<VendorHealthBreakdown[]> {
 
     // Sub-dimension scores
     const qAsr    = scoreAsr(quality?.rollingAsr ?? null);
-    // ACD from CDR cache (populated by refreshVendorAcds() after each CDR refresh)
-    const acdSecs = getVendorAcd(vendorName);
+    // ACD: prefer live in-memory cache; fall back to last persisted DB value so the score
+    // remains accurate immediately after a server restart (before the first CDR refresh).
+    const acdSecs = getVendorAcd(vendorName) ?? quality?.avgAcdSecs ?? null;
     const qAcd    = scoreAcd(acdSecs);
     const qPdd    = scorePdd(quality?.avgPddMs ?? null);
     // Quality: ASR (50%) + ACD (30%) + PDD (20%) when ACD available; fallback ASR (65%) + PDD (35%)

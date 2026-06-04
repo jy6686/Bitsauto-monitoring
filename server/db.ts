@@ -648,6 +648,15 @@ export async function runSafeMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_cdr_recon_rows_session_id ON cdr_recon_rows(session_id);
       CREATE INDEX IF NOT EXISTS idx_cdr_recon_rows_status     ON cdr_recon_rows(session_id, match_status);
     `);
+
+    // ── ACD as quality signal in carrier scoring (added 2026-06-04) ───────────
+    // avg_acd_secs stores Average Call Duration (seconds) per carrier window so
+    // the vendor health engine can use persisted ACD after a server restart.
+    await client.query(`
+      ALTER TABLE carrier_quality_scores
+        ADD COLUMN IF NOT EXISTS avg_acd_secs REAL
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

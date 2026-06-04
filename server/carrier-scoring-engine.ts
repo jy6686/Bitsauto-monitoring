@@ -94,12 +94,14 @@ async function _computeWindow(hours: number): Promise<void> {
     const failRate  = rows.length > 0 ? (failed / rows.length) * 100 : 0;
     const pddScore  = avgPdd != null ? Math.max(0, 100 - (avgPdd / 50)) : 50;
     const stability = Math.round(asr * 0.6 + pddScore * 0.2 + (100 - failRate) * 0.2);
+    // ACD: traces don't carry a duration field; leave null (CDR path is authoritative for ACD)
+    const avgAcd: number | null = null;
 
     await _upsertScore({
       carrierId: `${carrier}:${hours}h`,
       carrierName: carrier,
       hours, rows: rows.length, connected, failed,
-      asr, avgPdd, p95Pdd, failRate, stability,
+      asr, avgAcd, avgPdd, p95Pdd, failRate, stability,
     });
 
     if (hours === 24 && stability < 50 && rows.length >= 3) {
@@ -126,7 +128,8 @@ async function _computeFromCdrs(hours: number): Promise<void> {
   for (const [carrier, rows] of groups.entries()) {
     if (rows.length < 3) continue;
 
-    const connected = rows.filter(r => (r.totalDuration ?? r.duration ?? 0) > 0).length;
+    const connectedRows = rows.filter(r => (r.totalDuration ?? r.duration ?? 0) > 0);
+    const connected = connectedRows.length;
     const failed    = rows.length - connected;
     const asr       = rows.length > 0 ? (connected / rows.length) * 100 : 0;
     const pddRowsMs = rows.filter(r => r.pdd && r.pdd > 0).map(r => r.pdd! * 1000);
@@ -135,12 +138,17 @@ async function _computeFromCdrs(hours: number): Promise<void> {
     const failRate  = rows.length > 0 ? (failed / rows.length) * 100 : 0;
     const pddScore  = avgPdd != null ? Math.max(0, 100 - (avgPdd / 50)) : 50;
     const stability = Math.round(asr * 0.6 + pddScore * 0.2 + (100 - failRate) * 0.2);
+    // ACD: average duration (seconds) of connected calls only
+    const acdDurations = connectedRows.map(r => r.totalDuration ?? r.duration ?? 0).filter(d => d > 0);
+    const avgAcd = acdDurations.length > 0
+      ? acdDurations.reduce((a, b) => a + b, 0) / acdDurations.length
+      : null;
 
     await _upsertScore({
       carrierId: `${carrier}:${hours}h`,
       carrierName: carrier,
       hours, rows: rows.length, connected, failed,
-      asr, avgPdd, p95Pdd, failRate, stability,
+      asr, avgAcd, avgPdd, p95Pdd, failRate, stability,
     });
 
     if (hours === 24 && stability < 50 && rows.length >= 10) {
@@ -153,7 +161,7 @@ async function _computeFromCdrs(hours: number): Promise<void> {
 async function _upsertScore(p: {
   carrierId: string; carrierName: string; hours: number;
   rows: number; connected: number; failed: number;
-  asr: number; avgPdd: number | null; p95Pdd: number | null;
+  asr: number; avgAcd: number | null; avgPdd: number | null; p95Pdd: number | null;
   failRate: number; stability: number;
 }): Promise<void> {
   const [prev] = await db.select({ stabilityScore: carrierQualityScores.stabilityScore })
@@ -175,6 +183,7 @@ async function _upsertScore(p: {
     connectedCount: p.connected,
     failedCount:    p.failed,
     rollingAsr:     p.asr,
+    avgAcdSecs:     p.avgAcd,
     avgPddMs:       p.avgPdd,
     p95PddMs:       p.p95Pdd,
     failureRate:    p.failRate,

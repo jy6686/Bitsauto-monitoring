@@ -977,6 +977,7 @@ export const carrierQualityScores = pgTable("carrier_quality_scores", {
   connectedCount: integer("connected_count").notNull().default(0),
   failedCount:    integer("failed_count").notNull().default(0),
   rollingAsr:     real("rolling_asr"),
+  avgAcdSecs:     real("avg_acd_secs"),
   avgPddMs:       real("avg_pdd_ms"),
   p95PddMs:       real("p95_pdd_ms"),
   failureRate:    real("failure_rate"),
