@@ -26719,6 +26719,18 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/download/asterisk-guide — Asterisk Deployment & Configuration Guide (.docx)
+  app.get('/api/download/asterisk-guide', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { generateAsteriskGuide } = await import('./asterisk-guide-generator');
+      const buf = await generateAsteriskGuide();
+      const filename = `Ichibaan_Asterisk_Deployment_Guide_${new Date().toISOString().slice(0,10)}.docx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buf);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Per-account local config endpoints ──────────────────────────────────────
 
   // GET /api/account-configs/:iAccount — load full config blob for this account
