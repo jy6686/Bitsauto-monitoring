@@ -215,6 +215,7 @@ const DOMAINS: Domain[] = [
         { href: '/margin-intelligence',    label: 'Margin Intelligence', desc: 'Cost vs revenue margins',     icon: TrendingDown },
         { href: '/client-reconciliation',  label: 'Client Recon',        desc: 'Client-side reconciliation',  icon: ArrowRightLeft },
         { href: '/carrier-reconciliation', label: 'Carrier Recon',       desc: 'Carrier-side reconciliation', icon: ArrowRightLeft },
+        { href: '/cdr-reconciliation',     label: 'CDR Dispute Recon',   desc: 'Call-by-call CDR matching',   icon: ArrowRightLeft },
         { href: '/ai-assurance',           label: 'AI Assurance',        desc: 'AI-driven revenue checks',    icon: BrainCircuit },
       ]},
       { label: 'Disputes', desc: 'Billing disputes, case tracking and defense toolkit', icon: Shield, items: [
@@ -540,7 +541,7 @@ export function AppNavShell() {
   };
   const WORKSPACE_ROUTES: Record<string, string[]> = {
     'billing-ops':        ['/billing', '/invoices', '/invoice-jobs', '/invoice-templates', '/credit-notes', '/credit-control', '/products', '/rate-cards', '/tariff-versions', '/unbilled-usage', '/account-statement', '/invoice-schedules', '/payment-reminders'],
-    'revenue-assurance':  ['/dmr', '/client-reconciliation', '/carrier-reconciliation', '/ai-assurance', '/margin-intelligence', '/traffic-forecast', '/revenue-heatmap'],
+    'revenue-assurance':  ['/dmr', '/client-reconciliation', '/carrier-reconciliation', '/cdr-reconciliation', '/ai-assurance', '/margin-intelligence', '/traffic-forecast', '/revenue-heatmap'],
     'dispute-governance': ['/billing-disputes', '/dispute-cases', '/dispute-defense', '/commercial-notifications'],
     'noc-ops':            ['/calls', '/live-traffic', '/noc-dashboard', '/noc-incidents', '/alerts', '/server-monitoring', '/noc-command', '/sip-trace'],
     'analytics-hub':      ['/analytics', '/traffic-forecast', '/asr-acd', '/qos-heatmap', '/codec-analytics', '/revenue-heatmap', '/reports', '/executive-reports', '/cdrs'],

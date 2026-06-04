@@ -101,6 +101,7 @@ import AccountStatementPage from "@/pages/account-statement";
 import InvoiceSchedulesPage from "@/pages/invoice-schedules";
 import PaymentRemindersPage from "@/pages/payment-reminders";
 import { CdrRerateWS } from "@/pages/cdr-rerate";
+import CDRReconciliationPage from "@/pages/cdr-reconciliation";
 import CommunicationPoliciesPage from "@/pages/communication-policies";
 import DMRPage from "@/pages/dmr";
 import ClientReconciliationPage from "@/pages/client-reconciliation";
@@ -219,6 +220,7 @@ const TariffVersionsWS   = withWorkspace('billing-ops', TariffVersionsPage);
 const DmrWS             = withWorkspace('revenue-assurance', DMRPage);
 const ClientReconWS     = withWorkspace('revenue-assurance', ClientReconciliationPage);
 const CarrierReconWS    = withWorkspace('revenue-assurance', CarrierReconciliationPage);
+const CdrReconDispWS    = withWorkspace('revenue-assurance', CDRReconciliationPage);
 const AiAssuranceWS     = withWorkspace('revenue-assurance', AiAssurancePage);
 const MarginIntelWS     = withWorkspace('revenue-assurance', MarginIntelligencePage);
 const TrafficForecastWS = withWorkspace('revenue-assurance', TrafficForecastPage);
@@ -543,6 +545,9 @@ function Router() {
       </Route>
       <Route path="/dmr">
         {() => <ProtectedRoute component={DmrWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/cdr-reconciliation">
+        {() => <ProtectedRoute component={CdrReconDispWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/client-reconciliation">
         {() => <ProtectedRoute component={ClientReconWS} requiredRoles={['admin', 'management']} />}

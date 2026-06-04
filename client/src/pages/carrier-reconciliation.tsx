@@ -338,14 +338,14 @@ export default function CarrierReconciliationPage() {
         const cd = res.headers.get('content-disposition') ?? '';
         const carrier = detail.carrierName.replace(/\s+/g, '-');
         const period = detail.periodStart ?? 'all';
-        const ext = type === 'pdf' ? 'pdf' : 'csv';
+        const ext = type === 'pdf' ? 'pdf' : 'xlsx';
         const fallback = `recon-${carrier}-${period}.${ext}`;
         const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? fallback;
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = fn;
         a.click();
-        const label = type === 'full-csv' ? 'Full Report CSV exported' : type === 'csv' ? 'CSV exported' : 'PDF report exported';
+        const label = type === 'full-csv' ? 'Full Report Excel exported' : type === 'csv' ? 'Excel exported' : 'PDF report exported';
         toast({ title: label });
       }
     } catch (e: any) {
@@ -410,16 +410,16 @@ export default function CarrierReconciliationPage() {
                     } else {
                       const blob = await res.blob();
                       const cd = res.headers.get('content-disposition') ?? '';
-                      const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? 'reconciliation.csv';
+                      const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? 'reconciliation.xlsx';
                       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fn; a.click();
-                      toast({ title: 'CSV exported' });
+                      toast({ title: 'Excel exported' });
                     }
                   } catch (e: any) { toast({ title: 'Export failed', description: e.message, variant: 'destructive' }); }
                   finally { setExporting(null); }
                 }}
               >
                 <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-400" />
-                CDR Snapshot CSV
+                CDR Snapshot Excel (.xlsx)
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid="button-export-csv-summary"
@@ -444,16 +444,16 @@ export default function CarrierReconciliationPage() {
                     } else {
                       const blob = await res.blob();
                       const cd = res.headers.get('content-disposition') ?? '';
-                      const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? 'reconciliation-summary.csv';
+                      const fn = cd.match(/filename="([^"]+)"/)?.[1] ?? 'reconciliation-summary.xlsx';
                       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fn; a.click();
                     }
-                    toast({ title: 'Summary CSV exported' });
+                    toast({ title: 'Summary Excel exported' });
                   } catch (e: any) { toast({ title: 'Export failed', description: e.message, variant: 'destructive' }); }
                   finally { setExporting(null); }
                 }}
               >
                 <FileSpreadsheet className="h-4 w-4 mr-2 text-blue-400" />
-                Summary CSV
+                Summary Excel (.xlsx)
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid="button-export-pdf"
@@ -736,7 +736,7 @@ export default function CarrierReconciliationPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="pdf">PDF Report</SelectItem>
-                    <SelectItem value="csv">CSV (CDR Snapshot)</SelectItem>
+                    <SelectItem value="csv">Excel (CDR Snapshot .xlsx)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -929,7 +929,7 @@ export default function CarrierReconciliationPage() {
                   <SelectTrigger data-testid="select-schedule-format"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="pdf">PDF Report</SelectItem>
-                    <SelectItem value="csv">CSV Export</SelectItem>
+                    <SelectItem value="csv">Excel Export (.xlsx)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1183,14 +1183,14 @@ export default function CarrierReconciliationPage() {
                   onClick={() => handleDetailExport('full-csv')}
                 >
                   <FileSpreadsheet className="h-4 w-4 mr-2 text-blue-400" />
-                  Full Report CSV
+                  Full Report Excel (.xlsx)
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   data-testid="button-detail-download-csv"
                   onClick={() => handleDetailExport('csv')}
                 >
                   <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-400" />
-                  CDR Snapshot CSV
+                  CDR Snapshot Excel (.xlsx)
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   data-testid="button-detail-download-pdf"

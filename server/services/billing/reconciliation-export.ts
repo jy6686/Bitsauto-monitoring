@@ -7,6 +7,7 @@
  */
 
 import PDFDocument from 'pdfkit';
+import * as XLSX from 'xlsx';
 import { storage } from '../../storage';
 import { db } from '../../db';
 import { invoiceCdrSnapshots, fasEvents } from '@shared/schema';
@@ -15,6 +16,23 @@ import { randomBytes } from 'crypto';
 import { writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+
+// ── XLSX helper ────────────────────────────────────────────────────────────────
+
+function buildXLSXBuffer(sheets: Array<{ name: string; headers: string[]; rows: any[][] }>): Buffer {
+  const wb = XLSX.utils.book_new();
+  for (const sheet of sheets) {
+    const ws = XLSX.utils.aoa_to_sheet([sheet.headers, ...sheet.rows]);
+    // Auto-width columns
+    const colWidths = sheet.headers.map((h, i) => {
+      const maxLen = Math.max(h.length, ...sheet.rows.map(r => String(r[i] ?? '').length));
+      return { wch: Math.min(Math.max(maxLen + 2, 10), 50) };
+    });
+    ws['!cols'] = colWidths;
+    XLSX.utils.book_append_sheet(wb, ws, sheet.name.substring(0, 31));
+  }
+  return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
+}
 
 export const LARGE_EXPORT_THRESHOLD = 5000;
 const TEMP_FILE_TTL_MS = 10 * 60 * 1000;
@@ -642,4 +660,131 @@ export async function buildClientReconPDF(opts: {
     analysisLines,
   );
   return { buf, rowCount: rows.length };
+}
+
+// ── Excel (xlsx) export variants ───────────────────────────────────────────────
+
+export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+export async function buildCarrierSnapshotXLSX(opts: Parameters<typeof buildCarrierSnapshotCSV>[0]): Promise<{ xlsx: Buffer; rowCount: number }> {
+  const [rows, reconRuns, callerMap] = await Promise.all([
+    fetchSnapshotRows(opts),
+    storage.listCarrierReconciliations({}),
+    buildCdrCallerMap(),
+  ]);
+
+  const tariffToVendor = new Map<string, string>();
+  for (const r of reconRuns) {
+    if (r.iTariff && r.carrierName) tariffToVendor.set(r.iTariff, r.carrierName);
+  }
+
+  let filtered = rows;
+  if (opts.vendor?.trim()) {
+    const v = opts.vendor.toLowerCase();
+    filtered = filtered.filter(r => {
+      const cn = r.iTariff ? (tariffToVendor.get(r.iTariff) ?? '').toLowerCase() : '';
+      return cn.includes(v) || (r.iTariff ?? '').toLowerCase().includes(v);
+    });
+  }
+  if (opts.reconStatus && opts.reconStatus !== 'all') {
+    const allowed = new Set(reconRuns.filter(r => r.status === opts.reconStatus && r.iTariff).map(r => r.iTariff!));
+    filtered = filtered.filter(r => r.iTariff && allowed.has(r.iTariff));
+  }
+
+  const headers = ['Cut ID', 'Start Time', 'CLI', 'CLD', 'Duration (s)', 'Our Cost', 'Vendor Billed', 'Discrepancy', 'Status', 'CDR ID', 'Vendor', 'Tariff', 'Prefix'];
+  const dataRows = filtered.map(r => [
+    r.id, r.cdrStartTime ?? '', r.cdrId ? (callerMap.get(r.cdrId) ?? '') : '',
+    r.callee ?? '', r.durationSecs ?? '', r.reproducedCost ?? '', r.actualCost ?? '',
+    r.delta ?? '', r.verificationStatus, r.cdrId ?? '',
+    r.iTariff ? (tariffToVendor.get(r.iTariff) ?? '') : '', r.iTariff ?? '', r.prefix ?? '',
+  ]);
+
+  return { xlsx: buildXLSXBuffer([{ name: 'CDR Snapshot', headers, rows: dataRows }]), rowCount: filtered.length };
+}
+
+export async function buildCarrierFullReportXLSX(opts: { reconId: number }): Promise<{ xlsx: Buffer; rowCount: number; filename: string }> {
+  const [run, callerMap] = await Promise.all([storage.getCarrierReconciliation(opts.reconId), buildCdrCallerMap()]);
+  if (!run) throw new Error(`Reconciliation run #${opts.reconId} not found`);
+
+  const snapRows = await fetchSnapshotRows({
+    iTariff: run.iTariff ?? undefined,
+    periodStart: run.periodStart ?? undefined,
+    periodEnd: run.periodEnd ?? undefined,
+  });
+
+  const summaryData: any[][] = [
+    ['Field', 'Value'],
+    ['Carrier', run.carrierName], ['Period Start', run.periodStart ?? ''], ['Period End', run.periodEnd ?? ''],
+    ['Invoice Ref', run.invoiceRef ?? ''], ['Invoice Date', run.invoiceDate ?? ''],
+    ['Carrier Total', run.carrierTotal ?? ''], ['Sippy Total', run.sippyTotal ?? ''],
+    ['Reproduced Total', run.reproducedTotal ?? ''], ['Snapshot Total', run.snapshotTotal ?? ''],
+    ['Δ Carrier vs Reproduced', run.deltaCarrierVsReproduced ?? ''], ['Δ Carrier vs Sippy', run.deltaCarrierVsSippy ?? ''],
+    ['Discrepancy Count', run.discrepancyCount ?? 0], ['Status', run.status], ['Notes', run.notes ?? ''],
+    ['Created At', run.createdAt ? new Date(run.createdAt).toISOString() : ''],
+  ];
+
+  const headers = ['Cut ID', 'Start Time', 'CLI', 'CLD', 'Duration (s)', 'Our Cost', 'Vendor Billed', 'Discrepancy', 'Status', 'CDR ID', 'Tariff', 'Prefix'];
+  const dataRows = snapRows.map(r => [
+    r.id, r.cdrStartTime ?? '', r.cdrId ? (callerMap.get(r.cdrId) ?? '') : '',
+    r.callee ?? '', r.durationSecs ?? '', r.reproducedCost ?? '', r.actualCost ?? '',
+    r.delta ?? '', r.verificationStatus, r.cdrId ?? '', r.iTariff ?? '', r.prefix ?? '',
+  ]);
+
+  const carrierSlug = run.carrierName.replace(/[^a-zA-Z0-9]/g, '-');
+  const filename = `recon-full-${carrierSlug}-${run.periodStart ?? 'all'}-id${run.id}.xlsx`;
+
+  return {
+    xlsx: buildXLSXBuffer([
+      { name: 'Summary', headers: ['Field', 'Value'], rows: summaryData.slice(1) },
+      { name: 'CDR Snapshot', headers, rows: dataRows },
+    ]),
+    rowCount: snapRows.length,
+    filename,
+  };
+}
+
+export async function buildCarrierReconSummaryXLSX(opts: Parameters<typeof buildCarrierReconSummaryCSV>[0]): Promise<{ xlsx: Buffer; rowCount: number }> {
+  const rows = await storage.listCarrierReconciliations({
+    status: opts.status && opts.status !== 'all' ? opts.status : undefined,
+    iTariff: opts.iTariff || undefined,
+    limit: 100000,
+  });
+  const filtered = opts.carrierName ? rows.filter(r => r.carrierName.toLowerCase().includes(opts.carrierName!.toLowerCase())) : rows;
+
+  const headers = ['ID', 'Carrier', 'Period Start', 'Period End', 'Invoice Ref', 'Carrier Total', 'Sippy Total', 'Reproduced Total', 'Snapshot Total', 'Δ Carrier/Reproduced', 'Δ Carrier/Sippy', 'Discrepancies', 'Status', 'Notes', 'Created At'];
+  const dataRows = filtered.map(r => [
+    r.id, r.carrierName, r.periodStart ?? '', r.periodEnd ?? '', r.invoiceRef ?? '',
+    r.carrierTotal ?? '', r.sippyTotal ?? '', r.reproducedTotal ?? '', r.snapshotTotal ?? '',
+    r.deltaCarrierVsReproduced ?? '', r.deltaCarrierVsSippy ?? '',
+    r.discrepancyCount ?? 0, r.status, r.notes ?? '',
+    r.createdAt ? new Date(r.createdAt).toISOString() : '',
+  ]);
+
+  return { xlsx: buildXLSXBuffer([{ name: 'Reconciliation Summary', headers, rows: dataRows }]), rowCount: filtered.length };
+}
+
+export async function buildClientReconXLSX(opts: Parameters<typeof buildClientReconCSV>[0]): Promise<{ xlsx: Buffer; rowCount: number }> {
+  let rows = await storage.listClientReconciliations({
+    billingPeriod: opts.period || undefined,
+    status: opts.status && opts.status !== 'all' ? opts.status : undefined,
+    severity: opts.severity && opts.severity !== 'all' ? opts.severity : undefined,
+    latestVersionOnly: true,
+  });
+  if (opts.excludeClean) rows = rows.filter(r => r.severity !== 'clean');
+
+  const headers = ['ID', 'Billing Period', 'Version', 'Client Name', 'Account ID', 'Client Duration (min)', 'Client Amount (USD)', 'Client Calls', 'BA Duration (min)', 'BA Amount (USD)', 'BA Calls', 'DMR Duration (min)', 'DMR Amount', 'Δ Duration (min)', 'Δ Amount (USD)', 'Δ %', 'Discrepancy Type', 'Severity', 'Status', 'Notes', 'Created At'];
+  const dataRows = rows.map(r => [
+    r.id, r.billingPeriod, r.version ?? 1, r.clientName, r.clientAccountId ?? '',
+    r.clientDurationSec != null ? +(r.clientDurationSec / 60).toFixed(2) : '',
+    r.clientAmountUsd ?? '', r.clientCalls ?? '',
+    r.bitsautoDurationSec != null ? +(r.bitsautoDurationSec / 60).toFixed(2) : '',
+    r.bitsautoAmountUsd ?? '', r.bitsautoCalls ?? '',
+    r.dmrDurationSec != null ? +(r.dmrDurationSec / 60).toFixed(2) : '', r.dmrAmountUsd ?? '',
+    r.deltaDurationSec != null ? +(r.deltaDurationSec / 60).toFixed(2) : '',
+    r.deltaAmountUsd ?? '', r.deltaPct ?? '',
+    r.discrepancyType, r.severity, r.status, r.notes ?? '',
+    r.createdAt ? new Date(r.createdAt).toISOString() : '',
+  ]);
+
+  return { xlsx: buildXLSXBuffer([{ name: 'Client Reconciliation', headers, rows: dataRows }]), rowCount: rows.length };
 }

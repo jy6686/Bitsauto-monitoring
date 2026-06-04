@@ -145,7 +145,7 @@ export const settings = pgTable("settings", {
   invoiceSmtpSecure:    boolean("invoice_smtp_secure").default(false),
   invoiceSmtpUser:      varchar("invoice_smtp_user",       { length: 255 }),
   invoiceSmtpPass:      varchar("invoice_smtp_pass",       { length: 512 }),
-  invoiceSmtpFromName:  varchar("invoice_smtp_from_name",  { length: 255 }).default('Bitsauto Finance'),
+  invoiceSmtpFromName:  varchar("invoice_smtp_from_name",  { length: 255 }).default('Ichibaan Logic Billing'),
   invoiceSmtpFromEmail: varchar("invoice_smtp_from_email", { length: 255 }),
   // SIP Error Rate alerting threshold — percentage (15-min window) above which an incident fires
   sipErrorAlertThreshold: real("sip_error_alert_threshold").default(15),

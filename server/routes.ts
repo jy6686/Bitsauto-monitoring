@@ -6677,26 +6677,22 @@ export async function registerRoutes(
           filterVendor ? `vendor-${filterVendor.replace(/[^a-zA-Z0-9_-]/g, '_')}` : '',
           filterCode ? `code-${filterCode}` : '',
         ].filter(Boolean).join('_');
-        const filename = `sip-error-history-${filenameRange}${filterSuffix ? '_' + filterSuffix : ''}.csv`;
+        const filenameXlsx = `sip-error-history-${filenameRange}${filterSuffix ? '_' + filterSuffix : ''}.xlsx`;
 
-        const csvLines: string[] = ['date,vendor_name,code,avg_rate,baseline_rate,spike_flag'];
-        for (const row of exportRows) {
-          // Spike criteria: current rate ≥ 2% absolute AND ≥ 2× 24h rolling baseline
-          // Identical to loadSipErrorSnapshotWithSpikes()
+        const XLSX_SIP = await import('xlsx');
+        const sipHeaders = ['Date', 'Vendor', 'SIP Code', 'Avg Rate (%)', 'Baseline Rate (%)', 'Spike Flag'];
+        const sipRows = exportRows.map(row => {
           const spikeFlag = row.avg_rate >= 2 && row.baseline_rate > 0 && row.avg_rate >= 2 * row.baseline_rate;
-          csvLines.push([
-            row.date,
-            `"${String(row.vendor_name).replace(/"/g, '""')}"`,
-            row.code,
-            row.avg_rate.toFixed(4),
-            row.baseline_rate.toFixed(4),
-            spikeFlag ? '1' : '0',
-          ].join(','));
-        }
-
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.send(csvLines.join('\r\n'));
+          return [row.date, row.vendor_name, row.code, +row.avg_rate.toFixed(4), +row.baseline_rate.toFixed(4), spikeFlag ? 1 : 0];
+        });
+        const sipWb = XLSX_SIP.utils.book_new();
+        const sipWs = XLSX_SIP.utils.aoa_to_sheet([sipHeaders, ...sipRows]);
+        sipWs['!cols'] = sipHeaders.map((h, i) => ({ wch: Math.min(Math.max(h.length + 2, ...sipRows.map(r => String(r[i] ?? '').length + 1)), 40) }));
+        XLSX_SIP.utils.book_append_sheet(sipWb, sipWs, 'SIP Errors');
+        const sipXlsxBuf = Buffer.from(XLSX_SIP.write(sipWb, { type: 'buffer', bookType: 'xlsx' }));
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filenameXlsx}"`);
+        res.send(sipXlsxBuf);
       } catch (e: any) {
         res.status(500).json({ success: false, error: e.message });
       }
@@ -29723,7 +29719,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   app.get('/api/billing/reconciliation/export/csv', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
-      const { buildCarrierSnapshotCSV, buildCarrierReconSummaryCSV, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
+      const { buildCarrierSnapshotXLSX, buildCarrierReconSummaryXLSX, LARGE_EXPORT_THRESHOLD, XLSX_MIME, storeTempFile } = await import('./services/billing/reconciliation-export');
       const reconStatus = req.query.reconStatus ? String(req.query.reconStatus) : undefined;
       const vendor      = req.query.vendor      ? String(req.query.vendor)      : undefined;
       const opts = {
@@ -29735,22 +29731,22 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         vendor,
       };
       const mode = req.query.mode === 'summary' ? 'summary' : 'cdr';
-      const { csv, rowCount } = mode === 'summary'
-        ? await buildCarrierReconSummaryCSV({ status: reconStatus, iTariff: opts.iTariff, carrierName: vendor })
-        : await buildCarrierSnapshotCSV(opts);
+      const { xlsx, rowCount } = mode === 'summary'
+        ? await buildCarrierReconSummaryXLSX({ status: reconStatus, iTariff: opts.iTariff, carrierName: vendor })
+        : await buildCarrierSnapshotXLSX(opts);
 
       const vendorSlug = (opts.vendor ?? opts.iTariff ?? 'all').replace(/[^a-zA-Z0-9]/g, '-');
       const dateSlug   = `${opts.periodStart ?? 'all'}_${opts.periodEnd ?? 'all'}`;
-      const filename   = `reconciliation_${vendorSlug}_${dateSlug}.csv`;
+      const filename   = `reconciliation_${vendorSlug}_${dateSlug}.xlsx`;
 
       if (rowCount > LARGE_EXPORT_THRESHOLD) {
-        const token = storeTempFile(csv, filename, 'text/csv');
+        const token = storeTempFile(xlsx, filename, XLSX_MIME);
         return res.json({ large: true, token, rowCount, filename });
       }
 
-      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Type', XLSX_MIME);
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.send(csv);
+      res.send(xlsx);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -29759,17 +29755,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // GET /api/billing/reconciliation/export/csv-full — single-run full report (summary block + CDR rows)
   app.get('/api/billing/reconciliation/export/csv-full', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
-      const { buildCarrierFullReportCSV, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
+      const { buildCarrierFullReportXLSX, LARGE_EXPORT_THRESHOLD, XLSX_MIME, storeTempFile } = await import('./services/billing/reconciliation-export');
       const reconId = req.query.reconId ? Number(req.query.reconId) : NaN;
       if (isNaN(reconId)) return res.status(400).json({ error: 'reconId query parameter is required' });
-      const { csv, rowCount, filename } = await buildCarrierFullReportCSV({ reconId });
+      const { xlsx, rowCount, filename } = await buildCarrierFullReportXLSX({ reconId });
       if (rowCount > LARGE_EXPORT_THRESHOLD) {
-        const token = storeTempFile(csv, filename, 'text/csv');
+        const token = storeTempFile(xlsx, filename, XLSX_MIME);
         return res.json({ large: true, token, rowCount, filename });
       }
-      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Type', XLSX_MIME);
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.send(csv);
+      res.send(xlsx);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -29897,25 +29893,25 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   app.get('/api/client-reconciliation/export/csv', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
-      const { buildClientReconCSV, LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
+      const { buildClientReconXLSX, LARGE_EXPORT_THRESHOLD, XLSX_MIME, storeTempFile } = await import('./services/billing/reconciliation-export');
       const opts = {
         period:      req.query.period      ? String(req.query.period)   : undefined,
         status:      req.query.status      ? String(req.query.status)   : undefined,
         severity:    req.query.severity    ? String(req.query.severity) : undefined,
         excludeClean: req.query.excludeClean === '1' || req.query.excludeClean === 'true',
       };
-      const { csv, rowCount } = await buildClientReconCSV(opts);
+      const { xlsx, rowCount } = await buildClientReconXLSX(opts);
       const periodSlug = (opts.period ?? 'all').replace(/[^a-zA-Z0-9]/g, '-');
-      const filename = `client-reconciliation_${periodSlug}.csv`;
+      const filename = `client-reconciliation_${periodSlug}.xlsx`;
 
       if (rowCount > LARGE_EXPORT_THRESHOLD) {
-        const token = storeTempFile(csv, filename, 'text/csv');
+        const token = storeTempFile(xlsx, filename, XLSX_MIME);
         return res.json({ large: true, token, rowCount, filename });
       }
 
-      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Type', XLSX_MIME);
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.send(csv);
+      res.send(xlsx);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -32620,6 +32616,117 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
     });
   }
+
+
+  // ── CDR-Level Dispute Reconciliation routes ─────────────────────────────────
+
+  app.post('/api/cdr-recon/upload',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { base64, sessionType, partyName, billingPeriod } = req.body;
+        if (!base64 || !sessionType || !partyName || !billingPeriod)
+          return res.status(400).json({ error: 'base64, sessionType, partyName, billingPeriod are required' });
+        if (!['vendor','client'].includes(sessionType))
+          return res.status(400).json({ error: 'sessionType must be vendor or client' });
+        if (!/^\d{4}-\d{2}$/.test(billingPeriod))
+          return res.status(400).json({ error: 'billingPeriod must be YYYY-MM' });
+        const buf = Buffer.from(base64, 'base64');
+        const { runCDRRecon } = await import('./services/billing/cdr-recon.service');
+        const result = await runCDRRecon({ sessionType, partyName, billingPeriod, uploadBuffer: buf });
+        res.json(result);
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    },
+  );
+
+  app.get('/api/cdr-recon/sessions',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        const result = await pool.query(
+          `SELECT id, session_type AS "sessionType", party_name AS "partyName", billing_period AS "billingPeriod",
+                  uploaded_at AS "uploadedAt", total_rows AS "totalRows", matched,
+                  duration_mismatch AS "durationMismatch", missing_ours AS "missingOurs",
+                  extra_ours AS "extraOurs", notes
+           FROM cdr_recon_sessions ORDER BY id DESC LIMIT 500`
+        );
+        await pool.end();
+        res.json(result.rows);
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    },
+  );
+
+  app.get('/api/cdr-recon/sessions/:id/rows',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = Number(req.params.id);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid session ID' });
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        const result = await pool.query(
+          `SELECT id, cli, cld, start_time AS "startTime", their_duration AS "theirDuration",
+                  our_duration AS "ourDuration", delta, their_cost AS "theirCost",
+                  our_cost AS "ourCost", match_status AS "matchStatus", sippy_call_id AS "sippyCallId"
+           FROM cdr_recon_rows WHERE session_id = \$1 ORDER BY match_status, id LIMIT 100000`,
+          [id]
+        );
+        await pool.end();
+        res.json(result.rows);
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    },
+  );
+
+  app.get('/api/cdr-recon/sessions/:id/export',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = Number(req.params.id);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid session ID' });
+        const { buildCDRReconXLSX } = await import('./services/billing/cdr-recon.service');
+        const buf = await buildCDRReconXLSX(id);
+        const MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        res.setHeader('Content-Type', MIME);
+        res.setHeader('Content-Disposition', `attachment; filename="cdr-recon-session-${id}.xlsx"`);
+        res.send(buf);
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    },
+  );
+
+  app.post('/api/cdr-recon/sessions/:id/raise-dispute',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = Number(req.params.id);
+        if (isNaN(id)) return res.status(400).json({ error: 'Invalid session ID' });
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        const sessRes = await pool.query(`SELECT * FROM cdr_recon_sessions WHERE id = \$1`, [id]);
+        if (!sessRes.rows.length) { await pool.end(); return res.status(404).json({ error: 'Session not found' }); }
+        const sess = sessRes.rows[0];
+        const evidenceRes = await pool.query(
+          `SELECT COUNT(*) FROM cdr_recon_rows WHERE session_id = \$1 AND match_status IN ('duration_mismatch','missing_ours')`,
+          [id]
+        );
+        const evidenceRows = Number(evidenceRes.rows[0].count);
+        const title = `CDR Dispute: ${sess.party_name} – ${sess.billing_period}`;
+        const description = `CDR-level dispute for ${sess.session_type} "“${sess.party_name}”" period ${sess.billing_period}. Auto-raised from CDR recon session #${id}. Evidence: ${evidenceRows} mismatched/missing rows.`;
+        let caseId: number | null = null;
+        try {
+          const caseRes = await pool.query(
+            `INSERT INTO billing_disputes (title, description, status, priority, created_at, updated_at)
+             VALUES (\$1, \$2, 'open', 'high', NOW(), NOW()) RETURNING id`,
+            [title, description]
+          );
+          caseId = caseRes.rows[0]?.id ?? null;
+        } catch { /* billing_disputes schema may differ — skip */ }
+        await pool.end();
+        res.json({ success: true, sessionId: id, caseId, evidenceRows });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    },
+  );
 
   // ── Voice OTP / Asterisk AMI routes ───────────────────────────────────────
   registerVoiceOtpRoutes(app);

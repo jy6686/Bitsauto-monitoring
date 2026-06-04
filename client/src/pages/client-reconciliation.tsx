@@ -108,50 +108,40 @@ function fmtPct(v?: number | null): string {
   return `${sign}${abs.toFixed(1)}%`;
 }
 
-function downloadRowCsv(row: ReconRow) {
-  const headers = [
-    'id', 'billing_period', 'version', 'client_name', 'client_account_id',
-    'client_duration_min', 'client_amount_usd', 'client_calls',
-    'bitsauto_duration_min', 'bitsauto_amount_usd', 'bitsauto_calls',
-    'dmr_duration_min', 'dmr_amount_usd',
-    'delta_duration_min', 'delta_amount_usd', 'delta_pct',
-    'discrepancy_type', 'severity', 'status', 'notes',
-  ];
-  const esc = (v: string | null | undefined) => {
-    if (v == null) return '';
-    const s = String(v);
-    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const fmtN = (v: number | null | undefined, d = 2) => v == null ? '' : v.toFixed(d);
-  const values = [
-    String(row.id),
-    esc(row.billingPeriod),
-    String(row.version ?? 1),
-    esc(row.clientName),
-    esc(row.clientAccountId ?? ''),
-    fmtN(row.clientDurationSec != null ? row.clientDurationSec / 60 : null),
-    fmtN(row.clientAmountUsd, 4),
-    String(row.clientCalls ?? ''),
-    fmtN(row.bitsautoDurationSec != null ? row.bitsautoDurationSec / 60 : null),
-    fmtN(row.bitsautoAmountUsd, 4),
-    String(row.bitsautoCalls ?? ''),
-    fmtN(row.dmrDurationSec != null ? row.dmrDurationSec / 60 : null),
-    fmtN(row.dmrAmountUsd, 4),
-    fmtN(row.deltaDurationSec != null ? row.deltaDurationSec / 60 : null),
-    fmtN(row.deltaAmountUsd, 4),
-    fmtN(row.deltaPct),
-    esc(row.discrepancyType),
-    esc(row.severity),
-    esc(row.status),
-    esc(row.notes ?? ''),
-  ];
-  const csv = [headers.join(','), values.join(',')].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const client = row.clientName.replace(/\s+/g, '-');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `recon-${client}-${row.billingPeriod}.csv`;
-  a.click();
+function downloadRowXlsx(row: ReconRow) {
+  import('xlsx').then(XLSX => {
+    const fmtN = (v: number | null | undefined, d = 2) => v == null ? '' : +v.toFixed(d);
+    const headers = [
+      'ID', 'Billing Period', 'Version', 'Client Name', 'Account ID',
+      'Client Duration (min)', 'Client Amount (USD)', 'Client Calls',
+      'BA Duration (min)', 'BA Amount (USD)', 'BA Calls',
+      'DMR Duration (min)', 'DMR Amount (USD)',
+      'Δ Duration (min)', 'Δ Amount (USD)', 'Δ %',
+      'Discrepancy Type', 'Severity', 'Status', 'Notes',
+    ];
+    const values = [
+      row.id, row.billingPeriod, row.version ?? 1, row.clientName, row.clientAccountId ?? '',
+      fmtN(row.clientDurationSec != null ? row.clientDurationSec / 60 : null),
+      fmtN(row.clientAmountUsd, 4), row.clientCalls ?? '',
+      fmtN(row.bitsautoDurationSec != null ? row.bitsautoDurationSec / 60 : null),
+      fmtN(row.bitsautoAmountUsd, 4), row.bitsautoCalls ?? '',
+      fmtN(row.dmrDurationSec != null ? row.dmrDurationSec / 60 : null), fmtN(row.dmrAmountUsd, 4),
+      fmtN(row.deltaDurationSec != null ? row.deltaDurationSec / 60 : null),
+      fmtN(row.deltaAmountUsd, 4), fmtN(row.deltaPct),
+      row.discrepancyType, row.severity, row.status, row.notes ?? '',
+    ];
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, values]);
+    ws['!cols'] = headers.map((h, i) => ({ wch: Math.min(Math.max(h.length + 2, String(values[i] ?? '').length + 2), 40) }));
+    XLSX.utils.book_append_sheet(wb, ws, 'Reconciliation');
+    const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const clientSlug = row.clientName.replace(/\s+/g, '-');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `recon-${clientSlug}-${row.billingPeriod}.xlsx`;
+    a.click();
+  });
 }
 
 const importSchema = z.object({
@@ -381,12 +371,12 @@ function ClientDetailDialog({ row, open, onClose }: {
           <Button variant="outline" onClick={onClose} data-testid="button-detail-close">Close</Button>
           <Button
             variant="outline"
-            onClick={() => downloadRowCsv(row)}
+            onClick={() => downloadRowXlsx(row)}
             data-testid="button-detail-download-csv"
             className="gap-2"
           >
             <FileDown className="h-4 w-4 text-sky-400" />
-            Download CSV
+            Download Excel (.xlsx)
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -526,7 +516,7 @@ export default function ClientReconciliationPage() {
         a.href = URL.createObjectURL(blob);
         a.download = fn;
         a.click();
-        toast({ title: type === 'csv' ? 'CSV exported' : 'PDF report exported' });
+        toast({ title: type === 'csv' ? 'Excel exported' : 'PDF report exported' });
       }
     } catch (e: any) {
       toast({ title: 'Export failed', description: e.message, variant: 'destructive' });
@@ -719,8 +709,8 @@ export default function ClientReconciliationPage() {
                     <Button
                       data-testid={`button-download-recon-${row.id}`}
                       variant="ghost" size="sm"
-                      onClick={() => downloadRowCsv(row)}
-                      title="Download CSV for this record"
+                      onClick={() => downloadRowXlsx(row)}
+                      title="Download Excel for this record"
                     >
                       <FileDown className="h-3.5 w-3.5 text-sky-400" />
                     </Button>
@@ -768,7 +758,7 @@ export default function ClientReconciliationPage() {
                 onClick={() => handleExport('csv')}
               >
                 <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-400" />
-                Export CSV
+                Export Excel (.xlsx)
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid="button-export-pdf"
@@ -955,7 +945,7 @@ export default function ClientReconciliationPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pdf">PDF Report</SelectItem>
-                  <SelectItem value="csv">CSV</SelectItem>
+                  <SelectItem value="csv">Excel (.xlsx)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1139,7 +1129,7 @@ export default function ClientReconciliationPage() {
                   <SelectTrigger data-testid="select-schedule-format"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="pdf">PDF Report</SelectItem>
-                    <SelectItem value="csv">CSV Export</SelectItem>
+                    <SelectItem value="csv">Excel Export (.xlsx)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

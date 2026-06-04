@@ -612,9 +612,41 @@ export async function runSafeMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS invoice_smtp_secure      BOOLEAN DEFAULT false,
         ADD COLUMN IF NOT EXISTS invoice_smtp_user        VARCHAR(255),
         ADD COLUMN IF NOT EXISTS invoice_smtp_pass        VARCHAR(512),
-        ADD COLUMN IF NOT EXISTS invoice_smtp_from_name   VARCHAR(255) DEFAULT 'Bitsauto Finance',
+        ADD COLUMN IF NOT EXISTS invoice_smtp_from_name   VARCHAR(255) DEFAULT 'Ichibaan Logic Billing',
         ADD COLUMN IF NOT EXISTS invoice_smtp_from_email  VARCHAR(255),
         ADD COLUMN IF NOT EXISTS sip_error_alert_threshold REAL DEFAULT 15
+    `);
+    // CDR-Level Dispute Reconciliation tables
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS cdr_recon_sessions (
+        id               SERIAL PRIMARY KEY,
+        session_type     VARCHAR(10)  NOT NULL CHECK (session_type IN ('vendor', 'client')),
+        party_name       VARCHAR(255) NOT NULL,
+        billing_period   VARCHAR(20)  NOT NULL,
+        uploaded_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        total_rows       INTEGER DEFAULT 0,
+        matched          INTEGER DEFAULT 0,
+        duration_mismatch INTEGER DEFAULT 0,
+        missing_ours     INTEGER DEFAULT 0,
+        extra_ours       INTEGER DEFAULT 0,
+        notes            TEXT
+      );
+      CREATE TABLE IF NOT EXISTS cdr_recon_rows (
+        id              SERIAL PRIMARY KEY,
+        session_id      INTEGER NOT NULL REFERENCES cdr_recon_sessions(id) ON DELETE CASCADE,
+        cli             VARCHAR(100),
+        cld             VARCHAR(100),
+        start_time      TIMESTAMP WITH TIME ZONE,
+        their_duration  INTEGER,
+        our_duration    INTEGER,
+        delta           INTEGER,
+        their_cost      NUMERIC(14,6),
+        our_cost        NUMERIC(14,6),
+        match_status    VARCHAR(30) NOT NULL,
+        sippy_call_id   VARCHAR(100)
+      );
+      CREATE INDEX IF NOT EXISTS idx_cdr_recon_rows_session_id ON cdr_recon_rows(session_id);
+      CREATE INDEX IF NOT EXISTS idx_cdr_recon_rows_status     ON cdr_recon_rows(session_id, match_status);
     `);
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
