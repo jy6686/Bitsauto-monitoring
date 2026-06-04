@@ -1,0 +1,218 @@
+Rate Management & Automation Requirements
+
+1. Rate Sheet Reception & Parsing
+
+A centralized Rate Management module should be implemented to automate vendor rate sheet processing.
+
+Required Features
+
+* Dedicated email address for receiving vendor rate sheets (e.g., rates@company.com).
+* Automatic monitoring of incoming rate sheet emails.
+* Support for multiple formats:
+    * XLS/XLSX
+    * CSV
+    * TXT
+    * Vendor-specific custom formats
+* Intelligent parser to convert vendor formats into the platform’s standard rate format.
+* Validation checks before import.
+* Preview screen showing:
+    * New destinations
+    * Updated destinations
+    * Increased rates
+    * Decreased rates
+    * Invalid records
+
+Missing Features
+
+* Automatic email retrieval and parsing.
+* Format conversion engine.
+* Vendor-specific parsing templates.
+* Automated destination matching.
+
+⸻
+
+2. Vendor Rate Update Automation
+
+When a vendor rate sheet is approved:
+
+* Automatically update all destination sets linked to the vendor.
+* Update all routes and connections using the same destination set.
+* Generate audit logs showing:
+    * Previous rate
+    * New rate
+    * User
+    * Date & Time
+
+⸻
+
+3. Historical Rate Repository
+
+The platform should maintain a complete history of all rates.
+
+Features
+
+* Store all previous rate sheets.
+* Track rate changes over time.
+* Display:
+    * Current Rate
+    * Previous Rate
+    * Difference
+    * Percentage Increase/Decrease
+    * Effective Date
+
+Benefits
+
+When preparing a quote for a client, the system should instantly show:
+
+* Last offered rate.
+* Current cost.
+* Margin analysis.
+* Increase or decrease compared to previous pricing.
+
+⸻
+
+4. Client Rate Generation Module
+
+A pricing engine should be available for generating customer rate sheets.
+
+Features
+
+* Generate rates from:
+    * Wholesale pricing tables
+    * Retail pricing tables
+    * Custom pricing plans
+* Save generated pricing templates.
+* Reuse existing pricing plans for future customers.
+* Export to:
+    * Excel
+    * CSV
+    * PDF
+
+⸻
+
+5. Pricing Protection & Loss Prevention Rules
+
+To avoid accidental losses, pricing validation rules should be enforced.
+
+Example
+
+If cost = $1.00
+
+The system should not allow:
+
+* $0.01
+* $0.05
+
+Without management approval.
+
+Required Rules
+
+Rate Decrease Validation
+
+* New rate cannot be reduced by more than 50%.
+* If exceeded:
+    * Import fails.
+    * Approval workflow is triggered.
+
+Rate Increase Validation
+
+* Rate increase should be scheduled.
+* Effective date must be at least 7 days in the future.
+* Customers receive advance notification.
+
+Margin Protection
+
+* Minimum margin rules.
+* Cost + minimum markup validation.
+* Hard stop if margin becomes negative.
+
+⸻
+
+6. Email Routing Configuration
+
+A centralized Email Configuration page should be created.
+
+Examples
+
+Billing
+
+billing@company.com
+
+Invoices
+
+invoice@company.com
+
+Vendor Rates
+
+rates@company.com
+
+Retail Pricing
+
+pricing@company.com
+
+Notifications
+
+alerts@company.com
+
+Features
+
+* Configure sender addresses.
+* Configure recipient groups.
+* Define workflows per mailbox.
+
+⸻
+
+7. Approval Workflow
+
+Before implementing rate changes:
+
+Auto Approve
+
+* Small changes within allowed threshold.
+
+Manual Approval
+
+Required when:
+
+* Rate decreases exceed configured limits.
+* Margin falls below minimum threshold.
+* Large destination volume is affected.
+
+⸻
+
+8. Reporting & Audit Trail
+
+Provide complete visibility into pricing changes.
+
+Reports
+
+* Rate Increase Report
+* Rate Decrease Report
+* Margin Impact Report
+* Vendor Update History
+* Customer Pricing History
+
+Audit Logs
+
+Track:
+
+* User
+* Date
+* Previous Value
+* New Value
+* Approval Status
+
+⸻
+
+Expected Outcome
+
+The platform should provide a fully automated rate lifecycle management system that:
+
+* Receives vendor rates automatically.
+* Parses and validates incoming rate sheets.
+* Prevents pricing mistakes and revenue loss.
+* Maintains historical pricing records.
+* Generates client pricing automatically.
+* Updates all linked routes and destination sets.
+* Provides approval workflows and audit trails.
+* Centralizes billing, pricing, invoice, and rate management emails.
