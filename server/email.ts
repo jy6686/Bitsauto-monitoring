@@ -1,6 +1,10 @@
 
 import nodemailer from 'nodemailer';
 import { storage } from './storage';
+import { db } from './db';
+import { userRoles, userConfig } from '../shared/schema';
+import { users } from '../shared/models/auth';
+import { eq, inArray } from 'drizzle-orm';
 
 export type AlertEmailPayload = {
   subject: string;
@@ -403,6 +407,181 @@ export function buildApprovalExpiryAlertEmail(opts: {
       </p>
     `),
   };
+}
+
+// ── Pending Approval Notification ─────────────────────────────────────────────
+
+export function buildPendingApprovalEmail(opts: {
+  actionType: string;
+  accountName: string;
+  requestedByName: string;
+  actionId: number;
+  deepLink: string;
+}): { subject: string; bodyHtml: string } {
+  return {
+    subject: `🔐 Approval Required — ${opts.actionType} on ${opts.accountName}`,
+    bodyHtml: baseTemplate('Action Pending Approval', `
+      <p style="font-size:14px;color:#ccc;line-height:1.6">
+        A high-risk action has been submitted and requires a second operator to approve before it executes.
+      </p>
+      <table style="width:100%;border-collapse:collapse;margin-top:16px">
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:10px 4px;color:#888;font-size:12px;width:38%">Action Type</td>
+          <td style="padding:10px 4px;color:#f97316;font-weight:bold;font-size:13px">${opts.actionType}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:10px 4px;color:#888;font-size:12px">Account</td>
+          <td style="padding:10px 4px;font-weight:bold;font-size:13px">${opts.accountName}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #2a2a3e">
+          <td style="padding:10px 4px;color:#888;font-size:12px">Submitted by</td>
+          <td style="padding:10px 4px;font-size:13px">${opts.requestedByName}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 4px;color:#888;font-size:12px">Action ID</td>
+          <td style="padding:10px 4px;font-family:monospace;font-size:13px">#${opts.actionId}</td>
+        </tr>
+      </table>
+      <div style="margin-top:24px">
+        <a href="${opts.deepLink}"
+           style="display:inline-block;padding:11px 22px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:6px;font-size:14px;font-weight:bold">
+          Review &amp; Approve → AI Copilot
+        </a>
+      </div>
+      <p style="color:#666;font-size:12px;margin-top:16px">
+        This action will not execute until a second authorised operator approves it in the AI Copilot panel.
+      </p>
+    `),
+  };
+}
+
+/**
+ * Resolves the platform's public base URL for deep links.
+ * Falls back to a relative path if no env variable is available.
+ */
+function _platformBaseUrl(): string {
+  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
+  if (process.env.REPL_SLUG && process.env.REPL_OWNER)
+    return `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+  return '';
+}
+
+/**
+ * Sends approval-required notifications (email + optional Slack) to all management/admin users.
+ * Called immediately after broadcastPendingApproval so that operators not currently logged in
+ * are still alerted out-of-band.
+ * Non-fatal: all errors are logged but do not propagate.
+ */
+export async function sendPendingApprovalNotifications(opts: {
+  actionId:        number;
+  actionType:      string;
+  accountName:     string;
+  requestedByName: string;
+}): Promise<void> {
+  const deepLink = `${_platformBaseUrl()}/route-intelligence`;
+
+  // ── 1. Collect management / admin users' notification emails from DB ──────
+  // Prefer userConfig.notificationEmail (override) over users.email (canonical).
+  const managementRoles = ['admin', 'management', 'super_admin', 'destination_manager'];
+  const recipients = new Set<string>();
+
+  try {
+    const rows = await db
+      .select({
+        userId:            userRoles.userId,
+        notificationEmail: userConfig.notificationEmail,
+        canonicalEmail:    users.email,
+      })
+      .from(userRoles)
+      .leftJoin(userConfig, eq(userRoles.userId, userConfig.userId))
+      .leftJoin(users, eq(userRoles.userId, users.id))
+      .where(inArray(userRoles.role, managementRoles));
+
+    for (const row of rows) {
+      // Prefer the explicit notification override; fall back to the canonical Replit Auth email
+      const email = row.notificationEmail ?? row.canonicalEmail;
+      if (email) recipients.add(email);
+    }
+  } catch (err: any) {
+    console.warn('[pending-approval-notify] DB query for management emails failed:', err.message);
+  }
+
+  // ── 2. Include global alertAdminEmail from settings (always-notified) ─────
+  try {
+    const settings = await storage.getSettings();
+    if (settings.alertAdminEmail) recipients.add(settings.alertAdminEmail);
+  } catch { /* non-fatal */ }
+
+  // ── 3. Email notification ─────────────────────────────────────────────────
+  const recipList = Array.from(recipients);
+  if (recipList.length > 0) {
+    const { subject, bodyHtml } = buildPendingApprovalEmail({
+      actionType:      opts.actionType,
+      accountName:     opts.accountName,
+      requestedByName: opts.requestedByName,
+      actionId:        opts.actionId,
+      deepLink,
+    });
+
+    let sentCount = 0;
+    for (const email of recipList) {
+      try {
+        const result = await sendDirectEmail({ to: email, subject, html: bodyHtml });
+        if (result.ok) {
+          sentCount++;
+        } else {
+          console.warn(`[pending-approval-notify] Email to ${email} skipped/failed: ${result.error ?? 'unknown'}`);
+        }
+      } catch (err: any) {
+        console.warn(`[pending-approval-notify] Email to ${email} threw: ${err.message}`);
+      }
+    }
+
+    if (sentCount > 0) {
+      console.log(
+        `[pending-approval-notify] Approval email delivered for action #${opts.actionId} ` +
+        `to ${sentCount}/${recipList.length} recipient(s).`,
+      );
+    } else {
+      console.warn(
+        `[pending-approval-notify] No approval emails delivered for action #${opts.actionId} ` +
+        `(${recipList.length} recipient(s) attempted — check SMTP config).`,
+      );
+    }
+  } else {
+    console.warn(
+      `[pending-approval-notify] No email recipients found for action #${opts.actionId} — ` +
+      `ensure management users have email addresses or set alertAdminEmail in Settings.`,
+    );
+  }
+
+  // ── 4. Slack webhook notification (optional) ──────────────────────────────
+  const slackUrl = process.env.SLACK_WEBHOOK_URL;
+  if (slackUrl) {
+    try {
+      const text = [
+        `🔐 *Approval Required* — Action \`#${opts.actionId}\``,
+        `*Type:* ${opts.actionType}`,
+        `*Account:* ${opts.accountName}`,
+        `*Submitted by:* ${opts.requestedByName}`,
+        `<${deepLink}|Review in AI Copilot →>`,
+      ].join('\n');
+
+      const resp = await fetch(slackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (resp.ok) {
+        console.log(`[pending-approval-notify] Slack notification sent for action #${opts.actionId}.`);
+      } else {
+        console.warn(`[pending-approval-notify] Slack webhook returned ${resp.status}.`);
+      }
+    } catch (err: any) {
+      console.warn('[pending-approval-notify] Slack notification failed:', err.message);
+    }
+  }
 }
 
 export function buildWrongNumberAlertEmail(opts: {

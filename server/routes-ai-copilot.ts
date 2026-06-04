@@ -40,6 +40,7 @@ import { db } from "./db";
 import { carrierQualityScores, fasEvents, irsfEvents, copilotResultCache, nocIncidents, nocIncidentEvents } from "../shared/schema";
 import { desc, gte, sql } from "drizzle-orm";
 import { broadcastRollbackFailureAlert, broadcastPendingApproval } from "./noc-ws";
+import { sendPendingApprovalNotifications } from "./email";
 
 type RequireRoleFn = (roles: string[], req: any, res: any, next: any) => void;
 
@@ -414,6 +415,17 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
               primaryAction:   recommendation.action,
             });
           } catch { /* non-fatal — operators can still poll the pending list */ }
+
+          // Out-of-band notifications (email + Slack) for operators not currently logged in.
+          // Fire-and-forget — intentionally not awaited so the HTTP response is not delayed.
+          sendPendingApprovalNotifications({
+            actionId:        action.id,
+            actionType,
+            accountName:     entityName,
+            requestedByName: actorName,
+          }).catch((err: any) => {
+            console.warn('[ai-copilot/apply] Pending approval out-of-band notification failed:', err?.message);
+          });
 
           return res.json({
             success:                true,
