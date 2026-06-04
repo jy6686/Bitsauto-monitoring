@@ -8,7 +8,7 @@ import {
   Minus, BrainCircuit, Siren, Maximize2, Minimize, Moon, Sun,
   ArrowRight, RefreshCw, AlertOctagon, GitBranch, Network,
   ChevronRight, Clock, Zap, ChevronDown, ChevronUp, ExternalLink,
-  PlayCircle, Loader2, AlertCircle, BarChart2, Sparkles, Wallet,
+  PlayCircle, Loader2, AlertCircle, BarChart2, Sparkles, Wallet, Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -21,6 +21,23 @@ import { useNocWebSocket, type RollbackFailureAlert, type ApprovalExpiredEvent }
 import { X, WrenchIcon } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+interface SslCertStatusEntry {
+  certId: string;
+  subject: string;
+  issuer?: string;
+  expiresAt: string;
+  daysRemaining: number;
+  status: 'ok' | 'warning' | 'critical' | 'expired';
+  source: 'sippy_api' | 'tls_probe';
+  autoRenew: boolean;
+  checkedAt: string;
+}
+
+interface SslStatusResponse {
+  certs: SslCertStatusEntry[];
+  checkedAt: string | null;
+}
 
 interface LiveSummary { totalActiveCalls: number; connected?: boolean; }
 
@@ -262,6 +279,84 @@ function ApprovalExpiredBanner({
           </button>
         </motion.div>
       ))}
+    </div>
+  );
+}
+
+// ── SSL Certificate Expiry Banner ────────────────────────────────────────────
+
+function SslCertExpiryBanner({
+  certs,
+  onDismiss,
+}: {
+  certs: SslCertStatusEntry[];
+  onDismiss: (certId: string) => void;
+}) {
+  const alertCerts = certs.filter(c => c.status !== 'ok');
+  if (alertCerts.length === 0) return null;
+  return (
+    <div className="flex-shrink-0 flex flex-col gap-1 px-3 py-2 bg-amber-950/50 border-b border-amber-700/50">
+      {alertCerts.map(cert => {
+        const isExpired  = cert.status === 'expired';
+        const isCritical = cert.status === 'critical';
+        const bg   = isExpired || isCritical ? "bg-red-950/70 border-red-700/60"  : "bg-amber-950/60 border-amber-700/50";
+        const icon = isExpired || isCritical ? "text-red-400" : "text-amber-400";
+        const badge = isExpired
+          ? "bg-red-500/20 text-red-300 border-red-500/30"
+          : isCritical
+          ? "bg-red-500/20 text-red-300 border-red-500/30"
+          : "bg-amber-500/20 text-amber-300 border-amber-500/30";
+        const label = isExpired ? "EXPIRED" : isCritical ? "CRITICAL" : "EXPIRING SOON";
+        const expiryStr = cert.daysRemaining < 0
+          ? `Expired ${Math.abs(cert.daysRemaining)} day(s) ago`
+          : `${cert.daysRemaining} day(s) remaining`;
+        return (
+          <motion.div
+            key={cert.certId}
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className={cn("flex items-start gap-3 rounded px-3 py-2 border", bg)}
+            data-testid={`ssl-cert-banner-${cert.certId}`}
+          >
+            <Lock className={cn("h-3.5 w-3.5 flex-shrink-0 mt-0.5", icon)} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn("text-[10px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border font-mono flex-shrink-0", badge)}>
+                  SSL {label}
+                </span>
+                <span className="text-[11px] font-semibold text-slate-200 font-mono truncate">
+                  {cert.subject}
+                </span>
+                {cert.autoRenew && (
+                  <span className="text-[10px] font-mono bg-blue-500/10 border border-blue-500/20 text-blue-400 px-1 py-0.5 rounded flex-shrink-0">
+                    Let's Encrypt
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] font-mono mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: isExpired || isCritical ? '#fca5a5' : '#fcd34d' }}>
+                <span>{expiryStr} · Expires {new Date(cert.expiresAt).toLocaleDateString()}</span>
+                <a
+                  href="/?fix=open"
+                  data-testid={`ssl-cert-fix-link-${cert.certId}`}
+                  onClick={(e) => { e.preventDefault(); document.dispatchEvent(new CustomEvent('open-fix-button')); }}
+                  className="underline underline-offset-2 hover:opacity-80 transition-opacity flex-shrink-0"
+                >
+                  View in Fix Button →
+                </a>
+              </p>
+            </div>
+            <button
+              data-testid={`ssl-cert-dismiss-${cert.certId}`}
+              onClick={() => onDismiss(cert.certId)}
+              className={cn("flex-shrink-0 p-1 rounded transition-colors", isExpired || isCritical ? "hover:bg-red-700/40 text-red-400 hover:text-red-200" : "hover:bg-amber-700/40 text-amber-400 hover:text-amber-200")}
+              aria-label="Dismiss SSL certificate alert"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </motion.div>
+        );
+      })}
     </div>
   );
 }
@@ -788,6 +883,7 @@ export default function NocDashboardPage() {
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
   const [expiredApprovals, setExpiredApprovals] = useState<ApprovalExpiredEvent[]>([]);
   const [dismissedExpiry, setDismissedExpiry] = useState<Set<string>>(new Set());
+  const [dismissedSslCerts, setDismissedSslCerts] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   const { isManagement } = useAuth();
   const { lastRollbackFailure, lastApprovalExpired } = useNocWebSocket();
@@ -866,6 +962,16 @@ export default function NocDashboardPage() {
     staleTime: 30_000,
   });
   const executionEnabled = execModeData?.enabled ?? false;
+
+  const { data: sslStatusData } = useQuery<SslStatusResponse>({
+    queryKey: ["/api/system/ssl-status"],
+    refetchInterval: 30 * 60 * 1000,
+    retry: 1,
+    staleTime: 20 * 60 * 1000,
+  });
+  const visibleSslCerts = (sslStatusData?.certs ?? []).filter(
+    c => c.status !== 'ok' && !dismissedSslCerts.has(c.certId)
+  );
 
   const investigateMutation = useMutation({
     mutationFn: (id: number) =>
@@ -1083,6 +1189,14 @@ export default function NocDashboardPage() {
             setDismissedAlerts(prev => new Set([...prev, occurredAt]));
             setRollbackAlerts(prev => prev.filter(a => a.occurredAt !== occurredAt));
           }}
+        />
+      </AnimatePresence>
+
+      {/* ── SSL Certificate Expiry Banners ── */}
+      <AnimatePresence>
+        <SslCertExpiryBanner
+          certs={visibleSslCerts}
+          onDismiss={(certId) => setDismissedSslCerts(prev => new Set([...prev, certId]))}
         />
       </AnimatePresence>
 

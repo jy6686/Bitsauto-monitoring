@@ -44,6 +44,7 @@
 
 import http from 'node:http';
 import https from 'node:https';
+import tls from 'node:tls';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
 
@@ -16749,6 +16750,141 @@ export async function simpleApiCallback(
     req.on('timeout', () => { req.destroy(); resolve({ success: false, message: 'Simple API request timed out.' }); });
     req.end();
   });
+}
+
+// ── SSL Certificate Expiry Monitoring ────────────────────────────────────────
+
+/**
+ * Enriched SSL certificate status entry — used by the monitoring system.
+ * Computed from either the Sippy XML-RPC API or a direct TLS probe.
+ */
+export interface SslCertStatusEntry {
+  certId: string;
+  subject: string;
+  issuer?: string;
+  expiresAt: string;       // ISO 8601 date string
+  daysRemaining: number;
+  status: 'ok' | 'warning' | 'critical' | 'expired';
+  source: 'sippy_api' | 'tls_probe';
+  autoRenew: boolean;      // true for Let's Encrypt certs
+  checkedAt: string;       // ISO 8601
+}
+
+function classifySslStatus(daysRemaining: number): 'ok' | 'warning' | 'critical' | 'expired' {
+  if (daysRemaining < 0)  return 'expired';
+  if (daysRemaining <= 7) return 'critical';
+  if (daysRemaining <= 30) return 'warning';
+  return 'ok';
+}
+
+function tlsProbe(host: string, port: number, checkedAt: string): Promise<SslCertStatusEntry[]> {
+  return new Promise(resolve => {
+    try {
+      const socket = tls.connect({ host, port, rejectUnauthorized: false, timeout: 12000 }, () => {
+        try {
+          const cert = socket.getPeerCertificate();
+          socket.end();
+          if (!cert || !cert.valid_to) { resolve([]); return; }
+          const expiresAt  = new Date(cert.valid_to);
+          if (isNaN(expiresAt.getTime())) { resolve([]); return; }
+          const daysRemaining = Math.floor((expiresAt.getTime() - Date.now()) / 86_400_000);
+          const subject    = (cert.subject as any)?.CN ?? (cert.subject as any)?.O ?? host;
+          const issuerOrg  = (cert.issuer as any)?.O ?? (cert.issuer as any)?.CN ?? undefined;
+          const isLetsEncrypt = (issuerOrg ?? '').toLowerCase().includes("let's encrypt");
+          resolve([{
+            certId: `tls:${host}:${port}`,
+            subject,
+            issuer: issuerOrg,
+            expiresAt: expiresAt.toISOString(),
+            daysRemaining,
+            status: classifySslStatus(daysRemaining),
+            source: 'tls_probe',
+            autoRenew: isLetsEncrypt,
+            checkedAt,
+          }]);
+        } catch { socket.end(); resolve([]); }
+      });
+      socket.on('error',   () => resolve([]));
+      socket.on('timeout', () => { socket.end(); resolve([]); });
+    } catch { resolve([]); }
+  });
+}
+
+function parseSippyExpiryDate(raw: string): Date | null {
+  if (!raw) return null;
+  // Try ISO / common formats first
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) return d;
+  // Sippy may return YYYY-MM-DD without time
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
+  // Unix timestamp (seconds)
+  const n = Number(raw);
+  if (!isNaN(n) && n > 1_000_000_000) return new Date(n * 1000);
+  return null;
+}
+
+/**
+ * Fetch SSL certificate expiry status for the Sippy softswitch.
+ *
+ * Strategy:
+ *   1. Try getSSLCertificatesList() via Sippy XML-RPC (requires active session).
+ *      Parses expiry_date from each returned cert.
+ *   2. Fall back to direct TLS connect on the portal host:port.
+ *      Returns the cert the Sippy HTTPS server presents.
+ *
+ * @param username  XML-RPC admin username (used for Sippy API call)
+ * @param password  XML-RPC admin password
+ * @param portalUrl Sippy portal base URL (e.g. https://191.101.30.107)
+ */
+export async function fetchSslCertStatus(
+  username: string,
+  password: string,
+  portalUrl: string,
+): Promise<SslCertStatusEntry[]> {
+  const checkedAt = new Date().toISOString();
+
+  // ── Method 1: Sippy XML-RPC (preferred — full cert inventory) ────────────
+  if (activeSession) {
+    try {
+      const { certificates } = await getSSLCertificatesList(username, password);
+      if (certificates.length > 0) {
+        const results: SslCertStatusEntry[] = [];
+        for (const cert of certificates) {
+          const expiresAt = cert.expiryDate ? parseSippyExpiryDate(cert.expiryDate) : null;
+          const daysRemaining = expiresAt
+            ? Math.floor((expiresAt.getTime() - Date.now()) / 86_400_000)
+            : 9999;
+          // iSslCertificateType 2 = Let's Encrypt on most Sippy versions
+          const isLetsEncrypt = cert.iSslCertificateType === 2;
+          results.push({
+            certId: String(cert.iSslCertificate),
+            subject: cert.commonName ?? cert.name ?? `Cert #${cert.iSslCertificate}`,
+            expiresAt: expiresAt ? expiresAt.toISOString() : 'unknown',
+            daysRemaining,
+            status: expiresAt ? classifySslStatus(daysRemaining) : 'ok',
+            source: 'sippy_api',
+            autoRenew: isLetsEncrypt,
+            checkedAt,
+          });
+        }
+        return results;
+      }
+    } catch (e) {
+      console.log(`[ssl-monitor] getSSLCertificatesList failed (${(e as Error).message}), falling back to TLS probe`);
+    }
+  }
+
+  // ── Method 2: Direct TLS probe (fallback) ────────────────────────────────
+  try {
+    const parsed = new URL(sippyBase(portalUrl));
+    if (parsed.protocol !== 'https:') return [];
+    const host = parsed.hostname;
+    const port = parsed.port ? parseInt(parsed.port) : 443;
+    return await tlsProbe(host, port, checkedAt);
+  } catch {
+    return [];
+  }
 }
 
 /**

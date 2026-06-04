@@ -63,7 +63,8 @@ import { initSyntheticScheduler, computeInitialNextRunAt } from "./synthetic-sch
 import { initCarrierScoringEngine, recomputeCarrierScores, setCdrProvider } from "./carrier-scoring-engine";
 import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents } from "@shared/schema";
 import { db } from "./db";
-import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
+import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql } from "drizzle-orm";
+const sqlExpr = sql;
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode, searchDialCodes } from "./dial-lookup";
 import { readFileSync } from "fs";
@@ -163,6 +164,95 @@ async function refreshVendorBalances(): Promise<void> {
     while (i < vendorBalanceHistory.length && vendorBalanceHistory[i].timestamp < cutoff) i++;
     if (i > 0) vendorBalanceHistory.splice(0, i);
   } catch { /* ignore transient errors */ } finally { _vendorBalanceRunning = false; }
+}
+
+// ── SSL Certificate Status Cache ─────────────────────────────────────────────
+// Refreshed hourly; available to both the fix/diagnose endpoint and API routes.
+import type { SslCertStatusEntry } from './sippy';
+let sslCertStatusCache: SslCertStatusEntry[] = [];
+let sslCertStatusCheckedAt: Date | null = null;
+let _sslCertRunning = false;
+
+async function refreshSslCertStatus(): Promise<void> {
+  if (_sslCertRunning) return;
+  _sslCertRunning = true;
+  try {
+    const settings = await storage.getSippySettings();
+    if (!settings?.portalUrl) return;
+    const portalUrl = sippyPortalUrl(settings);
+    const { username, password } = sippyXmlCreds(settings);
+    const certs = await sippy.fetchSslCertStatus(username, password, portalUrl);
+    if (certs.length > 0) {
+      sslCertStatusCache = certs;
+      sslCertStatusCheckedAt = new Date();
+      const summary = certs.map(c => `${c.subject}(${c.daysRemaining}d,${c.status})`).join(', ');
+      console.log(`[ssl-monitor] ${certs.length} cert(s) checked: ${summary}`);
+      // Persist to DB so state survives server restarts (upsert per certId)
+      try {
+        const { db: dbConn } = await import('./db');
+        for (const cert of certs) {
+          await dbConn.execute(sql`
+            INSERT INTO ssl_cert_status
+              (cert_id, subject, issuer, expires_at, days_remaining, status, source, auto_renew, checked_at)
+            VALUES (
+              ${cert.certId},
+              ${cert.subject},
+              ${cert.issuer ?? null},
+              ${cert.expiresAt},
+              ${cert.daysRemaining},
+              ${cert.status},
+              ${cert.source},
+              ${cert.autoRenew},
+              NOW()
+            )
+            ON CONFLICT (cert_id) DO UPDATE SET
+              subject        = EXCLUDED.subject,
+              issuer         = EXCLUDED.issuer,
+              expires_at     = EXCLUDED.expires_at,
+              days_remaining = EXCLUDED.days_remaining,
+              status         = EXCLUDED.status,
+              source         = EXCLUDED.source,
+              auto_renew     = EXCLUDED.auto_renew,
+              checked_at     = NOW()
+          `);
+        }
+      } catch (dbErr: any) {
+        console.warn('[ssl-monitor] DB persist failed (non-fatal):', dbErr.message);
+      }
+    }
+  } catch (e: any) {
+    console.warn('[ssl-monitor] refresh failed:', e.message);
+  } finally { _sslCertRunning = false; }
+}
+
+async function loadSslCertStatusFromDb(): Promise<void> {
+  try {
+    const { db: dbConn } = await import('./db');
+    const rows = await dbConn.execute(sql`
+      SELECT cert_id, subject, issuer, expires_at, days_remaining, status, source, auto_renew, checked_at
+      FROM ssl_cert_status
+      ORDER BY checked_at DESC
+    `);
+    if (rows.rows && rows.rows.length > 0) {
+      sslCertStatusCache = (rows.rows as any[]).map(r => ({
+        certId:        r.cert_id as string,
+        subject:       r.subject as string,
+        issuer:        r.issuer as string | undefined,
+        expiresAt:     r.expires_at ? (r.expires_at as Date).toISOString() : new Date(0).toISOString(),
+        daysRemaining: Number(r.days_remaining),
+        status:        r.status as 'ok' | 'warning' | 'critical' | 'expired',
+        source:        r.source as 'sippy_api' | 'tls_probe',
+        autoRenew:     Boolean(r.auto_renew),
+        checkedAt:     r.checked_at ? (r.checked_at as Date).toISOString() : new Date().toISOString(),
+      }));
+      sslCertStatusCheckedAt = new Date(
+        Math.max(...sslCertStatusCache.map(c => new Date(c.checkedAt).getTime()))
+      );
+      console.log(`[ssl-monitor] Loaded ${sslCertStatusCache.length} cert(s) from DB`);
+    }
+  } catch (e: any) {
+    console.warn('[ssl-monitor] DB load failed (non-fatal):', e.message);
+  }
 }
 
 /**
@@ -7476,6 +7566,29 @@ export async function registerRoutes(
       );
       res.json(result);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── SSL Certificate Expiry Monitoring ──────────────────────────────────────
+
+  // GET /api/system/ssl-status — returns cached cert expiry status for all known certs.
+  // Refreshed hourly; use POST /api/system/ssl-status/refresh to trigger an immediate re-check.
+  app.get('/api/system/ssl-status', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (_req: any, res: any) => {
+    res.json({
+      certs: sslCertStatusCache,
+      checkedAt: sslCertStatusCheckedAt?.toISOString() ?? null,
+    });
+  });
+
+  // POST /api/system/ssl-status/refresh — trigger an immediate re-check
+  app.post('/api/system/ssl-status/refresh', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
+    const before = sslCertStatusCheckedAt;
+    await refreshSslCertStatus();
+    res.json({
+      ok: true,
+      certs: sslCertStatusCache,
+      checkedAt: sslCertStatusCheckedAt?.toISOString() ?? null,
+      wasStale: !before || (Date.now() - before.getTime() > 60 * 1000),
+    });
   });
 
   // ── CA Lists (docs 3000111712) ──────────────────────────────────────────────
@@ -17656,6 +17769,15 @@ export async function registerRoutes(
   // Also run trend analyzer once after 5 min (after initial history builds up)
   setTimeout(runHourlyTrendAnalyzer, 5 * 60 * 1000);
 
+  // ── SSL certificate expiry checker — runs hourly ───────────────────────────
+  // Boot: load last-known state from DB immediately (no wait for first API run)
+  loadSslCertStatusFromDb();
+  // First full API re-check after 10 minutes (lets the Sippy session establish)
+  setTimeout(() => {
+    refreshSslCertStatus();
+    setInterval(refreshSslCertStatus, 60 * 60 * 1000);
+  }, 10 * 60 * 1000);
+
   // ── Sippy Watcher status + test endpoints ─────────────────────────────────
   app.get('/api/sippy-watcher/status', (req, res, next) => requireRole(['admin','management','viewer'], req, res, next), (req, res) => {
     res.json(getWatcherStatus());
@@ -20678,7 +20800,7 @@ export async function registerRoutes(
     try { frontendErrors = JSON.parse(req.query.errors as string || '[]'); } catch {}
 
     type CheckStatus = 'ok' | 'warn' | 'fail' | 'skip';
-    type IssueSeverity = 'critical' | 'warning' | 'info';
+    type IssueSeverity = 'critical' | 'high' | 'warning' | 'info';
     const checks: Array<{ id: string; name: string; status: CheckStatus; detail: string; durationMs: number }> = [];
     const issues: Array<{ type: string; severity: IssueSeverity; component: string; message: string; suggestion: string; autoFix: string | null; pastFix?: { action: string; outcome: string; performedBy: string | null; createdAt: string } | null }> = [];
 
@@ -21090,6 +21212,65 @@ export async function registerRoutes(
       }
     }
 
+    // ── SSL Certificate expiry check ─────────────────────────────────────────
+    {
+      const tsSSL = Date.now();
+      if (sslCertStatusCache.length > 0) {
+        const expired  = sslCertStatusCache.filter(c => c.status === 'expired');
+        const critical = sslCertStatusCache.filter(c => c.status === 'critical');
+        const warning  = sslCertStatusCache.filter(c => c.status === 'warning');
+        const allOk    = sslCertStatusCache.filter(c => c.status === 'ok');
+
+        // Determine overall check status
+        const overallStatus: 'ok' | 'warn' | 'fail' =
+          expired.length > 0 || critical.length > 0 ? 'fail' :
+          warning.length > 0 ? 'warn' : 'ok';
+
+        // Per-cert issue entry (each cert gets its own diagnostic line)
+        for (const cert of sslCertStatusCache) {
+          if (cert.status === 'ok') continue;
+          const expiresFormatted = cert.expiresAt ? new Date(cert.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'unknown';
+          const severity: IssueSeverity =
+            cert.status === 'expired'  ? 'high' :
+            cert.status === 'critical' ? 'critical' :
+            'warning';
+          const typeStr = cert.status === 'expired' ? 'API_FAILURE' : cert.status === 'critical' ? 'API_FAILURE' : 'TIMEOUT';
+          const msg = cert.status === 'expired'
+            ? `SSL certificate EXPIRED: ${cert.subject} — Expired ${Math.abs(cert.daysRemaining)} day(s) ago (${expiresFormatted}). Sippy HTTPS portal access will fail until renewed.`
+            : cert.status === 'critical'
+            ? `SSL certificate expiring in ${cert.daysRemaining} day(s): ${cert.subject} — Expires ${expiresFormatted}. Renewal is urgent to avoid portal outage.`
+            : `SSL certificate expiring in ${cert.daysRemaining} day(s): ${cert.subject} — Expires ${expiresFormatted}. Plan renewal before deadline.`;
+          const autoRenewNote = cert.autoRenew ? ' (Let\'s Encrypt auto-renew is configured — verify cron job is active)' : '';
+          issues.push({
+            type: typeStr,
+            severity,
+            component: `SSL Certificate: ${cert.subject}`,
+            message: msg,
+            suggestion: `Renew via Sippy System Management → Tools → SSL or Let's Encrypt.${autoRenewNote} Source: ${cert.source}.`,
+            autoFix: 'refresh_ssl_certs',
+          });
+        }
+
+        // Summary check line
+        const summaryDetail = [
+          expired.length  > 0 ? `${expired.length} expired`                                   : '',
+          critical.length > 0 ? `${critical.length} expiring ≤7d`                             : '',
+          warning.length  > 0 ? `${warning.length} expiring ≤30d`                             : '',
+          allOk.length    > 0 ? `${allOk.length} OK (${allOk.map(c => `${c.subject} ${c.daysRemaining}d`).join(', ')})` : '',
+        ].filter(Boolean).join(' · ');
+
+        checks.push({
+          id: 'ssl_certs',
+          name: 'SSL Certificates',
+          status: overallStatus,
+          detail: summaryDetail || `${sslCertStatusCache.length} cert(s) OK`,
+          durationMs: Date.now() - tsSSL,
+        });
+      } else {
+        checks.push({ id: 'ssl_certs', name: 'SSL Certificates', status: 'skip', detail: 'No cert data yet — loading from DB or waiting for first hourly check', durationMs: Date.now() - tsSSL });
+      }
+    }
+
     // ── Frontend error injection (Step 2: Collect Logs) ───────────────────────
     if (frontendErrors.length > 0) {
       const tsF = Date.now();
@@ -21107,7 +21288,7 @@ export async function registerRoutes(
       })
     );
 
-    const hasCritical = issuesWithHistory.some(i => i.severity === 'critical');
+    const hasCritical = issuesWithHistory.some(i => i.severity === 'critical' || i.severity === 'high');
     const hasWarning  = issuesWithHistory.some(i => i.severity === 'warning');
 
     res.json({
@@ -21218,6 +21399,28 @@ export async function registerRoutes(
           const msg = `Vendor list refreshed: ${result.vendors?.length || 0} vendors found.`;
           await recordHistory('success', msg);
           return res.json({ ok: true, message: msg, durationMs: Date.now() - t0 });
+        }
+        case 'refresh_ssl_certs': {
+          await refreshSslCertStatus();
+          const certCount = sslCertStatusCache.length;
+          if (certCount === 0) {
+            const msg = 'SSL cert check completed — no certificates found on this Sippy instance. Sippy may not have any SSL certs configured, or the API returned no results.';
+            await recordHistory('skipped', msg);
+            return res.json({ ok: true, message: msg, durationMs: Date.now() - t0 });
+          }
+          const expired  = sslCertStatusCache.filter(c => c.status === 'expired');
+          const critical = sslCertStatusCache.filter(c => c.status === 'critical');
+          const warning  = sslCertStatusCache.filter(c => c.status === 'warning');
+          const ok       = sslCertStatusCache.filter(c => c.status === 'ok');
+          const parts = [];
+          if (expired.length)  parts.push(`${expired.length} EXPIRED`);
+          if (critical.length) parts.push(`${critical.length} critical (≤7d)`);
+          if (warning.length)  parts.push(`${warning.length} warning (≤30d)`);
+          if (ok.length)       parts.push(`${ok.length} OK`);
+          const statusStr = expired.length || critical.length ? 'ACTION REQUIRED' : warning.length ? 'warning' : 'all OK';
+          const msg = `SSL cert check complete: ${parts.join(', ')}. Status: ${statusStr}.`;
+          await recordHistory(expired.length || critical.length ? 'failure' : 'success', msg);
+          return res.json({ ok: !expired.length && !critical.length, message: msg, durationMs: Date.now() - t0 });
         }
         default:
           return res.status(400).json({ ok: false, message: `Unknown action: ${action}` });

@@ -407,6 +407,23 @@ export async function runSafeMigrations(): Promise<void> {
         ON vendor_probe_results (vendor_id, probed_at DESC)
     `);
 
+    // ── SSL Certificate Status table (added 2026-06-04) ─────────────────────
+    // Stores the latest per-cert status snapshot so the SSL monitor survives
+    // server restarts without losing state. One row per certId (upserted hourly).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ssl_cert_status (
+        cert_id        TEXT        PRIMARY KEY,
+        subject        TEXT        NOT NULL,
+        issuer         TEXT,
+        expires_at     TIMESTAMP,
+        days_remaining INTEGER     NOT NULL DEFAULT 0,
+        status         TEXT        NOT NULL DEFAULT 'ok',
+        source         TEXT        NOT NULL DEFAULT 'sippy_api',
+        auto_renew     BOOLEAN     NOT NULL DEFAULT FALSE,
+        checked_at     TIMESTAMP   NOT NULL DEFAULT NOW()
+      )
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

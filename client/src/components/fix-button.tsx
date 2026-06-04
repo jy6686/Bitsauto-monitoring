@@ -50,7 +50,7 @@ function getPageName(path: string): string {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type CheckStatus = "ok" | "warn" | "fail" | "skip";
-type IssueSeverity = "critical" | "warning" | "info";
+type IssueSeverity = "critical" | "high" | "warning" | "info";
 type Tab = "diagnose" | "history" | "rules";
 
 interface PastFix {
@@ -136,6 +136,7 @@ function statusIcon(s: CheckStatus, cls = "h-4 w-4") {
 }
 function severityBadge(s: IssueSeverity) {
   if (s === "critical") return <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">Critical</Badge>;
+  if (s === "high")     return <Badge className="text-[10px] px-1.5 py-0 h-4 bg-orange-500/20 text-orange-300 border-orange-500/30 hover:bg-orange-500/30">High</Badge>;
   if (s === "warning")  return <Badge className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/20 text-amber-300 border-amber-500/30 hover:bg-amber-500/30">Warning</Badge>;
   return <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">Info</Badge>;
 }
@@ -186,10 +187,11 @@ function buildAiSuggestion(issues: DiagIssue[]): string | null {
 
 // ── Fix button action labels ─────────────────────────────────────────────────
 const FIX_ACTION_LABELS: Record<string, string> = {
-  retry_sippy:      "Retry Sippy API",
-  warm_cdr_cache:   "Warm CDR Cache",
-  check_db:         "Test DB Connection",
-  refresh_accounts: "Refresh Accounts",
+  retry_sippy:       "Retry Sippy API",
+  warm_cdr_cache:    "Warm CDR Cache",
+  check_db:          "Test DB Connection",
+  refresh_accounts:  "Refresh Accounts",
+  refresh_ssl_certs: "Re-check SSL Certs Now",
   refresh_vendors:  "Refresh Vendors",
 };
 
@@ -290,6 +292,13 @@ export function FixButton() {
 
   // Stores the base64 JPEG captured when Fix button is clicked (before modal opens)
   const screenshotRef = useRef<string | null>(null);
+
+  // ── External open trigger (e.g. from NOC SSL cert banner) ─────────────────
+  useEffect(() => {
+    const onOpenRequest = () => setOpen(true);
+    document.addEventListener('open-fix-button', onOpenRequest);
+    return () => document.removeEventListener('open-fix-button', onOpenRequest);
+  }, []);
 
   // ── Frontend error capture (Step 2: Collect Logs) ───────────────────────
   const frontendErrorsRef = useRef<string[]>([]);
