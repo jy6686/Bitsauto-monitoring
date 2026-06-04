@@ -1,7 +1,11 @@
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import { is, getTableName, getTableColumns } from "drizzle-orm";
+import { PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@shared/schema";
+import { is, getTableName, getTableColumns } from "drizzle-orm";
+import { PgTable } from "drizzle-orm/pg-core";
 
 const { Pool } = pg;
 
@@ -616,7 +620,7 @@ export async function runSafeMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS invoice_smtp_from_email  VARCHAR(255),
         ADD COLUMN IF NOT EXISTS sip_error_alert_threshold REAL DEFAULT 15
     `);
-    // CDR-Level Dispute Reconciliation tables
+    // ── CDR-Level Dispute Reconciliation tables (incoming from main) ─────────
     await client.query(`
       CREATE TABLE IF NOT EXISTS cdr_recon_sessions (
         id               SERIAL PRIMARY KEY,
@@ -657,9 +661,245 @@ export async function runSafeMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS avg_acd_secs REAL
     `);
 
+    // ── Meta WhatsApp Flows columns (migration 025) ───────────────────────────
+    await client.query(`
+      ALTER TABLE settings
+        ADD COLUMN IF NOT EXISTS meta_flow_id          VARCHAR(64),
+        ADD COLUMN IF NOT EXISTS meta_waba_id          VARCHAR(64),
+        ADD COLUMN IF NOT EXISTS meta_flows_enabled    BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS meta_flows_public_key TEXT
+    `);
+
+    // ── Route test CLI columns (migration 026) ────────────────────────────────
+    await client.query(`ALTER TABLE route_test_jobs    ADD COLUMN IF NOT EXISTS cli_to_send VARCHAR(32)`);
+    await client.query(`ALTER TABLE route_test_results ADD COLUMN IF NOT EXISTS cli_sent    VARCHAR(32)`);
+    await client.query(`ALTER TABLE route_test_results ADD COLUMN IF NOT EXISTS cli_match   VARCHAR(16)`);
+
+    // ── Companies wizard draft (migration 027) ────────────────────────────────
+    await client.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS wizard_draft TEXT`);
+
+    // ── SMS OTP retry + Flow verification columns (migration 028) ─────────────
+    await client.query(`
+      ALTER TABLE sms_messages
+        ADD COLUMN IF NOT EXISTS retry_count   INTEGER   NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS flow_token    VARCHAR(64),
+        ADD COLUMN IF NOT EXISTS verified_at   TIMESTAMP
+    `);
+
+    // ── Client Identity Map + Workspace Navigation (migration 029) ────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_identity_map (
+        id                 SERIAL PRIMARY KEY,
+        i_account          INTEGER UNIQUE,
+        sippy_username     VARCHAR(255),
+        billing_name       VARCHAR(255),
+        display_name       VARCHAR(255),
+        crm_name           VARCHAR(255),
+        portal_name        VARCHAR(255),
+        external_ref       VARCHAR(255),
+        account_manager_id VARCHAR(255),
+        finance_owner_id   VARCHAR(255),
+        risk_tier          VARCHAR(20) DEFAULT 'standard',
+        notes              TEXT,
+        active             BOOLEAN NOT NULL DEFAULT TRUE,
+        last_synced_at     TIMESTAMP,
+        created_at         TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at         TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS workspace_definitions (
+        id          SERIAL PRIMARY KEY,
+        slug        TEXT UNIQUE NOT NULL,
+        label       TEXT NOT NULL,
+        description TEXT,
+        portal_slug TEXT,
+        domain_id   TEXT,
+        icon        TEXT,
+        sort_order  INTEGER DEFAULT 0,
+        is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS workspace_tabs (
+        id               SERIAL PRIMARY KEY,
+        workspace_id     INTEGER NOT NULL,
+        slug             TEXT NOT NULL,
+        label            TEXT NOT NULL,
+        icon             TEXT,
+        sort_order       INTEGER DEFAULT 0,
+        is_visible       BOOLEAN NOT NULL DEFAULT TRUE,
+        visibility_roles TEXT[]
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS workspace_tab_items (
+        id               SERIAL PRIMARY KEY,
+        tab_id           INTEGER NOT NULL,
+        route            TEXT NOT NULL,
+        label            TEXT,
+        icon             TEXT,
+        sort_order       INTEGER DEFAULT 0,
+        is_contextual    BOOLEAN NOT NULL DEFAULT FALSE,
+        is_hidden        BOOLEAN NOT NULL DEFAULT FALSE,
+        visibility_roles TEXT[]
+      )
+    `);
+    // Ensure visibility_roles exists on tables created before migration 029 was corrected
+    await client.query(`ALTER TABLE workspace_tab_items ADD COLUMN IF NOT EXISTS visibility_roles TEXT[]`);
+    await client.query(`ALTER TABLE workspace_tabs      ADD COLUMN IF NOT EXISTS visibility_roles TEXT[]`);
+
+    // ── Tables discovered missing by schema-derived check (migration 031) ────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS cdr_anomaly_batches (
+        id              SERIAL PRIMARY KEY,
+        run_date        VARCHAR(12)  NOT NULL,
+        account         VARCHAR(128) NOT NULL,
+        metric          VARCHAR(32)  NOT NULL,
+        baseline        REAL         NOT NULL,
+        observed        REAL         NOT NULL,
+        deviation_sigma REAL         NOT NULL,
+        severity        VARCHAR(16)  NOT NULL,
+        created_at      TIMESTAMP    DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS invoice_email_deliveries (
+        id            SERIAL PRIMARY KEY,
+        invoice_id    INTEGER      NOT NULL,
+        recipients    TEXT         NOT NULL,
+        cc_addresses  TEXT         DEFAULT '[]',
+        subject       VARCHAR(512) NOT NULL,
+        body_text     TEXT,
+        sent_by       VARCHAR(255),
+        status        VARCHAR(32)  NOT NULL DEFAULT 'sent',
+        error_message TEXT,
+        sent_at       TIMESTAMP    DEFAULT NOW(),
+        created_at    TIMESTAMP    NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS reconciliation_report_schedules (
+        id             SERIAL PRIMARY KEY,
+        name           VARCHAR(128) NOT NULL,
+        report_type    VARCHAR(20)  NOT NULL DEFAULT 'carrier',
+        recipients     TEXT         NOT NULL,
+        format         VARCHAR(10)  NOT NULL DEFAULT 'pdf',
+        frequency      VARCHAR(20)  NOT NULL DEFAULT 'monthly',
+        day_of_month   INTEGER      DEFAULT 1,
+        day_of_week    INTEGER,
+        cron_hour      INTEGER      NOT NULL DEFAULT 8,
+        carrier_tariff VARCHAR(64),
+        enabled        BOOLEAN      NOT NULL DEFAULT true,
+        last_sent_at   TIMESTAMP,
+        next_due_at    TIMESTAMP,
+        created_at     TIMESTAMP    NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rtp_quality_history (
+        id               SERIAL PRIMARY KEY,
+        vendor_id        VARCHAR(128) NOT NULL,
+        avg_mos          REAL,
+        p10_mos          REAL,
+        avg_jitter_ms    REAL,
+        avg_pkt_loss_pct REAL,
+        avg_latency_ms   REAL,
+        sample_count     INTEGER NOT NULL DEFAULT 0,
+        snapped_at       TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rqh_vendor_snapped ON rtp_quality_history (vendor_id, snapped_at DESC)`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS vendor_health_scores (
+        id                SERIAL PRIMARY KEY,
+        vendor_name       VARCHAR(128) NOT NULL,
+        scored_at         TIMESTAMP    NOT NULL DEFAULT NOW(),
+        overall_score     REAL         NOT NULL,
+        quality_score     REAL,
+        reliability_score REAL,
+        fraud_score       REAL,
+        margin_score      REAL,
+        trend             VARCHAR(16),
+        trend_delta       REAL,
+        details           JSONB
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_vhs_vendor_scored ON vendor_health_scores (vendor_name, scored_at DESC)`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS route_health_scores (
+        id                  SERIAL PRIMARY KEY,
+        routing_group_id    VARCHAR(64)  NOT NULL,
+        routing_group_name  VARCHAR(256) NOT NULL,
+        scored_at           TIMESTAMP    NOT NULL DEFAULT NOW(),
+        overall_score       REAL         NOT NULL,
+        vendor_count        INTEGER      NOT NULL DEFAULT 0,
+        lowest_vendor_score REAL,
+        details             JSONB
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rhs_group_scored ON route_health_scores (routing_group_id, scored_at DESC)`);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
+  } finally {
+    client.release();
+  }
+}
+
+// ── Schema Sanity Check ────────────────────────────────────────────────────────
+// Runs once at startup after runSafeMigrations(). Derives the full set of expected
+// (table, column) pairs directly from the Drizzle schema module — no hand-maintained
+// list required. Any column added to shared/schema.ts is automatically included.
+//
+// Queries information_schema.columns in one round-trip and logs a WARNING for every
+// column that is defined in the schema but absent from the live database.
+// The server still starts (non-fatal) so operators can diagnose from logs.
+
+/** Auto-derive every (table_name, column_name) pair from the exported Drizzle schema. */
+function deriveExpectedFromSchema(): Array<{ table: string; column: string }> {
+  const result: Array<{ table: string; column: string }> = [];
+  for (const value of Object.values(schema)) {
+    if (is(value, PgTable)) {
+      const tableName = getTableName(value as PgTable);
+      const columns = getTableColumns(value as PgTable);
+      for (const col of Object.values(columns)) {
+        result.push({ table: tableName, column: col.name });
+      }
+    }
+  }
+  return result;
+}
+
+export async function runSchemaCheck(): Promise<void> {
+  const expected = deriveExpectedFromSchema();
+  if (expected.length === 0) return;
+  const client = await pool.connect();
+  try {
+    // Build a parameterised VALUES list for a single round-trip
+    const values = expected.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(', ');
+    const params = expected.flatMap(({ table, column }) => [table, column]);
+    const result = await client.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND (table_name, column_name) IN (${values})`,
+      params,
+    );
+    const found = new Set(result.rows.map(r => `${r.table_name}.${r.column_name}`));
+    const missing = expected.filter(({ table, column }) => !found.has(`${table}.${column}`));
+    if (missing.length === 0) {
+      console.log(`[db-schema] Sanity check passed — all ${expected.length} schema columns present.`);
+    } else {
+      for (const { table, column } of missing) {
+        console.warn(`[db-schema] WARNING: missing column ${table}.${column} — add to runSafeMigrations()`);
+      }
+    }
+  } catch (err: any) {
+    console.warn('[db-schema] Schema check could not run (non-fatal):', err.message);
   } finally {
     client.release();
   }

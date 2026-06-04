@@ -3,7 +3,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
-import { runSafeMigrations } from "./db";
+import { runSafeMigrations, runSchemaCheck } from "./db";
 import { startRoutingCacheSync } from "./routing-cache";
 import { setupNocWebSocket } from "./noc-ws";
 import { setupLiveTrafficWebSocket } from "./live-traffic-ws";
@@ -159,6 +159,8 @@ app.use((req, res, next) => {
 (async () => {
   // Run safe idempotent DB column migrations before routes start
   await runSafeMigrations();
+  // Verify all expected columns are present — logs warnings for anything missing
+  await runSchemaCheck();
 
   await registerRoutes(httpServer, app);
 
