@@ -254,6 +254,48 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           topSignal = `${fraudEvents} fraud events detected`;
         }
 
+        // ── Enrich with top 3 recs from last proactive run if available ──────
+        let topRecommendations: object[] | null = null;
+        let enrichedTopRecommendation = topRecommendation;
+        const nowMs = Date.now();
+        if (_lastCopilotResult && _lastCopilotResult.expiresAt > nowMs && _lastCopilotResult.value.recommendations.length > 0) {
+          const proactiveRecs = _lastCopilotResult.value.recommendations;
+          topRecommendations = proactiveRecs.slice(0, 3).map(r => ({
+            id:             r.id,
+            action:         r.action,
+            confidence:     r.confidence,
+            risk:           r.risk,
+            actionCategory: r.actionCategory,
+            expectedImpact: r.expectedImpact,
+            currentVendor:  r.currentVendor,
+            targetVendor:   r.targetVendor,
+            reasons:        r.reasons,
+            simulate:       r.simulate,
+            source_mode:    _lastCopilotResult.value.mode,
+          }));
+          // Use the top proactive rec as topRecommendation (richer, has actionCategory).
+          // CRITICAL: topAction/topSignal must also be updated to stay consistent with the
+          // enrichedTopRecommendation so operators never apply a different action than shown.
+          const top = proactiveRecs[0];
+          if (top) {
+            enrichedTopRecommendation = {
+              id:             top.id,
+              action:         top.action,
+              confidence:     top.confidence,
+              risk:           top.risk,
+              actionCategory: top.actionCategory,
+              source_mode:    _lastCopilotResult.value.mode,
+              expectedImpact: top.expectedImpact,
+              currentVendor:  top.currentVendor,
+              reasons:        top.reasons,
+              simulate:       top.simulate,
+            };
+            // Sync displayed text with the proactive top rec to guarantee consistency
+            topAction = top.action;
+            topSignal = top.reasons?.[0] ?? topSignal;
+          }
+        }
+
         const payload = {
           hasAlerts,
           criticalCount: criticalCarriers.length,
@@ -261,7 +303,8 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           fraudEvents,
           topAction,
           topSignal,
-          topRecommendation,
+          topRecommendation: enrichedTopRecommendation,
+          topRecommendations,
           totalCarriers: scores.length,
           generatedAt: new Date().toISOString(),
         };
@@ -1105,6 +1148,40 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     `[approval-expiry] Background job registered — sweeping every 60s, ` +
     `TTL resolved at runtime from DB settings (falls back to DUAL_APPROVAL_TTL_MINUTES env var, default 30m)`,
   );
+
+  // ── Proactive 15-min copilot scheduler ───────────────────────────────────────
+  // Runs every 15 min, caching the result so the NOC strip always shows fresh recs.
+  // First run at T+5min (vendor health engine warms at T+2min, CDR cache at T+3min).
+  let _proactiveRunning = false;
+  async function _runProactiveCopilot(): Promise<void> {
+    if (_proactiveRunning) return; // skip if previous run still in progress
+    _proactiveRunning = true;
+    try {
+      let vendorPrefixData: any = null;
+      try {
+        if (_getCdrBasedPrefixData) vendorPrefixData = await _getCdrBasedPrefixData();
+      } catch { /* non-fatal */ }
+      const result = await runRouteCopilot(vendorPrefixData);
+      _lastCopilotResult = { value: result, expiresAt: Date.now() + COPILOT_RESULT_TTL_MS };
+      // Persist to DB cache (fire-and-forget)
+      db.delete(copilotResultCache).then(() => {
+        db.insert(copilotResultCache).values({ result: result as any, generatedAt: new Date() }).catch((e: any) => {
+          console.warn('[copilot-proactive] DB cache write failed (non-fatal):', e.message);
+        });
+      }).catch((e: any) => console.warn('[copilot-proactive] DB cache delete failed (non-fatal):', e.message));
+      invalidateCopilotSummaryCache();
+      const recCount  = result.recommendations.length;
+      const critCount = result.summary.criticalCarriers;
+      console.log(`[copilot-proactive] Auto-run complete — ${recCount} recs, ${critCount} critical carrier(s). Mode: ${result.mode}`);
+    } catch (err: any) {
+      console.warn('[copilot-proactive] Auto-run failed (non-fatal):', err.message);
+    } finally {
+      _proactiveRunning = false;
+    }
+  }
+  setTimeout(_runProactiveCopilot, 5 * 60_000);         // first run at T+5min
+  setInterval(_runProactiveCopilot, 15 * 60_000);        // then every 15 min
+  console.log('[copilot-proactive] Proactive scheduler registered — first run at T+5min, then every 15 min');
 
   // ── GET /api/ai/route-copilot/settings ─────────────────────────────────────
   // Returns current copilot 503 detection settings.

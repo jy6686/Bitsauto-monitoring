@@ -45,6 +45,8 @@ export class AiContractError extends Error {
 
 // ── Output types ──────────────────────────────────────────────────────────────
 
+export type ActionCategory = 'TRAFFIC_SHIFT' | 'VENDOR_QUARANTINE' | 'ROUTE_OPTIMISATION' | 'FRAUD_ALERT';
+
 export interface AiRouteRecommendation {
   id: string;
   action: string;
@@ -52,6 +54,7 @@ export interface AiRouteRecommendation {
   reasons: string[];
   risk: "low" | "medium" | "high";
   expectedImpact: string;
+  actionCategory?: ActionCategory;
   aiInsight?: string;
   currentVendor?: string;
   targetVendor?: string;
@@ -61,6 +64,15 @@ export interface AiRouteRecommendation {
     fasCount: number;
     irsfCount: number;
     avgFraudScore: number | null;
+  };
+  healthScoreEvidence?: {
+    overallScore: number;
+    trend: string;
+    trendDelta: number;
+    qualityScore: number;
+    reliabilityScore: number;
+    fraudScore: number;
+    marginScore: number;
   };
   simulate: {
     asrDelta: number | null;
@@ -493,6 +505,20 @@ function buildRuleBasedRecommendations(
     }
   }
 
+  // ── Category assignment (post-processing, cleaner than per-push tagging) ─────
+  for (const rec of recs) {
+    if (rec.id.startsWith('fraud-')) {
+      (rec as any).actionCategory = 'FRAUD_ALERT';
+    } else if (rec.id.startsWith('shift-') || (rec.id.startsWith('sip-spike-') && rec.targetVendor)) {
+      (rec as any).actionCategory = 'TRAFFIC_SHIFT';
+    } else if (rec.id.startsWith('deprioritise-')) {
+      const score = scores.find(s => s.carrierName === rec.currentVendor);
+      (rec as any).actionCategory = score && isCritical(score) ? 'VENDOR_QUARANTINE' : 'ROUTE_OPTIMISATION';
+    } else {
+      (rec as any).actionCategory = 'ROUTE_OPTIMISATION';
+    }
+  }
+
   // Sort by confidence desc, deduplicate by currentVendor
   const seen = new Set<string>();
   const deduped: AiRouteRecommendation[] = [];
@@ -557,7 +583,9 @@ function validateAiOutput(raw: any, baseline: AiRouteRecommendation[]): AiRouteR
     return {
       ...item,
       aiInsight: typeof item.aiInsight === "string" && item.aiInsight.trim() ? item.aiInsight.trim() : undefined,
-      fraudSignals: base?.fraudSignals ?? item.fraudSignals,
+      fraudSignals:       base?.fraudSignals       ?? item.fraudSignals,
+      healthScoreEvidence: base?.healthScoreEvidence ?? undefined,
+      actionCategory:     base?.actionCategory     ?? item.actionCategory ?? 'ROUTE_OPTIMISATION',
       simulate: base?.simulate ?? item.simulate ?? { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
       sipErrorTrend: sipTrend ?? undefined,
       likelyCause,
@@ -634,24 +662,43 @@ async function _processAutoTriggerQueue(): Promise<void> {
 
 
 // Vendor health scores injected lazily to avoid circular deps
-async function loadVendorHealthContext(): Promise<string> {
+async function loadVendorHealthContext(): Promise<{ text: string; scoresByVendor: Map<string, import('../../vendor-health-engine').VendorHealthBreakdown> }> {
   try {
     const { getLatestVendorHealthScores } = await import('../../vendor-health-engine');
     const scores = getLatestVendorHealthScores();
-    if (scores.length === 0) return '';
-    const critical = scores.filter(s => s.overallScore < 50);
-    const declining = scores.filter(s => s.trend === 'declining');
-    const lines = [
-      `Vendor Health Engine — ${scores.length} vendors scored:`,
-      ...scores.slice(0, 10).map(s =>
-        `  ${s.vendorName}: score=${s.overallScore.toFixed(0)} (Q=${s.qualityScore?.toFixed(0)} R=${s.reliabilityScore?.toFixed(0)} F=${s.fraudScore?.toFixed(0)} M=${s.marginScore?.toFixed(0)}) trend=${s.trend}`
+    const scoresByVendor = new Map(scores.map(s => [s.vendorName, s]));
+    if (scores.length === 0) return { text: '', scoresByVendor };
+
+    const sorted  = [...scores].sort((a, b) => b.overallScore - a.overallScore);
+    const top5    = sorted.slice(0, 5);
+    const bottom5 = sorted.slice(-5).reverse();
+    const critical   = scores.filter(s => s.overallScore < 50);
+    const declining  = scores.filter(s => s.trend === 'declining');
+    const improving  = scores.filter(s => s.trend === 'improving');
+    const unreachable = scores.filter(s => (s.details?.optionsUptimePct ?? 100) < 50);
+
+    const lines: string[] = [
+      `Vendor Health Engine — ${scores.length} vendors scored (0–100 composite: Q=Quality R=Reliability F=FraudInverse M=Margin):`,
+      '',
+      'TOP 5 (best performing):',
+      ...top5.map(s =>
+        `  ${s.vendorName}: overall=${s.overallScore.toFixed(0)} Q=${s.qualityScore?.toFixed(0)} R=${s.reliabilityScore?.toFixed(0)} F=${s.fraudScore?.toFixed(0)} M=${s.marginScore?.toFixed(0)} trend=${s.trend}(${s.trendDelta >= 0 ? '+' : ''}${s.trendDelta.toFixed(1)})`
+      ),
+      '',
+      'BOTTOM 5 (worst performing):',
+      ...bottom5.map(s =>
+        `  ${s.vendorName}: overall=${s.overallScore.toFixed(0)} Q=${s.qualityScore?.toFixed(0)} R=${s.reliabilityScore?.toFixed(0)} F=${s.fraudScore?.toFixed(0)} M=${s.marginScore?.toFixed(0)} trend=${s.trend}(${s.trendDelta >= 0 ? '+' : ''}${s.trendDelta.toFixed(1)})`
       ),
     ];
-    if (critical.length > 0) lines.push(`CRITICAL vendors (<50): ${critical.map(s => s.vendorName).join(', ')}`);
-    if (declining.length > 0) lines.push(`DECLINING vendors: ${declining.map(s => s.vendorName).join(', ')}`);
-    return lines.join('\n');
+
+    if (critical.length > 0)    lines.push(`CRITICAL (<50 overall): ${critical.map(s => `${s.vendorName}(${s.overallScore.toFixed(0)})`).join(', ')}`);
+    if (declining.length > 0)   lines.push(`DECLINING trend (6h): ${declining.map(s => `${s.vendorName}(${s.trendDelta.toFixed(1)})`).join(', ')}`);
+    if (improving.length > 0)   lines.push(`IMPROVING trend (6h): ${improving.map(s => `${s.vendorName}(+${s.trendDelta.toFixed(1)})`).join(', ')}`);
+    if (unreachable.length > 0) lines.push(`OPTIONS UNREACHABLE (<50% uptime): ${unreachable.map(s => `${s.vendorName}(${(s.details?.optionsUptimePct ?? 0).toFixed(0)}%)`).join(', ')}`);
+
+    return { text: lines.join('\n'), scoresByVendor };
   } catch {
-    return '';
+    return { text: '', scoresByVendor: new Map() };
   }
 }
 
@@ -675,7 +722,7 @@ export async function runRouteCopilot(
     getCopilotVendorSignals().catch(() => new Map()), // route quality snapshots — non-fatal
     loadRouteTestEvidence(6).catch(() => [] as Awaited<ReturnType<typeof loadRouteTestEvidence>>),
     buildVoiceQualityDigest().catch(() => null as VoiceQualityDigest | null),
-    loadVendorHealthContext().catch(() => ''),
+    loadVendorHealthContext().catch(() => ({ text: '', scoresByVendor: new Map() })),
   ]);
 
   // Merge snapshot signals into carrier scores to improve copilot accuracy.
@@ -716,11 +763,33 @@ export async function runRouteCopilot(
   const fraudAlertCarriers = [...fraudProfiles.entries()].filter(([, v]) => v.fasCount + v.irsfCount >= 3).length;
   const negativeMarginVendors = [...marginProfiles.entries()].filter(([, v]) => v.isNegativeMargin).length;
 
+  // ── Destructure vendor health context (string + scoresByVendor map) ────────
+  const { text: vendorHealthText, scoresByVendor: vendorHealthMap } = vendorHealthCtx;
+
   // ── Rule engine: build baseline recommendations ─────────────────────────────
   // Note: simulate projections are computed server-side from carrier score deltas.
   // The server has the authoritative carrier telemetry; client-side projection
   // would duplicate this work without access to the raw score data.
   const baseline = buildRuleBasedRecommendations(scores, pendingSuggestions, fraudProfiles, marginProfiles, vendorPrefixData, sipErrors as SipErrorVendorWithSpikes[]);
+
+  // ── Enrich baseline recs with health score evidence (primary quality signal) ─
+  for (const rec of baseline) {
+    const vendorName = rec.currentVendor;
+    if (vendorName && vendorHealthMap.size > 0) {
+      const health = vendorHealthMap.get(vendorName);
+      if (health) {
+        (rec as any).healthScoreEvidence = {
+          overallScore:     health.overallScore,
+          trend:            health.trend,
+          trendDelta:       health.trendDelta,
+          qualityScore:     health.qualityScore     ?? 0,
+          reliabilityScore: health.reliabilityScore ?? 0,
+          fraudScore:       health.fraudScore       ?? 0,
+          marginScore:      health.marginScore       ?? 0,
+        };
+      }
+    }
+  }
 
   // ── Summary fields ─────────────────────────────────────────────────────────
   const topSignal = criticalScores.length > 0
@@ -802,17 +871,22 @@ You receive route recommendations computed by a rule-based system and must:
 2. Keep "reasons" as an array of 2–4 concise factual bullet strings.
 3. Keep "expectedImpact" as one short sentence.
 4. Add an "aiInsight" field: one sentence of telecom-specific operational context (e.g. regional congestion patterns, known carrier behaviour, PSTN/mobile peering considerations, fraud risk context, margin-impacting routing patterns, or RTP/MOS voice quality issues). If SIP error telemetry is provided, cite specific error codes (e.g. "503 congestion spike", "486 CLI screening") in your insight. This must add genuine telecom expertise beyond what the rule engine already states — do NOT just paraphrase the reasons. Max 30 words.
-5. For recommendations tagged with "sipError: true", add two additional fields:
+5. Each recommendation carries an "actionCategory" field. Use it to sharpen the aiInsight:
+   - TRAFFIC_SHIFT: focus on rerouting urgency, alternative path quality, and ASR recovery timeline.
+   - VENDOR_QUARANTINE: emphasise isolation risk, fraud exposure, and the need for immediate quarantine.
+   - ROUTE_OPTIMISATION: focus on margin improvement, PDD reduction, or LCR rebalancing opportunity.
+   - FRAUD_ALERT: highlight FAS/IRSF exposure, CLI spoofing patterns, and regulatory risk.
+6. For recommendations tagged with "sipError: true", add two additional fields:
    - "likelyCause": one short sentence (max 20 words) explaining the most probable network/carrier-side root cause for this specific SIP error pattern (e.g. "Upstream gateway is rate-limiting this carrier's SIP INVITE traffic" for 503, "Destination number format mismatch or route table misconfiguration" for 404).
    - "expectedAsrImpact": one short sentence (max 15 words) describing the expected effect on Answer-Seizure Ratio if the recommendation is not acted on (e.g. "ASR will continue to decline by ~3–5pp per hour until congestion clears").
    For recommendations without sipError, omit both fields.
-6. Preserve all other fields (id, confidence, risk, currentVendor, targetVendor, destination) exactly as given.
-7. Return a JSON object: { "recommendations": [ ...same schema... ] }
+7. Preserve all other fields (id, confidence, risk, currentVendor, targetVendor, destination, actionCategory) exactly as given.
+8. Return a JSON object: { "recommendations": [ ...same schema... ] }
 
 Output MUST be valid JSON. The "recommendations" array MUST have ${baseline.length} items (same order).
 Risk values: only "low", "medium", or "high".
 Confidence: integer 0–100 (you may adjust ±5 based on telecom best-practice judgement).
-${voiceQualityContext}${vendorHealthCtx ? `\n\nVendor & Route Health Engine (0–100 score, computed from ASR/PDD/OPTIONS uptime/FAS/margin — use as primary quality ranking signal):\n${vendorHealthCtx}` : ""}`;
+${voiceQualityContext}${vendorHealthText ? `\n\nVendor & Route Health Engine (0–100 composite: Q=Quality R=Reliability F=FraudInverse M=Margin — primary quality ranking signal):\n${vendorHealthText}` : ""}`;
 
     // ── Build SIP error telemetry context for the AI ──────────────────────────
     let sipContext = "";

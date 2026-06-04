@@ -87,11 +87,14 @@ interface CapAlertsResponse {
   sippyBaseUrl: string | null;
 }
 
+type ActionCategory = 'TRAFFIC_SHIFT' | 'VENDOR_QUARANTINE' | 'ROUTE_OPTIMISATION' | 'FRAUD_ALERT';
+
 interface StripRecommendation {
   id: string;
   action: string;
   confidence: number;
   risk: "low" | "medium" | "high";
+  actionCategory?: ActionCategory;
   expectedImpact: string;
   currentVendor?: string;
   targetVendor?: string;
@@ -108,6 +111,7 @@ interface CopilotSummary {
   topAction: string | null;
   topSignal: string | null;
   topRecommendation: StripRecommendation | null;
+  topRecommendations?: StripRecommendation[];
   totalCarriers: number;
   generatedAt: string;
 }
@@ -793,28 +797,56 @@ function CopilotAlertStrip({
               transition={{ duration: 0.18 }}
               className="px-4 pb-2"
             >
-              <div className="flex items-center gap-2 pl-6">
-                <ArrowRight className={cn("h-3 w-3 flex-shrink-0", iconColor)} />
-                <span className="text-[11px] text-slate-300 font-mono leading-snug flex-1">
-                  {summary.topAction}
-                </span>
-                {canApply && summary.topRecommendation && (
-                  <button
-                    data-testid="copilot-strip-quick-apply"
-                    onClick={() => onQuickApply(summary.topRecommendation!)}
-                    className={cn(
-                      "flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded border transition-all flex-shrink-0",
-                      isCritical
-                        ? "border-red-500/50 text-red-300 bg-red-500/15 hover:bg-red-500/30"
-                        : "border-amber-500/50 text-amber-300 bg-amber-500/15 hover:bg-amber-500/30",
-                    )}
-                    title="Apply this recommendation directly from the NOC strip"
-                  >
-                    <PlayCircle className="h-2.5 w-2.5" />
-                    Apply
-                  </button>
-                )}
-              </div>
+              {/* ── Top-3 recommendation rows (when proactive run has results) ── */}
+              {(summary.topRecommendations && summary.topRecommendations.length > 0
+                ? summary.topRecommendations
+                : summary.topRecommendation
+                  ? [summary.topRecommendation]
+                  : []
+              ).map((rec, idx) => (
+                <div
+                  key={rec.id}
+                  data-testid={`copilot-strip-rec-row-${idx}`}
+                  className={cn("flex items-center gap-2 pl-6", idx > 0 && "mt-1.5")}
+                >
+                  <ArrowRight className={cn("h-3 w-3 flex-shrink-0", idx === 0 ? iconColor : "text-slate-600")} />
+                  {rec.actionCategory && (
+                    <span className={cn(
+                      "text-[9px] font-bold uppercase font-mono px-1.5 py-0.5 rounded border flex-shrink-0",
+                      rec.actionCategory === 'TRAFFIC_SHIFT'      ? "bg-blue-500/15 text-blue-400 border-blue-500/30" :
+                      rec.actionCategory === 'VENDOR_QUARANTINE'  ? "bg-red-600/15 text-red-400 border-red-600/30" :
+                      rec.actionCategory === 'FRAUD_ALERT'        ? "bg-orange-500/15 text-orange-400 border-orange-500/30" :
+                      "bg-violet-500/15 text-violet-400 border-violet-500/30",
+                    )}>
+                      {rec.actionCategory.replace(/_/g, ' ')}
+                    </span>
+                  )}
+                  <span className={cn(
+                    "text-[11px] font-mono leading-snug flex-1 truncate",
+                    idx === 0 ? "text-slate-300" : "text-slate-500",
+                  )}>
+                    {rec.action}
+                  </span>
+                  {canApply && (
+                    <button
+                      data-testid={idx === 0 ? "copilot-strip-quick-apply" : `copilot-strip-quick-apply-${idx}`}
+                      onClick={() => onQuickApply(rec)}
+                      className={cn(
+                        "flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded border transition-all flex-shrink-0",
+                        idx === 0
+                          ? isCritical
+                            ? "border-red-500/50 text-red-300 bg-red-500/15 hover:bg-red-500/30"
+                            : "border-amber-500/50 text-amber-300 bg-amber-500/15 hover:bg-amber-500/30"
+                          : "border-slate-700/60 text-slate-500 bg-slate-800/30 hover:bg-slate-700/40",
+                      )}
+                      title="Apply this recommendation directly from the NOC strip"
+                    >
+                      <PlayCircle className="h-2.5 w-2.5" />
+                      Apply
+                    </button>
+                  )}
+                </div>
+              ))}
               {summary.fraudEvents > 3 && (
                 <div className="flex items-center gap-1.5 pl-6 mt-1">
                   <Shield className="h-3 w-3 text-rose-400 flex-shrink-0" />

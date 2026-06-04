@@ -46,6 +46,8 @@ interface FraudSignals {
   avgFraudScore: number | null;
 }
 
+type ActionCategory = 'TRAFFIC_SHIFT' | 'VENDOR_QUARANTINE' | 'ROUTE_OPTIMISATION' | 'FRAUD_ALERT';
+
 interface AiRouteRecommendation {
   id: string;
   action: string;
@@ -53,12 +55,22 @@ interface AiRouteRecommendation {
   reasons: string[];
   risk: "low" | "medium" | "high";
   expectedImpact: string;
+  actionCategory?: ActionCategory;
   aiInsight?: string;
   currentVendor?: string;
   targetVendor?: string;
   destination?: string;
   autoTriggered?: boolean;
   fraudSignals?: FraudSignals;
+  healthScoreEvidence?: {
+    overallScore: number;
+    trend: string;
+    trendDelta: number;
+    qualityScore: number;
+    reliabilityScore: number;
+    fraudScore: number;
+    marginScore: number;
+  };
   simulate: {
     asrDelta: number | null;
     stabilityDelta: number | null;
@@ -164,6 +176,13 @@ const RISK_CONFIG = {
   low:    { label: "Low Risk",    cls: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30" },
   medium: { label: "Medium Risk", cls: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30" },
   high:   { label: "High Risk",   cls: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30" },
+};
+
+const CATEGORY_CONFIG: Record<ActionCategory, { label: string; cls: string }> = {
+  TRAFFIC_SHIFT:      { label: "Traffic Shift",      cls: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30" },
+  VENDOR_QUARANTINE:  { label: "Vendor Quarantine",  cls: "bg-red-600/10 text-red-700 dark:text-red-400 border-red-600/30" },
+  ROUTE_OPTIMISATION: { label: "Route Optimisation", cls: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/30" },
+  FRAUD_ALERT:        { label: "Fraud Alert",         cls: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/30" },
 };
 
 function ConfidenceBar({ value }: { value: number }) {
@@ -621,6 +640,14 @@ function AiRecCard({
 
             {/* Badges row */}
             <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {rec.actionCategory && CATEGORY_CONFIG[rec.actionCategory] && (
+                <span
+                  data-testid={`ai-rec-category-badge-${index}`}
+                  className={cn("text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border", CATEGORY_CONFIG[rec.actionCategory].cls)}
+                >
+                  {CATEGORY_CONFIG[rec.actionCategory].label}
+                </span>
+              )}
               <span className={cn("text-[10px] font-bold uppercase font-mono px-2 py-0.5 rounded border", risk.cls)}>
                 {risk.label}
               </span>
@@ -745,6 +772,50 @@ function AiRecCard({
               <span className="font-semibold text-violet-400 mr-1">AI:</span>
               <span className="text-muted-foreground">{rec.aiInsight}</span>
             </span>
+          </div>
+        )}
+
+        {/* Health Score Evidence block (when vendor health engine has scored this vendor) */}
+        {rec.healthScoreEvidence && (
+          <div
+            data-testid={`ai-rec-health-evidence-${index}`}
+            className="mt-2 rounded-lg bg-slate-500/5 border border-slate-500/15 px-3 py-2"
+          >
+            <p className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground/60 mb-1.5">
+              Health Score Evidence
+            </p>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
+              <span className="font-mono">
+                Score:{" "}
+                <span className={cn(
+                  "font-bold",
+                  rec.healthScoreEvidence.overallScore < 50 ? "text-red-400" :
+                  rec.healthScoreEvidence.overallScore < 70 ? "text-amber-400" :
+                  "text-emerald-400",
+                )}>
+                  {rec.healthScoreEvidence.overallScore.toFixed(0)}
+                </span>
+                <span className="text-muted-foreground">/100</span>
+              </span>
+              <span className="font-mono text-muted-foreground text-[10px]">
+                Q={rec.healthScoreEvidence.qualityScore.toFixed(0)}{" "}
+                R={rec.healthScoreEvidence.reliabilityScore.toFixed(0)}{" "}
+                F={rec.healthScoreEvidence.fraudScore.toFixed(0)}{" "}
+                M={rec.healthScoreEvidence.marginScore.toFixed(0)}
+              </span>
+              <span className={cn(
+                "font-mono text-[10px] flex items-center gap-1",
+                rec.healthScoreEvidence.trend === 'declining'  ? "text-red-400" :
+                rec.healthScoreEvidence.trend === 'improving'  ? "text-emerald-400" :
+                "text-muted-foreground",
+              )}>
+                {rec.healthScoreEvidence.trend === 'declining'  ? <TrendingDown className="h-2.5 w-2.5" /> :
+                 rec.healthScoreEvidence.trend === 'improving'  ? <TrendingUp className="h-2.5 w-2.5" /> :
+                 <Minus className="h-2.5 w-2.5" />}
+                {rec.healthScoreEvidence.trend}
+                {" "}({rec.healthScoreEvidence.trendDelta >= 0 ? "+" : ""}{rec.healthScoreEvidence.trendDelta.toFixed(1)} 6h)
+              </span>
+            </div>
           </div>
         )}
 
