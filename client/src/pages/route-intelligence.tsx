@@ -3191,7 +3191,8 @@ function SipErrorsTab() {
     queryKey: countQueryKey ? [countQueryKey] : ["sip-count-disabled"],
     queryFn: () => fetch(countQueryKey!).then(r => r.json()),
     enabled: !!countQueryKey,
-    staleTime: 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
 
   // Resolved display count: server-confirmed when custom date range is active,
