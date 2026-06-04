@@ -2846,6 +2846,17 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
               .map((h, i) => (h.baselines?.[code] != null ? `${i * stepX},${toY(h.baselines[code])}` : null))
               .filter(Boolean) as string[];
 
+            const spikePts = history
+              .map((h, i) => {
+                const rate = h.rates[code] ?? 0;
+                const base = h.baselines?.[code];
+                if (base != null && base > 0 && rate >= 2 * base) {
+                  return { x: i * stepX, y: toY(rate) };
+                }
+                return null;
+              })
+              .filter(Boolean) as { x: number; y: number }[];
+
             return (
               <g key={code}>
                 {ratePts.length >= 2 && (
@@ -2867,6 +2878,19 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
                     opacity={0.45}
                   />
                 )}
+                {spikePts.map((pt, pi) => (
+                  <circle
+                    key={pi}
+                    cx={pt.x}
+                    cy={pt.y}
+                    r={2.5}
+                    fill={colors[ci]}
+                    stroke="white"
+                    strokeWidth={0.8}
+                    opacity={0.95}
+                    data-testid={`spike-dot-${vendorName}-${code}-${pi}`}
+                  />
+                ))}
               </g>
             );
           })}
@@ -2913,14 +2937,26 @@ function SipErrorHistoryChart({ vendorName }: { vendorName: string }) {
               const rate = hoveredEntry.rates[code];
               const base = hoveredEntry.baselines?.[code];
               if (rate == null && base == null) return null;
+              const isSpike = base != null && base > 0 && (rate ?? 0) >= 2 * base;
               return (
-                <div key={code} className="flex items-center gap-1 leading-snug">
-                  <span style={{ color: colors[ci] }} className="font-semibold">{code}</span>
-                  <span className="text-foreground">{(rate ?? 0).toFixed(1)}%</span>
-                  {base != null && (
-                    <span className="text-muted-foreground/60">
-                      / <span className="text-[9px]">base</span> {base.toFixed(1)}%
-                    </span>
+                <div key={code} className="leading-snug">
+                  <div className="flex items-center gap-1">
+                    <span style={{ color: colors[ci] }} className="font-semibold">{code}</span>
+                    <span className="text-foreground">{(rate ?? 0).toFixed(1)}%</span>
+                    {base != null && (
+                      <span className="text-muted-foreground/60">
+                        / <span className="text-[9px]">base</span> {base.toFixed(1)}%
+                      </span>
+                    )}
+                  </div>
+                  {isSpike && (
+                    <div
+                      className="flex items-center gap-0.5 text-amber-500 font-semibold mt-0.5"
+                      data-testid={`spike-exceeded-label-${vendorName}-${code}`}
+                    >
+                      <span>⚠</span>
+                      <span>spike threshold exceeded</span>
+                    </div>
                   )}
                 </div>
               );
