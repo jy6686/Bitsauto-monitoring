@@ -9,6 +9,10 @@ import {
   Network, SlidersHorizontal, Save, History, ChevronDown, ChevronUp,
   Play, Trash2, Globe, TriangleAlert,
 } from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ReferenceLine, ResponsiveContainer, Dot,
+} from "recharts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -835,8 +839,42 @@ function GlobalThresholdsPanel() {
 
 // ─── Per-Account Alert History ─────────────────────────────────────────────────
 
-function AccountAlertHistory({ accountId, accountName }: { accountId: number; accountName: string }) {
+// ─── Severity colour helpers ───────────────────────────────────────────────
+function sevColor(severity: string) {
+  if (severity === 'critical') return '#f87171'; // red-400
+  if (severity === 'urgent')   return '#fb923c'; // orange-400
+  return '#fbbf24'; // amber-400
+}
+
+// Custom dot renderer: colours each point by severity
+function SeverityDot(props: any) {
+  const { cx, cy, payload } = props;
+  if (cx == null || cy == null) return null;
+  return <circle cx={cx} cy={cy} r={4} fill={sevColor(payload.severity)} stroke="none" />;
+}
+
+// Tooltip for the balance chart
+function BalanceTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/95 backdrop-blur px-3 py-2 shadow-lg text-[11px] space-y-1">
+      <p className="font-semibold" style={{ color: sevColor(d.severity) }}>{d.severity.toUpperCase()}</p>
+      <p className="font-mono text-foreground">${Number(d.balance).toFixed(2)}</p>
+      <p className="text-muted-foreground">{new Date(d.ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+      {d.resolved && <p className="text-emerald-400">✓ resolved</p>}
+    </div>
+  );
+}
+
+function AccountAlertHistory({ accountId, accountName, threshold, currency }: {
+  accountId: number;
+  accountName: string;
+  threshold: number | null;
+  currency?: string;
+}) {
   const [open, setOpen] = useState(false);
+  const cur = currency ?? 'USD';
 
   const { data, isLoading } = useQuery<{ events: any[]; history: any[] }>({
     queryKey: ['/api/accounts', String(accountId), 'balance-alert-history'],
@@ -845,6 +883,23 @@ function AccountAlertHistory({ accountId, accountName }: { accountId: number; ac
     staleTime: 60_000,
   });
   const events = data?.events ?? data?.history ?? [];
+
+  // Sort ascending by triggeredAt for the chart
+  const sorted = [...events].sort((a, b) => new Date(a.triggeredAt).getTime() - new Date(b.triggeredAt).getTime());
+
+  const chartData = sorted.map(e => ({
+    ts: new Date(e.triggeredAt).getTime(),
+    balance: Number(e.currentBalance),
+    severity: e.severity,
+    resolved: !!e.resolvedAt,
+  }));
+
+  const balances = chartData.map(d => d.balance);
+  const minBal = balances.length ? Math.min(...balances) : 0;
+  const maxBal = balances.length ? Math.max(...balances) : 10;
+  const yPad = (maxBal - minBal) * 0.15 || 1;
+  const yMin = Math.max(0, minBal - yPad);
+  const yMax = maxBal + yPad;
 
   return (
     <div className="border-t border-border/40 mt-2 pt-2">
@@ -855,32 +910,131 @@ function AccountAlertHistory({ accountId, accountName }: { accountId: number; ac
       >
         <History className="w-3 h-3" />
         Alert history
+        {events.length > 0 && !isLoading && open && (
+          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[10px] font-medium">
+            {events.length}
+          </span>
+        )}
         {open ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
       </button>
+
       {open && (
-        <div className="mt-2 space-y-1">
+        <div className="mt-3 space-y-3">
           {isLoading ? (
-            <p className="text-xs text-muted-foreground">Loading…</p>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              <Loader2 className="w-3 h-3 animate-spin" /> Loading history…
+            </div>
           ) : events.length === 0 ? (
             <p className="text-xs text-muted-foreground py-1">No alerts in the last 30 days.</p>
           ) : (
-            events.slice(0, 8).map((e: any) => {
-              const sevCls =
-                e.severity === 'critical' ? 'text-red-400' :
-                e.severity === 'urgent'   ? 'text-orange-400' : 'text-amber-400';
-              const resolvedAt = e.resolvedAt ? new Date(e.resolvedAt) : null;
-              const triggeredAt = new Date(e.triggeredAt);
-              return (
-                <div key={e.id} className="flex items-start gap-2 text-[10px] py-1 border-b border-border/20 last:border-0">
-                  <span className={`font-mono font-bold uppercase shrink-0 ${sevCls}`}>{e.severity}</span>
-                  <span className="text-muted-foreground shrink-0">${Number(e.currentBalance).toFixed(0)}</span>
-                  <span className="text-muted-foreground flex-1 text-right">
-                    {triggeredAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                    {resolvedAt ? <span className="ml-1 text-emerald-500">✓ resolved</span> : <span className="ml-1 text-amber-500">open</span>}
-                  </span>
+            <>
+              {/* ── Balance trend mini-chart ─────────────────────────────── */}
+              <div
+                data-testid={`chart-balance-history-${accountId}`}
+                className="rounded-lg border border-border/30 bg-muted/10 p-2 pb-1"
+              >
+                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mb-1 px-1">
+                  Balance at alert time ({cur}) — last 30 days
+                </p>
+                <ResponsiveContainer width="100%" height={100}>
+                  <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                    <defs>
+                      <linearGradient id={`balGrad-${accountId}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="#fbbf24" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#fbbf24" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                    <XAxis
+                      dataKey="ts"
+                      type="number"
+                      domain={['dataMin', 'dataMax']}
+                      scale="time"
+                      tick={false}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      domain={[yMin, yMax]}
+                      tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.35)' }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={36}
+                      tickFormatter={(v: number) => `$${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)}`}
+                    />
+                    <Tooltip content={<BalanceTooltip />} />
+                    {threshold !== null && (
+                      <ReferenceLine
+                        y={threshold}
+                        stroke="#fbbf24"
+                        strokeDasharray="4 3"
+                        strokeOpacity={0.55}
+                        label={{ value: 'threshold', position: 'insideTopRight', fontSize: 8, fill: '#fbbf24', opacity: 0.7 }}
+                      />
+                    )}
+                    <Area
+                      type="monotone"
+                      dataKey="balance"
+                      stroke="#fbbf24"
+                      strokeWidth={1.5}
+                      strokeOpacity={0.6}
+                      fill={`url(#balGrad-${accountId})`}
+                      dot={<SeverityDot />}
+                      activeDot={{ r: 5, strokeWidth: 0 }}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+                {/* Severity legend */}
+                <div className="flex items-center gap-3 px-1 pt-1 pb-0.5">
+                  {[['critical', '#f87171'], ['urgent', '#fb923c'], ['warning', '#fbbf24']].map(([label, color]) => (
+                    <span key={label} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
+                      {label}
+                    </span>
+                  ))}
                 </div>
-              );
-            })
+              </div>
+
+              {/* ── Event timeline list ──────────────────────────────────── */}
+              <div className="space-y-0.5" data-testid={`list-alert-history-${accountId}`}>
+                {events.slice(0, 10).map((e: any) => {
+                  const resolvedAt  = e.resolvedAt ? new Date(e.resolvedAt) : null;
+                  const triggeredAt = new Date(e.triggeredAt);
+                  const color = sevColor(e.severity);
+                  return (
+                    <div
+                      key={e.id}
+                      data-testid={`row-alert-event-${e.id}`}
+                      className="flex items-center gap-2 text-[10px] py-1 border-b border-border/20 last:border-0"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />
+                      <span className="font-mono font-bold uppercase shrink-0" style={{ color }}>
+                        {e.severity}
+                      </span>
+                      <span className="font-mono text-foreground/80 shrink-0">
+                        {cur} {Number(e.currentBalance).toFixed(2)}
+                      </span>
+                      <span className="text-muted-foreground flex-1 text-right">
+                        {triggeredAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                        {' '}
+                        {triggeredAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {resolvedAt ? (
+                        <span className="shrink-0 text-emerald-500 font-medium">✓</span>
+                      ) : (
+                        <span className="shrink-0 text-amber-500 font-medium">●</span>
+                      )}
+                    </div>
+                  );
+                })}
+                {events.length > 10 && (
+                  <p className="text-[10px] text-muted-foreground text-center pt-1">
+                    +{events.length - 10} older events
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -1227,7 +1381,7 @@ function AccountCard({ account }: { account: BalanceAccount }) {
         <AccountThresholdsPanel accountId={account.iAccount} accountName={account.username} />
 
         {/* Alert history expandable */}
-        <AccountAlertHistory accountId={account.iAccount} accountName={account.username} />
+        <AccountAlertHistory accountId={account.iAccount} accountName={account.username} threshold={account.threshold} currency={account.currency} />
       </div>
 
       <TopUpModal account={account} open={showTopUp} onClose={() => setShowTopUp(false)} />
