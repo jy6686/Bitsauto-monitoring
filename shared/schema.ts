@@ -3398,53 +3398,47 @@ export const sipErrorStats = pgTable("sip_error_stats", {
 export type SipErrorStat = typeof sipErrorStats.$inferSelect;
 
 // ── Route Quality Snapshots — 15-min rolling aggregation of CDR cache ─────────
-// Persists per-vendor, per-prefix quality metrics so the AI Copilot and
-// Route Intelligence UI can query pre-computed signals without re-processing
-// the entire CDR cache on demand.
-// Index: (vendor_id, prefix, window_hours, computed_at) for fast time-windowed lookups.
 export const routeQualitySnapshots = pgTable("route_quality_snapshots", {
   id:            serial("id").primaryKey(),
-  vendorId:      varchar("vendor_id",    { length: 64  }).notNull(),  // iVendor or vendor name key
+  vendorId:      varchar("vendor_id",    { length: 64  }).notNull(),
   vendorName:    varchar("vendor_name",  { length: 128 }).notNull(),
-  prefix:        varchar("prefix",       { length: 32  }).notNull(),  // E.164 prefix or '__all__' for vendor-level
-  windowHours:   integer("window_hours").notNull(),                   // 1 | 4 | 24
+  prefix:        varchar("prefix",       { length: 32  }).notNull(),
+  windowHours:   integer("window_hours").notNull(),
   computedAt:    timestamp("computed_at").notNull().defaultNow(),
   callCount:     integer("call_count").notNull().default(0),
   answeredCount: integer("answered_count").notNull().default(0),
-  asr:           real("asr"),              // answered / call_count × 100
-  acdSeconds:    real("acd_seconds"),      // avg duration of answered calls
-  pddMs:         real("pdd_ms"),           // avg post-dial delay in ms (null if not available)
-  totalCostUsd:  real("total_cost_usd"),   // vendor cost (from Mera enrichment)
-  revenueUsd:    real("revenue_usd"),      // gross revenue (CDR cost field = customer billing)
-  marginUsd:     real("margin_usd"),       // margin = revenue - vendor cost
+  asr:           real("asr"),
+  acdSeconds:    real("acd_seconds"),
+  pddMs:         real("pdd_ms"),
+  totalCostUsd:  real("total_cost_usd"),
+  revenueUsd:    real("revenue_usd"),
+  marginUsd:     real("margin_usd"),
 });
 export type RouteQualitySnapshot = typeof routeQualitySnapshots.$inferSelect;
 export type InsertRouteQualitySnapshot = typeof routeQualitySnapshots.$inferInsert;
 
 // ── Account Cap Monitoring ────────────────────────────────────────────────────
-// Caches per-account session & CPS limits synced from Sippy (hourly).
 export const accountCaps = pgTable("account_caps", {
   accountId:          varchar("account_id",    { length: 32  }).primaryKey(),
   accountName:        varchar("account_name",  { length: 128 }),
-  sessionLimit:       integer("session_limit"),        // max concurrent sessions (max_sessions)
-  cpsLimit:           integer("cps_limit"),            // max calls per second (max_calls_per_second)
-  warningThreshold:   integer("warning_threshold").default(90),   // % at which to warn (default 90)
-  criticalThreshold:  integer("critical_threshold").default(100), // % at which to alert critical (default 100)
+  sessionLimit:       integer("session_limit"),
+  cpsLimit:           integer("cps_limit"),
+  warningThreshold:   integer("warning_threshold").default(90),
+  criticalThreshold:  integer("critical_threshold").default(100),
   syncedAt:           timestamp("synced_at").defaultNow(),
 });
 export type AccountCap = typeof accountCaps.$inferSelect;
 export type InsertAccountCap = typeof accountCaps.$inferInsert;
 
-// Cap warning events — one row per warning trigger / resolution.
 export const capAlertEvents = pgTable("cap_alert_events", {
   id:             serial("id").primaryKey(),
   accountId:      varchar("account_id",    { length: 32  }).notNull(),
   accountName:    varchar("account_name",  { length: 128 }),
-  capType:        varchar("cap_type",      { length: 16  }).notNull(), // 'sessions' | 'cps'
+  capType:        varchar("cap_type",      { length: 16  }).notNull(),
   utilisationPct: real("utilisation_pct").notNull(),
   currentValue:   integer("current_value").notNull(),
   limitValue:     integer("limit_value").notNull(),
-  severity:       varchar("severity",      { length: 16  }).notNull().default('warning'), // 'warning' | 'critical'
+  severity:       varchar("severity",      { length: 16  }).notNull().default('warning'),
   triggeredAt:    timestamp("triggered_at").defaultNow().notNull(),
   resolvedAt:     timestamp("resolved_at"),
 });
@@ -3488,10 +3482,9 @@ export const routeTestResults = pgTable("route_test_results", {
 export type RouteTestResult = typeof routeTestResults.$inferSelect;
 
 // ── Balance Alert Notification Settings ──────────────────────────────────────
-// Singleton row (id=1) holding email/webhook dispatch config for the alert engine.
 export const balanceAlertNotificationSettings = pgTable("balance_alert_notification_settings", {
   id:               serial("id").primaryKey(),
-  emailList:        text("email_list"),             // comma-separated recipient addresses
+  emailList:        text("email_list"),
   webhookUrl:       varchar("webhook_url", { length: 512 }),
   notifyOnWarning:  boolean("notify_on_warning").notNull().default(true),
   notifyOnUrgent:   boolean("notify_on_urgent").notNull().default(true),
@@ -3500,3 +3493,21 @@ export const balanceAlertNotificationSettings = pgTable("balance_alert_notificat
   updatedAt:        timestamp("updated_at").defaultNow(),
 });
 export type BalanceAlertNotificationSettings = typeof balanceAlertNotificationSettings.$inferSelect;
+
+// ── RTP / MOS Quality Stats ───────────────────────────────────────────────────
+// Per-vendor voice quality aggregates, computed every 5 min from CDR enrichment.
+// windows: 60 min (1h), 240 min (4h), 1440 min (24h).
+export const rtpQualityStats = pgTable("rtp_quality_stats", {
+  id:                serial("id").primaryKey(),
+  vendorId:          varchar("vendor_id", { length: 128 }).notNull(),
+  destinationPrefix: varchar("destination_prefix", { length: 32 }),
+  windowMinutes:     integer("window_minutes").notNull(),
+  avgMos:            real("avg_mos"),
+  p10Mos:            real("p10_mos"),
+  avgJitterMs:       real("avg_jitter_ms"),
+  avgPktLossPct:     real("avg_pkt_loss_pct"),
+  avgLatencyMs:      real("avg_latency_ms"),
+  sampleCount:       integer("sample_count").notNull().default(0),
+  computedAt:        timestamp("computed_at").defaultNow().notNull(),
+});
+export type RtpQualityStat = typeof rtpQualityStats.$inferSelect;

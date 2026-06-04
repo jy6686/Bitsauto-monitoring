@@ -425,8 +425,6 @@ export async function runSafeMigrations(): Promise<void> {
     `);
 
     // ── Route Intelligence snapshots (added 2026-06-04) ───────────────────────
-    // Per-vendor / per-prefix quality snapshots aggregated from CDR cache every
-    // 15 minutes for 1h / 4h / 24h rolling windows.
     await client.query(`
       CREATE TABLE IF NOT EXISTS route_quality_snapshots (
         id             SERIAL PRIMARY KEY,
@@ -453,13 +451,10 @@ export async function runSafeMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_rqs_computed_at
         ON route_quality_snapshots (computed_at DESC)
     `);
-    // Add revenue/margin columns to existing installs that pre-date this migration
     await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS revenue_usd REAL`);
     await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS margin_usd  REAL`);
 
     // ── Account cap monitoring tables ────────────────────────────────────────
-    // account_caps caches session/CPS limits from Sippy getAccountInfo (synced hourly).
-    // cap_alert_events persists every threshold-crossing event for history/audit.
     await client.query(`
       CREATE TABLE IF NOT EXISTS account_caps (
         account_id        VARCHAR(64)  PRIMARY KEY,
@@ -522,7 +517,6 @@ export async function runSafeMigrations(): Promise<void> {
     `);
 
     // ── Balance Alert Engine tables (added 2026-06-04) ────────────────────────
-    // balance_alert_thresholds: configurable per-severity thresholds
     await client.query(`
       CREATE TABLE IF NOT EXISTS balance_alert_thresholds (
         id           SERIAL PRIMARY KEY,
@@ -534,7 +528,6 @@ export async function runSafeMigrations(): Promise<void> {
         updated_at   TIMESTAMP DEFAULT NOW()
       )
     `);
-    // balance_alert_events: one row per threshold crossing
     await client.query(`
       CREATE TABLE IF NOT EXISTS balance_alert_events (
         id                   SERIAL PRIMARY KEY,
@@ -549,9 +542,7 @@ export async function runSafeMigrations(): Promise<void> {
         notification_sent_at TIMESTAMP
       )
     `);
-    // Add notification_sent_at to existing balance_alert_events if upgrading
     await client.query(`ALTER TABLE balance_alert_events ADD COLUMN IF NOT EXISTS notification_sent_at TIMESTAMP`);
-    // balance_alert_notification_settings: singleton email/webhook config
     await client.query(`
       CREATE TABLE IF NOT EXISTS balance_alert_notification_settings (
         id                SERIAL PRIMARY KEY,
@@ -563,6 +554,30 @@ export async function runSafeMigrations(): Promise<void> {
         enabled           BOOLEAN NOT NULL DEFAULT true,
         updated_at        TIMESTAMP DEFAULT NOW()
       )
+    `);
+
+    // ── RTP / MOS Quality Stats (added 2026-06-04) ────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rtp_quality_stats (
+        id                  SERIAL PRIMARY KEY,
+        vendor_id           VARCHAR(128) NOT NULL,
+        destination_prefix  VARCHAR(32),
+        window_minutes      INTEGER      NOT NULL,
+        avg_mos             REAL,
+        p10_mos             REAL,
+        avg_jitter_ms       REAL,
+        avg_pkt_loss_pct    REAL,
+        avg_latency_ms      REAL,
+        sample_count        INTEGER      NOT NULL DEFAULT 0,
+        computed_at         TIMESTAMP    NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS rtp_quality_stats_uidx
+        ON rtp_quality_stats (vendor_id, COALESCE(destination_prefix, ''), window_minutes)
+    `);
+    await client.query(`
+      ALTER TABLE rtp_quality_stats ADD COLUMN IF NOT EXISTS avg_latency_ms REAL
     `);
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {

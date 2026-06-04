@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronUp, BarChart2, AlertCircle, Info, Pin,
   ShieldAlert, PlayCircle, Loader2, RotateCcw, History, Clock,
   UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown, Search,
-  Download, CalendarDays, Bell, TimerOff, Radio, LayoutGrid,
+  Download, CalendarDays, Bell, TimerOff, Radio, Waves, LayoutGrid,
   Database, BarChart3, ChevronUp as ChevUp, SlidersHorizontal,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -2815,6 +2815,385 @@ function CdrAnalyticsPanel() {
   );
 }
 
+// ── Voice Quality Panel ───────────────────────────────────────────────────────
+
+type QualityBadge = 'good' | 'degraded' | 'critical' | 'no_data';
+
+interface VendorWindow {
+  windowMinutes: number;
+  avgMos: number | null;
+  p10Mos: number | null;
+  avgJitterMs: number | null;
+  avgPktLossPct: number | null;
+  avgLatencyMs: number | null;
+  sampleCount: number;
+  computedAt: string;
+  qualityBadge: QualityBadge;
+}
+
+interface VendorQualitySummary {
+  vendorId: string;
+  windows: VendorWindow[];
+  prefixes?: {
+    prefix: string;
+    windows: {
+      windowMinutes: number;
+      avgMos: number | null;
+      avgJitterMs: number | null;
+      avgPktLossPct: number | null;
+      avgLatencyMs: number | null;
+      sampleCount: number;
+      qualityBadge: QualityBadge;
+    }[];
+  }[];
+}
+
+const BADGE_COLOR: Record<QualityBadge, string> = {
+  good:     "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
+  degraded: "text-amber-400 border-amber-500/30 bg-amber-500/10",
+  critical: "text-red-400 border-red-500/30 bg-red-500/10",
+  no_data:  "text-muted-foreground border-border bg-muted/30",
+};
+
+const MOS_LABEL: Record<QualityBadge, string> = {
+  good:     "Good",
+  degraded: "Degraded",
+  critical: "Critical",
+  no_data:  "No Data",
+};
+
+function MosBar({ value }: { value: number | null }) {
+  if (value == null) return <span className="text-xs text-muted-foreground font-mono">—</span>;
+  const pct = Math.max(0, Math.min(100, ((value - 1) / 4) * 100));
+  const color = value >= 3.5 ? "bg-emerald-500" : value >= 3.0 ? "bg-amber-500" : "bg-red-500";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs font-mono font-medium tabular-nums w-8 text-right">{value.toFixed(2)}</span>
+    </div>
+  );
+}
+
+/** SVG sparkline — shows MOS trend across 3 windows: 24h → 4h → 1h (oldest left) */
+function MosSparkline({ windows }: { windows: VendorWindow[] }) {
+  const ordered = [1440, 240, 60]
+    .map(wm => windows.find(w => w.windowMinutes === wm) ?? null);
+  const values = ordered.map(w => w?.avgMos ?? null);
+  const hasData = values.some(v => v != null);
+  if (!hasData) return <span className="text-xs text-muted-foreground">—</span>;
+
+  const W = 80, H = 32, PAD = 4;
+  const innerW = W - PAD * 2;
+  const innerH = H - PAD * 2;
+  const MOS_MIN = 1, MOS_MAX = 5;
+
+  const pts = values.map((v, i) => ({
+    x: PAD + (i / (values.length - 1)) * innerW,
+    y: v == null ? null : PAD + innerH - ((v - MOS_MIN) / (MOS_MAX - MOS_MIN)) * innerH,
+    v,
+  }));
+
+  const connected = pts.filter(p => p.y != null);
+  const pathD = connected.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y!.toFixed(1)}`).join(' ');
+
+  const latestMos = values[values.length - 1];
+  const strokeColor = latestMos == null ? '#6b7280'
+    : latestMos >= 3.5 ? '#34d399'
+    : latestMos >= 3.0 ? '#fbbf24'
+    : '#f87171';
+
+  // Reference line at MOS 3.5
+  const refY = PAD + innerH - ((3.5 - MOS_MIN) / (MOS_MAX - MOS_MIN)) * innerH;
+
+  return (
+    <svg width={W} height={H} className="overflow-visible">
+      {/* Reference line at MOS 3.5 */}
+      <line x1={PAD} y1={refY} x2={W - PAD} y2={refY} stroke="#6b7280" strokeWidth="0.5" strokeDasharray="2,2" />
+      {/* Trend line */}
+      {pathD && <path d={pathD} fill="none" stroke={strokeColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}
+      {/* Data points */}
+      {connected.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y!} r="2" fill={strokeColor} />
+      ))}
+      {/* Labels: 24h, 4h, 1h */}
+      {pts.map((p, i) => (
+        <text key={i} x={p.x} y={H - 0.5} textAnchor="middle" fontSize="7" fill="#6b7280">
+          {['24h','4h','1h'][i]}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+/** Mini bar chart showing jitter across 3 windows: 24h, 4h, 1h */
+function JitterBars({ windows }: { windows: VendorWindow[] }) {
+  const ordered = [1440, 240, 60]
+    .map(wm => windows.find(w => w.windowMinutes === wm)?.avgJitterMs ?? null);
+  const hasData = ordered.some(v => v != null);
+  if (!hasData) return <span className="text-xs text-muted-foreground font-mono">—</span>;
+
+  const maxVal = Math.max(...ordered.filter(v => v != null) as number[], 1);
+  const W = 48, H = 24, barW = 12, gap = 4;
+  const labels = ['24h','4h','1h'];
+
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <svg width={W} height={H}>
+        {ordered.map((v, i) => {
+          const barH = v == null ? 0 : Math.max(2, (v / maxVal) * (H - 8));
+          const color = v == null ? '#374151'
+            : v > 40 ? '#f87171'
+            : v > 20 ? '#fbbf24'
+            : '#34d399';
+          return (
+            <rect
+              key={i}
+              x={i * (barW + gap)}
+              y={H - 8 - barH}
+              width={barW}
+              height={barH}
+              rx="2"
+              fill={color}
+              opacity="0.8"
+            />
+          );
+        })}
+      </svg>
+      <span className="text-[9px] text-muted-foreground font-mono">
+        {ordered[2] != null ? `${ordered[2].toFixed(0)}ms` : '—'}
+      </span>
+    </div>
+  );
+}
+
+function VoiceQualityCard() {
+  const [open, setOpen] = useState(true);
+  const { data, isLoading, isFetching, refetch } = useQuery<{ success: boolean; data: VendorQualitySummary[] }>({
+    queryKey: ["/api/copilot/rtp-quality"],
+    refetchInterval: 5 * 60_000,
+  });
+  const { toast } = useToast();
+
+  const vendors: VendorQualitySummary[] = data?.data ?? [];
+
+  const triggerMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/copilot/rtp-quality/trigger"),
+    onSuccess: () => {
+      toast({ title: "Aggregation triggered", description: "Voice quality data is being recomputed." });
+      setTimeout(() => refetch(), 2500);
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const windows1h  = (v: VendorQualitySummary) => v.windows.find(w => w.windowMinutes === 60);
+  const windows4h  = (v: VendorQualitySummary) => v.windows.find(w => w.windowMinutes === 240);
+  const windows24h = (v: VendorQualitySummary) => v.windows.find(w => w.windowMinutes === 1440);
+
+  const criticalCount  = vendors.filter(v => windows1h(v)?.qualityBadge === "critical").length;
+  const degradedCount  = vendors.filter(v => windows1h(v)?.qualityBadge === "degraded").length;
+  const goodCount      = vendors.filter(v => windows1h(v)?.qualityBadge === "good").length;
+
+  return (
+    <div className="rounded-lg border bg-card" data-testid="voice-quality-card">
+      {/* ── Collapsible header ── */}
+      <button
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/20 transition-colors rounded-lg"
+        data-testid="vq-collapse-toggle"
+        onClick={() => setOpen(o => !o)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <Waves className="h-4 w-4 text-sky-400" />
+            <span className="text-sm font-semibold">RTP / MOS Quality Intelligence</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {criticalCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded border text-red-400 border-red-500/30 bg-red-500/10 font-bold">
+                {criticalCount} Critical
+              </span>
+            )}
+            {degradedCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/30 bg-amber-500/10 font-bold">
+                {degradedCount} Degraded
+              </span>
+            )}
+            {goodCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded border text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
+                {goodCount} Good
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {isFetching && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          <Button
+            variant="ghost" size="sm"
+            className="h-7 text-xs gap-1.5"
+            data-testid="vq-trigger-btn"
+            disabled={triggerMutation.isPending}
+            onClick={e => { e.stopPropagation(); triggerMutation.mutate(); }}
+          >
+            {triggerMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Recompute
+          </Button>
+          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", open && "rotate-180")} />
+        </div>
+      </button>
+
+      {/* ── Collapsible body ── */}
+      {open && <div className="px-4 pb-4 space-y-4 border-t border-border/50 pt-3">
+
+      {/* ── MOS legend ── */}
+      <div className="rounded-lg border bg-muted/20 px-4 py-2 flex items-center gap-6 text-xs text-muted-foreground flex-wrap">
+        <span className="font-semibold text-foreground/70">MOS thresholds:</span>
+        <span><span className="text-emerald-400 font-bold">≥3.5</span> Good</span>
+        <span><span className="text-amber-400 font-bold">3.0–3.5</span> Degraded</span>
+        <span><span className="text-red-400 font-bold">&lt;3.0</span> Critical</span>
+        <span className="ml-auto text-muted-foreground/60">Aggregated every 5 min from Sippy CDR VQ fields</span>
+      </div>
+
+      {/* ── Empty state ── */}
+      {isLoading ? (
+        <div className="rounded-lg border bg-card flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : vendors.length === 0 ? (
+        <div className="rounded-lg border bg-card flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+          <Radio className="h-8 w-8 opacity-20" />
+          <p className="text-sm">No voice quality data available</p>
+          <p className="text-xs opacity-60 max-w-sm text-center">
+            VQ data populates once Sippy CDRs with <code className="font-mono">i_vq_term_mos</code> or <code className="font-mono">i_vq_orig_mos</code> fields are processed.
+            Ensure VQ reporting is enabled on your Sippy instance, then click Recompute.
+          </p>
+          <Button
+            variant="outline" size="sm"
+            data-testid="vq-trigger-empty-btn"
+            disabled={triggerMutation.isPending}
+            onClick={() => triggerMutation.mutate()}
+            className="mt-1"
+          >
+            {triggerMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-2" /> : <RefreshCw className="h-3.5 w-3.5 mr-2" />}
+            Run Aggregation Now
+          </Button>
+        </div>
+      ) : (
+        /* ── Vendor table ── */
+        <div className="rounded-lg border bg-card overflow-hidden">
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-x-4 px-4 py-2 bg-muted/30 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground border-b">
+            <span>Vendor</span>
+            <span className="text-center w-20">Status (1h)</span>
+            <span className="text-center w-24">MOS (1h)</span>
+            <span className="text-center w-20">MOS Trend</span>
+            <span className="text-center w-14">Jitter</span>
+            <span className="text-center w-20">Pkt Loss</span>
+            <span className="text-center w-20">Latency</span>
+          </div>
+          <div className="divide-y divide-border/50">
+            {vendors
+              .sort((a, b) => {
+                const order = { critical: 0, degraded: 1, no_data: 2, good: 3 };
+                return (order[windows1h(a)?.qualityBadge ?? "no_data"] ?? 2) -
+                       (order[windows1h(b)?.qualityBadge ?? "no_data"] ?? 2);
+              })
+              .map((vendor, i) => {
+                const w1  = windows1h(vendor);
+                const badge = w1?.qualityBadge ?? "no_data";
+                return (
+                  <div key={vendor.vendorId}>
+                    <motion.div
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.03 }}
+                      data-testid={`vq-vendor-${i}`}
+                      className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-x-4 px-4 py-3 items-center hover:bg-muted/20 transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <span className="text-sm font-medium truncate block">{vendor.vendorId}</span>
+                        {(vendor.prefixes?.length ?? 0) > 0 && (
+                          <span className="text-[10px] text-muted-foreground/60">
+                            {vendor.prefixes!.length} prefix{vendor.prefixes!.length !== 1 ? 'es' : ''}
+                          </span>
+                        )}
+                      </div>
+                      <span className={cn("text-[10px] font-bold uppercase border px-1.5 py-0.5 rounded text-center w-20", BADGE_COLOR[badge])}>
+                        {MOS_LABEL[badge]}
+                      </span>
+                      <div className="w-24"><MosBar value={w1?.avgMos ?? null} /></div>
+                      <div className="w-20 flex justify-center">
+                        <MosSparkline windows={vendor.windows} />
+                      </div>
+                      <div className="w-14 flex justify-center">
+                        <JitterBars windows={vendor.windows} />
+                      </div>
+                      <span className="text-xs font-mono text-center w-20">
+                        {w1?.avgPktLossPct != null ? `${w1.avgPktLossPct.toFixed(2)}%` : "—"}
+                      </span>
+                      <span className="text-xs font-mono text-center w-20" data-testid={`vq-latency-${i}`}>
+                        {w1?.avgLatencyMs != null ? `${w1.avgLatencyMs.toFixed(0)}ms` : "—"}
+                      </span>
+                    </motion.div>
+                    {/* ── Per-prefix breakdown ── */}
+                    {(vendor.prefixes?.length ?? 0) > 0 && (
+                      <div className="bg-muted/10 border-t border-dashed border-border/40 divide-y divide-border/30">
+                        {vendor.prefixes!.slice(0, 8).map(pfx => {
+                          const pw1 = pfx.windows.find(w => w.windowMinutes === 60);
+                          const pb = pw1?.qualityBadge ?? "no_data";
+                          return (
+                            <div
+                              key={pfx.prefix}
+                              data-testid={`vq-prefix-${pfx.prefix}`}
+                              className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-x-4 px-4 py-1.5 items-center text-xs"
+                            >
+                              <span className="text-muted-foreground font-mono pl-4">
+                                <span className="text-muted-foreground/40 mr-1">↳</span>{pfx.prefix}xxx
+                              </span>
+                              <span className={cn("text-[9px] font-bold uppercase border px-1 rounded text-center w-20", BADGE_COLOR[pb])}>
+                                {MOS_LABEL[pb]}
+                              </span>
+                              <div className="w-24"><MosBar value={pw1?.avgMos ?? null} /></div>
+                              <div className="w-20" />
+                              <div className="w-14 text-center font-mono text-muted-foreground/70">
+                                {pw1?.avgJitterMs != null ? `${pw1.avgJitterMs.toFixed(0)}ms` : "—"}
+                              </div>
+                              <span className="w-20 text-center font-mono text-muted-foreground/70">
+                                {pw1?.avgPktLossPct != null ? `${pw1.avgPktLossPct.toFixed(2)}%` : "—"}
+                              </span>
+                              <span className="w-20 text-center font-mono text-muted-foreground/70">
+                                {pw1?.avgLatencyMs != null ? `${pw1.avgLatencyMs.toFixed(0)}ms` : "—"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {(vendor.prefixes?.length ?? 0) > 8 && (
+                          <div className="px-8 py-1 text-[10px] text-muted-foreground/50">
+                            +{vendor.prefixes!.length - 8} more prefixes
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Sample count note ── */}
+      {vendors.length > 0 && (
+        <p className="text-xs text-muted-foreground/50 text-right">
+          {vendors.reduce((s, v) => s + (windows1h(v)?.sampleCount ?? 0), 0).toLocaleString()} CDRs in 1h window
+          · Last computed {vendors[0]?.windows[0]?.computedAt
+            ? new Date(vendors[0].windows[0].computedAt).toLocaleTimeString()
+            : "—"}
+        </p>
+      )}
+    </div>}
+  </div>
+);
+}
+
 function VendorTrendCell({ vendorId, expanded }: { vendorId: string; expanded: boolean }) {
   const { data } = useQuery<{ trend: TrendPoint[] }>({
     queryKey: ["/api/route-intelligence/vendor", vendorId, "trend"],
@@ -3226,11 +3605,17 @@ export default function RouteIntelligencePage() {
         </div>
       )}
 
+
       {/* ── Rollback History Tab ── */}
       {activeTab === "history" && <RollbackHistoryPanel />}
 
-      {/* ── AI Copilot Tab ── */}
-      {activeTab === "copilot" && <AiCopilotPanel />}
+      {/* ── AI Copilot Tab — includes Voice Quality card ── */}
+      {activeTab === "copilot" && (
+        <div className="space-y-4">
+          <VoiceQualityCard />
+          <AiCopilotPanel />
+        </div>
+      )}
 
       {/* ── Account Recommendations Tab ── */}
       {activeTab === "recs" && (

@@ -31,6 +31,7 @@ import { desc, eq, gte, and, sql } from "drizzle-orm";
 import { loadSipErrorSnapshot, CODE_LABELS, type SipErrorSnapshot } from "./sip-error-aggregator";
 import { getCopilotVendorSignals } from "../../route-intelligence-engine";
 import { loadRouteTestEvidence } from "../route-tester";
+import { buildVoiceQualityDigest, type VoiceQualityDigest } from "../../rtp-quality-aggregator";
 
 // ── Error type ─────────────────────────────────────────────────────────────────
 
@@ -478,7 +479,7 @@ export async function runRouteCopilot(
 
   // ── Load all telemetry in parallel ─────────────────────────────────────────
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles, sipErrors, snapshotSignals, testEvidence] = await Promise.all([
+  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles, sipErrors, snapshotSignals, testEvidence, voiceQuality] = await Promise.all([
     db.select().from(carrierQualityScores).orderBy(desc(carrierQualityScores.lastComputedAt)),
     db.select().from(routingSuggestions).where(
       and(eq(routingSuggestions.status, "pending"), gte(routingSuggestions.createdAt, since6h))
@@ -488,6 +489,7 @@ export async function runRouteCopilot(
     loadSipErrorSnapshot().catch(() => [] as SipErrorSnapshot[]),
     getCopilotVendorSignals().catch(() => new Map()), // route quality snapshots — non-fatal
     loadRouteTestEvidence(6).catch(() => [] as Awaited<ReturnType<typeof loadRouteTestEvidence>>),
+    buildVoiceQualityDigest().catch(() => null as VoiceQualityDigest | null),
   ]);
 
   // Merge snapshot signals into carrier scores to improve copilot accuracy.
@@ -604,18 +606,23 @@ export async function runRouteCopilot(
     const { default: OpenAI } = await import("openai");
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+    const voiceQualityContext = voiceQuality?.hasQualityData
+      ? `\n\nVoice Quality Intelligence (RTP/MOS — 1h window):\n${voiceQuality.summary}\nMOS thresholds: ≥4.0 excellent, 3.5–4.0 good, 3.0–3.5 degraded (amber), <3.0 critical (red). MOS <3.5 indicates noticeable quality impairment; MOS <3.0 indicates poor quality requiring immediate action.`
+      : "\n\nVoice Quality Intelligence: No RTP/MOS data available (Sippy VQ reporting not yet populated).";
+
     const systemPrompt = `You are an expert VoIP network operations advisor for a telecom carrier platform.
 You receive route recommendations computed by a rule-based system and must:
 1. Rewrite the "action" as a clear, specific, operator-ready instruction (max 12 words).
 2. Keep "reasons" as an array of 2–4 concise factual bullet strings.
 3. Keep "expectedImpact" as one short sentence.
-4. Add an "aiInsight" field: one sentence of telecom-specific operational context. If SIP error telemetry is provided, cite specific error codes (e.g. "503 congestion spike", "486 CLI screening") in your insight. This must add genuine telecom expertise beyond what the rule engine already states — do NOT just paraphrase the reasons. Max 30 words.
+4. Add an "aiInsight" field: one sentence of telecom-specific operational context (e.g. regional congestion patterns, known carrier behaviour, PSTN/mobile peering considerations, fraud risk context, margin-impacting routing patterns, or RTP/MOS voice quality issues). If SIP error telemetry is provided, cite specific error codes (e.g. "503 congestion spike", "486 CLI screening") in your insight. This must add genuine telecom expertise beyond what the rule engine already states — do NOT just paraphrase the reasons. Max 30 words.
 5. Preserve all other fields (id, confidence, risk, currentVendor, targetVendor, destination) exactly as given.
 6. Return a JSON object: { "recommendations": [ ...same schema... ] }
 
 Output MUST be valid JSON. The "recommendations" array MUST have ${baseline.length} items (same order).
 Risk values: only "low", "medium", or "high".
-Confidence: integer 0–100 (you may adjust ±5 based on telecom best-practice judgement).`;
+Confidence: integer 0–100 (you may adjust ±5 based on telecom best-practice judgement).
+${voiceQualityContext}`;
 
     // ── Build SIP error telemetry context for the AI ──────────────────────────
     let sipContext = "";

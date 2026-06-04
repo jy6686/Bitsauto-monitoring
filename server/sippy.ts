@@ -2699,6 +2699,14 @@ export interface SippyCDR {
   // ── Disposition enrichment ───────────────────────────────────────────────
   q850Code?: string;        // Q.931 / Q.850 cause code (from Mera vendor-side CDR)
   dispositionSource?: string; // ingestion path: 'xmlrpc' | 'portal-customer' | 'portal-admin'
+  // ── Voice Quality (VQ) metrics ───────────────────────────────────────────
+  // Only populated when Sippy VQ reporting is enabled on the switch.
+  // Sippy XML-RPC field names: i_vq_term_mos, i_vq_orig_mos
+  // Jitter and pkt_loss may be present as i_jitter / i_pkt_loss or jitter / pkt_loss.
+  iVqTermMos?: number;      // i_vq_term_mos — termination-leg MOS score (1.0–5.0)
+  iVqOrigMos?: number;      // i_vq_orig_mos — origination-leg MOS score (1.0–5.0)
+  jitter?: number;          // jitter / i_jitter — jitter in milliseconds
+  pktLoss?: number;         // pkt_loss / i_pkt_loss — packet loss percentage (0–100)
 }
 
 /**
@@ -3784,6 +3792,12 @@ export async function getSippyCDRs(
           // Vendor / connection — returned by some Sippy versions in getAccountCDRs
           iConnection:              ns('i_connection'),
           vendor:                   ns('vendor_name') || ns('vendor') || undefined,
+          // Voice Quality (VQ) — only present when Sippy VQ reporting is enabled.
+          // Field names vary by Sippy version; try both prefixed and un-prefixed variants.
+          iVqTermMos:               nf('i_vq_term_mos') ?? nf('vq_term_mos'),
+          iVqOrigMos:               nf('i_vq_orig_mos') ?? nf('vq_orig_mos'),
+          jitter:                   nf('i_jitter')      ?? nf('jitter'),
+          pktLoss:                  nf('i_pkt_loss')    ?? nf('pkt_loss'),
         });
       }
       if (cdrs.length > 0) return cdrs;

@@ -69,6 +69,7 @@ import {
   queryVendorTrend,
   getRouteIntelligenceLastRun,
 } from "./route-intelligence-engine";
+import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
@@ -21346,6 +21347,52 @@ export async function registerRoutes(
       checks.push({ id: 'fas', name: 'FAS / IRSF Engine', status: 'warn', detail: 'Cannot verify: ' + e.message, durationMs: Date.now() - ts6 });
     }
 
+    // ── 7. RTP / MOS voice quality ───────────────────────────────────────────
+    const ts7 = Date.now();
+    try {
+      const { getRtpQualitySummary } = await import('./rtp-quality-aggregator');
+      const rtpSummary = await getRtpQualitySummary();
+      const criticalVendors = rtpSummary.flatMap(v =>
+        v.windows
+          .filter(w => w.windowMinutes === 60 && w.avgMos !== null && w.avgMos < 3.0)
+          .map(w => `${v.vendorId} (MOS ${w.avgMos!.toFixed(2)})`)
+      );
+      const degradedVendors = rtpSummary.flatMap(v =>
+        v.windows
+          .filter(w => w.windowMinutes === 60 && w.avgMos !== null && w.avgMos >= 3.0 && w.avgMos < 3.5)
+          .map(w => `${v.vendorId} (MOS ${w.avgMos!.toFixed(2)})`)
+      );
+      // Guard: suppress MOS issues if the AI Copilot has already recommended action in the last 30 min
+      let copilotActedRecently = false;
+      try {
+        const { routingSuggestions: rsTbl } = await import('../shared/schema');
+        const { gte: gteOp, and: andOp } = await import('drizzle-orm');
+        const since30m = new Date(Date.now() - 30 * 60_000);
+        const recentSugs = await db.select({ id: rsTbl.id }).from(rsTbl)
+          .where(andOp(gteOp(rsTbl.createdAt, since30m)));
+        copilotActedRecently = recentSugs.length > 0;
+      } catch {}
+
+      if (rtpSummary.length === 0) {
+        checks.push({ id: 'rtp_quality', name: 'RTP / MOS Quality', status: 'warn', detail: 'No aggregated data yet — VQ reporting may not be enabled on Sippy or aggregator has not run yet', durationMs: Date.now() - ts7 });
+      } else if (criticalVendors.length > 0) {
+        checks.push({ id: 'rtp_quality', name: 'RTP / MOS Quality', status: 'fail', detail: `Critical MOS (<3.0): ${criticalVendors.join(', ')}`, durationMs: Date.now() - ts7 });
+        if (!copilotActedRecently) {
+          issues.push({ type: 'MOS_CRITICAL', severity: 'critical', component: 'Voice Quality', message: `${criticalVendors.length} vendor(s) with critical MOS score (<3.0 — poor voice quality): ${criticalVendors.join(', ')}`, suggestion: 'Investigate RTP path issues for affected vendors: check for packet loss, jitter, or codec mismatch. Consider rerouting traffic to a higher-quality carrier.', autoFix: null });
+        }
+      } else if (degradedVendors.length > 0) {
+        checks.push({ id: 'rtp_quality', name: 'RTP / MOS Quality', status: 'warn', detail: `Degraded MOS (3.0–3.5): ${degradedVendors.join(', ')}${copilotActedRecently ? ' (Copilot action issued recently — monitoring)' : ''}`, durationMs: Date.now() - ts7 });
+        if (!copilotActedRecently) {
+          issues.push({ type: 'MOS_DEGRADED', severity: 'warning', component: 'Voice Quality', message: `${degradedVendors.length} vendor(s) with degraded MOS score (3.0–3.5): ${degradedVendors.join(', ')}`, suggestion: 'Monitor jitter and packet loss trends for affected vendors. Consider adjusting jitter buffer settings or routing a portion of traffic to alternative carriers.', autoFix: null });
+        }
+      } else {
+        const totalVendors = rtpSummary.filter(v => v.windows.some(w => w.windowMinutes === 60 && w.avgMos !== null)).length;
+        checks.push({ id: 'rtp_quality', name: 'RTP / MOS Quality', status: 'ok', detail: `${totalVendors} vendor(s) with MOS ≥ 3.5 (good quality) in last 1h`, durationMs: Date.now() - ts7 });
+      }
+    } catch (e: any) {
+      checks.push({ id: 'rtp_quality', name: 'RTP / MOS Quality', status: 'skip', detail: `Cannot check: ${e.message}`, durationMs: Date.now() - ts7 });
+    }
+
     // ── Module-specific additional checks ────────────────────────────────────
     const mod = moduleName.toLowerCase();
 
@@ -23558,6 +23605,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // Carrier Quality Scoring Engine — scores every 30 min
   initCarrierScoringEngine();
 
+  // RTP / MOS Quality Aggregator — aggregates CDR VQ data every 5 min
+  initRtpQualityAggregator();
+
   // Vendor Stability Timeline — snapshots Q-score per vendor every 30 min
   // Runs at T+5 min after carrier scoring to ensure scores are fresh.
   setTimeout(() => {
@@ -23595,6 +23645,38 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           totalDuration: c.totalDuration,
           pdd:           c.pdd,
           result:        c.result,
+        };
+      });
+  });
+
+  // Register CDR provider for the RTP/MOS quality aggregator.
+  // Includes VQ fields (i_vq_term_mos, i_vq_orig_mos, jitter, pkt_loss) from Sippy CDRs.
+  // Also passes cld (called number) so the aggregator can extract destination prefixes.
+  setRtpCdrProvider((cutoffMs: number) => {
+    const fallbackVendor = _firstKnownVendor();
+    return [...cdrCache.values()]
+      .filter(c => (sippy.parseSippyDate(c.connectTime ?? c.startTime)?.getTime() ?? 0) >= cutoffMs)
+      .map(c => {
+        const vendorId = (c as any).vendorName
+          || c.vendor
+          || (c.iConnection ? connectionVendorCache.get(String(c.iConnection)) : undefined)
+          || fallbackVendor
+          || 'unknown';
+        return {
+          vendorId,
+          vendorName:    vendorId,
+          connect_time:  c.connectTime ?? c.startTime,
+          // cdrCache uses 'callee' for the called/destination number (Sippy cld field)
+          cld:           c.callee ?? (c as any).cld ?? (c as any).calledNumber ?? null,
+          calledNumber:  c.callee ?? (c as any).calledNumber ?? null,
+          // VQ fields: use camelCase SippyCDR properties (populated by getSippyCDRs mapping)
+          // Fall back to any-cast snake_case in case entries came from legacy portal ingestion.
+          i_vq_term_mos: c.iVqTermMos ?? (c as any).i_vq_term_mos ?? null,
+          i_vq_orig_mos: c.iVqOrigMos ?? (c as any).i_vq_orig_mos ?? null,
+          jitter:        c.jitter      ?? (c as any).jitter         ?? null,
+          pkt_loss:      c.pktLoss     ?? (c as any).pkt_loss       ?? null,
+          // Latency — Sippy 'delay' field is total one-way path delay in seconds; convert to ms
+          delay:         c.delay != null ? c.delay * 1000 : null,
         };
       });
   });

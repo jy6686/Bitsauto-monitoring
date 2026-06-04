@@ -1152,4 +1152,57 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
       }
     },
   );
+
+  // ── GET /api/copilot/rtp-quality ─────────────────────────────────────────────
+  // Returns per-vendor voice quality summary for all three windows (1h, 4h, 24h).
+  app.get(
+    "/api/copilot/rtp-quality",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const { getRtpQualitySummary } = await import("./rtp-quality-aggregator");
+        const data = await getRtpQualitySummary();
+        return res.json({ success: true, data });
+      } catch (err: any) {
+        console.error("[rtp-quality] Summary error:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
+  // ── GET /api/copilot/rtp-quality/:vendorId ───────────────────────────────────
+  // Drill-down: voice quality windows for a single vendor.
+  app.get(
+    "/api/copilot/rtp-quality/:vendorId",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { vendorId } = req.params;
+        const { getRtpQualityForVendor } = await import("./rtp-quality-aggregator");
+        const data = await getRtpQualityForVendor(decodeURIComponent(vendorId));
+        if (!data) return res.status(404).json({ success: false, error: "No quality data for this vendor" });
+        return res.json({ success: true, data });
+      } catch (err: any) {
+        console.error("[rtp-quality/:vendorId] error:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
+  // ── POST /api/copilot/rtp-quality/trigger ────────────────────────────────────
+  // Admin-triggered manual run of the RTP quality aggregation job.
+  app.post(
+    "/api/copilot/rtp-quality/trigger",
+    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const { runRtpQualityAggregation } = await import("./rtp-quality-aggregator");
+        await runRtpQualityAggregation();
+        return res.json({ success: true, message: "RTP quality aggregation completed" });
+      } catch (err: any) {
+        console.error("[rtp-quality/trigger] error:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
 }
