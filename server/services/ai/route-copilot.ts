@@ -28,7 +28,7 @@ import {
   dailyMinutesReports,
 } from "../../../shared/schema";
 import { desc, eq, gte, and, sql } from "drizzle-orm";
-import { loadSipErrorSnapshot, CODE_LABELS, type SipErrorSnapshot } from "./sip-error-aggregator";
+import { loadSipErrorProfilesPerVendor, CODE_LABELS, type SipErrorSnapshot } from "./sip-error-aggregator";
 import { getCopilotVendorSignals } from "../../route-intelligence-engine";
 import { loadRouteTestEvidence } from "../route-tester";
 import { buildVoiceQualityDigest, type VoiceQualityDigest } from "../../rtp-quality-aggregator";
@@ -68,6 +68,14 @@ export interface AiRouteRecommendation {
     projectedAsr: number | null;
     projectedStability: number | null;
   };
+  sipErrorTrend?: {
+    code: number;
+    label: string;
+    vendorName: string;
+    rates: { min5: number; min15: number; min60: number };
+  };
+  likelyCause?: string;
+  expectedAsrImpact?: string;
 }
 
 export interface CopilotResult {
@@ -187,6 +195,7 @@ function buildRuleBasedRecommendations(
   fraudProfiles: Map<string, FraudProfile>,
   marginProfiles: Map<string, VendorMarginProfile>,
   vendorPrefixData?: any,
+  sipProfiles?: SipErrorSnapshot[],
 ): AiRouteRecommendation[] {
   const degradedScores  = scores.filter(isDegraded);
   const healthyScores   = scores.filter(isHealthy);
@@ -429,6 +438,144 @@ function buildRuleBasedRecommendations(
     });
   }
 
+  // ── Rule 6: Congestion Alert (503) ─────────────────────────────────────────
+  if (sipProfiles) {
+    for (const snap of sipProfiles) {
+      const w5  = snap.windows[5]  ?? {};
+      const w15 = snap.windows[15] ?? {};
+      const w60 = snap.windows[60] ?? {};
+      const rate5  = w5[503]?.rate  ?? 0;
+      const rate15 = w15[503]?.rate ?? 0;
+      const rate60 = w60[503]?.rate ?? 0;
+      if (rate15 < 10) continue;
+      if (recs.some(r => r.currentVendor === snap.vendorName)) continue;
+
+      const spiking = rate5 > rate15;
+      const confidence = Math.round(Math.min(90, 65 + Math.min(rate15 * 0.8, 18) + (spiking ? 5 : 0)));
+      recs.push({
+        id: `sip-503-${snap.vendorName}`,
+        action: `Shift traffic away from ${snap.vendorName} — 503 congestion spike`,
+        confidence,
+        reasons: [
+          `503 Service Unavailable rate: ${rate15.toFixed(1)}% in 15-min window (threshold: 10%)`,
+          spiking
+            ? `Rate accelerating: ${rate5.toFixed(1)}% in last 5 min — spike still growing`
+            : `5-min rate: ${rate5.toFixed(1)}% — congestion persisting`,
+          rate60 > 0
+            ? `1-hr baseline: ${rate60.toFixed(1)}% — delta: +${Math.max(0, rate15 - rate60).toFixed(1)}pp above baseline`
+            : '503 spike above normal congestion threshold — no 1-hr baseline yet',
+          '503 Unavailable signals network congestion or capacity exhaustion on this carrier',
+        ].filter(Boolean),
+        risk: rate15 > 20 ? "high" : "medium",
+        expectedImpact: `Redirecting traffic reduces congestion-induced failures (503 rate currently ${rate15.toFixed(1)}%)`,
+        currentVendor: snap.vendorName,
+        sipErrorTrend: { code: 503, label: "503 Unavailable", vendorName: snap.vendorName, rates: { min5: rate5, min15: rate15, min60: rate60 } },
+        fraudSignals: fraudProfiles.get(snap.vendorName) ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
+        simulate: { asrDelta: -(rate15 * 0.6), stabilityDelta: null, projectedAsr: null, projectedStability: null },
+      });
+    }
+  }
+
+  // ── Rule 7: Routing Failure Alert (404) ────────────────────────────────────
+  if (sipProfiles) {
+    for (const snap of sipProfiles) {
+      const w5  = snap.windows[5]  ?? {};
+      const w15 = snap.windows[15] ?? {};
+      const w60 = snap.windows[60] ?? {};
+      const rate5  = w5[404]?.rate  ?? 0;
+      const rate15 = w15[404]?.rate ?? 0;
+      const rate60 = w60[404]?.rate ?? 0;
+      if (rate15 < 8) continue;
+      if (recs.some(r => r.currentVendor === snap.vendorName)) continue;
+
+      const confidence = Math.round(Math.min(85, 58 + Math.min(rate15 * 0.9, 20)));
+      recs.push({
+        id: `sip-404-${snap.vendorName}`,
+        action: `Investigate ${snap.vendorName} prefix routing — high 404 failure rate`,
+        confidence,
+        reasons: [
+          `404 Not Found rate: ${rate15.toFixed(1)}% in 15-min window (threshold: 8%)`,
+          `404 indicates misrouted or unrecognised destination prefixes on this vendor`,
+          rate5 > 0 ? `Recent 5-min rate: ${rate5.toFixed(1)}%` : '',
+          rate60 > 0 ? `1-hr baseline: ${rate60.toFixed(1)}%` : 'Review destination prefix table for stale routes',
+        ].filter(Boolean),
+        risk: rate15 > 15 ? "high" : "medium",
+        expectedImpact: `Fixing prefix routing recovers up to ${rate15.toFixed(1)}% of failing calls`,
+        currentVendor: snap.vendorName,
+        sipErrorTrend: { code: 404, label: "404 Not Found", vendorName: snap.vendorName, rates: { min5: rate5, min15: rate15, min60: rate60 } },
+        fraudSignals: fraudProfiles.get(snap.vendorName) ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
+        simulate: { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
+      });
+    }
+  }
+
+  // ── Rule 8: Availability Alert (480) ──────────────────────────────────────
+  if (sipProfiles) {
+    for (const snap of sipProfiles) {
+      const w5  = snap.windows[5]  ?? {};
+      const w15 = snap.windows[15] ?? {};
+      const w60 = snap.windows[60] ?? {};
+      const rate5  = w5[480]?.rate  ?? 0;
+      const rate15 = w15[480]?.rate ?? 0;
+      const rate60 = w60[480]?.rate ?? 0;
+      if (rate15 < 12) continue;
+      if (recs.some(r => r.currentVendor === snap.vendorName)) continue;
+
+      const spiking = rate5 > rate15;
+      const confidence = Math.round(Math.min(85, 60 + Math.min(rate15 * 0.7, 18) + (spiking ? 5 : 0)));
+      recs.push({
+        id: `sip-480-${snap.vendorName}`,
+        action: `Reduce traffic exposure on ${snap.vendorName} — 480 unavailability spike`,
+        confidence,
+        reasons: [
+          `480 Temporarily Unavailable rate: ${rate15.toFixed(1)}% in 15-min window (threshold: 12%)`,
+          spiking ? `Accelerating: ${rate5.toFixed(1)}% in 5-min window` : `5-min rate: ${rate5.toFixed(1)}%`,
+          '480 typically indicates subscriber or server-side temporary overload',
+          rate60 > 0 ? `1-hr baseline: ${rate60.toFixed(1)}% — sustained outage pattern` : 'Reduce traffic to limit call failure exposure',
+        ].filter(Boolean),
+        risk: rate15 > 25 ? "high" : "medium",
+        expectedImpact: `Reducing load on ${snap.vendorName} limits 480-induced failure impact (${rate15.toFixed(1)}% current rate)`,
+        currentVendor: snap.vendorName,
+        sipErrorTrend: { code: 480, label: "480 Temp. Unavail.", vendorName: snap.vendorName, rates: { min5: rate5, min15: rate15, min60: rate60 } },
+        fraudSignals: fraudProfiles.get(snap.vendorName) ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
+        simulate: { asrDelta: -(rate15 * 0.5), stabilityDelta: null, projectedAsr: null, projectedStability: null },
+      });
+    }
+  }
+
+  // ── Rule 9: Fraud Signal Alert (603) ─────────────────────────────────────
+  if (sipProfiles) {
+    for (const snap of sipProfiles) {
+      const w5  = snap.windows[5]  ?? {};
+      const w15 = snap.windows[15] ?? {};
+      const w60 = snap.windows[60] ?? {};
+      const rate5  = w5[603]?.rate  ?? 0;
+      const rate15 = w15[603]?.rate ?? 0;
+      const rate60 = w60[603]?.rate ?? 0;
+      if (rate15 < 8) continue;
+      if (recs.some(r => r.currentVendor === snap.vendorName)) continue;
+
+      const confidence = Math.round(Math.min(82, 55 + Math.min(rate15 * 0.85, 22)));
+      recs.push({
+        id: `sip-603-${snap.vendorName}`,
+        action: `Flag ${snap.vendorName} for review — 603 Decline indicates possible CLI filtering`,
+        confidence,
+        reasons: [
+          `603 Decline rate: ${rate15.toFixed(1)}% in 15-min window (threshold: 8%)`,
+          '603 Decline is a strong indicator of CLI screening or IRSF-related call rejection',
+          rate5 > 0 ? `5-min rate: ${rate5.toFixed(1)}%` : '',
+          rate60 > 0 ? `1-hr baseline: ${rate60.toFixed(1)}% — pattern is persistent` : 'Flag for manual fraud review',
+        ].filter(Boolean),
+        risk: rate15 > 15 ? "high" : "medium",
+        expectedImpact: `Identifying CLI filtering avoids revenue loss and potential IRSF exposure`,
+        currentVendor: snap.vendorName,
+        sipErrorTrend: { code: 603, label: "603 Decline", vendorName: snap.vendorName, rates: { min5: rate5, min15: rate15, min60: rate60 } },
+        fraudSignals: fraudProfiles.get(snap.vendorName) ?? { fasCount: 0, irsfCount: 0, avgFraudScore: null },
+        simulate: { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
+      });
+    }
+  }
+
   // Sort by confidence desc, deduplicate by currentVendor
   const seen = new Set<string>();
   const deduped: AiRouteRecommendation[] = [];
@@ -462,13 +609,44 @@ function validateAiOutput(raw: any, baseline: AiRouteRecommendation[]): AiRouteR
       throw new AiContractError("OpenAI output has empty or non-array reasons");
   }
 
-  // Merge simulate/fraudSignals from baseline (OpenAI doesn't own those fields)
-  return raw.map((item: any, i: number) => ({
-    ...item,
-    aiInsight: typeof item.aiInsight === "string" && item.aiInsight.trim() ? item.aiInsight.trim() : undefined,
-    fraudSignals: baseline[i]?.fraudSignals ?? item.fraudSignals,
-    simulate: baseline[i]?.simulate ?? item.simulate ?? { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
-  }));
+  // Merge simulate/fraudSignals/sipErrorTrend from baseline (OpenAI doesn't own those fields)
+  // For SIP-triggered recs: preserve AI-generated likelyCause/expectedAsrImpact with deterministic fallbacks
+  const SIP_CAUSE_FALLBACK: Record<number, string> = {
+    503: "Upstream gateway capacity exhaustion or rate-limiting on this carrier's signalling path.",
+    404: "Destination number format mismatch or missing route entry in carrier's dial plan.",
+    480: "Carrier endpoint temporarily out of service or in a maintenance window.",
+    603: "Carrier is actively declining traffic — possible IRSF screening or CLI fraud policy.",
+  };
+  const SIP_ASR_FALLBACK: Record<number, string> = {
+    503: "ASR will decline ~3–5 pp per hour if congestion persists without rerouting.",
+    404: "Every affected call will fail until routing misconfiguration is corrected.",
+    480: "ASR impact scales linearly with unavailability window; reroute to limit exposure.",
+    603: "Sustained 603 volume will drag ASR below minimum SLA threshold within the hour.",
+  };
+
+  return raw.map((item: any, i: number) => {
+    const base = baseline[i];
+    const sipTrend = base?.sipErrorTrend;
+    let likelyCause: string | undefined;
+    let expectedAsrImpact: string | undefined;
+    if (sipTrend) {
+      likelyCause = typeof item.likelyCause === "string" && item.likelyCause.trim()
+        ? item.likelyCause.trim()
+        : (SIP_CAUSE_FALLBACK[sipTrend.code] ?? undefined);
+      expectedAsrImpact = typeof item.expectedAsrImpact === "string" && item.expectedAsrImpact.trim()
+        ? item.expectedAsrImpact.trim()
+        : (SIP_ASR_FALLBACK[sipTrend.code] ?? undefined);
+    }
+    return {
+      ...item,
+      aiInsight: typeof item.aiInsight === "string" && item.aiInsight.trim() ? item.aiInsight.trim() : undefined,
+      fraudSignals: base?.fraudSignals ?? item.fraudSignals,
+      simulate: base?.simulate ?? item.simulate ?? { asrDelta: null, stabilityDelta: null, projectedAsr: null, projectedStability: null },
+      sipErrorTrend: sipTrend ?? undefined,
+      likelyCause,
+      expectedAsrImpact,
+    };
+  });
 }
 
 // ── Auto-trigger queue ────────────────────────────────────────────────────────
@@ -553,7 +731,7 @@ export async function runRouteCopilot(
     ),
     loadFraudProfilesPerVendor(since24h),
     loadMarginProfilesPerVendor(since7d),  // 7-day window for more stable margin signal
-    loadSipErrorSnapshot().catch(() => [] as SipErrorSnapshot[]),
+    loadSipErrorProfilesPerVendor().catch(() => [] as SipErrorSnapshot[]),
     getCopilotVendorSignals().catch(() => new Map()), // route quality snapshots — non-fatal
     loadRouteTestEvidence(6).catch(() => [] as Awaited<ReturnType<typeof loadRouteTestEvidence>>),
     buildVoiceQualityDigest().catch(() => null as VoiceQualityDigest | null),
@@ -601,7 +779,7 @@ export async function runRouteCopilot(
   // Note: simulate projections are computed server-side from carrier score deltas.
   // The server has the authoritative carrier telemetry; client-side projection
   // would duplicate this work without access to the raw score data.
-  const baseline = buildRuleBasedRecommendations(scores, pendingSuggestions, fraudProfiles, marginProfiles, vendorPrefixData);
+  const baseline = buildRuleBasedRecommendations(scores, pendingSuggestions, fraudProfiles, marginProfiles, vendorPrefixData, sipErrors);
 
   // ── Summary fields ─────────────────────────────────────────────────────────
   const topSignal = criticalScores.length > 0
@@ -683,8 +861,12 @@ You receive route recommendations computed by a rule-based system and must:
 2. Keep "reasons" as an array of 2–4 concise factual bullet strings.
 3. Keep "expectedImpact" as one short sentence.
 4. Add an "aiInsight" field: one sentence of telecom-specific operational context (e.g. regional congestion patterns, known carrier behaviour, PSTN/mobile peering considerations, fraud risk context, margin-impacting routing patterns, or RTP/MOS voice quality issues). If SIP error telemetry is provided, cite specific error codes (e.g. "503 congestion spike", "486 CLI screening") in your insight. This must add genuine telecom expertise beyond what the rule engine already states — do NOT just paraphrase the reasons. Max 30 words.
-5. Preserve all other fields (id, confidence, risk, currentVendor, targetVendor, destination) exactly as given.
-6. Return a JSON object: { "recommendations": [ ...same schema... ] }
+5. For recommendations tagged with "sipError: true", add two additional fields:
+   - "likelyCause": one short sentence (max 20 words) explaining the most probable network/carrier-side root cause for this specific SIP error pattern (e.g. "Upstream gateway is rate-limiting this carrier's SIP INVITE traffic" for 503, "Destination number format mismatch or route table misconfiguration" for 404).
+   - "expectedAsrImpact": one short sentence (max 15 words) describing the expected effect on Answer-Seizure Ratio if the recommendation is not acted on (e.g. "ASR will continue to decline by ~3–5pp per hour until congestion clears").
+   For recommendations without sipError, omit both fields.
+6. Preserve all other fields (id, confidence, risk, currentVendor, targetVendor, destination) exactly as given.
+7. Return a JSON object: { "recommendations": [ ...same schema... ] }
 
 Output MUST be valid JSON. The "recommendations" array MUST have ${baseline.length} items (same order).
 Risk values: only "low", "medium", or "high".
@@ -736,6 +918,7 @@ ${voiceQualityContext}`;
       risk: r.risk, expectedImpact: r.expectedImpact,
       currentVendor: r.currentVendor, targetVendor: r.targetVendor, destination: r.destination,
       fraudSignals: r.fraudSignals,
+      ...(r.sipErrorTrend ? { sipError: true, sipCode: r.sipErrorTrend.code, sipLabel: r.sipErrorTrend.label } : {}),
     }))) + sipContext + testEvidenceBlock;
 
     const completion = await client.chat.completions.create({

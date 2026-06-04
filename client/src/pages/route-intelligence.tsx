@@ -64,6 +64,14 @@ interface AiRouteRecommendation {
     projectedAsr: number | null;
     projectedStability: number | null;
   };
+  sipErrorTrend?: {
+    code: number;
+    label: string;
+    vendorName: string;
+    rates: { min5: number; min15: number; min60: number };
+  };
+  likelyCause?: string;
+  expectedAsrImpact?: string;
 }
 
 type CopilotMode = "ai_enhanced" | "rule_based_preview";
@@ -170,6 +178,59 @@ function ConfidenceBar({ value }: { value: number }) {
         />
       </div>
       <span className="font-mono text-xs tabular-nums font-semibold text-muted-foreground">{value}%</span>
+    </div>
+  );
+}
+
+// ── SIP Error Sparkline ────────────────────────────────────────────────────────
+
+function SipErrorSparkline({ rates, code, label }: {
+  rates: { min5: number; min15: number; min60: number };
+  code: number;
+  label: string;
+}) {
+  const vals = [rates.min5, rates.min15, rates.min60];
+  const maxVal = Math.max(...vals, 1);
+  const W = 52;
+  const H = 18;
+  const pts = vals.map((v, i) => ({
+    x: (i / (vals.length - 1)) * W,
+    y: H - (v / maxVal) * (H - 2) - 1,
+  }));
+  const color = rates.min15 >= 10 ? "#ef4444" : rates.min15 >= 2 ? "#f59e0b" : "#22c55e";
+  const pathD = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const codeColor = code === 503
+    ? "text-red-500 bg-red-500/10 border-red-500/25"
+    : code === 404
+    ? "text-blue-500 bg-blue-500/10 border-blue-500/25"
+    : code === 480
+    ? "text-orange-500 bg-orange-500/10 border-orange-500/25"
+    : "text-purple-500 bg-purple-500/10 border-purple-500/25";
+
+  return (
+    <div className="flex items-center gap-2 mt-1.5 pl-0.5" data-testid="sip-error-sparkline">
+      <span className={cn("text-[9px] font-bold font-mono px-1.5 py-0.5 rounded border flex-shrink-0", codeColor)}>
+        {label}
+      </span>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="flex-shrink-0">
+        <path d={pathD} stroke={color} strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        {pts.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r="2" fill={color} />
+        ))}
+      </svg>
+      <div className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground">
+        <span title="5-min rate" className={cn(rates.min5 >= 10 ? "text-red-500" : rates.min5 >= 2 ? "text-amber-500" : "text-green-500")}>
+          {rates.min5.toFixed(1)}%
+        </span>
+        <span className="opacity-40">→</span>
+        <span title="15-min rate" className={cn(rates.min15 >= 10 ? "text-red-500" : rates.min15 >= 2 ? "text-amber-500" : "text-green-500")}>
+          {rates.min15.toFixed(1)}%
+        </span>
+        <span className="opacity-40">→</span>
+        <span title="1-hr rate" className={cn(rates.min60 >= 10 ? "text-red-500" : rates.min60 >= 2 ? "text-amber-500" : "text-green-500")}>
+          {rates.min60.toFixed(1)}%
+        </span>
+      </div>
     </div>
   );
 }
@@ -580,6 +641,15 @@ function AiRecCard({
                   Auto-Triggered
                 </span>
               )}
+              {rec.sipErrorTrend && (
+                <span
+                  data-testid={`ai-rec-sip-badge-${index}`}
+                  className="flex items-center gap-1 text-[10px] font-bold uppercase font-mono text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 border border-cyan-500/25 px-1.5 py-0.5 rounded"
+                >
+                  <Radio className="h-2.5 w-2.5" />
+                  SIP Error
+                </span>
+              )}
               {hasFraud && (
                 <span className="flex items-center gap-1 text-[10px] font-mono text-red-400/80 bg-red-500/8 border border-red-500/20 px-1.5 py-0.5 rounded">
                   <ShieldAlert className="h-2.5 w-2.5" />
@@ -674,6 +744,39 @@ function AiRecCard({
               <span className="font-semibold text-violet-400 mr-1">AI:</span>
               <span className="text-muted-foreground">{rec.aiInsight}</span>
             </span>
+          </div>
+        )}
+
+        {/* SIP Error trend sparkline + diagnosis (present only on SIP-error-triggered recs) */}
+        {rec.sipErrorTrend && (
+          <div
+            data-testid={`ai-rec-sip-sparkline-${index}`}
+            className="mt-2 rounded-lg bg-cyan-500/5 border border-cyan-500/15 px-3 py-2 space-y-2"
+          >
+            <p className="text-[9px] uppercase tracking-wide font-semibold text-cyan-500/70">
+              Error Rate Trend (5 min → 15 min → 1 hr)
+            </p>
+            <SipErrorSparkline
+              rates={rec.sipErrorTrend.rates}
+              code={rec.sipErrorTrend.code}
+              label={rec.sipErrorTrend.label}
+            />
+            {(rec.likelyCause || rec.expectedAsrImpact) && (
+              <div className="space-y-1 pt-1 border-t border-cyan-500/10">
+                {rec.likelyCause && (
+                  <div className="flex items-start gap-1.5 text-[10px]">
+                    <span className="font-semibold text-cyan-500/80 shrink-0">Likely cause:</span>
+                    <span className="text-muted-foreground">{rec.likelyCause}</span>
+                  </div>
+                )}
+                {rec.expectedAsrImpact && (
+                  <div className="flex items-start gap-1.5 text-[10px]">
+                    <span className="font-semibold text-amber-500/80 shrink-0">ASR impact:</span>
+                    <span className="text-muted-foreground">{rec.expectedAsrImpact}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1921,8 +2024,9 @@ function SipSparkline({
 
 function SipErrorPanel() {
   const [open,       setOpen]       = useState(false);
-  const [activeWin,  setActiveWin]  = useState<15 | 60 | 240>(15);
+  const [activeWin,  setActiveWin]  = useState<5 | 15 | 60>(15);
   const [heatmap,    setHeatmap]    = useState(false);
+  const [selectedCell, setSelectedCell] = useState<{ vendor: string; code: number } | null>(null);
 
   const { data, isLoading } = useQuery<SipErrorData>({
     queryKey: ["/api/copilot/sip-errors"],
@@ -1950,7 +2054,7 @@ function SipErrorPanel() {
   const hasData = vendors.length > 0;
   const hasActiveAlert = data?.hasActiveAlert ?? false;
 
-  const windowLabel: Record<number, string> = { 15: "15 min", 60: "1 hr", 240: "4 hr" };
+  const windowLabel: Record<number, string> = { 5: "5 min", 15: "15 min", 60: "1 hr" };
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
@@ -2002,7 +2106,7 @@ function SipErrorPanel() {
               {/* Controls */}
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-0.5">
-                  {([15, 60, 240] as const).map(w => (
+                  {([5, 15, 60] as const).map(w => (
                     <button
                       key={w}
                       data-testid={`sip-window-${w}`}
@@ -2156,109 +2260,144 @@ function SipErrorPanel() {
               )}
 
               {!isLoading && hasData && heatmap && (() => {
-                /* Prefix × Vendor heatmap — shows dominant SIP error per destination prefix × vendor cell */
-                /* Rows: destination prefixes (top 12 by total failures); Columns: active vendors */
-                const activeVendors = [...new Set(vendors.map(v => v.vendorName))];
+                /* Vendor × Error-Code matrix — rows: vendors; cols: SIP error codes */
+                /* Cell shows rate for the selected window; click → sparkline detail panel */
+                const CODES = SIP_CODES;
 
-                // Aggregate prefix data: find top prefixes by total failures
-                const prefixTotals = new Map<string, number>();
-                for (const row of prefixRows) {
-                  prefixTotals.set(row.destPrefix, (prefixTotals.get(row.destPrefix) ?? 0) + row.totalFailures);
-                }
-                const topPrefixes = [...prefixTotals.entries()]
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 12)
-                  .map(([pfx]) => pfx);
-
-                // Build lookup: prefix + vendor → { dominantCode, dominantRate }
-                const cellMap = new Map<string, { dominantCode: number; dominantRate: number }>();
-                for (const row of prefixRows) {
-                  const key = `${row.destPrefix}:${row.vendorName}`;
-                  const existing = cellMap.get(key);
-                  if (!existing || row.dominantRate > existing.dominantRate) {
-                    cellMap.set(key, { dominantCode: row.dominantCode, dominantRate: row.dominantRate });
-                  }
+                function cellBg(rate: number): string {
+                  if (rate >= 10) return "bg-red-500/75 text-white border-red-500/60";
+                  if (rate >= 2)  return "bg-amber-500/55 text-white border-amber-500/50";
+                  if (rate > 0)   return "bg-green-500/20 text-green-800 dark:text-green-200 border-green-500/20";
+                  return "bg-muted/15 text-muted-foreground/25 border-transparent";
                 }
 
-                const codeDotColor: Record<number, string> = {
-                  503: "bg-red-500",
-                  486: "bg-amber-500",
-                  480: "bg-orange-400",
-                  404: "bg-blue-500",
-                  603: "bg-purple-500",
-                  487: "bg-slate-400",
-                };
-
-                if (topPrefixes.length === 0) {
-                  return (
-                    <div className="py-8 flex flex-col items-center justify-center text-muted-foreground">
-                      <LayoutGrid className="h-6 w-6 mb-2 opacity-25" />
-                      <p className="text-sm">No prefix data yet</p>
-                      <p className="text-xs mt-1 opacity-60">Prefix breakdown is computed from the 15-min window after CDR refresh</p>
-                    </div>
-                  );
-                }
+                const selV = vendors.find(v => v.vendorName === selectedCell?.vendor);
+                const selRate = selV && selectedCell
+                  ? (selV.windows[activeWin]?.[selectedCell.code]?.rate ?? 0)
+                  : 0;
+                const selSparkRates = selV && selectedCell ? {
+                  min5:  selV.windows[5]?.[selectedCell.code]?.rate  ?? 0,
+                  min15: selV.windows[15]?.[selectedCell.code]?.rate ?? 0,
+                  min60: selV.windows[60]?.[selectedCell.code]?.rate ?? 0,
+                } : null;
 
                 return (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border-separate border-spacing-0.5">
-                      <thead>
-                        <tr>
-                          <th className="text-left py-2 px-2 text-muted-foreground font-medium min-w-[72px]">
-                            Dest. Prefix
-                          </th>
-                          {activeVendors.map(v => (
-                            <th key={v} className="py-2 px-1 text-muted-foreground font-medium text-center text-[10px] min-w-[80px] truncate max-w-[100px]" title={v}>
-                              {v.length > 12 ? v.slice(0, 11) + "…" : v}
+                  <div className="space-y-3">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-separate border-spacing-0.5">
+                        <thead>
+                          <tr>
+                            <th className="text-left py-2 px-2 text-muted-foreground font-medium min-w-[100px] text-[10px]">
+                              Vendor
                             </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {topPrefixes.map(pfx => (
-                          <tr key={pfx} data-testid={`sip-prefix-row-${pfx}`}>
-                            <td className="py-1 px-2 font-mono font-semibold text-[11px] text-foreground/80">+{pfx}</td>
-                            {activeVendors.map(v => {
-                              const cell = cellMap.get(`${pfx}:${v}`);
-                              if (!cell) {
+                            {CODES.map(code => (
+                              <th key={code} className="py-2 px-1 text-muted-foreground font-medium text-center text-[10px] min-w-[64px]" title={CODE_FULL[code]}>
+                                {CODE_LABELS[code]}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {vendors.map(v => (
+                            <tr key={v.vendorName} data-testid={`sip-heatmap-row-${v.vendorName}`}>
+                              <td className="py-1 px-2 font-medium text-[10px] truncate max-w-[120px]" title={v.vendorName}>
+                                {v.vendorName.length > 14 ? v.vendorName.slice(0, 13) + "…" : v.vendorName}
+                              </td>
+                              {CODES.map(code => {
+                                const entry = v.windows[activeWin]?.[code] ?? { rate: 0, count: 0 };
+                                const isSelected = selectedCell?.vendor === v.vendorName && selectedCell?.code === code;
                                 return (
-                                  <td key={v} className="py-1 px-1">
-                                    <div className="h-8 rounded bg-muted/15 flex items-center justify-center text-muted-foreground/20 text-[9px]">—</div>
+                                  <td key={code} className="py-0.5 px-0.5">
+                                    <button
+                                      data-testid={`sip-heatmap-cell-${v.vendorName}-${code}`}
+                                      onClick={() => setSelectedCell(isSelected ? null : { vendor: v.vendorName, code })}
+                                      className={cn(
+                                        "w-full h-9 rounded border flex flex-col items-center justify-center gap-0 transition-all",
+                                        cellBg(entry.rate),
+                                        isSelected && "ring-2 ring-cyan-400 ring-offset-1 ring-offset-background"
+                                      )}
+                                      title={entry.rate > 0 ? `${v.vendorName} ${CODE_FULL[code]}: ${entry.rate.toFixed(1)}% (${entry.count}×) — click for trend` : `${v.vendorName} ${CODE_FULL[code]}: no errors`}
+                                    >
+                                      {entry.rate > 0 ? (
+                                        <>
+                                          <span className="font-mono text-[9px] font-bold leading-tight">{entry.rate.toFixed(1)}%</span>
+                                          <span className="text-[8px] leading-tight opacity-75">{entry.count}×</span>
+                                        </>
+                                      ) : (
+                                        <span className="text-[9px] opacity-25">—</span>
+                                      )}
+                                    </button>
                                   </td>
                                 );
-                              }
-                              const { dominantCode, dominantRate } = cell;
-                              const intensity = Math.min(dominantRate / 20, 1);
-                              return (
-                                <td key={v} className="py-1 px-1" data-testid={`sip-cell-${pfx}-${v}`}>
-                                  <div
-                                    className={cn(
-                                      "h-8 rounded flex flex-col items-center justify-center gap-0.5 transition-all cursor-default",
-                                      dominantRate >= 10
-                                        ? "bg-red-500/80 text-white"
-                                        : dominantRate >= 2
-                                        ? "bg-amber-500/60 text-white"
-                                        : "bg-green-500/25 text-green-800 dark:text-green-200"
-                                    )}
-                                    style={{ opacity: 0.35 + intensity * 0.65 }}
-                                    title={`${pfx} via ${v}: ${CODE_FULL[dominantCode]} — ${dominantRate.toFixed(1)}% failure rate`}
-                                  >
-                                    <span className="font-mono text-[9px] font-bold leading-none">{CODE_LABELS[dominantCode]}</span>
-                                    <span className="text-[8px] leading-none opacity-80">{dominantRate.toFixed(1)}%</span>
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border/30 flex-wrap">
-                      <span className="text-[10px] text-muted-foreground font-medium">Dominant SIP error by prefix×vendor (15-min, top {topPrefixes.length} prefixes):</span>
-                      {Object.entries(codeDotColor).map(([code, bg]) => (
-                        <div key={code} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                          <div className={cn("w-2 h-2 rounded-sm", bg, "opacity-70")} />
-                          {CODE_FULL[Number(code)]}
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Per-cell sparkline detail panel */}
+                    {selectedCell && selV && selSparkRates && (
+                      <div
+                        data-testid="sip-heatmap-detail"
+                        className="rounded-lg bg-cyan-500/5 border border-cyan-500/20 px-3 py-3 space-y-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Radio className="h-3 w-3 text-cyan-500" />
+                            <span className="text-xs font-semibold">{selectedCell.vendor}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono">·</span>
+                            <span className="text-[10px] font-mono font-bold text-cyan-500">{CODE_LABELS[selectedCell.code]}</span>
+                            <span className="text-[10px] text-muted-foreground">{CODE_FULL[selectedCell.code]}</span>
+                          </div>
+                          <button
+                            data-testid="sip-heatmap-detail-close"
+                            onClick={() => setSelectedCell(null)}
+                            className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div>
+                          <p className="text-[9px] uppercase tracking-wide font-semibold text-cyan-500/70 mb-1">
+                            5 min → 15 min → 1 hr trajectory
+                          </p>
+                          <SipErrorSparkline
+                            rates={selSparkRates}
+                            code={selectedCell.code}
+                            label={CODE_LABELS[selectedCell.code] ?? String(selectedCell.code)}
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-cyan-500/10">
+                          {([5, 15, 60] as const).map(w => {
+                            const r = selV.windows[w]?.[selectedCell.code]?.rate ?? 0;
+                            const cnt = selV.windows[w]?.[selectedCell.code]?.count ?? 0;
+                            return (
+                              <div key={w} className="text-center">
+                                <p className={cn("font-mono font-bold text-sm tabular-nums", rateColor(r))}>
+                                  {r.toFixed(1)}%
+                                </p>
+                                <p className="text-[9px] text-muted-foreground">{windowLabel[w]}</p>
+                                <p className="text-[9px] text-muted-foreground/60">{cnt}× errors</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 pt-1 flex-wrap">
+                      <span className="text-[10px] text-muted-foreground font-medium">
+                        Vendor × error-code matrix ({windowLabel[activeWin]} window) · click any cell for 5/15/60 trend:
+                      </span>
+                      {[
+                        { label: "< 2%",   color: "bg-green-500",  text: "Normal" },
+                        { label: "2–10%",  color: "bg-amber-500",  text: "Elevated" },
+                        { label: "> 10%",  color: "bg-red-500",    text: "Critical" },
+                      ].map(({ label, color, text }) => (
+                        <div key={text} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <div className={cn("w-2 h-2 rounded-sm", color, "opacity-70")} />
+                          {label} — {text}
                         </div>
                       ))}
                     </div>

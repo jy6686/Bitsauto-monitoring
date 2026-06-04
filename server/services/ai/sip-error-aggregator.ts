@@ -86,9 +86,9 @@ const Q850_TO_SIP: Record<number, SipErrorCode> = {
 };
 
 const WINDOWS_MS: Array<{ minutes: number; ms: number }> = [
+  { minutes: 5,  ms:  5  * 60 * 1000 },
   { minutes: 15,  ms: 15  * 60 * 1000 },
   { minutes: 60,  ms: 60  * 60 * 1000 },
-  { minutes: 240, ms: 240 * 60 * 1000 },
 ];
 
 // Sentinel code used to track total CDR count per vendor-window bucket
@@ -613,3 +613,9 @@ export async function loadSipErrorHistory(windowMinutes: 15 | 60 | 240): Promise
     await pool.end();
   }
 }
+
+/**
+ * Named alias for loadSipErrorSnapshot — follows the telemetry-loader
+ * naming convention used by the AI Route Copilot.
+ */
+export const loadSipErrorProfilesPerVendor = loadSipErrorSnapshot;
