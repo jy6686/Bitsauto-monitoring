@@ -139,6 +139,14 @@ export const settings = pgTable("settings", {
   // Approval expiry out-of-band notifications
   approvalExpiryEmailEnabled:      boolean("approval_expiry_email_enabled").default(true),
   approvalExpirySlackWebhookUrl:   varchar("approval_expiry_slack_webhook_url", { length: 512 }),
+  // Invoice email delivery SMTP — dedicated outbound channel for invoice sends
+  invoiceSmtpHost:      varchar("invoice_smtp_host",       { length: 255 }),
+  invoiceSmtpPort:      integer("invoice_smtp_port").default(587),
+  invoiceSmtpSecure:    boolean("invoice_smtp_secure").default(false),
+  invoiceSmtpUser:      varchar("invoice_smtp_user",       { length: 255 }),
+  invoiceSmtpPass:      varchar("invoice_smtp_pass",       { length: 512 }),
+  invoiceSmtpFromName:  varchar("invoice_smtp_from_name",  { length: 255 }).default('Bitsauto Finance'),
+  invoiceSmtpFromEmail: varchar("invoice_smtp_from_email", { length: 255 }),
 });
 
 // Client & Vendor Profiles: named parties used to label CLI/CLD in reports
@@ -2665,6 +2673,24 @@ export const invoiceLineItems = pgTable("invoice_line_items", {
 export type InvoiceLineItem       = typeof invoiceLineItems.$inferSelect;
 export type InsertInvoiceLineItem = typeof invoiceLineItems.$inferInsert;
 export const insertInvoiceLineItemSchema = createInsertSchema(invoiceLineItems).omit({ id: true });
+
+// ── Invoice Email Deliveries — audit log of every invoice send attempt ─────────
+export const invoiceEmailDeliveries = pgTable("invoice_email_deliveries", {
+  id:           serial("id").primaryKey(),
+  invoiceId:    integer("invoice_id").notNull(),
+  recipients:   text("recipients").notNull(),   // JSON array of To: addresses
+  ccAddresses:  text("cc_addresses").default('[]'), // JSON array of CC: addresses
+  subject:      varchar("subject",     { length: 512 }).notNull(),
+  bodyText:     text("body_text"),
+  sentBy:       varchar("sent_by",     { length: 255 }),  // user id / name
+  status:       varchar("status",      { length: 32  }).notNull().default('sent'), // sent | failed
+  errorMessage: text("error_message"),
+  sentAt:       timestamp("sent_at").defaultNow(),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+});
+export type InvoiceEmailDelivery       = typeof invoiceEmailDeliveries.$inferSelect;
+export type InsertInvoiceEmailDelivery = typeof invoiceEmailDeliveries.$inferInsert;
+export const insertInvoiceEmailDeliverySchema = createInsertSchema(invoiceEmailDeliveries).omit({ id: true, createdAt: true });
 
 // ── Layer 5C — Carrier Invoice Reconciliation ─────────────────────────────────
 // Shadow verification mode ONLY on first deploy.

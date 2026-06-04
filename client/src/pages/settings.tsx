@@ -666,6 +666,218 @@ function EmailAlertPanel() {
   );
 }
 
+// ── Invoice Email Delivery Panel ──────────────────────────────────────────────
+
+type InvoiceSmtpConfig = {
+  invoiceSmtpHost:      string;
+  invoiceSmtpPort:      number;
+  invoiceSmtpSecure:    boolean;
+  invoiceSmtpUser:      string;
+  invoiceSmtpPass:      string;
+  invoiceSmtpFromName:  string;
+  invoiceSmtpFromEmail: string;
+};
+
+function InvoiceEmailDeliveryPanel() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+  const [showPass, setShowPass] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
+
+  const { data: rawSettings } = useQuery<any>({ queryKey: ['/api/alert-config'] });
+
+  const [form, setForm] = useState<InvoiceSmtpConfig>({
+    invoiceSmtpHost:      '',
+    invoiceSmtpPort:      587,
+    invoiceSmtpSecure:    false,
+    invoiceSmtpUser:      '',
+    invoiceSmtpPass:      '',
+    invoiceSmtpFromName:  'Bitsauto Finance',
+    invoiceSmtpFromEmail: '',
+  });
+
+  useEffect(() => {
+    if (rawSettings) {
+      setForm(f => ({
+        ...f,
+        invoiceSmtpHost:      rawSettings.invoiceSmtpHost      ?? '',
+        invoiceSmtpPort:      rawSettings.invoiceSmtpPort      ?? 587,
+        invoiceSmtpSecure:    rawSettings.invoiceSmtpSecure    ?? false,
+        invoiceSmtpUser:      rawSettings.invoiceSmtpUser      ?? '',
+        invoiceSmtpPass:      rawSettings.invoiceSmtpPass      ?? '',
+        invoiceSmtpFromName:  rawSettings.invoiceSmtpFromName  ?? 'Bitsauto Finance',
+        invoiceSmtpFromEmail: rawSettings.invoiceSmtpFromEmail ?? '',
+      }));
+    }
+  }, [rawSettings]);
+
+  const saveMut = useMutation({
+    mutationFn: () => apiRequest('PATCH', '/api/alert-config', form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/alert-config'] });
+      toast({ title: 'Invoice SMTP settings saved' });
+    },
+    onError: (err: any) => toast({ title: 'Save failed', description: err.message, variant: 'destructive' }),
+  });
+
+  const testMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/invoices/test-smtp', {});
+      const json = await res.json();
+      setTestResult(json);
+      return json;
+    },
+    onError: (err: any) => {
+      setTestResult({ ok: false, error: err.message });
+    },
+  });
+
+  return (
+    <div className="bg-card rounded-xl border border-border overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center gap-3 p-6 text-left hover:bg-muted/20 transition-colors"
+      >
+        <Send className="h-5 w-5 text-blue-400 flex-shrink-0" />
+        <div className="flex-1">
+          <h2 className="text-base font-semibold">Invoice Email Delivery</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            SMTP settings for sending invoices to customers. Falls back to Gmail alerts if not configured.
+          </p>
+        </div>
+        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="px-6 pb-6 space-y-5 border-t border-border/50">
+          <div className="pt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">SMTP Host</label>
+              <input
+                type="text"
+                data-testid="input-invoice-smtp-host"
+                value={form.invoiceSmtpHost}
+                onChange={e => setForm(f => ({ ...f, invoiceSmtpHost: e.target.value }))}
+                placeholder="smtp.gmail.com"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">SMTP Port</label>
+              <input
+                type="number"
+                data-testid="input-invoice-smtp-port"
+                value={form.invoiceSmtpPort}
+                onChange={e => setForm(f => ({ ...f, invoiceSmtpPort: Number(e.target.value) }))}
+                min={1} max={65535}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">SMTP Username</label>
+              <input
+                type="text"
+                data-testid="input-invoice-smtp-user"
+                value={form.invoiceSmtpUser}
+                onChange={e => setForm(f => ({ ...f, invoiceSmtpUser: e.target.value }))}
+                placeholder="billing@company.com"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">SMTP Password</label>
+              <div className="relative">
+                <input
+                  type={showPass ? 'text' : 'password'}
+                  data-testid="input-invoice-smtp-pass"
+                  value={form.invoiceSmtpPass}
+                  onChange={e => setForm(f => ({ ...f, invoiceSmtpPass: e.target.value }))}
+                  placeholder="••••••••"
+                  className="w-full px-3 py-2 pr-10 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+                />
+                <button type="button" onClick={() => setShowPass(s => !s)} className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground">
+                  {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">From Name</label>
+              <input
+                type="text"
+                data-testid="input-invoice-from-name"
+                value={form.invoiceSmtpFromName}
+                onChange={e => setForm(f => ({ ...f, invoiceSmtpFromName: e.target.value }))}
+                placeholder="Bitsauto Finance"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">From Email</label>
+              <input
+                type="email"
+                data-testid="input-invoice-from-email"
+                value={form.invoiceSmtpFromEmail}
+                onChange={e => setForm(f => ({ ...f, invoiceSmtpFromEmail: e.target.value }))}
+                placeholder="billing@company.com"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              id="smtp-secure"
+              type="checkbox"
+              data-testid="input-invoice-smtp-secure"
+              checked={form.invoiceSmtpSecure}
+              onChange={e => setForm(f => ({ ...f, invoiceSmtpSecure: e.target.checked }))}
+              className="h-4 w-4 rounded border-border"
+            />
+            <label htmlFor="smtp-secure" className="text-sm">Use SSL/TLS (port 465)</label>
+          </div>
+
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              type="button"
+              data-testid="button-save-invoice-smtp"
+              onClick={() => saveMut.mutate()}
+              disabled={saveMut.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {saveMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save SMTP Config
+            </button>
+            <button
+              type="button"
+              data-testid="button-test-invoice-smtp"
+              onClick={() => { setTestResult(null); testMut.mutate(); }}
+              disabled={testMut.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-muted hover:bg-muted/70 border border-border disabled:opacity-50"
+            >
+              {testMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Test Email
+            </button>
+          </div>
+
+          {testResult && (
+            <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${testResult.ok ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+              {testResult.ok ? <MailCheck className="h-4 w-4" /> : <MailX className="h-4 w-4" />}
+              {testResult.ok ? 'SMTP connection verified — invoice emails ready to send' : `Connection failed: ${testResult.error}`}
+            </div>
+          )}
+
+          <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 text-xs text-muted-foreground">
+            <p className="font-medium text-blue-300 mb-1">Fallback behaviour</p>
+            <p>If SMTP Host is left blank, the system will use the Gmail credentials from the Email Alerts section above as a fallback.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Sippy Change Watcher Panel ────────────────────────────────────────────────
 
 interface WatcherStatus {
@@ -3296,6 +3508,7 @@ export default function SettingsPage() {
       {/* ══ ALERTS TAB ══ */}
       <div className={activeTab !== 'alerts' ? 'hidden' : 'space-y-6'}>
         <EmailAlertPanel />
+        <InvoiceEmailDeliveryPanel />
         <SippyWatcherPanel />
         <PushNotificationPanel />
         <ScheduledReportsPanel />

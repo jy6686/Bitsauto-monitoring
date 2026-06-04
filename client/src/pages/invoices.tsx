@@ -25,6 +25,7 @@ import {
 import {
   FileText, Play, Eye, CheckCircle, AlertTriangle, DollarSign, Hash,
   RefreshCw, Calendar, User, Zap, CheckCheck, XCircle, Lock, Layers,
+  Send, Mail, MailCheck, MailX, X, Clock, History,
 } from "lucide-react";
 
 interface Invoice {
@@ -150,13 +151,47 @@ const EMPTY_FORM: FormState = {
   billingCycle: "custom", clientTimezone: null,
 };
 
+interface SendForm {
+  recipientInput: string;  // raw input for adding recipients
+  recipients:     string[];
+  ccInput:        string;
+  cc:             string[];
+  subject:        string;
+  body:           string;
+}
+
+interface EmailDelivery {
+  id:           number;
+  invoiceId:    number;
+  recipients:   string;
+  ccAddresses:  string;
+  subject:      string;
+  sentBy:       string | null;
+  status:       string;
+  errorMessage: string | null;
+  sentAt:       string | null;
+  createdAt:    string;
+}
+
+const EMPTY_SEND: SendForm = {
+  recipientInput: '',
+  recipients:     [],
+  ccInput:        '',
+  cc:             [],
+  subject:        '',
+  body:           '',
+};
+
 export default function InvoicesPage() {
   const { toast }   = useToast();
   const queryClient = useQueryClient();
 
   const [showGenerate,   setShowGenerate]   = useState(false);
   const [previewId,      setPreviewId]      = useState<number | null>(null);
+  const [previewTab,     setPreviewTab]     = useState<'preview' | 'history'>('preview');
   const [approveId,      setApproveId]      = useState<number | null>(null);
+  const [sendId,         setSendId]         = useState<number | null>(null);
+  const [sendForm,       setSendForm]       = useState<SendForm>(EMPTY_SEND);
   const [filterStatus,   setFilterStatus]   = useState("all");
   const [form,           setForm]           = useState<FormState>(EMPTY_FORM);
   const [fetchingTariff, setFetchingTariff] = useState(false);
@@ -251,6 +286,75 @@ export default function InvoicesPage() {
       toast({ title: "Approval failed", description: err.message, variant: "destructive" });
     },
   });
+
+  const sendMutation = useMutation({
+    mutationFn: async ({ id, form }: { id: number; form: SendForm }) => {
+      const res = await apiRequest("POST", `/api/invoices/${id}/send`, {
+        recipients: form.recipients,
+        cc:         form.cc,
+        subject:    form.subject,
+        body:       form.body,
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Send failed");
+      return body;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices", sendId, "deliveries"] });
+      setSendId(null);
+      setSendForm(EMPTY_SEND);
+      toast({ title: "Invoice sent successfully", description: "Email delivered and delivery logged." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Send failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const { data: deliveries = [], isLoading: deliveriesLoading } = useQuery<EmailDelivery[]>({
+    queryKey: ["/api/invoices", previewId, "deliveries"],
+    queryFn:  () => apiRequest("GET", `/api/invoices/${previewId}/deliveries`).then(r => r.json()),
+    enabled:  previewId != null && previewTab === 'history',
+  });
+
+  async function openSendDialog(inv: Invoice) {
+    const defaultSubject = `Invoice ${inv.invoiceNumber}${inv.customerName ? ` — ${inv.customerName}` : ''}${inv.periodStart ? ` (${inv.periodStart} to ${inv.periodEnd ?? ''})` : ''}`;
+    const defaultBody    = `Dear ${inv.customerName ?? 'Customer'},\n\nPlease find attached your invoice ${inv.invoiceNumber}${inv.periodStart ? ` for the period ${inv.periodStart} to ${inv.periodEnd ?? ''}` : ''}.\n\nPlease don't hesitate to contact us if you have any queries.\n\nKind regards,\nBitsauto Finance`;
+
+    // Prefill with empty — open dialog immediately
+    setSendId(inv.id);
+    setSendForm({
+      subject:        defaultSubject,
+      body:           defaultBody,
+      recipients:     [],
+      cc:             [],
+      recipientInput: '',
+      ccInput:        '',
+    });
+
+    // Fetch known email in background and prefill recipients if found
+    try {
+      const res  = await apiRequest("GET", `/api/invoices/${inv.id}/customer-email`);
+      const data = await res.json();
+      if (Array.isArray(data.emails) && data.emails.length > 0) {
+        setSendForm(f => ({ ...f, recipients: data.emails }));
+      }
+    } catch { /* best-effort */ }
+  }
+
+  function addTag(field: 'recipients' | 'cc', raw: string) {
+    const emails = raw.split(/[,;\s]+/).map(e => e.trim()).filter(e => e.includes('@'));
+    if (emails.length === 0) return;
+    setSendForm(f => ({
+      ...f,
+      [field]:               [...new Set([...f[field], ...emails])],
+      [`${field}Input` as any]: '',
+    }));
+  }
+
+  function removeTag(field: 'recipients' | 'cc', email: string) {
+    setSendForm(f => ({ ...f, [field]: f[field].filter(e => e !== email) }));
+  }
 
   async function onAccountSelect(iAccountStr: string) {
     const acct = accounts.find(a => String(a.iAccount) === iAccountStr);
@@ -559,6 +663,17 @@ export default function InvoicesPage() {
                           {(inv.status === "draft" || inv.status === "review") && (
                             <Button data-testid={`button-approve-${inv.id}`} variant="ghost" size="sm" onClick={() => setApproveId(inv.id)}>
                               <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
+                            </Button>
+                          )}
+                          {(inv.status === "approved" || inv.status === "sent") && (
+                            <Button
+                              data-testid={`button-send-${inv.id}`}
+                              variant="ghost"
+                              size="sm"
+                              title="Send invoice via email"
+                              onClick={() => openSendDialog(inv)}
+                            >
+                              <Send className="h-3.5 w-3.5 text-blue-400" />
                             </Button>
                           )}
                         </div>
@@ -892,27 +1007,264 @@ export default function InvoicesPage() {
       </Dialog>
 
       {/* ── Preview dialog ── */}
-      <Dialog open={previewId != null} onOpenChange={open => !open && setPreviewId(null)}>
+      <Dialog open={previewId != null} onOpenChange={open => { if (!open) { setPreviewId(null); setPreviewTab('preview'); } }}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>{preview?.invoiceNumber ?? "Invoice"}</DialogTitle>
-            {preview && <StatusBadge status={preview.status} />}
+            <div className="flex items-center gap-3 flex-wrap">
+              <DialogTitle>{preview?.invoiceNumber ?? "Invoice"}</DialogTitle>
+              {preview && <StatusBadge status={preview.status} />}
+              {preview && (preview.status === 'approved' || preview.status === 'sent') && (
+                <Button
+                  data-testid="button-send-from-preview"
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                  onClick={() => { setPreviewId(null); setPreviewTab('preview'); openSendDialog(preview); }}
+                >
+                  <Send className="h-3.5 w-3.5 mr-1.5" /> Send Invoice
+                </Button>
+              )}
+            </div>
           </DialogHeader>
-          <div className="flex-1 overflow-auto rounded border border-border">
-            {preview?.htmlContent ? (
-              <iframe
-                data-testid="iframe-invoice-preview"
-                srcDoc={preview.htmlContent}
-                className="w-full min-h-[600px]"
-                title="Invoice Preview"
-                sandbox="allow-same-origin"
-              />
-            ) : (
-              <div className="text-center py-10 text-muted-foreground">Loading invoice…</div>
-            )}
+          {/* Tab bar */}
+          <div className="flex gap-1 border-b border-border pb-2 -mt-1">
+            <button
+              type="button"
+              data-testid="tab-preview-invoice"
+              onClick={() => setPreviewTab('preview')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${previewTab === 'preview' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <Eye className="h-3.5 w-3.5" /> Preview
+            </button>
+            <button
+              type="button"
+              data-testid="tab-delivery-history"
+              onClick={() => setPreviewTab('history')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${previewTab === 'history' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <History className="h-3.5 w-3.5" /> Delivery History
+            </button>
           </div>
+          {previewTab === 'preview' ? (
+            <div className="flex-1 overflow-auto rounded border border-border">
+              {preview?.htmlContent ? (
+                <iframe
+                  data-testid="iframe-invoice-preview"
+                  srcDoc={preview.htmlContent}
+                  className="w-full min-h-[600px]"
+                  title="Invoice Preview"
+                  sandbox="allow-same-origin"
+                />
+              ) : (
+                <div className="text-center py-10 text-muted-foreground">Loading invoice…</div>
+              )}
+            </div>
+          ) : (
+            <div className="flex-1 overflow-auto">
+              {deliveriesLoading ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">Loading history…</div>
+              ) : deliveries.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Mail className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No delivery records yet for this invoice.</p>
+                  <p className="text-xs mt-1">Use the <Send className="h-3 w-3 inline" /> Send button to deliver it.</p>
+                </div>
+              ) : (
+                <div className="space-y-3 py-1">
+                  {deliveries.map(d => {
+                    let recipients: string[] = [];
+                    let cc: string[] = [];
+                    try { recipients = JSON.parse(d.recipients); } catch {}
+                    try { cc = JSON.parse(d.ccAddresses); } catch {}
+                    return (
+                      <div key={d.id} className={`rounded-lg border p-4 ${d.status === 'sent' ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            {d.status === 'sent'
+                              ? <MailCheck className="h-4 w-4 text-emerald-400" />
+                              : <MailX className="h-4 w-4 text-red-400" />}
+                            <span className={`text-xs font-medium ${d.status === 'sent' ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {d.status === 'sent' ? 'Delivered' : 'Failed'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            {d.sentAt ? new Date(d.sentAt).toLocaleString() : new Date(d.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <p className="text-sm font-medium mb-1 truncate">{d.subject}</p>
+                        <p className="text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground/60">To:</span>{" "}
+                          {recipients.join(', ') || '—'}
+                        </p>
+                        {cc.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground/60">CC:</span>{" "}
+                            {cc.join(', ')}
+                          </p>
+                        )}
+                        {d.sentBy && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            <span className="font-medium text-foreground/60">Sent by:</span> {d.sentBy}
+                          </p>
+                        )}
+                        {d.status === 'failed' && d.errorMessage && (
+                          <p className="text-xs text-red-400 mt-2 bg-red-500/10 rounded px-2 py-1">
+                            {d.errorMessage}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
+
+      {/* ── Send Invoice compose dialog ── */}
+      {(() => {
+        const sendingInv = invoices.find(i => i.id === sendId);
+        return (
+          <Dialog open={sendId != null} onOpenChange={open => { if (!open) { setSendId(null); setSendForm(EMPTY_SEND); } }}>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Send className="h-4 w-4 text-blue-400" />
+                  Send Invoice
+                </DialogTitle>
+                <DialogDescription>
+                  {sendingInv
+                    ? `Deliver ${sendingInv.invoiceNumber} to ${sendingInv.customerName ?? 'customer'} via email.`
+                    : 'Compose and send invoice to customer.'}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Recipients */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">To (recipients)</Label>
+                  <div className="rounded-lg border border-border p-2 min-h-[42px] flex flex-wrap gap-1.5 focus-within:ring-2 focus-within:ring-primary/30">
+                    {sendForm.recipients.map(r => (
+                      <span key={r} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                        {r}
+                        <button type="button" data-testid={`remove-recipient-${r}`} onClick={() => removeTag('recipients', r)}>
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      data-testid="input-recipient"
+                      placeholder={sendForm.recipients.length === 0 ? "email@example.com (press Enter or comma)" : ""}
+                      value={sendForm.recipientInput}
+                      onChange={e => setSendForm(f => ({ ...f, recipientInput: e.target.value }))}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ',') {
+                          e.preventDefault();
+                          addTag('recipients', sendForm.recipientInput);
+                        } else if (e.key === 'Backspace' && !sendForm.recipientInput && sendForm.recipients.length > 0) {
+                          removeTag('recipients', sendForm.recipients[sendForm.recipients.length - 1]);
+                        }
+                      }}
+                      onBlur={() => { if (sendForm.recipientInput) addTag('recipients', sendForm.recipientInput); }}
+                      className="flex-1 min-w-[140px] bg-transparent text-sm focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* CC */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">CC (optional)</Label>
+                  <div className="rounded-lg border border-border p-2 min-h-[38px] flex flex-wrap gap-1.5 focus-within:ring-2 focus-within:ring-primary/30">
+                    {sendForm.cc.map(c => (
+                      <span key={c} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                        {c}
+                        <button type="button" data-testid={`remove-cc-${c}`} onClick={() => removeTag('cc', c)}>
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      data-testid="input-cc"
+                      placeholder={sendForm.cc.length === 0 ? "cc@example.com" : ""}
+                      value={sendForm.ccInput}
+                      onChange={e => setSendForm(f => ({ ...f, ccInput: e.target.value }))}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ',') {
+                          e.preventDefault();
+                          addTag('cc', sendForm.ccInput);
+                        } else if (e.key === 'Backspace' && !sendForm.ccInput && sendForm.cc.length > 0) {
+                          removeTag('cc', sendForm.cc[sendForm.cc.length - 1]);
+                        }
+                      }}
+                      onBlur={() => { if (sendForm.ccInput) addTag('cc', sendForm.ccInput); }}
+                      className="flex-1 min-w-[140px] bg-transparent text-sm focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Subject */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Subject</Label>
+                  <input
+                    type="text"
+                    data-testid="input-send-subject"
+                    value={sendForm.subject}
+                    onChange={e => setSendForm(f => ({ ...f, subject: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+
+                {/* Body */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Message body</Label>
+                  <textarea
+                    data-testid="input-send-body"
+                    rows={7}
+                    value={sendForm.body}
+                    onChange={e => setSendForm(f => ({ ...f, body: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">Invoice HTML will be attached automatically as a file.</p>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-3 pt-1">
+                  <Button
+                    data-testid="button-confirm-send"
+                    className="flex-1"
+                    disabled={sendMutation.isPending || sendForm.recipients.length === 0 || !sendForm.subject.trim()}
+                    onClick={() => sendId && sendMutation.mutate({ id: sendId, form: sendForm })}
+                  >
+                    {sendMutation.isPending ? (
+                      <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Sending…</>
+                    ) : (
+                      <><Send className="h-4 w-4 mr-2" />Send Invoice</>
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => { setSendId(null); setSendForm(EMPTY_SEND); }}
+                    disabled={sendMutation.isPending}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+
+                {sendForm.recipients.length === 0 && (
+                  <p className="text-xs text-amber-400 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" /> Add at least one recipient email address.
+                  </p>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* ── Approve confirm ── */}
       <AlertDialog open={approveId != null} onOpenChange={open => !open && setApproveId(null)}>

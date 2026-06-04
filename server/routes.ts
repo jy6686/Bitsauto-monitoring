@@ -11061,6 +11061,14 @@ export async function registerRoutes(
         fasMaxBillSecs: s.fasMaxBillSecs,
         fasEarlyAnswerSecs: s.fasEarlyAnswerSecs,
         fasShortCallSecs: s.fasShortCallSecs,
+        // Invoice SMTP fields
+        invoiceSmtpHost:      s.invoiceSmtpHost      ?? '',
+        invoiceSmtpPort:      s.invoiceSmtpPort      ?? 587,
+        invoiceSmtpSecure:    s.invoiceSmtpSecure    ?? false,
+        invoiceSmtpUser:      s.invoiceSmtpUser      ?? '',
+        invoiceSmtpPass:      s.invoiceSmtpPass      ? '***' : '',
+        invoiceSmtpFromName:  s.invoiceSmtpFromName  ?? 'Bitsauto Finance',
+        invoiceSmtpFromEmail: s.invoiceSmtpFromEmail ?? '',
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -11080,6 +11088,17 @@ export async function registerRoutes(
       if (req.body.fasMaxBillSecs !== undefined) updates.fasMaxBillSecs = Number(req.body.fasMaxBillSecs);
       if (req.body.fasEarlyAnswerSecs !== undefined) updates.fasEarlyAnswerSecs = Number(req.body.fasEarlyAnswerSecs);
       if (req.body.fasShortCallSecs !== undefined) updates.fasShortCallSecs = Number(req.body.fasShortCallSecs);
+      // Invoice SMTP — password encrypted at rest with AES-256-GCM
+      if (req.body.invoiceSmtpHost      !== undefined) updates.invoiceSmtpHost      = req.body.invoiceSmtpHost;
+      if (req.body.invoiceSmtpPort      !== undefined) updates.invoiceSmtpPort      = Number(req.body.invoiceSmtpPort);
+      if (req.body.invoiceSmtpSecure    !== undefined) updates.invoiceSmtpSecure    = !!req.body.invoiceSmtpSecure;
+      if (req.body.invoiceSmtpUser      !== undefined) updates.invoiceSmtpUser      = req.body.invoiceSmtpUser;
+      if (req.body.invoiceSmtpPass !== undefined && req.body.invoiceSmtpPass !== '***') {
+        const { encryptSecret } = await import('./utils/crypto');
+        updates.invoiceSmtpPass = encryptSecret(req.body.invoiceSmtpPass);
+      }
+      if (req.body.invoiceSmtpFromName  !== undefined) updates.invoiceSmtpFromName  = req.body.invoiceSmtpFromName;
+      if (req.body.invoiceSmtpFromEmail !== undefined) updates.invoiceSmtpFromEmail = req.body.invoiceSmtpFromEmail;
       await storage.updateSettings(updates);
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -28076,6 +28095,110 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       res.json(invoice);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/invoices/:id/send — send invoice to customer via email
+  app.post('/api/invoices/:id/send', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+
+      const { recipients, cc, subject, body } = req.body ?? {};
+      if (!Array.isArray(recipients) || recipients.length === 0) {
+        return res.status(400).json({ error: 'recipients must be a non-empty array' });
+      }
+      if (typeof subject !== 'string' || !subject.trim()) {
+        return res.status(400).json({ error: 'subject is required' });
+      }
+
+      const sentBy = req.user?.claims?.name ?? req.user?.claims?.sub ?? 'operator';
+
+      const { sendInvoiceEmail } = await import('./services/email/invoice-email.service');
+      const result = await sendInvoiceEmail({
+        invoiceId:  id,
+        recipients: recipients.filter((r: any) => typeof r === 'string' && r.trim()),
+        cc:         Array.isArray(cc) ? cc.filter((c: any) => typeof c === 'string' && c.trim()) : [],
+        subject:    subject.trim(),
+        body:       typeof body === 'string' ? body : '',
+        sentBy,
+      });
+
+      if (!result.ok) return res.status(500).json({ error: result.error });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/invoices/:id/deliveries — delivery history for an invoice
+  app.get('/api/invoices/:id/deliveries', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const deliveries = await storage.listInvoiceEmailDeliveries(id);
+      res.json(deliveries);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/invoices/:id/customer-email — look up the best known email for the invoice's customer
+  app.get('/api/invoices/:id/customer-email', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ emails: [] });
+      const invoice = await storage.getInvoice(id);
+      if (!invoice) return res.json({ emails: [] });
+
+      const candidates: string[] = [];
+
+      // 1. Try companies table by sippyIAccount (most reliable)
+      if (invoice.iTariff) {
+        // iTariff is the tariff ID but the invoice may also carry an iAccount via customerName lookup
+      }
+
+      // Try companies by sippyIAccount matching the invoiceNumber prefix pattern or by name
+      const allCompanies = await storage.getCompanies();
+      const nameMatches = allCompanies.filter(c =>
+        c.name && invoice.customerName &&
+        (c.name.toLowerCase() === invoice.customerName.toLowerCase() ||
+         invoice.customerName.toLowerCase().includes(c.name.toLowerCase()) ||
+         c.name.toLowerCase().includes(invoice.customerName.toLowerCase()))
+      );
+      for (const c of nameMatches) {
+        if (c.invoiceEmail) candidates.push(c.invoiceEmail);
+      }
+
+      // 2. Try clientProfiles alertEmail by company name match
+      if (candidates.length === 0 && invoice.customerName) {
+        const clientProfiles = await storage.getClientProfiles?.();
+        if (Array.isArray(clientProfiles)) {
+          for (const p of clientProfiles) {
+            const pName = (p.companyName ?? p.name ?? '').toLowerCase();
+            if (pName && invoice.customerName.toLowerCase().includes(pName)) {
+              if (p.alertEmail) candidates.push(p.alertEmail);
+            }
+          }
+        }
+      }
+
+      // Deduplicate
+      const unique = [...new Set(candidates.filter(Boolean))];
+      res.json({ emails: unique });
+    } catch (err: any) {
+      res.json({ emails: [] });
+    }
+  });
+
+  // POST /api/invoices/test-smtp — validate invoice SMTP config
+  app.post('/api/invoices/test-smtp', async (req: any, res: any) => {
+    try {
+      const { testInvoiceSmtp } = await import('./services/email/invoice-email.service');
+      const result = await testInvoiceSmtp();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
     }
   });
 

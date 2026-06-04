@@ -123,9 +123,10 @@ import {
   type CommunicationPolicy, type InsertCommunicationPolicy,
   reportJobs,
   type ReportJob, type InsertReportJob,
-  invoices, invoiceLineItems,
+  invoices, invoiceLineItems, invoiceEmailDeliveries,
   type Invoice, type InsertInvoice,
   type InvoiceLineItem, type InsertInvoiceLineItem,
+  type InvoiceEmailDelivery, type InsertInvoiceEmailDelivery,
   carrierReconciliations,
   type CarrierReconciliation, type InsertCarrierReconciliation,
   payments, type Payment, type InsertPayment,
@@ -571,6 +572,9 @@ export interface IStorage {
   countInvoices(): Promise<number>;
   bulkCreateInvoiceLineItems(items: InsertInvoiceLineItem[]): Promise<void>;
   listInvoiceLineItems(invoiceId: number): Promise<InvoiceLineItem[]>;
+  // Invoice email deliveries
+  createInvoiceEmailDelivery(data: InsertInvoiceEmailDelivery): Promise<InvoiceEmailDelivery>;
+  listInvoiceEmailDeliveries(invoiceId: number): Promise<InvoiceEmailDelivery[]>;
 
   // ── Layer 5C — Carrier Reconciliation ─────────────────────────────────────
   createCarrierReconciliation(data: InsertCarrierReconciliation): Promise<CarrierReconciliation>;
@@ -3031,6 +3035,18 @@ export class DatabaseStorage implements IStorage {
       .where(eq(invoiceLineItems.invoiceId, invoiceId))
       .orderBy(asc(invoiceLineItems.id))
       .limit(50000);
+  }
+
+  async createInvoiceEmailDelivery(data: InsertInvoiceEmailDelivery): Promise<InvoiceEmailDelivery> {
+    const [row] = await db.insert(invoiceEmailDeliveries).values(data).returning();
+    return row;
+  }
+
+  async listInvoiceEmailDeliveries(invoiceId: number): Promise<InvoiceEmailDelivery[]> {
+    return db.select().from(invoiceEmailDeliveries)
+      .where(eq(invoiceEmailDeliveries.invoiceId, invoiceId))
+      .orderBy(desc(invoiceEmailDeliveries.createdAt))
+      .limit(50);
   }
 
   // ── Layer 5C — Carrier Reconciliation ────────────────────────────────────────
