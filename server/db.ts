@@ -602,6 +602,20 @@ export async function runSafeMigrations(): Promise<void> {
         error_message   TEXT
       )
     `);
+    // ── Invoice SMTP + SIP error threshold columns (added 2026-06-04) ─────────
+    // These were defined in shared/schema.ts but the ALTER TABLE was never applied,
+    // causing getSettings() to fail and blocking Sippy auto-connect on every startup.
+    await client.query(`
+      ALTER TABLE settings
+        ADD COLUMN IF NOT EXISTS invoice_smtp_host        VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS invoice_smtp_port        INTEGER DEFAULT 587,
+        ADD COLUMN IF NOT EXISTS invoice_smtp_secure      BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS invoice_smtp_user        VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS invoice_smtp_pass        VARCHAR(512),
+        ADD COLUMN IF NOT EXISTS invoice_smtp_from_name   VARCHAR(255) DEFAULT 'Bitsauto Finance',
+        ADD COLUMN IF NOT EXISTS invoice_smtp_from_email  VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS sip_error_alert_threshold REAL DEFAULT 15
+    `);
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
