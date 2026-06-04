@@ -5812,11 +5812,21 @@ export async function registerRoutes(
       const CDR_PAGE_SIZE      = 1000;  // XML-RPC page size
       const PORTAL_PAGE_CAP    = 50;    // Sippy portal hard display cap per page
       const CDR_CACHE_MAX_PAGES = 200;  // safeguard: 200 × 50 = 10,000 CDRs per refresh
+      // IMPORTANT: Sippy getAccountCDRs/getCustomerCDRs returns 0 records when no
+      // date window is specified.  Always pass startDate+endDate — same "2 hours ago"
+      // to "now" rolling window the FAS background job uses successfully.  The portal
+      // scrape (Attempt 1/2) supplements with older CDRs beyond this window.
+      const xmlRpcCdrStart = sippy.toSippyDate(new Date(Date.now() - 2 * 60 * 60 * 1000)); // last 2h
+      const xmlRpcCdrEnd   = sippy.toSippyDate(new Date());
       if (!xmlRpcCircuitGuard()) {
         for (const { username, password } of credPairs) {
           let xmlPage = 0;
           while (xmlPage < CDR_CACHE_MAX_PAGES) {
-            const page = await sippy.getSippyCDRs(username, password, CDR_PAGE_SIZE, { offset: xmlPage * CDR_PAGE_SIZE }, pUrl);
+            const page = await sippy.getSippyCDRs(username, password, CDR_PAGE_SIZE, {
+              startDate: xmlRpcCdrStart,
+              endDate:   xmlRpcCdrEnd,
+              offset:    xmlPage * CDR_PAGE_SIZE,
+            }, pUrl);
             if (page.length > 0) {
               xmlRpcRecordSuccess();
               batch.push(...page);
@@ -5863,35 +5873,38 @@ export async function registerRoutes(
           }
         }
 
-        // ── Attempt 2: admin scrape (/cdrs_customer.php) — paginated ─────────
-        if (batch.length === 0) {
+        // ── Attempt 2: admin/alt creds scrape — ALWAYS runs ─────────────────────
+        // Tries additional credential sets to supplement Attempt 1 with CDRs that
+        // ssp-root's customer session may not see (different reseller scope).
+        // Uses scrapePortalCDRsAll (single login session, built-in dedup/stop logic)
+        // instead of looping scrapeAdminPortalCDRs which creates a new Sippy portal
+        // login for every page — on portals where the n= offset is ignored, this caused
+        // an infinite 200-login runaway returning the same 50 CDRs each time.
+        {
+          const adminBefore = batch.length;
           const scrapeAttempts: Array<{ user: string; pass: string; base: string }> = [];
           if (apiUser && webPass)   scrapeAttempts.push({ user: apiUser,  pass: webPass,  base: portalUrl });
           if (apiUser && apiPass)   scrapeAttempts.push({ user: apiUser,  pass: apiPass,  base: portalUrl });
           if (portUser && portPass) scrapeAttempts.push({ user: portUser, pass: portPass, base: portalUrl });
           for (const { user, pass, base } of scrapeAttempts) {
             try {
-              let adminPage = 0;
-              while (adminPage < CDR_CACHE_MAX_PAGES) {
-                const scraped = await sippy.scrapeAdminPortalCDRs(user, pass, base, {
-                  limit:  PORTAL_PAGE_CAP,
-                  offset: adminPage * PORTAL_PAGE_CAP,
-                });
-                if (scraped.length > 0) batch.push(...scraped);
-                if (scraped.length === 0) break;
-                adminPage++;
-              }
-              if (batch.length > 0) {
-                console.log(`[cdr-cache] portal scrape OK via ${user}@${base} (admin) — ${batch.length} CDRs`);
+              const adminBatchBefore = batch.length;
+              const scraped = await sippy.scrapePortalCDRsAll(user, pass, base, {
+                maxPages: CDR_CACHE_MAX_PAGES,
+              });
+              if (scraped.length > 0) batch.push(...scraped);
+              if (batch.length > adminBatchBefore) {
+                console.log(`[cdr-cache] admin/alt scrape OK via ${user}@${base} — +${batch.length - adminBatchBefore} CDRs (total=${batch.length})`);
                 break;
               }
             } catch (scrapeErr: any) {
-              console.warn(`[cdr-cache] portal scrape failed (${user}@${base}): ${scrapeErr.message}`);
+              console.warn(`[cdr-cache] admin/alt scrape failed (${user}@${base}): ${scrapeErr.message}`);
             }
           }
+          if (batch.length === adminBefore && adminBefore === 0) {
+            console.warn('[cdr-cache] all portal scrape attempts returned 0 CDRs');
+          }
         }
-
-        if (batch.length === 0) console.warn('[cdr-cache] all portal scrape attempts returned 0 CDRs');
       }
 
       const cutoff = Date.now() - CDR_CACHE_MAX_HOURS * 3600 * 1000;
@@ -30273,6 +30286,58 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         // Build all CDR values once for matching
         const allCdrs = [...cdrCache.values()] as any[];
+
+        // Live CDR supplement: portal scrape scoped to the time window of these cuts.
+        // Catches CDRs that entered Sippy after the last cache refresh (every 5 min).
+        // Uses scrapePortalCDRsAll (single login, proper dedup stop) — not the cache.
+        // Non-critical: errors are swallowed; failure just means status stays 'no_cdr'.
+        try {
+          const billingSettings = await storage.getSettings();
+          if (billingSettings && cuts.length > 0) {
+            const bPortalUrl = sippyPortalUrl(billingSettings);
+            const bPortUser  = billingSettings.portalUsername    ?? '';
+            const bPortPass  = billingSettings.portalPassword    ?? '';
+            const bApiUser   = billingSettings.apiAdminUsername  ?? '';
+            const bWebPass   = (billingSettings as any).adminWebPassword ?? '';
+            const bApiPass   = billingSettings.apiAdminPassword  ?? '';
+
+            const cutTs = cuts.flatMap(c => [
+              c.startTime ? new Date(c.startTime).getTime() : null,
+              c.byeSentAt ? new Date(c.byeSentAt).getTime() : null,
+            ]).filter((t): t is number => t !== null);
+
+            if (cutTs.length > 0) {
+              const winStart = new Date(Math.min(...cutTs) - 5 * 60_000);
+              const winEnd   = new Date(Math.max(...cutTs) + 15 * 60_000);
+
+              const credSets = [
+                bPortUser && bPortPass ? { u: bPortUser, p: bPortPass } : null,
+                bApiUser  && bWebPass  ? { u: bApiUser,  p: bWebPass  } : null,
+                bApiUser  && bApiPass  ? { u: bApiUser,  p: bApiPass  } : null,
+              ].filter((x): x is { u: string; p: string } => x !== null);
+
+              for (const { u, p } of credSets) {
+                try {
+                  const live = await sippy.scrapePortalCDRsAll(u, p, bPortalUrl, {
+                    startDate: winStart.toISOString(),
+                    endDate:   winEnd.toISOString(),
+                    maxPages:  8,
+                  });
+                  if (live.length > 0) {
+                    const seen = new Set(allCdrs.map((c: any) => `${c.startTime}:${c.caller}:${c.callee}`));
+                    let liveAdded = 0;
+                    for (const c of live) {
+                      const key = `${c.startTime}:${c.caller}:${c.callee}`;
+                      if (!seen.has(key)) { seen.add(key); allCdrs.push(c); liveAdded++; }
+                    }
+                    console.log(`[billing] live supplement via ${u}: fetched=${live.length} new=${liveAdded} pool=${allCdrs.length} window=${winStart.toISOString().slice(11,19)}–${winEnd.toISOString().slice(11,19)}`);
+                    break;
+                  }
+                } catch { /* non-critical */ }
+              }
+            }
+          }
+        } catch { /* non-critical */ }
 
         const rows = cuts.map(gc => {
           // How long did we actually govern (startTime → byeSentAt)
