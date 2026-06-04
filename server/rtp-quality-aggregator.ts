@@ -22,7 +22,7 @@
  */
 
 import { db, pool } from './db';
-import { rtpQualityStats } from '../shared/schema';
+import { rtpQualityStats, rtpQualityHistory } from '../shared/schema';
 
 // ── CDR provider ──────────────────────────────────────────────────────────────
 // routes.ts registers this after CDR cache warmup (same pattern as carrier-scoring-engine).
@@ -228,6 +228,37 @@ async function aggregateWindow(cdrs: RtpCdrRecord[], windowMinutes: number): Pro
   console.log(`[rtp-quality] window=${windowMinutes}m vendors=${vendorCount} prefixes=${prefixCount} cdrs=${windowCdrs.length}`);
 }
 
+/** Append current vendor-level stats to the history table, then purge rows older than 25h. */
+async function snapshotHistory(): Promise<void> {
+  try {
+    // Fetch fresh vendor-level rows from rtp_quality_stats (all windows)
+    const allRows = await db.select().from(rtpQualityStats);
+    const vendorRows = allRows.filter(r => r.destinationPrefix == null && r.windowMinutes === 60);
+    if (vendorRows.length === 0) return;
+
+    const client = await pool.connect();
+    try {
+      for (const row of vendorRows) {
+        await client.query(
+          `INSERT INTO rtp_quality_history
+             (vendor_id, avg_mos, p10_mos, avg_jitter_ms, avg_pkt_loss_pct, avg_latency_ms, sample_count, snapped_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+          [row.vendorId, row.avgMos, row.p10Mos, row.avgJitterMs, row.avgPktLossPct, row.avgLatencyMs, row.sampleCount],
+        );
+      }
+      // Purge rows older than 25h
+      await client.query(
+        `DELETE FROM rtp_quality_history WHERE snapped_at < NOW() - INTERVAL '25 hours'`,
+      );
+    } finally {
+      client.release();
+    }
+    console.log(`[rtp-quality] Snapshotted ${vendorRows.length} vendor(s) to history`);
+  } catch (err: any) {
+    console.warn('[rtp-quality] History snapshot error (non-fatal):', err.message);
+  }
+}
+
 async function _run(): Promise<void> {
   if (!_rtpCdrProvider) return; // provider not yet registered (CDR cache not warm)
 
@@ -241,6 +272,9 @@ async function _run(): Promise<void> {
       aggregateWindow(cdrs, 240),
       aggregateWindow(cdrs, 1440),
     ]);
+
+    // Snapshot vendor-level stats for trend chart
+    await snapshotHistory();
   } catch (err: any) {
     console.warn('[rtp-quality] Aggregation error (non-fatal):', err.message);
   }
@@ -401,6 +435,90 @@ export async function getRtpQualityForVendor(vendorId: string): Promise<VendorQu
       })),
     prefixes,
   };
+}
+
+// ── History query (24h trend) ─────────────────────────────────────────────────
+
+export interface HistoryPoint {
+  /** ISO timestamp of the hourly bucket (top of the hour) */
+  bucket: string;
+  /** Unix ms */
+  ts: number;
+  vendors: {
+    vendorId: string;
+    avgMos: number | null;
+    avgJitterMs: number | null;
+    avgPktLossPct: number | null;
+    sampleCount: number;
+  }[];
+}
+
+/**
+ * Returns 24h of hourly-bucketed MOS trend data per vendor.
+ * Rows in rtp_quality_history are grouped into 1-hour buckets.
+ */
+export async function getVoiceQualityHistory(): Promise<HistoryPoint[]> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(`
+      SELECT
+        date_trunc('hour', snapped_at)            AS bucket,
+        vendor_id,
+        AVG(avg_mos)                              AS avg_mos,
+        AVG(avg_jitter_ms)                        AS avg_jitter_ms,
+        AVG(avg_pkt_loss_pct)                     AS avg_pkt_loss_pct,
+        SUM(sample_count)                         AS sample_count
+      FROM rtp_quality_history
+      WHERE snapped_at >= NOW() - INTERVAL '24 hours'
+      GROUP BY bucket, vendor_id
+      ORDER BY bucket ASC, vendor_id ASC
+    `);
+
+    // Build hourly buckets
+    const bucketMap = new Map<string, HistoryPoint>();
+    for (const row of result.rows) {
+      const bucketKey = (row.bucket as Date).toISOString();
+      if (!bucketMap.has(bucketKey)) {
+        bucketMap.set(bucketKey, {
+          bucket: bucketKey,
+          ts: (row.bucket as Date).getTime(),
+          vendors: [],
+        });
+      }
+      bucketMap.get(bucketKey)!.vendors.push({
+        vendorId:      row.vendor_id,
+        avgMos:        row.avg_mos != null ? parseFloat(row.avg_mos) : null,
+        avgJitterMs:   row.avg_jitter_ms != null ? parseFloat(row.avg_jitter_ms) : null,
+        avgPktLossPct: row.avg_pkt_loss_pct != null ? parseFloat(row.avg_pkt_loss_pct) : null,
+        sampleCount:   parseInt(row.sample_count, 10) || 0,
+      });
+    }
+
+    return [...bucketMap.values()].sort((a, b) => a.ts - b.ts);
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Returns CDRs from the in-memory cache that drove the MOS for a given
+ * vendor within a ±35-minute window around the clicked time bucket.
+ */
+export function getCdrsForSlot(
+  vendorId: string,
+  bucketTs: number,
+): RtpCdrRecord[] {
+  if (!_rtpCdrProvider) return [];
+  const halfWindow = 35 * 60_000;
+  const from = bucketTs - halfWindow;
+  const to   = bucketTs + halfWindow;
+  const cdrs = _rtpCdrProvider(from);
+  return cdrs.filter(c => {
+    const ts = parseCdrTs(c);
+    if (ts < from || ts > to) return false;
+    const vendor = (c.vendorName ?? c.vendor ?? '').trim();
+    return vendor === vendorId;
+  }).slice(0, 200); // cap at 200 for payload safety
 }
 
 // ── Voice quality digest for Copilot prompt ───────────────────────────────────

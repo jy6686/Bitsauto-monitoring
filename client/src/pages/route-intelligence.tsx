@@ -9,8 +9,12 @@ import {
   UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown, Search,
   Download, CalendarDays, Bell, TimerOff, Radio, Waves, LayoutGrid,
   Database, BarChart3, ChevronUp as ChevUp, SlidersHorizontal,
-  Settings, Save,
+  Settings, Save, LineChart as LineChartIcon,
 } from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
+  ResponsiveContainer, ReferenceLine, Legend,
+} from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -3533,6 +3537,32 @@ function CdrAnalyticsPanel() {
 
 type QualityBadge = 'good' | 'degraded' | 'critical' | 'no_data';
 
+interface HistoryVendorPoint {
+  vendorId: string;
+  avgMos: number | null;
+  avgJitterMs: number | null;
+  avgPktLossPct: number | null;
+  sampleCount: number;
+}
+
+interface HistoryPoint {
+  bucket: string;
+  ts: number;
+  vendors: HistoryVendorPoint[];
+}
+
+interface SlotCdr {
+  cli: string;
+  cld: string;
+  connectTime: string | number | null;
+  duration: number | null;
+  mos: number | null;
+  jitter: number | null;
+  pktLoss: number | null;
+  latency: number | null;
+  vendor: string;
+}
+
 interface VendorWindow {
   windowMinutes: number;
   avgMos: number | null;
@@ -3682,11 +3712,251 @@ function JitterBars({ windows }: { windows: VendorWindow[] }) {
   );
 }
 
+// ── Colour palette for vendors in the trend chart ─────────────────────────────
+const VENDOR_CHART_COLORS = [
+  "#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa",
+  "#fb923c", "#2dd4bf", "#e879f9", "#facc15", "#4ade80",
+];
+
+function vendorColor(vendorId: string, allVendors: string[]): string {
+  const idx = allVendors.indexOf(vendorId);
+  return VENDOR_CHART_COLORS[idx % VENDOR_CHART_COLORS.length] ?? "#94a3b8";
+}
+
+interface SlotSelection {
+  ts: number;
+  label: string;
+  vendorId: string;
+}
+
+/** Recharts AreaChart showing per-vendor avg MOS over the last 24h (hourly buckets). */
+function MosTrendChart({
+  historyPoints,
+  onSlotClick,
+}: {
+  historyPoints: HistoryPoint[];
+  onSlotClick: (sel: SlotSelection) => void;
+}) {
+  if (historyPoints.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 text-muted-foreground/60 gap-2">
+        <LineChartIcon className="h-8 w-8 opacity-20" />
+        <p className="text-xs">No history yet — data accumulates as the aggregator runs</p>
+        <p className="text-[10px] opacity-70">Runs every 5 minutes; first trend points appear after the initial run</p>
+      </div>
+    );
+  }
+
+  // Collect all unique vendor IDs
+  const allVendors = Array.from(
+    new Set(historyPoints.flatMap(p => p.vendors.map(v => v.vendorId))),
+  ).sort();
+
+  // Flatten to recharts row format: { label, ts, [vendorId]: mos, ... }
+  type ChartRow = { label: string; ts: number; [k: string]: number | null | string };
+  const chartData: ChartRow[] = historyPoints.map(pt => {
+    const d = new Date(pt.ts);
+    const label = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const row: ChartRow = { label, ts: pt.ts };
+    for (const v of pt.vendors) {
+      row[v.vendorId] = v.avgMos;
+    }
+    return row;
+  });
+
+  const handleClick = (data: any) => {
+    if (!data?.activePayload?.length) return;
+    const ts: number = data.activePayload[0]?.payload?.ts;
+    const label: string = data.activePayload[0]?.payload?.label;
+    const vendorId: string = data.activePayload[0]?.dataKey ?? allVendors[0];
+    if (ts) onSlotClick({ ts, label, vendorId });
+  };
+
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={200}>
+        <AreaChart
+          data={chartData}
+          margin={{ top: 8, right: 8, left: -16, bottom: 0 }}
+          onClick={handleClick}
+          style={{ cursor: "pointer" }}
+        >
+          <defs>
+            {allVendors.map(vid => {
+              const color = vendorColor(vid, allVendors);
+              return (
+                <linearGradient key={vid} id={`grad-${vid.replace(/\W/g, "_")}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={color} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={color} stopOpacity={0} />
+                </linearGradient>
+              );
+            })}
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 10, fill: "#6b7280" }}
+            interval="preserveStartEnd"
+            tickLine={false}
+          />
+          <YAxis
+            domain={[1, 5]}
+            tick={{ fontSize: 10, fill: "#6b7280" }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(v: number) => v.toFixed(1)}
+          />
+          <ReferenceLine y={3.5} stroke="#34d399" strokeDasharray="4 2" strokeWidth={1} label={{ value: "3.5", fontSize: 9, fill: "#34d399" }} />
+          <ReferenceLine y={3.0} stroke="#fbbf24" strokeDasharray="4 2" strokeWidth={1} label={{ value: "3.0", fontSize: 9, fill: "#fbbf24" }} />
+          <RechartsTooltip
+            contentStyle={{
+              background: "hsl(var(--card))",
+              border: "1px solid hsl(var(--border))",
+              borderRadius: 6,
+              fontSize: 11,
+              padding: "6px 10px",
+            }}
+            labelStyle={{ color: "hsl(var(--muted-foreground))", marginBottom: 4 }}
+            formatter={(value: any, name: string) => [
+              value != null ? `MOS ${Number(value).toFixed(2)}` : "—",
+              name,
+            ]}
+          />
+          <Legend
+            iconType="circle"
+            iconSize={7}
+            wrapperStyle={{ fontSize: 11, paddingTop: 4 }}
+          />
+          {allVendors.map(vid => (
+            <Area
+              key={vid}
+              type="monotone"
+              dataKey={vid}
+              stroke={vendorColor(vid, allVendors)}
+              strokeWidth={1.5}
+              fill={`url(#grad-${vid.replace(/\W/g, "_")})`}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 0 }}
+              connectNulls
+              isAnimationActive={false}
+            />
+          ))}
+        </AreaChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground/50 text-right mt-1">
+        Click a time point to see the CDRs that drove that MOS value
+      </p>
+    </div>
+  );
+}
+
+/** Slide-in panel showing CDRs for a selected time slot. */
+function SlotCdrPanel({
+  selection,
+  onClose,
+}: {
+  selection: SlotSelection;
+  onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery<{ success: boolean; data: SlotCdr[]; total: number }>({
+    queryKey: ["/api/copilot/rtp-quality/slot-cdrs", selection.vendorId, selection.ts],
+    queryFn: () =>
+      fetch(`/api/copilot/rtp-quality/slot-cdrs?vendor=${encodeURIComponent(selection.vendorId)}&ts=${selection.ts}`)
+        .then(r => r.json()),
+    staleTime: 30_000,
+  });
+
+  const cdrs = data?.data ?? [];
+
+  function mosBadge(mos: number | null) {
+    if (mos == null) return null;
+    if (mos >= 3.5) return "text-emerald-400";
+    if (mos >= 3.0) return "text-amber-400";
+    return "text-red-400";
+  }
+
+  return (
+    <div
+      className="rounded-lg border bg-card/60 backdrop-blur-sm"
+      data-testid="slot-cdr-panel"
+    >
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
+        <div className="flex items-center gap-2 text-sm">
+          <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="font-medium">{selection.vendorId}</span>
+          <span className="text-muted-foreground">@ {selection.label}</span>
+          {data?.total != null && (
+            <span className="text-xs text-muted-foreground/60">({data.total} CDR{data.total !== 1 ? "s" : ""})</span>
+          )}
+        </div>
+        <Button
+          variant="ghost" size="icon"
+          className="h-6 w-6"
+          data-testid="slot-cdr-close"
+          onClick={onClose}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : cdrs.length === 0 ? (
+        <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+          No CDR data found in the in-memory cache for this time window.
+          <br />CDR data may have aged out of the cache.
+        </div>
+      ) : (
+        <div className="overflow-auto max-h-64">
+          <table className="w-full text-xs">
+            <thead className="bg-muted/30 sticky top-0">
+              <tr className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">
+                <th className="px-3 py-2 text-left">CLI</th>
+                <th className="px-3 py-2 text-left">CLD</th>
+                <th className="px-3 py-2 text-left">Time</th>
+                <th className="px-3 py-2 text-right">Dur</th>
+                <th className="px-3 py-2 text-right">MOS</th>
+                <th className="px-3 py-2 text-right">Jitter</th>
+                <th className="px-3 py-2 text-right">PktLoss</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/30">
+              {cdrs.map((cdr, i) => {
+                const t = cdr.connectTime ? new Date(cdr.connectTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+                return (
+                  <tr key={i} data-testid={`slot-cdr-row-${i}`} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground/80">{cdr.cli || "—"}</td>
+                    <td className="px-3 py-1.5 font-mono">{cdr.cld || "—"}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{t}</td>
+                    <td className="px-3 py-1.5 text-right font-mono">{cdr.duration != null ? `${cdr.duration}s` : "—"}</td>
+                    <td className={cn("px-3 py-1.5 text-right font-mono font-medium", mosBadge(cdr.mos) ?? "text-muted-foreground")}>
+                      {cdr.mos != null ? cdr.mos.toFixed(2) : "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">{cdr.jitter != null ? `${cdr.jitter.toFixed(0)}ms` : "—"}</td>
+                    <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">{cdr.pktLoss != null ? `${cdr.pktLoss.toFixed(2)}%` : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VoiceQualityCard() {
   const [open, setOpen] = useState(true);
   const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
+  const [chartOpen, setChartOpen] = useState(true);
+  const [selectedSlot, setSelectedSlot] = useState<SlotSelection | null>(null);
   const { data, isLoading, isFetching, refetch } = useQuery<{ success: boolean; data: VendorQualitySummary[] }>({
     queryKey: ["/api/copilot/rtp-quality"],
+    refetchInterval: 5 * 60_000,
+  });
+  const { data: historyData, isLoading: historyLoading } = useQuery<{ success: boolean; data: HistoryPoint[] }>({
+    queryKey: ["/api/copilot/rtp-quality/history"],
     refetchInterval: 5 * 60_000,
   });
   const { toast } = useToast();
@@ -3776,6 +4046,45 @@ function VoiceQualityCard() {
         <span><span className="text-amber-400 font-bold">3.0–3.5</span> Degraded</span>
         <span><span className="text-red-400 font-bold">&lt;3.0</span> Critical</span>
         <span className="ml-auto text-muted-foreground/60">Aggregated every 5 min from Sippy CDR VQ fields</span>
+      </div>
+
+      {/* ── 24h MOS trend chart ── */}
+      <div className="rounded-lg border bg-card" data-testid="mos-trend-section">
+        <button
+          className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-muted/20 transition-colors rounded-lg text-left"
+          data-testid="mos-trend-toggle"
+          onClick={() => { setChartOpen(o => !o); setSelectedSlot(null); }}
+        >
+          <div className="flex items-center gap-2">
+            <LineChartIcon className="h-3.5 w-3.5 text-sky-400" />
+            <span className="text-xs font-semibold">24h MOS Trend</span>
+            <span className="text-[10px] text-muted-foreground/60">per vendor · hourly buckets</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {historyLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+            {(historyData?.data?.length ?? 0) > 0 && (
+              <span className="text-[10px] text-muted-foreground/60">
+                {historyData!.data.length}h of data
+              </span>
+            )}
+            <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", chartOpen && "rotate-180")} />
+          </div>
+        </button>
+
+        {chartOpen && (
+          <div className="px-4 pb-4 border-t border-border/50 pt-3 space-y-3">
+            <MosTrendChart
+              historyPoints={historyData?.data ?? []}
+              onSlotClick={setSelectedSlot}
+            />
+            {selectedSlot && (
+              <SlotCdrPanel
+                selection={selectedSlot}
+                onClose={() => setSelectedSlot(null)}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Empty state ── */}

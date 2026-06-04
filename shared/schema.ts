@@ -3559,3 +3559,19 @@ export const reconciliationEmailLog = pgTable("reconciliation_email_log", {
 });
 export type ReconciliationEmailLog    = typeof reconciliationEmailLog.$inferSelect;
 export type InsertReconciliationEmailLog = typeof reconciliationEmailLog.$inferInsert;
+
+// ── RTP / MOS Quality History ─────────────────────────────────────────────────
+// Append-only time-series snapshots written on every aggregation run (every 5 min).
+// Vendor-level only (destination_prefix = NULL equivalent). Purged after 25h.
+export const rtpQualityHistory = pgTable("rtp_quality_history", {
+  id:            serial("id").primaryKey(),
+  vendorId:      varchar("vendor_id", { length: 128 }).notNull(),
+  avgMos:        real("avg_mos"),
+  p10Mos:        real("p10_mos"),
+  avgJitterMs:   real("avg_jitter_ms"),
+  avgPktLossPct: real("avg_pkt_loss_pct"),
+  avgLatencyMs:  real("avg_latency_ms"),
+  sampleCount:   integer("sample_count").notNull().default(0),
+  snappedAt:     timestamp("snapped_at").defaultNow().notNull(),
+});
+export type RtpQualityHistory = typeof rtpQualityHistory.$inferSelect;

@@ -1327,8 +1327,80 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     },
   );
 
+  // ── POST /api/copilot/rtp-quality/trigger ────────────────────────────────────
+  // Admin-triggered manual run of the RTP quality aggregation job.
+  // NOTE: Specific literal-path routes must be registered BEFORE /:vendorId.
+  app.post(
+    "/api/copilot/rtp-quality/trigger",
+    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const { runRtpQualityAggregation } = await import("./rtp-quality-aggregator");
+        await runRtpQualityAggregation();
+        return res.json({ success: true, message: "RTP quality aggregation completed" });
+      } catch (err: any) {
+        console.error("[rtp-quality/trigger] error:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
+  // ── GET /api/copilot/rtp-quality/history ─────────────────────────────────────
+  // Returns 24h of hourly-bucketed MOS trend data per vendor for the trend chart.
+  // Must be registered BEFORE /:vendorId to avoid Express matching 'history' as a vendorId.
+  app.get(
+    "/api/copilot/rtp-quality/history",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const { getVoiceQualityHistory } = await import("./rtp-quality-aggregator");
+        const data = await getVoiceQualityHistory();
+        return res.json({ success: true, data });
+      } catch (err: any) {
+        console.error("[rtp-quality/history] error:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
+  // ── GET /api/copilot/rtp-quality/slot-cdrs ───────────────────────────────────
+  // Returns CDRs from the in-memory cache that drove MOS for a vendor in a time slot.
+  // Query params: vendor (string), ts (Unix ms of the bucket)
+  // Must be registered BEFORE /:vendorId.
+  app.get(
+    "/api/copilot/rtp-quality/slot-cdrs",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const vendor = String(req.query.vendor ?? "").trim();
+        const ts     = parseInt(String(req.query.ts ?? "0"), 10);
+        if (!vendor || !ts) {
+          return res.status(400).json({ success: false, error: "vendor and ts are required" });
+        }
+        const { getCdrsForSlot } = await import("./rtp-quality-aggregator");
+        const cdrs = getCdrsForSlot(vendor, ts);
+        const rows = cdrs.map(c => ({
+          cli:         c.cli ?? c.callingNumber ?? "",
+          cld:         c.cld ?? c.calledNumber ?? "",
+          connectTime: c.connect_time ?? c.connectTime ?? null,
+          duration:    c.duration ?? c.billSecs ?? null,
+          mos:         c.i_vq_term_mos ?? c.i_vq_orig_mos ?? null,
+          jitter:      c.jitter ?? null,
+          pktLoss:     c.pkt_loss ?? null,
+          latency:     c.delay ?? null,
+          vendor:      c.vendorName ?? c.vendor ?? vendor,
+        }));
+        return res.json({ success: true, data: rows, total: rows.length });
+      } catch (err: any) {
+        console.error("[rtp-quality/slot-cdrs] error:", err.message);
+        return res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
   // ── GET /api/copilot/rtp-quality/:vendorId ───────────────────────────────────
   // Drill-down: voice quality windows for a single vendor.
+  // Must be registered AFTER all specific literal-path GET routes.
   app.get(
     "/api/copilot/rtp-quality/:vendorId",
     (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
@@ -1341,23 +1413,6 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         return res.json({ success: true, data });
       } catch (err: any) {
         console.error("[rtp-quality/:vendorId] error:", err.message);
-        return res.status(500).json({ success: false, error: err.message });
-      }
-    },
-  );
-
-  // ── POST /api/copilot/rtp-quality/trigger ────────────────────────────────────
-  // Admin-triggered manual run of the RTP quality aggregation job.
-  app.post(
-    "/api/copilot/rtp-quality/trigger",
-    (req: any, res: any, next: any) => requireRole(["admin", "management"], req, res, next),
-    async (_req: any, res: any) => {
-      try {
-        const { runRtpQualityAggregation } = await import("./rtp-quality-aggregator");
-        await runRtpQualityAggregation();
-        return res.json({ success: true, message: "RTP quality aggregation completed" });
-      } catch (err: any) {
-        console.error("[rtp-quality/trigger] error:", err.message);
         return res.status(500).json({ success: false, error: err.message });
       }
     },
