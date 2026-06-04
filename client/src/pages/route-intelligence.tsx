@@ -2491,8 +2491,9 @@ function SipPrefixHeatmapGrid({
   spikeVendorNames: Set<string>;
 }) {
   const [selectedCell, setSelectedCell] = useState<{ prefix: string; vendor: string } | null>(null);
+  const [affectedOnly, setAffectedOnly] = useState(false);
 
-  const prefixes = [...new Set(prefixRows.map(r => r.destPrefix))].sort();
+  const allPrefixes = [...new Set(prefixRows.map(r => r.destPrefix))].sort();
   const vendors = [...new Set(prefixRows.map(r => r.vendorName))].sort((a, b) => {
     const as_ = spikeVendorNames.has(a) ? 0 : 1;
     const bs_ = spikeVendorNames.has(b) ? 0 : 1;
@@ -2503,7 +2504,28 @@ function SipPrefixHeatmapGrid({
   const rowMap = new Map<string, SipPrefixRow>();
   for (const r of prefixRows) rowMap.set(`${r.destPrefix}|${r.vendorName}`, r);
 
-  if (prefixes.length === 0) {
+  const affectedPrefixes = new Set(
+    allPrefixes.filter(prefix =>
+      vendors.some(v => {
+        const row = rowMap.get(`${prefix}|${v}`);
+        return row !== undefined && row.dominantRate >= 2;
+      })
+    )
+  );
+
+  const hasAffected = affectedPrefixes.size > 0;
+
+  // Auto-reset filter when spike data clears so the grid never gets stuck empty
+  useEffect(() => {
+    if (!hasAffected && affectedOnly) setAffectedOnly(false);
+  }, [hasAffected, affectedOnly]);
+
+  // Guard against filtering when no affected rows exist (data may have refreshed)
+  const prefixes = affectedOnly && hasAffected
+    ? allPrefixes.filter(p => affectedPrefixes.has(p))
+    : allPrefixes;
+
+  if (allPrefixes.length === 0) {
     return (
       <div className="rounded-xl border bg-card flex flex-col items-center justify-center py-16 text-muted-foreground">
         <LayoutGrid className="h-8 w-8 mb-3 opacity-20" />
@@ -2517,6 +2539,33 @@ function SipPrefixHeatmapGrid({
 
   return (
     <div className="space-y-3">
+      {/* Heatmap filter controls */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {hasAffected && (
+          <button
+            data-testid="prefix-heatmap-affected-only-toggle"
+            onClick={() => setAffectedOnly(v => !v)}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-lg border transition-colors",
+              affectedOnly
+                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                : "bg-muted/40 text-muted-foreground border-border/40 hover:border-border hover:text-foreground"
+            )}
+          >
+            <AlertTriangle className="h-3 w-3" />
+            Affected only
+          </button>
+        )}
+        <span
+          data-testid="prefix-heatmap-row-count"
+          className="text-[11px] text-muted-foreground/60"
+        >
+          {affectedOnly
+            ? `${prefixes.length} of ${allPrefixes.length} prefixes`
+            : `${allPrefixes.length} prefix${allPrefixes.length !== 1 ? "es" : ""}`}
+        </span>
+      </div>
+
       <div className="rounded-xl border bg-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="text-xs border-separate border-spacing-0.5 p-1.5">
