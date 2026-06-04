@@ -6,6 +6,7 @@ import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { registerAiCopilotRoutes } from './routes-ai-copilot';
+import { registerVendorProbeRoutes, initVendorProbeScheduler } from './routes-vendor-probe';
 import { createServer, type Server } from "http";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import * as net from "net";
@@ -30527,6 +30528,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── Meta WhatsApp Flows routes ─────────────────────────────────────────────
   registerMetaFlowsRoutes(app);
+
+  // ── SIP OPTIONS Vendor Probe routes ───────────────────────────────────────
+  registerVendorProbeRoutes(app);
+  initVendorProbeScheduler();
 
   return httpServer;
 }

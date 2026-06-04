@@ -383,6 +383,30 @@ export async function runSafeMigrations(): Promise<void> {
     await client.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS approval_expiry_slack_webhook_url VARCHAR(512)`);
     await client.query(`ALTER TABLE watcher_recipients ADD COLUMN IF NOT EXISTS notify_approval_expiry BOOLEAN NOT NULL DEFAULT true`);
 
+    // ── SIP OPTIONS Vendor Probe Results (added 2026-06-04) ───────────────────
+    // Stores one row per probe attempt per vendor connection.
+    // Pruned automatically to the last 2 000 rows per vendor by the probe engine.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS vendor_probe_results (
+        id                SERIAL PRIMARY KEY,
+        vendor_id         VARCHAR(32)  NOT NULL,
+        vendor_name       VARCHAR(255),
+        connection_id     VARCHAR(32),
+        connection_name   VARCHAR(255),
+        host              VARCHAR(255),
+        port              INTEGER      DEFAULT 5060,
+        probed_at         TIMESTAMP    NOT NULL DEFAULT NOW(),
+        latency_ms        INTEGER,
+        sip_response_code INTEGER,
+        reachable         BOOLEAN      NOT NULL DEFAULT FALSE,
+        error             VARCHAR(255)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS vpr_vendor_probed_idx
+        ON vendor_probe_results (vendor_id, probed_at DESC)
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

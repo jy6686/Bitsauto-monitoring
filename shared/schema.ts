@@ -3298,3 +3298,25 @@ export const copilotResultCache = pgTable("copilot_result_cache", {
   generatedAt: timestamp("generated_at").notNull().defaultNow(),
 });
 export type CopilotResultCache = typeof copilotResultCache.$inferSelect;
+
+// ── Vendor Probe Results — SIP OPTIONS reachability intelligence ──────────────
+// One row per probe attempt per vendor connection.
+// Pruned to the last 2 000 rows per vendor automatically by the probe engine.
+export const vendorProbeResults = pgTable("vendor_probe_results", {
+  id:              serial("id").primaryKey(),
+  vendorId:        varchar("vendor_id",        { length: 32  }).notNull(),
+  vendorName:      varchar("vendor_name",      { length: 255 }),
+  connectionId:    varchar("connection_id",    { length: 32  }),
+  connectionName:  varchar("connection_name",  { length: 255 }),
+  host:            varchar("host",             { length: 255 }),
+  port:            integer("port").default(5060),
+  probedAt:        timestamp("probed_at").defaultNow().notNull(),
+  latencyMs:       integer("latency_ms"),
+  sipResponseCode: integer("sip_response_code"),
+  reachable:       boolean("reachable").notNull().default(false),
+  error:           varchar("error",            { length: 255 }),
+});
+
+export type VendorProbeResult       = typeof vendorProbeResults.$inferSelect;
+export type InsertVendorProbeResult = typeof vendorProbeResults.$inferInsert;
+export const insertVendorProbeResultSchema = createInsertSchema(vendorProbeResults).omit({ id: true });

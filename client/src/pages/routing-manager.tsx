@@ -8,7 +8,7 @@ import {
   ArrowRight, Activity, Timer, AlertTriangle, Zap,
   List, Grid3X3, ShieldAlert, XCircle, Shield,
   Plus, Pencil, Trash2, ExternalLink, DollarSign, CreditCard, X,
-  Power, Upload, Download, FileSpreadsheet, Building2,
+  Power, Upload, Download, FileSpreadsheet, Building2, Radio, TrendingUp,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { ToastAction } from "@/components/ui/toast";
@@ -1093,6 +1093,202 @@ type VH_Conn = {
   protocol?: string; capacity?: number; max_calls_per_second?: number;
 };
 
+type ProbeVendorStatus = {
+  vendorId:        string;
+  vendorName:      string;
+  reachable:       boolean;
+  latencyMs:       number | null;
+  sipResponseCode: number | null;
+  lastProbed:      string | null;
+  connectionCount: number;
+  reachableCount:  number;
+  uptimePct24h:    number;
+  status:          'reachable' | 'degraded' | 'unreachable';
+};
+
+type ProbeHistoryRow = {
+  probed_at:         string;
+  latency_ms:        number | null;
+  sip_response_code: number | null;
+  reachable:         boolean;
+  error:             string | null;
+  connection_name:   string | null;
+  host:              string | null;
+};
+
+function ReachabilityBadge({ status, latencyMs, lastProbed, compact }: {
+  status?: 'reachable' | 'degraded' | 'unreachable' | null;
+  latencyMs?: number | null;
+  lastProbed?: string | null;
+  compact?: boolean;
+}) {
+  if (!status) {
+    return (
+      <span className="text-[10px] text-muted-foreground/40 italic">
+        {compact ? "—" : "Not probed"}
+      </span>
+    );
+  }
+  if (status === 'reachable') {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
+        {!compact && <span className="text-[10px] text-emerald-400 font-medium">Reachable</span>}
+        {latencyMs != null && <span className="text-[10px] text-muted-foreground font-mono">{latencyMs}ms</span>}
+      </div>
+    );
+  }
+  if (status === 'degraded') {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+        {!compact && <span className="text-[10px] text-amber-400 font-medium">Degraded</span>}
+        {latencyMs != null && <span className="text-[10px] text-muted-foreground font-mono">{latencyMs}ms</span>}
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <span className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
+      {!compact && <span className="text-[10px] text-rose-400 font-medium">Unreachable</span>}
+    </div>
+  );
+}
+
+function ProbeHistoryDialog({ vendorId, vendorName, onClose }: {
+  vendorId: string; vendorName: string; onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery<{ history: ProbeHistoryRow[]; uptimePct24h: number | null }>({
+    queryKey: ["/api/vendors", vendorId, "probe-history"],
+    refetchInterval: 60_000,
+  });
+
+  const history  = data?.history ?? [];
+  const uptime   = data?.uptimePct24h;
+  const last20   = history.slice(-20);
+  const maxLat   = Math.max(...last20.map(r => r.latency_ms ?? 0), 1);
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Radio className="h-4 w-4 text-cyan-400" />
+            Reachability — {vendorName}
+          </DialogTitle>
+          <DialogDescription>Last 24h SIP OPTIONS probe history</DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-6 justify-center text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading probe history…
+          </div>
+        ) : history.length === 0 ? (
+          <div className="py-6 text-center text-xs text-muted-foreground/60 italic">
+            No probe data yet — probes run every 5 minutes automatically.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Summary row */}
+            <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 border border-border/30">
+              <div className="text-center">
+                <div className="text-xl font-bold text-foreground">{uptime ?? "—"}%</div>
+                <div className="text-[10px] text-muted-foreground">24h Uptime</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-foreground">{history.length}</div>
+                <div className="text-[10px] text-muted-foreground">Probes</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-foreground">
+                  {history.filter(r => r.reachable).length}
+                </div>
+                <div className="text-[10px] text-muted-foreground">Successful</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-foreground">
+                  {(() => {
+                    const lats = history.filter(r => r.latency_ms != null).map(r => r.latency_ms!);
+                    return lats.length ? `${Math.round(lats.reduce((a, b) => a + b, 0) / lats.length)}ms` : "—";
+                  })()}
+                </div>
+                <div className="text-[10px] text-muted-foreground">Avg Latency</div>
+              </div>
+            </div>
+
+            {/* Spark timeline — last 20 probes as bars */}
+            {last20.length > 0 && (
+              <div>
+                <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">
+                  Recent Probes (latest → left)
+                </div>
+                <div className="flex items-end gap-0.5 h-12">
+                  {[...last20].reverse().map((r, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${new Date(r.probed_at).toLocaleTimeString()} — ${r.reachable ? `${r.latency_ms}ms` : "Unreachable"}`}>
+                      <div
+                        className={cn(
+                          "w-full rounded-sm transition-all",
+                          r.reachable
+                            ? r.latency_ms != null && r.latency_ms > 500
+                              ? "bg-amber-400/80"
+                              : "bg-emerald-400/80"
+                            : "bg-rose-500/80"
+                        )}
+                        style={{ height: r.reachable && r.latency_ms ? `${Math.max(20, (r.latency_ms / maxLat) * 44)}px` : "8px" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between mt-1 text-[9px] text-muted-foreground/40">
+                  <span>oldest</span><span>newest</span>
+                </div>
+              </div>
+            )}
+
+            {/* Recent probe list */}
+            <div className="max-h-48 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground border-b border-border/30">
+                    <th className="text-left pb-1 font-medium">Time</th>
+                    <th className="text-left pb-1 font-medium">Connection</th>
+                    <th className="text-center pb-1 font-medium">Status</th>
+                    <th className="text-right pb-1 font-medium">Latency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...history].reverse().slice(0, 30).map((r, i) => (
+                    <tr key={i} className="border-t border-border/20">
+                      <td className="py-1 text-muted-foreground text-[10px] font-mono">
+                        {new Date(r.probed_at).toLocaleString()}
+                      </td>
+                      <td className="py-1 text-[10px] text-muted-foreground/70 truncate max-w-[100px]">
+                        {r.connection_name ?? r.host ?? "—"}
+                      </td>
+                      <td className="py-1 text-center">
+                        {r.reachable
+                          ? <span className="text-emerald-400 text-[10px]">✓</span>
+                          : <span className="text-rose-400 text-[10px]">✗</span>}
+                      </td>
+                      <td className="py-1 text-right font-mono text-[10px]">
+                        {r.latency_ms != null ? `${r.latency_ms}ms` : r.error ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function VendorHubTab() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -1130,10 +1326,23 @@ function VendorHubTab() {
   // ── Delete connection ──
   const [dcTarget, setDcTarget] = useState<VH_Conn | null>(null);
 
+  // ── Probe history dialog ──
+  const [probeHistoryTarget, setProbeHistoryTarget] = useState<{ vendorId: string; vendorName: string } | null>(null);
+
   const { data: vData, isLoading: vLoading } = useQuery<{ vendors: VH_Vendor[]; error?: string }>({
     queryKey: ["/api/sippy/vendors"],
     select: (d: any) => ({ vendors: (d.vendors ?? []).map((v: any) => ({ ...v, iVendor: v.iVendor ?? v.i_vendor })) }),
   });
+
+  // ── Probe status (all vendors, refreshes every 30s) ──
+  const { data: probeStatusData } = useQuery<{ vendors: ProbeVendorStatus[] }>({
+    queryKey: ["/api/vendors/probe-status"],
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+  });
+  const probeStatusMap = new Map<string, ProbeVendorStatus>(
+    (probeStatusData?.vendors ?? []).map(v => [v.vendorId, v])
+  );
 
   const vendors = (vData?.vendors ?? []).filter(v =>
     !search || v.name.toLowerCase().includes(search.toLowerCase())
@@ -1230,6 +1439,16 @@ function VendorHubTab() {
     onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
   });
 
+  const probeNowMut = useMutation({
+    mutationFn: (vendorId: number) =>
+      apiRequest("POST", `/api/vendors/${vendorId}/probe-now`).then(r => r.json()),
+    onSuccess: (d: any) => {
+      toast({ title: d.reachable ? "Probe succeeded" : "Probe failed", description: d.reachable ? `Latency: ${d.latencyMs}ms (${d.sipResponseCode})` : (d.error ?? "Unreachable") });
+      qc.invalidateQueries({ queryKey: ["/api/vendors/probe-status"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Probe error", description: e.message }),
+  });
+
   return (
     <div className="flex gap-4 h-full min-h-[500px]">
       {/* ── Left: Vendor List ── */}
@@ -1308,12 +1527,34 @@ function VendorHubTab() {
               <h3 className="text-sm font-semibold flex items-center gap-2">
                 <Wifi className="h-4 w-4 text-cyan-400" />
                 {selected?.name ?? ""} — Connections
+                {selectedId && (() => {
+                  const ps = probeStatusMap.get(String(selectedId));
+                  return ps ? (
+                    <ReachabilityBadge status={ps.status} latencyMs={ps.latencyMs} />
+                  ) : null;
+                })()}
               </h3>
-              <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
-                onClick={() => { setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass2(""); setCCap(""); setCCps(""); setCBlocked(false); setCOpen(true); }}
-                data-testid="btn-add-connection">
-                <Plus className="h-3.5 w-3.5" /> Add Connection
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                  onClick={() => selectedId && setProbeHistoryTarget({ vendorId: String(selectedId), vendorName: selected?.name ?? String(selectedId) })}
+                  data-testid="btn-probe-history">
+                  <TrendingUp className="h-3.5 w-3.5" /> Reachability
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5 text-cyan-400/70 hover:text-cyan-400"
+                  disabled={probeNowMut.isPending || !selectedId}
+                  onClick={() => selectedId && probeNowMut.mutate(selectedId)}
+                  data-testid="btn-probe-now">
+                  {probeNowMut.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Radio className="h-3.5 w-3.5" />}
+                  Probe Now
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+                  onClick={() => { setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass2(""); setCCap(""); setCCps(""); setCBlocked(false); setCOpen(true); }}
+                  data-testid="btn-add-connection">
+                  <Plus className="h-3.5 w-3.5" /> Add Connection
+                </Button>
+              </div>
             </div>
 
             {cLoading ? (
@@ -1331,6 +1572,7 @@ function VendorHubTab() {
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">Host</th>
                       <th className="px-3 py-2 text-left font-medium text-muted-foreground">Proto</th>
                       <th className="px-3 py-2 text-center font-medium text-muted-foreground">Cap</th>
+                      <th className="px-3 py-2 text-center font-medium text-muted-foreground">Reachability</th>
                       <th className="px-3 py-2 text-center font-medium text-muted-foreground">Status</th>
                       <th className="px-3 py-2 text-center font-medium text-muted-foreground">Actions</th>
                     </tr>
@@ -1338,6 +1580,7 @@ function VendorHubTab() {
                   <tbody>
                     {connections.map((c, i) => {
                       const connId = c.iConnection ?? (c as any).i_connection;
+                      const vendorProbe = selectedId ? probeStatusMap.get(String(selectedId)) : undefined;
                       return (
                         <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", c.blocked && "opacity-50")}>
                           <td className="px-3 py-2 font-medium">{c.name}</td>
@@ -1346,6 +1589,19 @@ function VendorHubTab() {
                             <Badge variant="outline" className="h-4 text-[9px] px-1">{c.protocol ?? "SIP"}</Badge>
                           </td>
                           <td className="px-3 py-2 text-center font-mono text-muted-foreground">{c.capacity ?? "—"}</td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              data-testid={`btn-probe-history-${connId}`}
+                              title="View probe history"
+                              onClick={() => selectedId && setProbeHistoryTarget({ vendorId: String(selectedId), vendorName: vendors.find(v => v.iVendor === selectedId)?.name ?? String(selectedId) })}
+                              className="hover:opacity-80 transition-opacity"
+                            >
+                              <ReachabilityBadge
+                                status={vendorProbe?.status ?? null}
+                                latencyMs={vendorProbe?.latencyMs ?? null}
+                              />
+                            </button>
+                          </td>
                           <td className="px-3 py-2 text-center">
                             {c.blocked
                               ? <Badge variant="destructive" className="h-4 text-[9px] px-1">Blocked</Badge>
@@ -1433,6 +1689,15 @@ function VendorHubTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Probe History Dialog ── */}
+      {probeHistoryTarget && (
+        <ProbeHistoryDialog
+          vendorId={probeHistoryTarget.vendorId}
+          vendorName={probeHistoryTarget.vendorName}
+          onClose={() => setProbeHistoryTarget(null)}
+        />
+      )}
 
       {/* ── Delete Vendor Dialog ── */}
       <Dialog open={!!dvTarget} onOpenChange={o => !o && setDvTarget(null)}>
