@@ -29,7 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle2, AlertTriangle, XCircle, Clock, RefreshCw, Search,
   Upload, Users, DollarSign, Info, TrendingDown, ThumbsUp, ShieldAlert,
-  Download, FileText, Loader2, FileSpreadsheet, FileDown, Mail,
+  Download, FileText, Loader2, FileSpreadsheet, FileDown, Mail, History,
   Calendar, Trash2, Plus, ToggleLeft, ToggleRight, Send, Pencil,
   Eye, CalendarDays, Hash, StickyNote, GitBranch,
 } from "lucide-react";
@@ -164,6 +164,20 @@ const importSchema = z.object({
   notes:            z.string().optional(),
 });
 type ImportForm = z.infer<typeof importSchema>;
+
+interface ReconEmailLog {
+  id: number;
+  sentAt: string;
+  senderUserId: string | null;
+  senderName: string | null;
+  recipientEmail: string;
+  reportType: string;
+  format: string;
+  filename: string | null;
+  subject: string | null;
+  status: string;
+  errorMessage: string | null;
+}
 
 interface SippyAcct {
   iAccount: number;
@@ -520,6 +534,11 @@ export default function ClientReconciliationPage() {
       setExporting(null);
     }
   }
+
+  const { data: emailLogs = [] } = useQuery<ReconEmailLog[]>({
+    queryKey: ["/api/reconciliation/email-log"],
+    refetchInterval: 30_000,
+  });
 
   const { data: sippyAccounts = [] } = useQuery<SippyAcct[]>({
     queryKey: ["/api/sippy/accounts"],
@@ -1312,6 +1331,63 @@ export default function ClientReconciliationPage() {
           </Button>
         </div>
       )}
+      {/* ── Email Delivery Audit Log ──────────────────────────────────────── */}
+      <Card className="mt-4">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <History className="h-4 w-4 text-blue-400" />
+            Email Delivery Audit Log
+          </CardTitle>
+          <CardDescription className="text-xs">Last 100 client reconciliation report emails sent from this platform</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {emailLogs.filter(l => l.reportType === 'client').length === 0 ? (
+            <p className="text-xs text-muted-foreground px-4 pb-4">No emails sent yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Sent At</TableHead>
+                  <TableHead className="text-xs">Recipient</TableHead>
+                  <TableHead className="text-xs">Format</TableHead>
+                  <TableHead className="text-xs">Sent By</TableHead>
+                  <TableHead className="text-xs">Status</TableHead>
+                  <TableHead className="text-xs">Filename</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {emailLogs.filter(l => l.reportType === 'client').map(log => (
+                  <TableRow key={log.id} data-testid={`row-email-log-${log.id}`}>
+                    <TableCell className="text-xs font-mono">
+                      {new Date(log.sentAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-xs">{log.recipientEmail}</TableCell>
+                    <TableCell className="text-xs uppercase">{log.format}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {log.senderName ?? log.senderUserId ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {log.status === 'sent' ? (
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />sent
+                        </span>
+                      ) : (
+                        <span className="text-red-400 flex items-center gap-1" title={log.errorMessage ?? ''}>
+                          <AlertTriangle className="h-3 w-3" />failed
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground font-mono">
+                      {log.filename ?? '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
     </div>
   );
 }

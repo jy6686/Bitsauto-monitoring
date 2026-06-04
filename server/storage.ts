@@ -133,6 +133,7 @@ import {
   invoiceSchedules, type InvoiceSchedule, type InsertInvoiceSchedule,
   paymentReminderConfig, type PaymentReminderConfig,
   cdrRerateRuns, type CdrRerateRun, type InsertCdrRerateRun,
+  reconciliationEmailLog, type ReconciliationEmailLog, type InsertReconciliationEmailLog,
   portalDefinitions, navigationModules, portalModuleAssignments, portalSections,
   userFavorites,
   type PortalDefinition, type InsertPortalModuleAssignment,
@@ -709,6 +710,10 @@ export interface IStorage {
   getCdrRerateRun(id: number): Promise<CdrRerateRun | null>;
   updateCdrRerateRun(id: number, updates: Partial<CdrRerateRun>): Promise<CdrRerateRun>;
   deleteCdrRerateRun(id: number): Promise<void>;
+
+  // ── Reconciliation Email Audit Log ─────────────────────────────────────────
+  logReconciliationEmail(data: InsertReconciliationEmailLog): Promise<ReconciliationEmailLog>;
+  listReconciliationEmailLogs(limit?: number): Promise<ReconciliationEmailLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3714,6 +3719,17 @@ export class DatabaseStorage implements IStorage {
   }
   async deleteCdrRerateRun(id: number): Promise<void> {
     await db.delete(cdrRerateRuns).where(eq(cdrRerateRuns.id, id));
+  }
+
+  // ── Reconciliation Email Audit Log ─────────────────────────────────────────
+  async logReconciliationEmail(data: InsertReconciliationEmailLog): Promise<ReconciliationEmailLog> {
+    const [row] = await db.insert(reconciliationEmailLog).values(data).returning();
+    return row;
+  }
+  async listReconciliationEmailLogs(limit = 100): Promise<ReconciliationEmailLog[]> {
+    return db.select().from(reconciliationEmailLog)
+      .orderBy(desc(reconciliationEmailLog.sentAt))
+      .limit(limit);
   }
 }
 

@@ -3542,3 +3542,20 @@ export type InsertReconciliationReportSchedule = typeof reconciliationReportSche
 export const insertReconciliationReportScheduleSchema = createInsertSchema(reconciliationReportSchedules).omit({
   id: true, createdAt: true, lastSentAt: true, nextDueAt: true,
 });
+
+// ── Reconciliation Email Audit Log ────────────────────────────────────────────
+export const reconciliationEmailLog = pgTable("reconciliation_email_log", {
+  id:            serial("id").primaryKey(),
+  sentAt:        timestamp("sent_at").defaultNow().notNull(),
+  senderUserId:  varchar("sender_user_id",  { length: 128 }),
+  senderName:    varchar("sender_name",     { length: 255 }),
+  recipientEmail: varchar("recipient_email", { length: 320 }).notNull(),
+  reportType:    varchar("report_type",     { length: 16  }).notNull(), // 'carrier' | 'client'
+  format:        varchar("format",          { length: 8   }).notNull(), // 'pdf' | 'csv'
+  filename:      varchar("filename",        { length: 255 }),
+  subject:       varchar("subject",         { length: 500 }),
+  status:        varchar("status",          { length: 16  }).notNull().default('sent'), // 'sent' | 'failed'
+  errorMessage:  text("error_message"),
+});
+export type ReconciliationEmailLog    = typeof reconciliationEmailLog.$inferSelect;
+export type InsertReconciliationEmailLog = typeof reconciliationEmailLog.$inferInsert;

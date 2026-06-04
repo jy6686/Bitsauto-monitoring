@@ -579,6 +579,21 @@ export async function runSafeMigrations(): Promise<void> {
     await client.query(`
       ALTER TABLE rtp_quality_stats ADD COLUMN IF NOT EXISTS avg_latency_ms REAL
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS reconciliation_email_log (
+        id              SERIAL PRIMARY KEY,
+        sent_at         TIMESTAMP    NOT NULL DEFAULT NOW(),
+        sender_user_id  VARCHAR(128),
+        sender_name     VARCHAR(255),
+        recipient_email VARCHAR(320) NOT NULL,
+        report_type     VARCHAR(16)  NOT NULL,
+        format          VARCHAR(8)   NOT NULL,
+        filename        VARCHAR(255),
+        subject         VARCHAR(500),
+        status          VARCHAR(16)  NOT NULL DEFAULT 'sent',
+        error_message   TEXT
+      )
+    `);
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

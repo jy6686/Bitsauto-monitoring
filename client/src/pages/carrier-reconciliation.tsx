@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   ArrowRightLeft, Play, AlertTriangle, CheckCircle2, TrendingDown,
-  Eye, DollarSign, ShieldAlert, Info, Download, FileText, Loader2, FileSpreadsheet, Mail,
+  Eye, DollarSign, ShieldAlert, Info, Download, FileText, Loader2, FileSpreadsheet, Mail, History,
   Calendar, Clock, Trash2, Plus, ToggleLeft, ToggleRight, Send, Pencil,
 } from "lucide-react";
 
@@ -62,6 +62,20 @@ interface ReconciliationResult {
 }
 
 interface SippyTariff { iTariff: string | number; name: string; }
+
+interface ReconEmailLog {
+  id: number;
+  sentAt: string;
+  senderUserId: string | null;
+  senderName: string | null;
+  recipientEmail: string;
+  reportType: string;
+  format: string;
+  filename: string | null;
+  subject: string | null;
+  status: string;
+  errorMessage: string | null;
+}
 
 function SeverityBadge({ severity }: { severity: string }) {
   const cfg: Record<string, string> = {
@@ -245,6 +259,11 @@ export default function CarrierReconciliationPage() {
   });
 
   const { data: tariffs = [] } = useQuery<SippyTariff[]>({ queryKey: ["/api/sippy/tariffs"] });
+
+  const { data: emailLogs = [] } = useQuery<ReconEmailLog[]>({
+    queryKey: ["/api/reconciliation/email-log"],
+    refetchInterval: 30_000,
+  });
 
   const { data: reconciliations = [], isLoading } = useQuery<CarrierReconciliation[]>({
     queryKey: ["/api/carrier-reconciliations", filterStatus],
@@ -1200,6 +1219,63 @@ export default function CarrierReconciliationPage() {
           </Button>
         </div>
       )}
+
+      {/* ── Email Delivery Audit Log ──────────────────────────────────────── */}
+      <Card className="mt-4">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <History className="h-4 w-4 text-blue-400" />
+            Email Delivery Audit Log
+          </CardTitle>
+          <CardDescription className="text-xs">Last 100 reconciliation report emails sent from this platform</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {emailLogs.filter(l => l.reportType === 'carrier').length === 0 ? (
+            <p className="text-xs text-muted-foreground px-4 pb-4">No emails sent yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-xs">Sent At</TableHead>
+                  <TableHead className="text-xs">Recipient</TableHead>
+                  <TableHead className="text-xs">Format</TableHead>
+                  <TableHead className="text-xs">Sent By</TableHead>
+                  <TableHead className="text-xs">Status</TableHead>
+                  <TableHead className="text-xs">Filename</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {emailLogs.filter(l => l.reportType === 'carrier').map(log => (
+                  <TableRow key={log.id} data-testid={`row-email-log-${log.id}`}>
+                    <TableCell className="text-xs font-mono">
+                      {new Date(log.sentAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-xs">{log.recipientEmail}</TableCell>
+                    <TableCell className="text-xs uppercase">{log.format}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {log.senderName ?? log.senderUserId ?? '—'}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {log.status === 'sent' ? (
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />sent
+                        </span>
+                      ) : (
+                        <span className="text-red-400 flex items-center gap-1" title={log.errorMessage ?? ''}>
+                          <AlertTriangle className="h-3 w-3" />failed
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground font-mono">
+                      {log.filename ?? '—'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

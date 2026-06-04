@@ -29625,6 +29625,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         to, subject, html: bodyHtml,
         attachment: { filename: attachFilename, content: attachContent, contentType: attachType },
       });
+      const _senderUserId_c = (req.user?.claims?.sub as string | undefined) ?? null;
+      const _senderName_c   = (req.user?.claims?.name as string | undefined) ?? (req.user?.claims?.email as string | undefined) ?? null;
+      await storage.logReconciliationEmail({
+        recipientEmail: to,
+        reportType:     'carrier',
+        format:         format as 'pdf' | 'csv',
+        filename:       attachFilename,
+        subject,
+        senderUserId:   _senderUserId_c,
+        senderName:     _senderName_c,
+        status:         result.ok ? 'sent' : 'failed',
+        errorMessage:   result.ok ? null : (result.error ?? 'Unknown error'),
+      });
+
 
       if (!result.ok) return res.status(502).json({ error: result.error ?? 'Email delivery failed' });
       res.json({ ok: true, filename: attachFilename });
@@ -29749,6 +29763,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         to, subject, html: bodyHtml,
         attachment: { filename: attachFilename, content: attachContent, contentType: attachType },
       });
+      const _senderUserId_cl = (req.user?.claims?.sub as string | undefined) ?? null;
+      const _senderName_cl   = (req.user?.claims?.name as string | undefined) ?? (req.user?.claims?.email as string | undefined) ?? null;
+      await storage.logReconciliationEmail({
+        recipientEmail: to,
+        reportType:     'client',
+        format:         format as 'pdf' | 'csv',
+        filename:       attachFilename,
+        subject,
+        senderUserId:   _senderUserId_cl,
+        senderName:     _senderName_cl,
+        status:         result.ok ? 'sent' : 'failed',
+        errorMessage:   result.ok ? null : (result.error ?? 'Unknown error'),
+      });
+
 
       if (!result.ok) return res.status(502).json({ error: result.error ?? 'Email delivery failed' });
       res.json({ ok: true, filename: attachFilename });
@@ -29807,6 +29835,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       await sendReconciliationScheduledReport(schedule);
       res.json({ ok: true });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // GET /api/reconciliation/email-log — reconciliation email delivery audit log
+  app.get('/api/reconciliation/email-log', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const limit = req.query.limit ? Math.min(Number(req.query.limit), 500) : 100;
+      const logs = await storage.listReconciliationEmailLogs(limit);
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
 
