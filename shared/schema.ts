@@ -3419,3 +3419,32 @@ export const routeQualitySnapshots = pgTable("route_quality_snapshots", {
 });
 export type RouteQualitySnapshot = typeof routeQualitySnapshots.$inferSelect;
 export type InsertRouteQualitySnapshot = typeof routeQualitySnapshots.$inferInsert;
+
+// ── Account Cap Monitoring ────────────────────────────────────────────────────
+// Caches per-account session & CPS limits synced from Sippy (hourly).
+export const accountCaps = pgTable("account_caps", {
+  accountId:          varchar("account_id",    { length: 32  }).primaryKey(),
+  accountName:        varchar("account_name",  { length: 128 }),
+  sessionLimit:       integer("session_limit"),        // max concurrent sessions (max_sessions)
+  cpsLimit:           integer("cps_limit"),            // max calls per second (max_calls_per_second)
+  warningThreshold:   integer("warning_threshold").default(90),   // % at which to warn (default 90)
+  criticalThreshold:  integer("critical_threshold").default(100), // % at which to alert critical (default 100)
+  syncedAt:           timestamp("synced_at").defaultNow(),
+});
+export type AccountCap = typeof accountCaps.$inferSelect;
+export type InsertAccountCap = typeof accountCaps.$inferInsert;
+
+// Cap warning events — one row per warning trigger / resolution.
+export const capAlertEvents = pgTable("cap_alert_events", {
+  id:             serial("id").primaryKey(),
+  accountId:      varchar("account_id",    { length: 32  }).notNull(),
+  accountName:    varchar("account_name",  { length: 128 }),
+  capType:        varchar("cap_type",      { length: 16  }).notNull(), // 'sessions' | 'cps'
+  utilisationPct: real("utilisation_pct").notNull(),
+  currentValue:   integer("current_value").notNull(),
+  limitValue:     integer("limit_value").notNull(),
+  severity:       varchar("severity",      { length: 16  }).notNull().default('warning'), // 'warning' | 'critical'
+  triggeredAt:    timestamp("triggered_at").defaultNow().notNull(),
+  resolvedAt:     timestamp("resolved_at"),
+});
+export type CapAlertEvent = typeof capAlertEvents.$inferSelect;

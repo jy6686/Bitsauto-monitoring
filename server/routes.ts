@@ -72,6 +72,7 @@ import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as 
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql } from "drizzle-orm";
 const sqlExpr = sql;
+const drizzleSql = sql;
 import { broadcastNocTick } from "./noc-ws";
 import { lookupDialCode, searchDialCodes } from "./dial-lookup";
 import { readFileSync } from "fs";
@@ -3443,6 +3444,21 @@ export async function registerRoutes(
   // consecutiveZeros: require 2 consecutive empty polls before accepting "0 calls" as real.
   let liveCallsCache: { calls: any[]; ts: number } = { calls: [], ts: 0 };
   let consecutiveZeros = 0;
+
+  // ── Cap Warnings in-memory state ────────────────────────────────────────────
+  // Keyed by "${accountId}:${capType}" — contains the current active warning state.
+  interface ActiveCapWarning {
+    accountId: string;
+    accountName: string;
+    capType: 'sessions' | 'cps';
+    currentValue: number;
+    limitValue: number;
+    utilisationPct: number;
+    severity: 'warning' | 'critical';
+    triggeredAt: string;
+  }
+  const activeCapWarnings = new Map<string, ActiveCapWarning>();
+  let capSyncLastRunAt: number | null = null;
   const LIVE_CALLS_STALE_MS    = 45_000; // stale flag threshold — matches background interval
   const LIVE_CALLS_CACHE_MAX   = 65_000; // serve from background cache if fresher than 65 s (slightly over 60s job interval)
   const ZERO_CONFIRM_COUNT     = 2;      // require this many consecutive zero polls to accept 0
@@ -14359,6 +14375,238 @@ export async function registerRoutes(
   setTimeout(() => seedBalanceAlertDefaults().then(() => runBalanceAlertEngine()), 35_000); // seed first, then first run ~35s after boot
   setInterval(() => runBalanceAlertEngine(), 5 * 60_000); // then every 5 min
 
+  // ── Account cap sync (hourly) ────────────────────────────────────────────────
+  // Fetches configured session limit + CPS cap per account from Sippy getAccountInfo,
+  // caches in account_caps table. Batch-limited to avoid overwhelming Sippy.
+  let _capSyncRunning = false;
+  async function runCapSync(): Promise<void> {
+    if (_capSyncRunning) return;
+    _capSyncRunning = true;
+    try {
+      const settings = await storage.getSippySettings();
+      if (!settings?.portalUrl || !liveAccountIds.length) return;
+      const portalUrl = sippyPortalUrl(settings);
+      const creds = sippyXmlCredsPairs(settings);
+      if (!creds.length) return;
+      const { username, password } = creds[0];
+      // Process accounts in batches of 10 with 200ms pause between batches
+      const BATCH = 10;
+      let synced = 0;
+      for (let i = 0; i < liveAccountIds.length; i += BATCH) {
+        const batch = liveAccountIds.slice(i, i + BATCH);
+        await Promise.allSettled(batch.map(async (iAccount) => {
+          try {
+            const info = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
+            if (!info) return;
+            const sessionLimit = info.max_sessions != null && Number(info.max_sessions) > 0
+              ? Number(info.max_sessions) : null;
+            const cpsLimit = info.max_calls_per_second != null && Number(info.max_calls_per_second) > 0
+              ? Number(info.max_calls_per_second) : null;
+            const accountName = accountNameCache.get(String(iAccount)) ?? `Account #${iAccount}`;
+            // Always upsert — even if both limits are null (cap removed in Sippy).
+            // This clears stale cached limits and ensures removed caps auto-resolve alerts.
+            await db.execute(
+              drizzleSql`
+                INSERT INTO account_caps (account_id, account_name, session_limit, cps_limit, synced_at)
+                VALUES (${String(iAccount)}, ${accountName}, ${sessionLimit}, ${cpsLimit}, NOW())
+                ON CONFLICT (account_id) DO UPDATE SET
+                  account_name = EXCLUDED.account_name,
+                  session_limit = EXCLUDED.session_limit,
+                  cps_limit = EXCLUDED.cps_limit,
+                  synced_at = NOW()
+              `
+            );
+            // If both limits are now null (cap removed), auto-resolve any active warnings
+            if (!sessionLimit && !cpsLimit) {
+              for (const key of [`${String(iAccount)}:sessions`, `${String(iAccount)}:cps`]) {
+                if (activeCapWarnings.has(key)) {
+                  activeCapWarnings.delete(key);
+                  const capType = key.endsWith(':cps') ? 'cps' : 'sessions';
+                  try { await db.execute(drizzleSql`UPDATE cap_alert_events SET resolved_at = NOW() WHERE account_id = ${String(iAccount)} AND cap_type = ${capType} AND resolved_at IS NULL`); } catch {}
+                }
+              }
+            }
+            synced++;
+          } catch { /* skip per-account errors */ }
+        }));
+        if (i + BATCH < liveAccountIds.length) await new Promise(r => setTimeout(r, 200));
+      }
+      capSyncLastRunAt = Date.now();
+      console.log(`[cap-sync] synced ${synced}/${liveAccountIds.length} accounts`);
+    } catch (e: any) {
+      console.warn('[cap-sync] failed:', e.message);
+    } finally { _capSyncRunning = false; }
+  }
+
+  // ── CPS approximation rolling arrivals buffer ────────────────────────────
+  // We maintain TWO structures for CPS:
+  // 1. _callFirstSeenAt  — callId → epoch ms (tracks live calls; evicted when call ends)
+  // 2. _cpsArrivalWindow — accountId → [epoch ms, ...] (all arrivals in last 60s window,
+  //    INCLUDING calls that have already ended, avoiding snapshot-only undercounting)
+  const _callFirstSeenAt  = new Map<string, number>(); // callId → first-seen epoch ms
+  const _cpsArrivalWindow = new Map<string, number[]>(); // accountId → arrival timestamps
+
+  // ── Cap utilisation poller (every 60 s) ────────────────────────────────────
+  // Counts active calls per account from liveCallsCache, compares to cached caps,
+  // and emits warning/critical events when thresholds are crossed.
+  async function runCapUtilisationPoller(): Promise<void> {
+    try {
+      const calls = liveCallsCache.calls;
+      if (!calls.length && activeCapWarnings.size === 0) return;
+      const pollEpoch = Date.now();
+      const WINDOW_MS = 60_000; // 60 s window for CPS approximation
+
+      // ── Step 1: Update per-call first-seen map and rolling arrivals buffer ──
+      const currentCallIds = new Set<string>();
+      for (const c of calls) {
+        const cid = String(c.callId ?? c.i_call ?? c.session_id ?? '');
+        const aid = String(c.accountId ?? c.i_account ?? '');
+        if (!cid || !aid) continue;
+        currentCallIds.add(cid);
+        if (!_callFirstSeenAt.has(cid)) {
+          // New call — record in both maps
+          _callFirstSeenAt.set(cid, pollEpoch);
+          const bucket = _cpsArrivalWindow.get(aid) ?? [];
+          bucket.push(pollEpoch);
+          _cpsArrivalWindow.set(aid, bucket);
+        }
+      }
+      // Evict ended calls from _callFirstSeenAt (keep arrivals buffer intact)
+      for (const [cid] of _callFirstSeenAt) {
+        if (!currentCallIds.has(cid)) _callFirstSeenAt.delete(cid);
+      }
+      // Prune stale timestamps from arrivals buffer (> WINDOW_MS old)
+      for (const [aid, timestamps] of _cpsArrivalWindow) {
+        const fresh = timestamps.filter(t => pollEpoch - t <= WINDOW_MS);
+        if (fresh.length === 0) _cpsArrivalWindow.delete(aid);
+        else _cpsArrivalWindow.set(aid, fresh);
+      }
+
+      // ── Step 2: Count active sessions per accountId ──
+      const sessionsPerAccount = new Map<string, number>();
+      for (const c of calls) {
+        const aid = String(c.accountId ?? c.i_account ?? '');
+        if (!aid) continue;
+        sessionsPerAccount.set(aid, (sessionsPerAccount.get(aid) ?? 0) + 1);
+      }
+
+      // Load all cached caps
+      const capsRows = await db.execute(drizzleSql`SELECT * FROM account_caps`);
+      const caps = (capsRows as any).rows ?? capsRows;
+      const capMap = new Map<string, { sessionLimit: number | null; cpsLimit: number | null; warningThreshold: number; criticalThreshold: number; accountName: string }>();
+      for (const row of caps) {
+        capMap.set(String(row.account_id), {
+          sessionLimit: row.session_limit ? Number(row.session_limit) : null,
+          cpsLimit: row.cps_limit ? Number(row.cps_limit) : null,
+          warningThreshold: Number(row.warning_threshold ?? 90),
+          criticalThreshold: Number(row.critical_threshold ?? 100),
+          accountName: row.account_name ?? `Account #${row.account_id}`,
+        });
+      }
+      if (!capMap.size) return;
+      const now = new Date().toISOString();
+      const seenKeys = new Set<string>();
+
+      // Helper: check a single cap dimension (sessions or cps)
+      async function checkCapDimension(
+        accountId: string, capName: string,
+        currentValue: number, limitValue: number,
+        warningThreshold: number, criticalThreshold: number,
+        accountName: string,
+      ): Promise<void> {
+        const utilPct = (currentValue / limitValue) * 100;
+        const key = `${accountId}:${capName}`;
+        seenKeys.add(key);
+        const severity: 'warning' | 'critical' | null =
+          utilPct >= criticalThreshold ? 'critical' : utilPct >= warningThreshold ? 'warning' : null;
+        const existing = activeCapWarnings.get(key);
+
+        if (severity) {
+          const warning: ActiveCapWarning = {
+            accountId, accountName, capType: capName,
+            currentValue, limitValue,
+            utilisationPct: Math.round(utilPct), severity,
+            triggeredAt: existing?.triggeredAt ?? now,
+          };
+          activeCapWarnings.set(key, warning);
+
+          const isNewAlert = !existing;
+          const isEscalation = existing && existing.severity === 'warning' && severity === 'critical';
+
+          if (isNewAlert || isEscalation) {
+            // Persist event
+            try {
+              await db.execute(drizzleSql`
+                INSERT INTO cap_alert_events (account_id, account_name, cap_type, utilisation_pct, current_value, limit_value, severity, triggered_at)
+                VALUES (${accountId}, ${accountName}, ${capName}, ${Math.round(utilPct)}, ${currentValue}, ${limitValue}, ${severity}, NOW())
+              `);
+            } catch {}
+            // Create NOC incident at critical threshold (new or escalated)
+            if (severity === 'critical') {
+              try {
+                await db.insert(nocIncidents).values({
+                  title: `${capName === 'cps' ? 'CPS' : 'Session'} cap reached: ${accountName}`,
+                  type: 'cap_limit', severity: 'critical',
+                  entityType: 'account', entityId: accountId, entityName: accountName,
+                  description: `Account ${accountName} has reached 100% of its ${capName === 'cps' ? 'CPS' : 'session'} cap (${currentValue}/${limitValue} ${capName}).`,
+                  suggestedAction: `Review ${capName === 'cps' ? 'CPS' : 'session'} limits in Sippy for account ${accountName}`,
+                  source: 'auto',
+                });
+              } catch {}
+            }
+          }
+        } else if (existing && utilPct < (warningThreshold - 5)) {
+          // Auto-resolve: utilisation dropped 5% below warning threshold
+          activeCapWarnings.delete(key);
+          try {
+            await db.execute(drizzleSql`UPDATE cap_alert_events SET resolved_at = NOW() WHERE account_id = ${accountId} AND cap_type = ${capName} AND resolved_at IS NULL`);
+          } catch {}
+        }
+      }
+
+      for (const [accountId, cap] of capMap) {
+        const activeSessions = sessionsPerAccount.get(accountId) ?? 0;
+
+        // Check session limit
+        if (cap.sessionLimit && cap.sessionLimit > 0) {
+          await checkCapDimension(accountId, 'sessions', activeSessions, cap.sessionLimit, cap.warningThreshold, cap.criticalThreshold, cap.accountName);
+        }
+
+        // Check CPS limit using the rolling arrivals buffer (includes ended calls)
+        // arrivals.length / WINDOW_MS_in_seconds = approximate CPS over the window
+        if (cap.cpsLimit && cap.cpsLimit > 0) {
+          const arrivals = _cpsArrivalWindow.get(accountId) ?? [];
+          if (arrivals.length > 0) {
+            // Use actual elapsed window (min of WINDOW_MS, time since first arrival)
+            const windowSecs = Math.max(1, Math.min(WINDOW_MS, pollEpoch - Math.min(...arrivals)) / 1000);
+            const approxCps = arrivals.length / windowSecs;
+            // Only alert if the rate is ≥ 1% of cap to avoid false positives on tiny windows
+            if (approxCps >= cap.cpsLimit * 0.01) {
+              await checkCapDimension(accountId, 'cps', Math.ceil(approxCps), cap.cpsLimit, cap.warningThreshold, cap.criticalThreshold, cap.accountName);
+            }
+          }
+        }
+      }
+
+      // Auto-resolve any warnings for accounts no longer in capMap or with no activity
+      for (const [key, warning] of activeCapWarnings) {
+        if (!seenKeys.has(key)) {
+          activeCapWarnings.delete(key);
+          try {
+            await db.execute(drizzleSql`UPDATE cap_alert_events SET resolved_at = NOW() WHERE account_id = ${warning.accountId} AND cap_type = ${warning.capType} AND resolved_at IS NULL`);
+          } catch {}
+        }
+      }
+    } catch (e: any) {
+      console.warn('[cap-poller] error:', e.message);
+    }
+  }
+
+  // Schedule cap jobs
+  setTimeout(() => runCapSync(), 15_000);                    // first sync 15s after boot
+  setInterval(() => runCapSync(), 60 * 60 * 1000);           // then hourly
+  setInterval(() => runCapUtilisationPoller(), 60_000);       // utilisation check every 60s
+
   // ── Call snapshot background poller (every 60 s) ──────────────────────────
   // Polls live Sippy calls and upserts each into call_snapshots for 24h history.
   // Interval increased 30s→60s to reduce Sippy load (still ample for live NOC).
@@ -21359,6 +21607,30 @@ export async function registerRoutes(
       const tsF = Date.now();
       checks.push({ id: 'frontend_errors', name: 'Frontend Console Errors', status: 'warn', detail: `${frontendErrors.length} error(s) captured in browser console`, durationMs: Date.now() - tsF });
       issues.push({ type: 'UI_ERROR', severity: 'warning', component: 'Frontend', message: `${frontendErrors.length} JavaScript error(s) detected in the browser console.`, suggestion: `Errors: ${frontendErrors.slice(0, 3).join(' | ')}${frontendErrors.length > 3 ? ` … and ${frontendErrors.length - 3} more` : ''}. Open browser DevTools (F12 → Console) to see full details.`, autoFix: null });
+    }
+
+    // ── Cap alert check (injected into diagnostics) ───────────────────────────
+    {
+      const capWarnings = [...activeCapWarnings.values()];
+      const capCritical = capWarnings.filter(w => w.severity === 'critical');
+      const capWarning  = capWarnings.filter(w => w.severity === 'warning');
+      const describeWarnings = (ws: typeof capWarnings) =>
+        ws.map(w => `${w.accountName} (${w.capType.toUpperCase()} ${w.utilisationPct}%)`).join(', ');
+      if (capCritical.length > 0) {
+        const hasCpsC = capCritical.some(w => w.capType === 'cps');
+        const hasSsnC = capCritical.some(w => w.capType === 'sessions');
+        const capTypes = [hasSsnC && 'session', hasCpsC && 'CPS'].filter(Boolean).join('/');
+        checks.push({ id: 'cap_alerts_critical', name: 'Cap Limit Alerts', status: 'fail', detail: `${capCritical.length} account(s) at 100% ${capTypes} cap`, durationMs: 0 });
+        issues.push({ type: 'CAP_CRITICAL', severity: 'critical', component: 'NOC', message: `${capCritical.length} account(s) have hit their ${capTypes} cap limit. Traffic may be blocked for: ${describeWarnings(capCritical)}.`, suggestion: `Review ${capTypes} limits in Sippy for the affected accounts. Open each account in the Sippy portal and raise the cap, or investigate the traffic spike.`, autoFix: null });
+      } else if (capWarning.length > 0) {
+        const hasCpsW = capWarning.some(w => w.capType === 'cps');
+        const hasSsnW = capWarning.some(w => w.capType === 'sessions');
+        const capTypes = [hasSsnW && 'session', hasCpsW && 'CPS'].filter(Boolean).join('/');
+        checks.push({ id: 'cap_alerts_warning', name: 'Cap Limit Alerts', status: 'warn', detail: `${capWarning.length} account(s) approaching ${capTypes} cap (≥90%)`, durationMs: 0 });
+        issues.push({ type: 'CAP_WARNING', severity: 'warning', component: 'NOC', message: `${capWarning.length} account(s) are at ≥90% of their ${capTypes} cap: ${describeWarnings(capWarning)}.`, suggestion: `Monitor closely. If ${capTypes} utilisation continues climbing, raise caps in Sippy before traffic is blocked.`, autoFix: null });
+      } else if (capSyncLastRunAt) {
+        checks.push({ id: 'cap_alerts_ok', name: 'Cap Limit Alerts', status: 'ok', detail: 'No accounts approaching session or CPS caps', durationMs: 0 });
+      }
     }
 
     // ── Phase 3: Look up past successful fixes for each issue ─────────────────
@@ -30495,6 +30767,101 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }).returning();
       await db.update(nocIncidents).set({ updatedAt: new Date() }).where(eq(nocIncidents.id, id));
       res.status(201).json(event);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Cap Alert Routes ──────────────────────────────────────────────────────
+
+  // GET /api/noc/cap-alerts — list active cap warnings sorted by utilisation %
+  app.get('/api/noc/cap-alerts', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (_req: any, res: any) => {
+    try {
+      const warnings = [...activeCapWarnings.values()].sort((a, b) => b.utilisationPct - a.utilisationPct);
+      // Include the Sippy portal base URL so the frontend can construct direct account links
+      const sippySettings = await storage.getSippySettings().catch(() => null);
+      const sippyBaseUrl = sippySettings?.portalUrl ? sippyPortalUrl(sippySettings) : null;
+      res.json({
+        warnings,
+        lastSyncedAt: capSyncLastRunAt ? new Date(capSyncLastRunAt).toISOString() : null,
+        total: warnings.length,
+        critical: warnings.filter(w => w.severity === 'critical').length,
+        sippyBaseUrl,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/accounts/:id/cap-history — last 7 days of cap events for an account
+  app.get('/api/accounts/:id/cap-history', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (req: any, res: any) => {
+    try {
+      const accountId = req.params.id;
+      const rows = await db.execute(drizzleSql`
+        SELECT * FROM cap_alert_events
+        WHERE account_id = ${accountId}
+          AND triggered_at > NOW() - INTERVAL '7 days'
+        ORDER BY triggered_at DESC
+        LIMIT 100
+      `);
+      res.json((rows as any).rows ?? rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/noc/cap-alerts/refresh-caps — trigger immediate cap sync from Sippy
+  app.post('/api/noc/cap-alerts/refresh-caps', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (_req: any, res: any) => {
+    try {
+      runCapSync().catch(e => console.warn('[cap-sync] manual trigger failed:', e.message));
+      res.json({ ok: true, message: 'Cap sync triggered' });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/accounts/:id/cap-thresholds — configure per-account warning/critical thresholds
+  // Allows operators to tune the % at which warnings and critical alerts fire for a specific account.
+  // Values: warningThreshold (default 90), criticalThreshold (default 100), both in [1, 100].
+  app.patch('/api/accounts/:id/cap-thresholds', (req: any, res: any, next: any) => requireRole(['admin','super_admin','noc_operator','noc','team_lead'], req, res, next), async (req: any, res: any) => {
+    try {
+      const accountId = req.params.id;
+      const { warningThreshold, criticalThreshold } = req.body as { warningThreshold?: number; criticalThreshold?: number };
+      if (warningThreshold !== undefined && (warningThreshold < 1 || warningThreshold > 100)) {
+        return res.status(400).json({ error: 'warningThreshold must be between 1 and 100' });
+      }
+      if (criticalThreshold !== undefined && (criticalThreshold < 1 || criticalThreshold > 100)) {
+        return res.status(400).json({ error: 'criticalThreshold must be between 1 and 100' });
+      }
+      if (warningThreshold !== undefined && criticalThreshold !== undefined && warningThreshold >= criticalThreshold) {
+        return res.status(400).json({ error: 'warningThreshold must be less than criticalThreshold' });
+      }
+      // Ensure row exists (insert if not yet synced), then update threshold columns
+      const aName = accountNameCache.get(accountId) ?? accountId;
+      await db.execute(drizzleSql`
+        INSERT INTO account_caps (account_id, account_name, synced_at)
+        VALUES (${accountId}, ${aName}, NOW())
+        ON CONFLICT (account_id) DO NOTHING
+      `);
+      if (warningThreshold !== undefined) {
+        await db.execute(drizzleSql`UPDATE account_caps SET warning_threshold  = ${warningThreshold}  WHERE account_id = ${accountId}`);
+      }
+      if (criticalThreshold !== undefined) {
+        await db.execute(drizzleSql`UPDATE account_caps SET critical_threshold = ${criticalThreshold} WHERE account_id = ${accountId}`);
+      }
+      const rows = await db.execute(drizzleSql`SELECT * FROM account_caps WHERE account_id = ${accountId}`);
+      const updated = ((rows as any).rows ?? rows)[0] ?? null;
+      res.json({ ok: true, accountId, thresholds: updated });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/accounts/:id/cap-thresholds — get current thresholds and cached cap info
+  app.get('/api/accounts/:id/cap-thresholds', (req: any, res: any, next: any) => requireRole(NOC_ROLES, req, res, next), async (req: any, res: any) => {
+    try {
+      const accountId = req.params.id;
+      const rows = await db.execute(drizzleSql`SELECT * FROM account_caps WHERE account_id = ${accountId}`);
+      const row = ((rows as any).rows ?? rows)[0] ?? null;
+      if (!row) return res.json({ accountId, warningThreshold: 90, criticalThreshold: 100, sessionLimit: null, cpsLimit: null, syncedAt: null });
+      res.json({
+        accountId,
+        warningThreshold: row.warning_threshold ?? 90,
+        criticalThreshold: row.critical_threshold ?? 100,
+        sessionLimit: row.session_limit ?? null,
+        cpsLimit: row.cps_limit ?? null,
+        syncedAt: row.synced_at ?? null,
+      });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

@@ -457,6 +457,36 @@ export async function runSafeMigrations(): Promise<void> {
     await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS revenue_usd REAL`);
     await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS margin_usd  REAL`);
 
+    // ── Account cap monitoring tables (Task #149) ────────────────────────────
+    // account_caps caches session/CPS limits from Sippy getAccountInfo (synced hourly).
+    // cap_alert_events persists every threshold-crossing event for history/audit.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS account_caps (
+        account_id        VARCHAR(64)  PRIMARY KEY,
+        account_name      TEXT,
+        session_limit     INTEGER,
+        cps_limit         INTEGER,
+        warning_threshold INTEGER      NOT NULL DEFAULT 90,
+        critical_threshold INTEGER     NOT NULL DEFAULT 100,
+        synced_at         TIMESTAMP    NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS cap_alert_events (
+        id               SERIAL       PRIMARY KEY,
+        account_id       VARCHAR(64)  NOT NULL,
+        account_name     TEXT,
+        cap_type         VARCHAR(32)  NOT NULL,
+        utilisation_pct  INTEGER      NOT NULL,
+        current_value    INTEGER      NOT NULL,
+        limit_value      INTEGER      NOT NULL,
+        severity         VARCHAR(16)  NOT NULL,
+        triggered_at     TIMESTAMP    NOT NULL DEFAULT NOW(),
+        resolved_at      TIMESTAMP
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_cap_alert_events_account_triggered ON cap_alert_events (account_id, triggered_at DESC)`);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

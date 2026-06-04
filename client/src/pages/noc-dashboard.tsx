@@ -8,7 +8,7 @@ import {
   Minus, BrainCircuit, Siren, Maximize2, Minimize, Moon, Sun,
   ArrowRight, RefreshCw, AlertOctagon, GitBranch, Network,
   ChevronRight, Clock, Zap, ChevronDown, ChevronUp, ExternalLink,
-  PlayCircle, Loader2, AlertCircle, BarChart2, Sparkles, Wallet, Lock,
+  PlayCircle, Loader2, AlertCircle, BarChart2, Sparkles, Wallet, Lock, Gauge,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -67,6 +67,25 @@ interface Recommendation {
 }
 
 interface AlertRow { id: number; severity: string; resolved: boolean; acknowledgedAt: string | null; }
+
+interface CapWarning {
+  accountId: string;
+  accountName: string;
+  capType: string;
+  currentValue: number;
+  limitValue: number;
+  utilisationPct: number;
+  severity: "warning" | "critical";
+  triggeredAt: string;
+}
+
+interface CapAlertsResponse {
+  warnings: CapWarning[];
+  lastSyncedAt: string | null;
+  total: number;
+  critical: number;
+  sippyBaseUrl: string | null;
+}
 
 interface StripRecommendation {
   id: string;
@@ -951,6 +970,11 @@ export default function NocDashboardPage() {
   const criticalBalAlerts = balAlerts.filter(a => a.severity === "critical");
   const urgentBalAlerts   = balAlerts.filter(a => a.severity === "urgent");
 
+  const { data: capAlerts, isFetching: capFetching, refetch: refetchCaps } = useQuery<CapAlertsResponse>({
+    queryKey: ["/api/noc/cap-alerts"],
+    refetchInterval: 30_000,
+  });
+
   const { data: copilotSummary } = useQuery<CopilotSummary>({
     queryKey: ["/api/ai/route-copilot/summary"],
     refetchInterval: 5 * 60 * 1000,
@@ -1380,11 +1404,11 @@ export default function NocDashboardPage() {
           </ScrollArea>
         </div>
 
-        {/* ── RIGHT: Balance Alerts + AI Recommendations (3 cols) ── */}
+        {/* ── RIGHT: Balance Alerts + Cap Warnings + AI Recommendations (3 cols) ── */}
         <div className="col-span-12 lg:col-span-3 flex flex-col">
 
           {/* Balance Alerts Panel — all accounts below any threshold, sorted by balance asc */}
-          <div className="flex flex-col border-b border-slate-800/60" style={{ maxHeight: '45%' }}>
+          <div className="flex flex-col border-b border-slate-800/60" style={{ maxHeight: '30%' }}>
             <div className="px-3 py-2 border-b border-slate-800/60 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Wallet className="h-3.5 w-3.5 text-amber-400" />
@@ -1404,7 +1428,7 @@ export default function NocDashboardPage() {
             <ScrollArea className="flex-1">
               <div className="p-2 space-y-0.5">
                 {balAlerts.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-6 text-slate-600">
+                  <div className="flex flex-col items-center justify-center py-4 text-slate-600">
                     <Wallet className="h-5 w-5 mb-1.5 text-slate-700" />
                     <p className="text-[10px] font-mono">No low balance alerts</p>
                   </div>
@@ -1434,6 +1458,131 @@ export default function NocDashboardPage() {
                       );
                     })
                 )}
+              </div>
+            </ScrollArea>
+          </div>
+
+          {/* Cap Warnings */}
+          <div className="flex flex-col border-b border-slate-800/60" style={{ maxHeight: "32%" }}>
+            <div className="px-3 py-2 border-b border-slate-800/60 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <Gauge className={cn("h-3.5 w-3.5", (capAlerts?.critical ?? 0) > 0 ? "text-red-400" : (capAlerts?.total ?? 0) > 0 ? "text-amber-400" : "text-slate-500")} />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  Cap Warnings
+                </span>
+                {(capAlerts?.total ?? 0) > 0 && (
+                  <span className={cn("text-[10px] font-bold font-mono", (capAlerts?.critical ?? 0) > 0 ? "text-red-400" : "text-amber-400")}>
+                    ({capAlerts?.total})
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {capFetching && <RefreshCw className="h-3 w-3 text-slate-600 animate-spin" />}
+                <button
+                  data-testid="cap-refresh-btn"
+                  onClick={() => { refetchCaps(); apiRequest("POST", "/api/noc/cap-alerts/refresh-caps").catch(() => {}); }}
+                  className="p-1 rounded hover:bg-slate-700/40 text-slate-600 hover:text-slate-400 transition-colors"
+                  title="Trigger Sippy cap sync"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="p-2 space-y-1.5">
+                {!capAlerts || capAlerts.warnings.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-6 text-slate-600">
+                    <Gauge className="h-6 w-6 mb-1.5 text-slate-700" />
+                    <p className="text-[10px] font-mono">No cap warnings</p>
+                    {capAlerts?.lastSyncedAt && (
+                      <p className="text-[9px] text-slate-700 mt-0.5 font-mono">
+                        synced {timeAgo(capAlerts.lastSyncedAt)}
+                      </p>
+                    )}
+                  </div>
+                ) : capAlerts.warnings.map((w, i) => {
+                  const isCrit = w.severity === "critical";
+                  const utilBar = Math.min(100, w.utilisationPct);
+                  return (
+                    <motion.div
+                      key={`${w.accountId}-${w.capType}`}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.04 }}
+                      data-testid={`cap-warning-${w.accountId}`}
+                      className={cn(
+                        "rounded-md border p-2 text-xs",
+                        isCrit
+                          ? "bg-red-500/10 border-red-500/30"
+                          : "bg-amber-500/10 border-amber-500/30"
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={cn("text-[10px] font-bold font-mono uppercase", isCrit ? "text-red-400" : "text-amber-400")}>
+                          {isCrit ? "CRITICAL" : "WARNING"}
+                        </span>
+                        <span className={cn("text-[10px] font-bold font-mono tabular-nums", isCrit ? "text-red-300" : "text-amber-300")}>
+                          {w.utilisationPct}%
+                        </span>
+                      </div>
+                      <p className="text-slate-200 text-[11px] font-medium leading-tight truncate mb-1.5" title={w.accountName}>
+                        {w.accountName}
+                      </p>
+                      {/* Progress bar */}
+                      <div className="h-1 rounded-full bg-slate-800 overflow-hidden mb-1">
+                        <motion.div
+                          className={cn("h-full rounded-full", isCrit ? "bg-red-500" : "bg-amber-500")}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${utilBar}%` }}
+                          transition={{ duration: 0.5 }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-mono mb-1.5">
+                        {w.currentValue} / {w.limitValue} {w.capType}
+                        {w.capType === 'cps' && (
+                          <span className="ml-1 text-slate-600">(approx.)</span>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link href={`/clients/${w.accountId}`}>
+                          <a
+                            data-testid={`cap-warning-account-link-${w.accountId}`}
+                            className={cn(
+                              "flex items-center gap-0.5 text-[10px] transition-colors",
+                              isCrit ? "text-red-500 hover:text-red-300" : "text-amber-500 hover:text-amber-300",
+                            )}
+                          >
+                            Account <ArrowRight className="h-2.5 w-2.5" />
+                          </a>
+                        </Link>
+                        <Link href={`/cdrs?accountId=${w.accountId}`}>
+                          <a
+                            data-testid={`cap-warning-cdr-link-${w.accountId}`}
+                            className="flex items-center gap-0.5 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+                            title="View recent CDRs for this account"
+                          >
+                            CDRs <ExternalLink className="h-2.5 w-2.5" />
+                          </a>
+                        </Link>
+                        {capAlerts?.sippyBaseUrl && (
+                          <a
+                            data-testid={`cap-warning-sippy-link-${w.accountId}`}
+                            href={`${capAlerts.sippyBaseUrl}/customers/accounts/edit/?i_account=${w.accountId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-0.5 text-[10px] text-slate-500 hover:text-cyan-400 transition-colors"
+                            title="Open account in Sippy portal"
+                          >
+                            Sippy <ExternalLink className="h-2.5 w-2.5" />
+                          </a>
+                        )}
+                        <span className="text-[10px] text-slate-700 ml-auto">
+                          {timeAgo(w.triggeredAt)}
+                        </span>
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             </ScrollArea>
           </div>
