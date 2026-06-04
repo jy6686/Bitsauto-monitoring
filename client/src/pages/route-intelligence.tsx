@@ -3156,6 +3156,31 @@ function SipErrorsTab() {
     }
     return count;
   }, [data, exportVendor, exportCode, activeWin]);
+
+  // When a custom date range is selected, fetch the server-confirmed row count
+  // so operators see the exact number of export rows, not the snapshot estimate.
+  const isCustomDateRange = exportPreset === "custom" && !!exportFrom && !!exportTo;
+  const countQueryKey = useMemo(() => {
+    if (!isCustomDateRange) return null;
+    const params = new URLSearchParams({ from: exportFrom, to: exportTo });
+    if (exportVendor) params.set("vendor", exportVendor);
+    if (exportCode) params.set("code", exportCode);
+    return `/api/route-intelligence/sip-errors/count?${params.toString()}`;
+  }, [isCustomDateRange, exportFrom, exportTo, exportVendor, exportCode]);
+
+  const { data: countData, isLoading: countLoading } = useQuery<{ success: boolean; count: number }>({
+    queryKey: countQueryKey ? [countQueryKey] : ["sip-count-disabled"],
+    queryFn: () => fetch(countQueryKey!).then(r => r.json()),
+    enabled: !!countQueryKey,
+    staleTime: 60 * 1000,
+  });
+
+  // Resolved display count: server-confirmed when custom date range is active,
+  // falling back to the snapshot estimate while the request is in flight.
+  const displayRowCount = isCustomDateRange
+    ? (countLoading ? estimatedRows : (countData?.count ?? estimatedRows))
+    : estimatedRows;
+  const displayRowCountIsEstimate = isCustomDateRange ? countLoading : true;
   const spikeVendorNames = new Set(spikeVendors.map(v => v.vendorName));
   const windowLabel: Record<number, string> = { 15: "15 min", 60: "1 hr", 240: "4 hr" };
   const prefixRows = copilotData?.prefixRows ?? [];
@@ -3303,9 +3328,9 @@ function SipErrorsTab() {
               >
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
-                {estimatedRows !== null && (
+                {displayRowCount !== null && (
                   <span data-testid="sip-errors-export-row-count" className="text-muted-foreground/50">
-                    · ~{estimatedRows} rows
+                    · {displayRowCountIsEstimate ? "~" : ""}{displayRowCount} rows
                   </span>
                 )}
               </a>
@@ -3317,9 +3342,9 @@ function SipErrorsTab() {
               >
                 <Download className="h-3.5 w-3.5" />
                 Export CSV
-                {estimatedRows !== null && (
+                {displayRowCount !== null && (
                   <span data-testid="sip-errors-export-row-count" className="text-muted-foreground/25">
-                    · ~{estimatedRows} rows
+                    · {displayRowCountIsEstimate ? "~" : ""}{displayRowCount} rows
                   </span>
                 )}
               </span>

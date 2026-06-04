@@ -6554,6 +6554,63 @@ export async function registerRoutes(
     },
   );
 
+  // GET /api/route-intelligence/sip-errors/count?from=YYYY-MM-DD&to=YYYY-MM-DD[&vendor=...][&code=...]
+  // Returns the number of export rows (one per vendor+code+day) for the given date range.
+  app.get('/api/route-intelligence/sip-errors/count',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const isoDateRe = /^\d{4}-\d{2}-\d{2}$/;
+        const fromParam = String(req.query.from ?? '').trim();
+        const toParam = String(req.query.to ?? '').trim();
+        if (!isoDateRe.test(fromParam) || !isoDateRe.test(toParam)) {
+          return res.status(400).json({ success: false, error: 'from and to (YYYY-MM-DD) are required' });
+        }
+        const fromDate = new Date(fromParam + 'T00:00:00Z');
+        const toDate = new Date(toParam + 'T00:00:00Z');
+        if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime()) || fromDate > toDate) {
+          return res.status(400).json({ success: false, error: 'Invalid date range' });
+        }
+        // fetchStart goes 24h before fromDate so every day within the range has baseline data —
+        // mirrors the export endpoint. We then count only rows on/after fromDate.
+        const fetchStart = new Date(fromDate.getTime() - 24 * 3600 * 1000);
+        const fetchEnd = new Date(toDate.getTime() + 24 * 3600 * 1000);
+
+        const filterVendor = String(req.query.vendor ?? '').trim() || null;
+        const filterCode = String(req.query.code ?? '').trim() || null;
+
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        try {
+          const conditions: string[] = ['snapshot_at >= $1', 'snapshot_at < $2'];
+          const params: any[] = [fetchStart.toISOString(), fetchEnd.toISOString()];
+          if (filterVendor) { params.push(filterVendor); conditions.push(`vendor_name = $${params.length}`); }
+          if (filterCode) { params.push(filterCode); conditions.push(`code = $${params.length}`); }
+
+          // Count distinct (vendor_name, code, day) combinations that fall within the
+          // requested range — exactly one export row is emitted per such combination.
+          const result = await pool.query(
+            `SELECT COUNT(*) AS cnt
+             FROM (
+               SELECT vendor_name, code, DATE_TRUNC('day', snapshot_at AT TIME ZONE 'UTC') AS day
+               FROM sip_error_history
+               WHERE ${conditions.join(' AND ')}
+                 AND snapshot_at >= $1::timestamptz + INTERVAL '24 hours'
+               GROUP BY vendor_name, code, day
+             ) sub`,
+            params,
+          );
+          const count = parseInt(result.rows[0]?.cnt ?? '0', 10);
+          res.json({ success: true, count });
+        } finally {
+          await pool.end();
+        }
+      } catch (e: any) {
+        res.status(500).json({ success: false, error: e.message });
+      }
+    },
+  );
+
   // GET /api/route-intelligence/sip-errors/export?days=7 OR ?from=YYYY-MM-DD&to=YYYY-MM-DD — download SIP error history as CSV
   app.get('/api/route-intelligence/sip-errors/export',
     (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
