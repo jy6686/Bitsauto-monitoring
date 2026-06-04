@@ -11,8 +11,8 @@
  */
 
 import { db } from "./db";
-import { routeQualitySnapshots } from "../shared/schema";
-import { sql } from "drizzle-orm";
+import { routeQualitySnapshots, nocIncidents } from "../shared/schema";
+import { sql, and, eq, isNull } from "drizzle-orm";
 import { isAnswered, cdrTs } from "./analytics-engine";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -257,10 +257,117 @@ export async function runRouteIntelligenceAggregation(
 
     _lastRunAt = new Date();
     console.log(`[route-intelligence] snapshot complete: ${inserted} rows in ${Date.now() - t0}ms (${cdrValues.length} CDRs)`);
+
+    // ── Anomaly detection: open NOC incidents for degraded vendors ─────────────
+    await detectCdrSnapshotAnomalies(rows, computedAt);
   } catch (err: any) {
     console.error("[route-intelligence] aggregation error:", err.message);
   } finally {
     _running = false;
+  }
+}
+
+// ── CDR snapshot anomaly detection ────────────────────────────────────────────
+// Thresholds
+const ASR_DROP_THRESHOLD_PP  = 15;  // percentage-points drop vs previous slot
+const PDD_SPIKE_THRESHOLD_MS = 4000; // ms
+
+async function detectCdrSnapshotAnomalies(
+  newRows: (typeof routeQualitySnapshots.$inferInsert)[],
+  computedAt: Date,
+): Promise<void> {
+  try {
+    // Work only with the 1-hour window vendor-level rows for anomaly comparison
+    const newVendorRows = newRows.filter(r => r.prefix === "__all__" && r.windowHours === 1);
+    if (newVendorRows.length === 0) return;
+
+    // Fetch the most recent previous snapshot for each vendor (before this run)
+    const prevResult = await db.execute(sql`
+      SELECT DISTINCT ON (vendor_id)
+        vendor_id, asr, pdd_ms, computed_at
+      FROM route_quality_snapshots
+      WHERE prefix = '__all__'
+        AND window_hours = 1
+        AND computed_at < ${computedAt}
+      ORDER BY vendor_id, computed_at DESC
+    `);
+    const prevByVendor = new Map<string, { asr: number | null; pddMs: number | null }>();
+    for (const row of prevResult.rows as any[]) {
+      prevByVendor.set(String(row.vendor_id), {
+        asr:   row.asr   != null ? Number(row.asr)   : null,
+        pddMs: row.pdd_ms != null ? Number(row.pdd_ms) : null,
+      });
+    }
+
+    const now = new Date();
+
+    for (const snap of newVendorRows) {
+      const vendorId   = String(snap.vendorId ?? "");
+      const vendorName = String(snap.vendorName ?? snap.vendorId ?? "Unknown");
+      const newAsr     = snap.asr   != null ? Number(snap.asr)   : null;
+      const newPdd     = snap.pddMs != null ? Number(snap.pddMs) : null;
+      const prev       = prevByVendor.get(vendorId);
+
+      const reasons: string[] = [];
+      let asrDrop: number | null = null;
+
+      // ASR degradation
+      if (newAsr !== null && prev?.asr != null) {
+        asrDrop = prev.asr - newAsr;
+        if (asrDrop > ASR_DROP_THRESHOLD_PP) {
+          reasons.push(`ASR dropped ${asrDrop.toFixed(1)}pp (${prev.asr.toFixed(1)}% → ${newAsr.toFixed(1)}%)`);
+        }
+      }
+
+      // PDD spike
+      if (newPdd !== null && newPdd > PDD_SPIKE_THRESHOLD_MS) {
+        reasons.push(`PDD spiked to ${Math.round(newPdd)}ms (threshold: ${PDD_SPIKE_THRESHOLD_MS}ms)`);
+      }
+
+      if (reasons.length === 0) continue;
+
+      // De-duplicate: skip if an open incident already exists for this vendor+type
+      const entityId = `cdr-anomaly-${vendorId}`;
+      const existing = await db.select({ id: nocIncidents.id })
+        .from(nocIncidents)
+        .where(
+          and(
+            eq(nocIncidents.entityId, entityId),
+            eq(nocIncidents.type, "cdr_anomaly"),
+            isNull(nocIncidents.resolvedAt),
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        console.log(`[route-intelligence] anomaly for ${vendorName} already has open incident — skipping`);
+        continue;
+      }
+
+      const description = `Automated CDR snapshot analysis detected quality degradation on vendor ${vendorName}: ${reasons.join("; ")}.`;
+      const suggestedAction = `Review live calls and routing for vendor ${vendorName}. Consider activating a backup route or deprioritising this carrier until quality recovers.`;
+
+      await db.insert(nocIncidents).values({
+        title:           `CDR Anomaly — ${vendorName}: ${reasons.join("; ")}`,
+        type:            "cdr_anomaly",
+        severity:        "high",
+        status:          "open",
+        entityType:      "vendor",
+        entityId,
+        entityName:      vendorName,
+        description,
+        suggestedAction,
+        source:          "cdr_snapshot_engine",
+        tags:            ["cdr", "auto-detected", "vendor-quality", ...reasons.map(r => r.split(" ")[0].toLowerCase())],
+        assigneeName:    "on-call",
+        openedAt:        now,
+        updatedAt:       now,
+      });
+
+      console.log(`[route-intelligence] NOC incident created for ${vendorName}: ${reasons.join("; ")}`);
+    }
+  } catch (err: any) {
+    console.error("[route-intelligence] anomaly detection error:", err.message);
   }
 }
 
