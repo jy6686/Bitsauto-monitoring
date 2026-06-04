@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   ArrowRightLeft, Play, AlertTriangle, CheckCircle2, TrendingDown,
-  Eye, DollarSign, ShieldAlert, Info, Download, FileText, Loader2, FileSpreadsheet,
+  Eye, DollarSign, ShieldAlert, Info, Download, FileText, Loader2, FileSpreadsheet, Mail,
 } from "lucide-react";
 
 interface CarrierReconciliation {
@@ -140,6 +140,29 @@ export default function CarrierReconciliationPage() {
   const [filterPeriodEnd, setFilterPeriodEnd]     = useState("");
   const [exporting, setExporting]           = useState<'csv' | 'pdf' | null>(null);
   const [exportingDetail, setExportingDetail] = useState<'csv' | 'pdf' | null>(null);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [emailForm, setEmailForm] = useState({
+    to: '', subject: 'Carrier Reconciliation Report', message: '', format: 'pdf' as 'pdf' | 'csv', mode: 'cdr' as 'cdr' | 'summary',
+  });
+
+  const emailMutation = useMutation({
+    mutationFn: (data: typeof emailForm) =>
+      apiRequest("POST", "/api/billing/reconciliation/export/email", {
+        ...data,
+        iTariff:     filterTariff || undefined,
+        vendor:      filterTariff || undefined,
+        periodStart: filterPeriodStart || undefined,
+        periodEnd:   filterPeriodEnd   || undefined,
+        reconStatus: filterStatus !== 'all' ? filterStatus : undefined,
+      }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      toast({ title: `Report emailed`, description: `Sent ${data.filename} to ${emailForm.to}` });
+      setShowEmailDialog(false);
+    },
+    onError: (err: any) => {
+      toast({ title: 'Email failed', description: err.message, variant: 'destructive' });
+    },
+  });
 
   const [form, setForm] = useState({
     carrierName: "", iTariff: "", invoiceRef: "", invoiceDate: "",
@@ -366,6 +389,13 @@ export default function CarrierReconciliationPage() {
                 <FileText className="h-4 w-4 mr-2 text-red-400" />
                 PDF Report
               </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="button-email-report"
+                onClick={() => setShowEmailDialog(true)}
+              >
+                <Mail className="h-4 w-4 mr-2 text-blue-400" />
+                Email Report…
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button data-testid="button-run-reconciliation" onClick={() => setShowForm(true)}>
@@ -553,6 +583,101 @@ export default function CarrierReconciliationPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Email Report dialog */}
+      <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-blue-400" />
+              Email Reconciliation Report
+            </DialogTitle>
+            <DialogDescription>
+              The report will be generated with your current filters and sent as an attachment.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs mb-1.5 block">Recipient Email *</Label>
+              <Input
+                data-testid="input-email-to"
+                type="email"
+                placeholder="carrier@example.com"
+                value={emailForm.to}
+                onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Subject *</Label>
+              <Input
+                data-testid="input-email-subject"
+                value={emailForm.subject}
+                onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs mb-1.5 block">Format</Label>
+                <Select value={emailForm.format} onValueChange={v => setEmailForm(f => ({ ...f, format: v as 'pdf' | 'csv' }))}>
+                  <SelectTrigger data-testid="select-email-format">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pdf">PDF Report</SelectItem>
+                    <SelectItem value="csv">CSV (CDR Snapshot)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {emailForm.format === 'csv' && (
+                <div>
+                  <Label className="text-xs mb-1.5 block">CSV Mode</Label>
+                  <Select value={emailForm.mode} onValueChange={v => setEmailForm(f => ({ ...f, mode: v as 'cdr' | 'summary' }))}>
+                    <SelectTrigger data-testid="select-email-mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cdr">CDR Snapshot</SelectItem>
+                      <SelectItem value="summary">Summary</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Message (optional)</Label>
+              <Textarea
+                data-testid="input-email-message"
+                placeholder="Include any notes or context for the recipient…"
+                rows={3}
+                value={emailForm.message}
+                onChange={e => setEmailForm(f => ({ ...f, message: e.target.value }))}
+              />
+            </div>
+            {(filterTariff || filterPeriodStart || filterPeriodEnd || filterStatus !== 'all') && (
+              <div className="bg-muted/30 border border-border rounded p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-semibold text-foreground">Active filters applied to attachment:</p>
+                {filterTariff     && <p>Vendor / Tariff: <span className="font-mono">{filterTariff}</span></p>}
+                {filterPeriodStart && <p>Period start: <span className="font-mono">{filterPeriodStart}</span></p>}
+                {filterPeriodEnd   && <p>Period end: <span className="font-mono">{filterPeriodEnd}</span></p>}
+                {filterStatus !== 'all' && <p>Status: <span className="font-mono">{filterStatus}</span></p>}
+              </div>
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowEmailDialog(false)}>Cancel</Button>
+              <Button
+                data-testid="button-email-send"
+                onClick={() => emailMutation.mutate(emailForm)}
+                disabled={emailMutation.isPending || !emailForm.to || !emailForm.subject}
+              >
+                {emailMutation.isPending
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending…</>
+                  : <><Mail className="h-4 w-4 mr-2" />Send Report</>
+                }
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Run form dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>

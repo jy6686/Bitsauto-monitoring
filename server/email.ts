@@ -123,6 +123,42 @@ export async function sendViaProfile(opts: {
 }
 
 /**
+ * Send a single email with a file attachment directly to a specific address.
+ * Used by the reconciliation export email feature.
+ */
+export async function sendDirectEmailWithAttachment(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  attachment: {
+    filename: string;
+    content: Buffer | string;
+    contentType: string;
+  };
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const conn = await getTransporter();
+    if (!conn) return { ok: false, error: 'Email not configured — enable alerts in Settings first.' };
+    await conn.transporter.sendMail({
+      from: `"Bitsauto Monitoring" <${conn.from}>`,
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+      attachments: [{
+        filename: opts.attachment.filename,
+        content: opts.attachment.content,
+        contentType: opts.attachment.contentType,
+      }],
+    });
+    console.log(`[email] Attachment send: ${opts.subject} → ${opts.to} (${opts.attachment.filename})`);
+    return { ok: true };
+  } catch (err: any) {
+    console.error(`[email] Attachment send failed → ${opts.to}: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
  * Send a single email directly to a specific address.
  * Used by the Email Centre bulk-send feature.
  */

@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -28,7 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle2, AlertTriangle, XCircle, Clock, RefreshCw, Search,
   Upload, Users, DollarSign, Info, TrendingDown, ThumbsUp, ShieldAlert,
-  Download, FileText, Loader2, FileSpreadsheet, FileDown,
+  Download, FileText, Loader2, FileSpreadsheet, FileDown, Mail,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -174,6 +175,25 @@ export default function ClientReconciliationPage() {
   const [filter, setFilter] = useState('');
   const [showImport, setShowImport] = useState(false);
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [emailForm, setEmailForm] = useState({
+    to: '', subject: 'Client Reconciliation Report', message: '', format: 'pdf' as 'pdf' | 'csv',
+  });
+
+  const emailMutation = useMutation({
+    mutationFn: (data: typeof emailForm) =>
+      apiRequest("POST", "/api/client-reconciliation/export/email", {
+        ...data,
+        period,
+      }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      toast({ title: 'Report emailed', description: `Sent ${data.filename} to ${emailForm.to}` });
+      setShowEmailDialog(false);
+    },
+    onError: (err: any) => {
+      toast({ title: 'Email failed', description: err.message, variant: 'destructive' });
+    },
+  });
 
   async function handleExport(type: 'csv' | 'pdf') {
     setExporting(type);
@@ -444,6 +464,13 @@ export default function ClientReconciliationPage() {
                 <FileText className="h-4 w-4 mr-2 text-red-400" />
                 Export PDF
               </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="button-email-report"
+                onClick={() => setShowEmailDialog(true)}
+              >
+                <Mail className="h-4 w-4 mr-2 text-blue-400" />
+                Email Report…
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button
@@ -557,6 +584,76 @@ export default function ClientReconciliationPage() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Email Report dialog */}
+      <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-blue-400" />
+              Email Reconciliation Report
+            </DialogTitle>
+            <DialogDescription>
+              The report for <span className="font-semibold text-foreground">{period}</span> will be generated and sent as an attachment.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs mb-1.5 block">Recipient Email *</Label>
+              <Input
+                data-testid="input-email-to"
+                type="email"
+                placeholder="client@example.com"
+                value={emailForm.to}
+                onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Subject *</Label>
+              <Input
+                data-testid="input-email-subject"
+                value={emailForm.subject}
+                onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Format</Label>
+              <Select value={emailForm.format} onValueChange={v => setEmailForm(f => ({ ...f, format: v as 'pdf' | 'csv' }))}>
+                <SelectTrigger data-testid="select-email-format">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pdf">PDF Report</SelectItem>
+                  <SelectItem value="csv">CSV</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs mb-1.5 block">Message (optional)</Label>
+              <Textarea
+                data-testid="input-email-message"
+                placeholder="Include any notes or context for the recipient…"
+                rows={3}
+                value={emailForm.message}
+                onChange={e => setEmailForm(f => ({ ...f, message: e.target.value }))}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowEmailDialog(false)}>Cancel</Button>
+              <Button
+                data-testid="button-email-send"
+                onClick={() => emailMutation.mutate(emailForm)}
+                disabled={emailMutation.isPending || !emailForm.to || !emailForm.subject}
+              >
+                {emailMutation.isPending
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending…</>
+                  : <><Mail className="h-4 w-4 mr-2" />Send Report</>
+                }
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Import Dialog */}
       <Dialog open={showImport} onOpenChange={setShowImport}>
