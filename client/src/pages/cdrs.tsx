@@ -192,6 +192,10 @@ export default function CDRsPage() {
     if (p) { const d = new Date(p); if (!isNaN(d.getTime())) return d; }
     return new Date();
   })();
+
+  // Spike window bounds — only meaningful when spikeVendor is set
+  const spikeWindowStart = spikeVendor ? defaultStart : null;
+  const spikeWindowEnd   = spikeVendor ? defaultEnd   : null;
   const [start, setStart]       = useState(defaultStart);
   const [end,   setEnd]         = useState(defaultEnd);
   const [startInput, setStartInput] = useState(() => toInput(defaultStart, tz));
@@ -363,7 +367,11 @@ export default function CDRsPage() {
           <Activity className="h-4 w-4 shrink-0 text-red-400" />
           <span className="text-red-300/90">
             Showing vendor CDRs for spike window on <span className="font-semibold text-red-200">{spikeVendor}</span>.
-            Time range is pre-filled from the spike band — adjust above if needed.
+            Time range is pre-filled from the spike band — adjust above if needed.{' '}
+            <span className="inline-flex items-center gap-1 text-red-400/80">
+              <span className="inline-block w-2.5 h-full border-l-2 border-red-400 align-middle" style={{ height: '0.85em' }} />
+              Rows inside the spike window are highlighted with a red left border.
+            </span>
           </span>
         </div>
       )}
@@ -668,14 +676,25 @@ export default function CDRsPage() {
                 const status = getCdrStatus(cdr);
                 const isAnswered = status === 'answered';
                 const cldInfo = cdr.callee ? lookupCLD(cdr.callee) : null;
+
+                // Spike window highlight: check if this CDR's start time falls inside the spike band
+                const cdrStartDate = parseSippyRawDate(cdr.startTime);
+                const isInSpikeWindow = !!(
+                  spikeWindowStart && spikeWindowEnd && cdrStartDate &&
+                  cdrStartDate >= spikeWindowStart && cdrStartDate <= spikeWindowEnd
+                );
+
                 return (
                   <tr
                     key={`${cdr.callId}-${i}`}
                     className={cn(
                       "border-b border-border/20 transition-colors hover:bg-muted/20",
                       i % 2 === 0 ? "bg-card/20" : "bg-muted/10",
+                      isInSpikeWindow && "bg-red-500/5 hover:bg-red-500/10",
                     )}
+                    style={isInSpikeWindow ? { boxShadow: 'inset 3px 0 0 0 rgb(239 68 68 / 0.6)' } : undefined}
                     data-testid={`row-cdr-${i}`}
+                    data-spike-match={isInSpikeWindow ? 'true' : undefined}
                   >
                     <td className="px-2 py-2 text-center">
                       <StatusIcon cdr={cdr} />
