@@ -3459,6 +3459,7 @@ export const routeTestJobs = pgTable("route_test_jobs", {
   vendorNames:       text("vendor_names").array().notNull().default([]),
   scheduleMinutes:   integer("schedule_minutes").notNull().default(0),
   enabled:           boolean("enabled").notNull().default(true),
+  cliToSend:         varchar("cli_to_send", { length: 32 }),
   createdBy:         varchar("created_by", { length: 128 }),
   lastRunAt:         timestamp("last_run_at"),
   nextRunAt:         timestamp("next_run_at"),
@@ -3480,7 +3481,9 @@ export const routeTestResults = pgTable("route_test_results", {
   sipCode:     integer("sip_code"),
   pddMs:       integer("pdd_ms"),
   durationMs:  integer("duration_ms"),
+  cliSent:     varchar("cli_sent",     { length: 32 }),
   cliReceived: varchar("cli_received", { length: 32 }),
+  cliMatch:    varchar("cli_match",    { length: 16 }),
   notes:       text("notes"),
   rawResponse: jsonb("raw_response"),
 });

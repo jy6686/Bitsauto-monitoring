@@ -720,10 +720,15 @@ ${voiceQualityContext}`;
     // ── Build proactive test-call evidence block for the AI ───────────────────
     const testEvidenceBlock = testEvidence.length > 0
       ? "\n\nProactive test call evidence (last 6h):\n" +
-        testEvidence.map(e =>
-          `  ${e.vendorName} → ${e.destination}: ${e.passRate}% pass (${e.successCount}/${e.totalTests}), ` +
-          `avg PDD ${e.avgPddMs ?? "?"}ms, SIP codes: ${e.recentSipCodes.join(",") || "none"}`
-        ).join("\n")
+        testEvidence.map(e => {
+          const cliNote = e.cliMismatchCount > 0
+            ? `, CLI MISMATCH ${e.cliMismatchCount}/${e.cliVerifiedCount} verified (${e.cliMatchRate ?? "?"}% match rate)`
+            : e.cliVerifiedCount > 0 && e.cliMatchRate === 100
+            ? `, CLI 100% match`
+            : "";
+          return `  ${e.vendorName} → ${e.destination}: ${e.passRate}% pass (${e.successCount}/${e.totalTests}), ` +
+            `avg PDD ${e.avgPddMs ?? "?"}ms, SIP codes: ${e.recentSipCodes.join(",") || "none"}${cliNote}`;
+        }).join("\n")
       : "";
 
     const userContent = JSON.stringify(baseline.map(r => ({

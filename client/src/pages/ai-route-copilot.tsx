@@ -21,7 +21,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   FlaskConical, Plus, Play, Trash2, ToggleLeft, ToggleRight,
   CheckCircle2, XCircle, Clock, Wifi, TrendingUp, TrendingDown,
-  Activity, AlertTriangle,
+  Activity, AlertTriangle, ShieldCheck, ShieldAlert, Minus,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -34,6 +34,7 @@ interface RouteTestJob {
   vendorNames: string[];
   scheduleMinutes: number;
   enabled: boolean;
+  cliToSend: string | null;
   createdBy: string | null;
   lastRunAt: string | null;
   nextRunAt: string | null;
@@ -51,6 +52,9 @@ interface RouteTestResult {
   sipCode: number | null;
   pddMs: number | null;
   durationMs: number | null;
+  cliSent: string | null;
+  cliReceived: string | null;
+  cliMatch: "match" | "mismatch" | "unknown" | null;
   notes: string | null;
 }
 
@@ -65,6 +69,20 @@ interface RouteTestEvidence {
   recentSipCodes: number[];
   avgPddMs: number | null;
   passRate: number;
+  cliVerifiedCount: number;
+  cliMatchCount: number;
+  cliMismatchCount: number;
+  cliUnknownCount: number;
+  cliMatchRate: number | null;
+}
+
+interface CliHealthEntry {
+  vendorName: string;
+  total: number;
+  matched: number;
+  mismatched: number;
+  unknown: number;
+  matchRate: number | null;
 }
 
 // ── Schedule badge helper ──────────────────────────────────────────────────────
@@ -91,6 +109,14 @@ function sipCodeBadge(code: number | null) {
   return <Badge variant="outline" className="text-xs">{code}</Badge>;
 }
 
+// ── CLI match badge ────────────────────────────────────────────────────────────
+function cliMatchBadge(match: "match" | "mismatch" | "unknown" | null, cliSent?: string | null) {
+  if (!cliSent) return <span className="text-muted-foreground text-xs">—</span>;
+  if (match === "match")    return <CheckCircle2 className="h-4 w-4 text-emerald-400" title="CLI match" />;
+  if (match === "mismatch") return <XCircle      className="h-4 w-4 text-red-400"     title="CLI mismatch" />;
+  return <Minus className="h-4 w-4 text-muted-foreground" title="CLI unknown" />;
+}
+
 // ── Trend sparkline (SVG polyline over hourly pass-rate buckets) ──────────────
 
 interface TrendBucket { hour: string; passRate: number | null; total: number; passed: number }
@@ -115,7 +141,6 @@ function TrendSparkline({ jobId, vendorName, passRate, total }: {
   const pct = Math.min(100, Math.max(0, passRate));
   const color = pct >= 80 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444";
 
-  // SVG sparkline — 96×24px polyline from trend data
   const buckets = data?.data ?? [];
   const withData = buckets.filter(b => b.passRate !== null);
   let polyline = "";
@@ -153,6 +178,74 @@ function TrendSparkline({ jobId, vendorName, passRate, total }: {
   );
 }
 
+// ── CLI Health card ───────────────────────────────────────────────────────────
+
+function CliHealthCard() {
+  const { data } = useQuery<{ success: boolean; data: CliHealthEntry[] }>({
+    queryKey: ["/api/route-tests/cli-health"],
+    refetchInterval: 5 * 60_000,
+  });
+  const entries = data?.data ?? [];
+  if (entries.length === 0) return null;
+
+  return (
+    <Card className="border-blue-500/20" data-testid="card-cli-health">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-blue-400" />
+          CLI Integrity — 7-day Summary
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          {entries.map(entry => {
+            const rate = entry.matchRate;
+            const barColor = rate == null ? "#6b7280"
+              : rate >= 90 ? "#10b981"
+              : rate >= 70 ? "#f59e0b"
+              : "#ef4444";
+            const hasMismatch = entry.mismatched > 0;
+            return (
+              <div key={entry.vendorName} className="space-y-1" data-testid={`cli-health-${entry.vendorName}`}>
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    {hasMismatch
+                      ? <ShieldAlert className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                      : <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                    }
+                    <span className="font-medium truncate">{entry.vendorName}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs shrink-0">
+                    {hasMismatch && (
+                      <span className="text-red-400 font-mono">{entry.mismatched} mismatch</span>
+                    )}
+                    <span className="text-muted-foreground">{entry.matched}/{entry.total} matched</span>
+                    <span className="font-mono" style={{ color: barColor }}>
+                      {rate != null ? `${rate}%` : "?%"}
+                    </span>
+                  </div>
+                </div>
+                <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full transition-all"
+                    style={{
+                      width: rate != null ? `${rate}%` : "0%",
+                      background: barColor,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground mt-3">
+          CLI match rate per vendor over 7 days · resolved tests only (excludes unknown)
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── New Job Form ──────────────────────────────────────────────────────────────
 
 interface SippyVendor {
@@ -161,15 +254,15 @@ interface SippyVendor {
 }
 
 function NewJobDialog({ onCreated }: { onCreated: () => void }) {
-  const [open, setOpen]     = useState(false);
-  const [name, setName]     = useState("");
-  const [prefix, setPrefix] = useState("");
+  const [open, setOpen]       = useState(false);
+  const [name, setName]       = useState("");
+  const [prefix, setPrefix]   = useState("");
   const [schedule, setSchedule] = useState("0");
+  const [cliToSend, setCliToSend] = useState("");
   const [selectedVendorIds, setSelectedVendorIds] = useState<Set<number>>(new Set());
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  // Fetch real Sippy vendor list when dialog opens
   const { data: vendorData, isLoading: vendorsLoading } = useQuery<{ vendors: SippyVendor[] }>({
     queryKey: ["/api/sippy/vendors"],
     enabled: open,
@@ -189,7 +282,7 @@ function NewJobDialog({ onCreated }: { onCreated: () => void }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/route-tests/jobs"] });
       setOpen(false);
-      setName(""); setPrefix(""); setSchedule("0"); setSelectedVendorIds(new Set());
+      setName(""); setPrefix(""); setSchedule("0"); setCliToSend(""); setSelectedVendorIds(new Set());
       toast({ title: "Job created", description: "Route test job scheduled" });
       onCreated();
     },
@@ -229,6 +322,19 @@ function NewJobDialog({ onCreated }: { onCreated: () => void }) {
               value={prefix}
               onChange={e => setPrefix(e.target.value)}
             />
+          </div>
+          <div>
+            <Label htmlFor="job-cli">CLI to Send (optional)</Label>
+            <Input
+              id="job-cli"
+              data-testid="input-cli-to-send"
+              placeholder="e.g. 441234567890"
+              value={cliToSend}
+              onChange={e => setCliToSend(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              If set, the received CLI in the CDR will be compared to this value. Leave blank to skip CLI verification.
+            </p>
           </div>
           <div>
             <Label>Vendors to Test</Label>
@@ -291,6 +397,7 @@ function NewJobDialog({ onCreated }: { onCreated: () => void }) {
                 vendorIds:   selectedVendors.map(v => String(v.i_vendor)),
                 scheduleMinutes: Number(schedule),
                 enabled: true,
+                cliToSend: cliToSend.trim() || undefined,
               })}
             >
               {createMut.isPending ? "Creating…" : "Create Job"}
@@ -339,6 +446,7 @@ export default function AiRouteCopilotPage() {
           qc.invalidateQueries({ queryKey: ["/api/route-tests/results", msg.jobId] });
           qc.invalidateQueries({ queryKey: ["/api/route-tests/results", null] });
           qc.invalidateQueries({ queryKey: ["/api/route-tests/evidence"] });
+          qc.invalidateQueries({ queryKey: ["/api/route-tests/cli-health"] });
         }
       } catch { /* ignore parse errors */ }
     };
@@ -360,6 +468,7 @@ export default function AiRouteCopilotPage() {
       qc.invalidateQueries({ queryKey: ["/api/route-tests/jobs"] });
       qc.invalidateQueries({ queryKey: ["/api/route-tests/results", jobId] });
       qc.invalidateQueries({ queryKey: ["/api/route-tests/evidence"] });
+      qc.invalidateQueries({ queryKey: ["/api/route-tests/cli-health"] });
       toast({ title: "Test executed", description: "Route test fired — results updating…" });
     },
     onError: (e: any) => toast({ title: "Execution failed", description: e.message, variant: "destructive" }),
@@ -386,6 +495,11 @@ export default function AiRouteCopilotPage() {
   const filteredResults = selectedJobId
     ? results.filter(r => r.jobId === selectedJobId)
     : results;
+
+  // Detect if any displayed results have CLI verification data
+  const hasCliResults = filteredResults.some(r => r.cliSent != null);
+  // Count mismatches for the warning banner
+  const cliMismatches = filteredResults.filter(r => r.cliMatch === "mismatch").length;
 
   return (
     <div className="p-6 space-y-6">
@@ -426,11 +540,25 @@ export default function AiRouteCopilotPage() {
                     Recent SIP codes: {ev.recentSipCodes.join(", ")}
                   </div>
                 )}
+                {/* CLI integrity mini-indicator on evidence cards */}
+                {ev.cliVerifiedCount > 0 && (
+                  <div className="flex items-center gap-1 text-xs">
+                    {ev.cliMismatchCount > 0
+                      ? <><ShieldAlert className="h-3 w-3 text-red-400" /><span className="text-red-400">{ev.cliMismatchCount} CLI mismatch</span></>
+                      : ev.cliMatchRate === 100
+                      ? <><ShieldCheck className="h-3 w-3 text-emerald-400" /><span className="text-emerald-400">CLI OK</span></>
+                      : <><ShieldCheck className="h-3 w-3 text-muted-foreground" /><span className="text-muted-foreground">CLI {ev.cliMatchRate ?? "?"}%</span></>
+                    }
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      {/* CLI Health summary (7-day) */}
+      <CliHealthCard />
 
       {/* Job list */}
       <Card>
@@ -455,6 +583,7 @@ export default function AiRouteCopilotPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Prefix</TableHead>
                   <TableHead>Vendors</TableHead>
+                  <TableHead>CLI Probe</TableHead>
                   <TableHead>Schedule</TableHead>
                   <TableHead>Last Tested</TableHead>
                   <TableHead>Status</TableHead>
@@ -477,6 +606,12 @@ export default function AiRouteCopilotPage() {
                         {job.vendorNames.length > 0
                           ? job.vendorNames.join(", ")
                           : <span className="text-muted-foreground text-xs">Default routing</span>
+                        }
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {job.cliToSend
+                          ? <span className="text-blue-400">{job.cliToSend}</span>
+                          : <span className="text-muted-foreground">—</span>
                         }
                       </TableCell>
                       <TableCell>{scheduleBadge(job.scheduleMinutes)}</TableCell>
@@ -560,6 +695,15 @@ export default function AiRouteCopilotPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {/* CLI mismatch alert */}
+          {cliMismatches > 0 && (
+            <div className="mb-3 flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2" data-testid="alert-cli-mismatch">
+              <ShieldAlert className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+              <p className="text-sm text-red-300">
+                <span className="font-medium">{cliMismatches} CLI mismatch{cliMismatches !== 1 ? "es" : ""}</span> detected in these results — vendors may be stripping or rewriting the originating CLI.
+              </p>
+            </div>
+          )}
           {resultsLoading ? (
             <div className="text-sm text-muted-foreground py-4 text-center">Loading results…</div>
           ) : filteredResults.length === 0 ? (
@@ -576,6 +720,9 @@ export default function AiRouteCopilotPage() {
                   <TableHead>Connected</TableHead>
                   <TableHead>SIP Code</TableHead>
                   <TableHead>PDD</TableHead>
+                  {hasCliResults && <TableHead>CLI Sent</TableHead>}
+                  {hasCliResults && <TableHead>CLI Rcvd</TableHead>}
+                  {hasCliResults && <TableHead>CLI</TableHead>}
                   <TableHead>Notes</TableHead>
                 </TableRow>
               </TableHeader>
@@ -600,6 +747,26 @@ export default function AiRouteCopilotPage() {
                         : "—"
                       }
                     </TableCell>
+                    {hasCliResults && (
+                      <TableCell className="font-mono text-xs text-muted-foreground" data-testid={`cli-sent-${r.id}`}>
+                        {r.cliSent ?? "—"}
+                      </TableCell>
+                    )}
+                    {hasCliResults && (
+                      <TableCell className="font-mono text-xs" data-testid={`cli-received-${r.id}`}>
+                        {r.cliReceived
+                          ? <span className={r.cliMatch === "mismatch" ? "text-red-400" : r.cliMatch === "match" ? "text-emerald-400" : "text-muted-foreground"}>
+                              {r.cliReceived}
+                            </span>
+                          : <span className="text-muted-foreground">—</span>
+                        }
+                      </TableCell>
+                    )}
+                    {hasCliResults && (
+                      <TableCell data-testid={`cli-match-${r.id}`}>
+                        {cliMatchBadge(r.cliMatch, r.cliSent)}
+                      </TableCell>
+                    )}
                     <TableCell className="text-xs text-muted-foreground max-w-48 truncate" title={r.notes ?? ""}>
                       {r.notes ?? "—"}
                     </TableCell>
@@ -620,7 +787,10 @@ export default function AiRouteCopilotPage() {
               <p className="text-sm font-medium text-violet-300">Copilot Integration Active</p>
               <p className="text-xs text-muted-foreground mt-1">
                 {evidence.filter(e => e.passRate < 80).length} vendor route(s) are failing proactive tests.
-                These signals are now included in AI Route Copilot recommendations as "proactive test evidence."
+                {evidence.some(e => e.cliMismatchCount > 0) && (
+                  <> CLI mismatches detected on {evidence.filter(e => e.cliMismatchCount > 0).length} vendor(s) — included in AI recommendations.</>
+                )}
+                {" "}These signals are included in AI Route Copilot recommendations as "proactive test evidence."
               </p>
             </div>
           </CardContent>

@@ -26,6 +26,24 @@ function sippyPortalUrl(s: NonNullable<SippySettings>): string {
   return ((s as any).portalUrl as string | undefined) || 'https://191.101.30.107';
 }
 
+// ── CDR lookup hook (injected from routes.ts which owns the cdrCache) ────────
+// Used for CLI verification: after a test call, we probe the CDR cache for the
+// matching entry and extract the `cli` field to compare against what was sent.
+// callId is the SIP Call-ID from makeTestCall — used as primary match key.
+// Falls back to exact CLD + time-window matching when callId is unavailable.
+type CdrLookupFn = (opts: {
+  callId?: string;
+  cld: string;
+  afterMs: number;
+  windowMs: number;
+}) => Promise<{ cli?: string } | null>;
+
+let _cdrLookupFn: CdrLookupFn | null = null;
+
+export function setCdrLookupForCliVerification(fn: CdrLookupFn): void {
+  _cdrLookupFn = fn;
+}
+
 // ── Job scheduler state ─────────────────────────────────────────────────────
 let _schedulerTimer: NodeJS.Timeout | null = null;
 let _running = false;
@@ -75,10 +93,6 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
   }
 
   // ── Pre-loop connectivity pre-flight ─────────────────────────────────────
-  // Use a lightweight system.listMethods probe (zero-cost, no real call) to
-  // detect if Sippy XML-RPC is reachable before iterating vendors.
-  // If unreachable: update scheduling timestamps only — do NOT insert failed
-  // quality results that would corrupt route health signals.
   const sippyReachable = await sippy.testSippyConnectivity(username, password, portalUrl)
     .catch(() => false);
 
@@ -92,6 +106,11 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
       .where(eq(routeTestJobs.id, jobId));
     return { ran: 0, failed: 0 };
   }
+
+  // ── CLI verification config ────────────────────────────────────────────────
+  // Use the job's configured CLI if set, otherwise fall back to '100'.
+  const cliToSend = job.cliToSend?.trim() || '100';
+  const wantCliVerification = !!(job.cliToSend?.trim());
 
   let ran = 0; let failed = 0;
   const resultIds: number[] = [];
@@ -107,15 +126,14 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
     let notes: string | undefined;
     let rawResponse: any;
 
+    // CLI verification fields
+    let cliReceived: string | undefined;
+    let cliMatch: string | undefined;
+
     try {
       const cld = job.destinationPrefix;
-      // makeTestCall: initiates call, polls listActiveCalls to measure real PDD + ACD.
-      // Routing through a specific vendor is determined by Sippy's LCR plan for this CLD.
-      // The job's vendor list is an organizational label for attribution — it identifies
-      // which vendor route is expected to carry this destination prefix per the routing plan.
-      // Sippy's makeCall XML-RPC does not expose a per-vendor selector; routing follows LCR.
       const result = await sippy.makeTestCall(username, password, {
-        cli: '100',
+        cli: cliToSend,
         cld,
         maxDuration: 10,
       }, portalUrl);
@@ -125,9 +143,6 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
         continue;
       }
 
-      // actualVendorName is extracted from VENDOR_NAME in the listActiveCalls XML struct —
-      // this is Sippy's authoritative record of which carrier handled the call.
-      // vendor.name is the expected/target vendor set when the job was created.
       const resolvedVendorName = result.actualVendorName || vendor.name;
       const resolvedVendorId   = result.actualVendorId   || vendor.id;
 
@@ -150,6 +165,36 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
           ? ` (via ${result.actualVendorName}, expected ${vendor.name})`
           : ` via ${resolvedVendorName}`;
         notes = `Connected${vendorNote}${acdNote}, PDD ${pddMs}ms`;
+
+        // ── CLI verification: probe CDR cache for received CLI ───────────────
+        if (wantCliVerification && _cdrLookupFn) {
+          try {
+            // Allow 5s for the CDR to appear in the cache after the call ends
+            await new Promise(r => setTimeout(r, 3000));
+            const cdrHit = await _cdrLookupFn({
+              callId:   result.callId,        // primary: exact SIP Call-ID match
+              cld:      job.destinationPrefix, // fallback: exact CLD + time window
+              afterMs:  startMs - 2000,        // allow 2s pre-call tolerance
+              windowMs: 90_000,                // search within 90s of call start
+            });
+            if (cdrHit?.cli) {
+              cliReceived = cdrHit.cli;
+              // Normalise both sides: strip leading + for comparison
+              const normSent = cliToSend.replace(/^\+/, '').replace(/\s/g, '');
+              const normRecv = cliReceived.replace(/^\+/, '').replace(/\s/g, '');
+              cliMatch = normSent === normRecv ? 'match' : 'mismatch';
+              console.log(`[route-tester] job=${jobId} vendor=${vendor.name} CLI ${cliToSend}→${cliReceived} = ${cliMatch}`);
+            } else {
+              cliMatch = 'unknown';
+              console.log(`[route-tester] job=${jobId} vendor=${vendor.name} CLI capture: no CDR found within window`);
+            }
+          } catch (cliErr: any) {
+            cliMatch = 'unknown';
+            console.warn(`[route-tester] CLI verification probe failed (non-fatal):`, cliErr.message);
+          }
+        } else if (wantCliVerification) {
+          cliMatch = 'unknown'; // CDR lookup not available
+        }
       } else {
         connected = false;
         sipCode   = result.sipCode ?? 503;
@@ -158,6 +203,8 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
         else if (sipCode === 501) notes = `Call origination not available (expected ${vendor.name})`;
         else if (sipCode === 408) notes = `No active-call confirmation received — listActiveCalls may be restricted (expected ${vendor.name})`;
         else notes = `Call failed SIP ${sipCode} (expected ${vendor.name})`;
+        // CLI verification only possible on connected calls
+        if (wantCliVerification) cliMatch = 'unknown';
       }
       ran++;
     } catch (err: any) {
@@ -165,10 +212,10 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
       sipCode   = 500;
       notes     = err.message;
       rawResponse = { error: err.message, _targetVendor: vendor.name };
+      if (wantCliVerification) cliMatch = 'unknown';
       failed++;
     }
 
-    // resolvedVendorName/Id: prefer actual carrier from Sippy telemetry, fall back to target label
     const finalVendorName = (rawResponse as any)?._actualVendor || vendor.name;
     const finalVendorId   = (rawResponse as any)?._actualVendorId || vendor.id;
 
@@ -182,13 +229,16 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
       sipCode,
       pddMs,
       durationMs,
+      cliSent:     wantCliVerification ? cliToSend : undefined,
+      cliReceived: cliReceived ?? undefined,
+      cliMatch:    cliMatch ?? undefined,
       notes,
       rawResponse,
     }).returning({ id: routeTestResults.id });
 
     if (inserted) resultIds.push(inserted.id);
 
-    console.log(`[route-tester] job=${jobId} vendor=${vendor.name} cld=${job.destinationPrefix} connected=${connected} sip=${sipCode} pdd=${pddMs}ms`);
+    console.log(`[route-tester] job=${jobId} vendor=${vendor.name} cld=${job.destinationPrefix} connected=${connected} sip=${sipCode} pdd=${pddMs}ms cli=${cliMatch ?? 'n/a'}`);
   }
 
   // Update job timestamps
@@ -262,6 +312,11 @@ export interface RouteTestEvidence {
   recentSipCodes: number[];
   avgPddMs: number | null;
   passRate: number;
+  cliVerifiedCount: number;
+  cliMatchCount: number;
+  cliMismatchCount: number;
+  cliUnknownCount: number;
+  cliMatchRate: number | null;
 }
 
 export async function loadRouteTestEvidence(sinceHours = 6): Promise<RouteTestEvidence[]> {
@@ -290,6 +345,14 @@ export async function loadRouteTestEvidence(sinceHours = 6): Promise<RouteTestEv
     const avgPdd   = pddVals.length > 0 ? Math.round(pddVals.reduce((a, b) => a + b, 0) / pddVals.length) : null;
     const sipCodes = [...new Set(rows.filter(r => r.sipCode).map(r => r.sipCode as number))].slice(0, 5);
 
+    // CLI verification stats
+    const cliRows       = rows.filter(r => r.cliSent != null);
+    const cliMatchCount   = cliRows.filter(r => r.cliMatch === 'match').length;
+    const cliMismatchCount = cliRows.filter(r => r.cliMatch === 'mismatch').length;
+    const cliUnknownCount  = cliRows.filter(r => r.cliMatch === 'unknown').length;
+    const cliResolved      = cliMatchCount + cliMismatchCount;
+    const cliMatchRate     = cliResolved > 0 ? Math.round((cliMatchCount / cliResolved) * 100) : null;
+
     evidence.push({
       jobId:       first.jobId ?? 0,
       jobName:     job?.name ?? 'Unknown',
@@ -301,8 +364,67 @@ export async function loadRouteTestEvidence(sinceHours = 6): Promise<RouteTestEv
       recentSipCodes: sipCodes,
       avgPddMs:    avgPdd,
       passRate:    rows.length > 0 ? Math.round((success / rows.length) * 100) : 0,
+      cliVerifiedCount: cliRows.length,
+      cliMatchCount,
+      cliMismatchCount,
+      cliUnknownCount,
+      cliMatchRate,
     });
   }
 
   return evidence.sort((a, b) => a.passRate - b.passRate);
+}
+
+// ── CLI Health per-vendor (7-day window) ────────────────────────────────────
+export interface CliHealthEntry {
+  vendorName: string;
+  total: number;
+  matched: number;
+  mismatched: number;
+  unknown: number;
+  matchRate: number | null;
+}
+
+export async function loadCliHealthSummary(): Promise<CliHealthEntry[]> {
+  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60_000);
+  const rows = await db.select().from(routeTestResults)
+    .where(
+      and(
+        gte(routeTestResults.startedAt, since7d),
+        // Only rows where CLI verification was enabled (cliSent is set)
+      )
+    )
+    .orderBy(desc(routeTestResults.startedAt));
+
+  // Filter to only rows where CLI verification was configured
+  const cliRows = rows.filter(r => r.cliSent != null);
+
+  const byVendor = new Map<string, { matched: number; mismatched: number; unknown: number }>();
+  for (const r of cliRows) {
+    const v = r.vendorName ?? 'Unknown';
+    if (!byVendor.has(v)) byVendor.set(v, { matched: 0, mismatched: 0, unknown: 0 });
+    const entry = byVendor.get(v)!;
+    if (r.cliMatch === 'match')    entry.matched++;
+    else if (r.cliMatch === 'mismatch') entry.mismatched++;
+    else entry.unknown++;
+  }
+
+  const result: CliHealthEntry[] = [];
+  for (const [vendorName, counts] of byVendor) {
+    const resolved = counts.matched + counts.mismatched;
+    result.push({
+      vendorName,
+      total:      counts.matched + counts.mismatched + counts.unknown,
+      matched:    counts.matched,
+      mismatched: counts.mismatched,
+      unknown:    counts.unknown,
+      matchRate:  resolved > 0 ? Math.round((counts.matched / resolved) * 100) : null,
+    });
+  }
+
+  return result.sort((a, b) => {
+    // Sort by mismatch count desc, then matchRate asc (worst first)
+    if (b.mismatched !== a.mismatched) return b.mismatched - a.mismatched;
+    return (a.matchRate ?? 100) - (b.matchRate ?? 100);
+  });
 }

@@ -9,13 +9,14 @@
  * GET  /api/route-tests/results          — list results (optional ?jobId=&limit=)
  * GET  /api/route-tests/evidence         — Copilot test evidence summary
  * GET  /api/route-tests/trend            — hourly pass-rate time series for 24h (?jobId=&vendorName=)
+ * GET  /api/route-tests/cli-health       — 7-day CLI integrity pass rate per vendor
  */
 
 import type { Express } from "express";
 import { db } from "./db";
 import { routeTestJobs, routeTestResults } from "../shared/schema";
 import { eq, desc, and, gte } from "drizzle-orm";
-import { executeRouteTestJob, loadRouteTestEvidence } from "./services/route-tester";
+import { executeRouteTestJob, loadRouteTestEvidence, loadCliHealthSummary } from "./services/route-tester";
 
 type RequireRoleFn = (roles: string[], req: any, res: any, next: any) => void;
 
@@ -38,7 +39,7 @@ export function registerRouteTestRoutes(app: Express, requireRole: RequireRoleFn
     (req: any, res: any, next: any) => requireRole(["admin", "management", "routing_admin"], req, res, next),
     async (req: any, res: any) => {
       try {
-        const { name, destinationPrefix, vendorIds, vendorNames, scheduleMinutes, enabled } = req.body ?? {};
+        const { name, destinationPrefix, vendorIds, vendorNames, scheduleMinutes, enabled, cliToSend } = req.body ?? {};
         if (!name || !destinationPrefix) {
           return res.status(400).json({ success: false, error: "name and destinationPrefix are required" });
         }
@@ -52,6 +53,7 @@ export function registerRouteTestRoutes(app: Express, requireRole: RequireRoleFn
           vendorNames:     Array.isArray(vendorNames) ? vendorNames : [],
           scheduleMinutes: schedMins,
           enabled:         enabled !== false,
+          cliToSend:       cliToSend?.trim() || null,
           createdBy:       req.user?.name ?? req.user?.username ?? "system",
           nextRunAt,
         }).returning();
@@ -68,7 +70,7 @@ export function registerRouteTestRoutes(app: Express, requireRole: RequireRoleFn
     async (req: any, res: any) => {
       try {
         const id = Number(req.params.id);
-        const { enabled, scheduleMinutes, name, destinationPrefix, vendorIds, vendorNames } = req.body ?? {};
+        const { enabled, scheduleMinutes, name, destinationPrefix, vendorIds, vendorNames, cliToSend } = req.body ?? {};
         const update: Record<string, any> = {};
         if (enabled !== undefined)         update.enabled = enabled;
         if (scheduleMinutes !== undefined) {
@@ -81,6 +83,7 @@ export function registerRouteTestRoutes(app: Express, requireRole: RequireRoleFn
         if (destinationPrefix !== undefined) update.destinationPrefix = destinationPrefix;
         if (vendorIds !== undefined)         update.vendorIds = vendorIds;
         if (vendorNames !== undefined)       update.vendorNames = vendorNames;
+        if (cliToSend !== undefined)         update.cliToSend = cliToSend?.trim() || null;
 
         const [job] = await db.update(routeTestJobs).set(update).where(eq(routeTestJobs.id, id)).returning();
         if (!job) return res.status(404).json({ success: false, error: "Job not found" });
@@ -142,7 +145,6 @@ export function registerRouteTestRoutes(app: Express, requireRole: RequireRoleFn
     });
 
   // ── GET /api/route-tests/evidence ────────────────────────────────────────
-  // Returns aggregated test evidence for Copilot and UI sparklines
   app.get("/api/route-tests/evidence",
     (req: any, res: any, next: any) => requireRole(["admin", "management", "routing_admin", "noc_operator"], req, res, next),
     async (req: any, res: any) => {
@@ -155,11 +157,20 @@ export function registerRouteTestRoutes(app: Express, requireRole: RequireRoleFn
       }
     });
 
+  // ── GET /api/route-tests/cli-health ──────────────────────────────────────
+  // Returns 7-day CLI integrity pass rate per vendor (only for jobs with cliToSend set).
+  app.get("/api/route-tests/cli-health",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "routing_admin", "noc_operator"], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const data = await loadCliHealthSummary();
+        res.json({ success: true, data });
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
+    });
+
   // ── GET /api/route-tests/trend ────────────────────────────────────────────
-  // Returns hourly pass-rate buckets over the past 24h.
-  // Optional query params: jobId (number), vendorName (string)
-  // Response: { success, data: Array<{ hour: string, passRate: number, total: number, passed: number }> }
-  // "hour" is an ISO string for the start of the 1-hour bucket (UTC).
   app.get("/api/route-tests/trend",
     (req: any, res: any, next: any) => requireRole(["admin", "management", "routing_admin", "noc_operator"], req, res, next),
     async (req: any, res: any) => {
@@ -176,12 +187,10 @@ export function registerRouteTestRoutes(app: Express, requireRole: RequireRoleFn
           .where(and(...conditions))
           .orderBy(desc(routeTestResults.startedAt));
 
-        // Filter by vendorName in JS (avoids SQL ILIKE dependency)
         const filtered = vendorName
           ? rows.filter(r => r.vendorName?.toLowerCase() === vendorName.toLowerCase())
           : rows;
 
-        // Build hourly buckets (newest → oldest, then reverse for chronological order)
         const buckets = new Map<string, { passed: number; total: number }>();
         const nowHour = new Date();
         nowHour.setMinutes(0, 0, 0);
@@ -194,7 +203,7 @@ export function registerRouteTestRoutes(app: Express, requireRole: RequireRoleFn
           const d = new Date(r.startedAt);
           d.setMinutes(0, 0, 0);
           const key = d.toISOString();
-          if (!buckets.has(key)) continue; // outside window
+          if (!buckets.has(key)) continue;
           const b = buckets.get(key)!;
           b.total++;
           if (r.connected) b.passed++;

@@ -32022,10 +32022,54 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── Route Testing Engine ─────────────────────────────────────────────────────
   registerRouteTestRoutes(app, requireRole);
-  const { initRouteTestScheduler, setRouteTestBroadcast } = await import("./services/route-tester");
+  const { initRouteTestScheduler, setRouteTestBroadcast, setCdrLookupForCliVerification } = await import("./services/route-tester");
   setRouteTestBroadcast((event, data) => {
     if (event === 'route-test:completed') {
       broadcastRouteTestEvent({ jobId: data.jobId, ran: data.ran, failed: data.failed, resultIds: data.resultIds });
+    }
+  });
+  // Inject CDR cache lookup for CLI verification.
+  // Strategy: exact SIP Call-ID match first (strongest correlation), then
+  // strict fallback (exact CLD + time window) when callId is unavailable.
+  setCdrLookupForCliVerification(async ({ callId, cld, afterMs, windowMs }) => {
+    try {
+      const beforeMs = afterMs + windowMs;
+
+      // ── Primary: exact SIP Call-ID lookup ─────────────────────────────────
+      if (callId && callId !== 'unknown') {
+        const cdrByCallId = cdrCache.get(callId);
+        if (cdrByCallId) {
+          const cli = (cdrByCallId as any).cli ?? (cdrByCallId as any).number_a ?? undefined;
+          if (cli) return { cli: String(cli) };
+        }
+        // Also scan values in case the cache key uses a composite key for this callId
+        for (const c of cdrCache.values()) {
+          const cdrCallId = (c as any).callId ?? (c as any).call_id ?? '';
+          if (cdrCallId === callId) {
+            const cli = (c as any).cli ?? (c as any).number_a ?? undefined;
+            if (cli) return { cli: String(cli) };
+          }
+        }
+      }
+
+      // ── Fallback: exact CLD match + strict time window ─────────────────────
+      // Use exact numeric CLD match (not prefix) to avoid false matches under
+      // concurrent live traffic to similar destination prefixes.
+      const cldDigits = String(cld).replace(/\D/g, '');
+      for (const c of cdrCache.values()) {
+        const ts = cdrTs(c);
+        if (!ts) continue;
+        const cdrTime = new Date(ts).getTime();
+        if (cdrTime < afterMs || cdrTime > beforeMs) continue;
+        const cdrCld = String((c as any).cld ?? (c as any).number_b ?? '').replace(/\D/g, '');
+        // Exact CLD match (not prefix-based) to prevent cross-call contamination
+        if (cdrCld !== cldDigits) continue;
+        const cli = (c as any).cli ?? (c as any).number_a ?? undefined;
+        if (cli) return { cli: String(cli) };
+      }
+      return null;
+    } catch {
+      return null;
     }
   });
   initRouteTestScheduler();

@@ -2227,7 +2227,7 @@ export async function makeTestCall(
   password: string,
   opts: { cld: string; cli?: string; maxDuration?: number; iAccount?: number; billingCode?: string },
   explicitPortalUrl?: string,
-): Promise<{ connected: boolean; sipCode?: number; duration?: number; pdd?: number; actualVendorName?: string; actualVendorId?: string } | null> {
+): Promise<{ connected: boolean; sipCode?: number; duration?: number; pdd?: number; actualVendorName?: string; actualVendorId?: string; callId?: string } | null> {
   const cli           = opts.cli ?? '100';
   const cld           = opts.cld;
   const maxDuration   = opts.maxDuration ?? 10; // seconds
@@ -2351,6 +2351,7 @@ export async function makeTestCall(
     duration,
     actualVendorName,
     actualVendorId,
+    callId: callId && callId !== 'unknown' ? callId : undefined,
   };
 }
 
