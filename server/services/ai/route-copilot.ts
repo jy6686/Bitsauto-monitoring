@@ -29,6 +29,7 @@ import {
 } from "../../../shared/schema";
 import { desc, eq, gte, and, sql } from "drizzle-orm";
 import { loadSipErrorSnapshot, CODE_LABELS, type SipErrorSnapshot } from "./sip-error-aggregator";
+import { getCopilotVendorSignals } from "../../route-intelligence-engine";
 
 // ── Error type ─────────────────────────────────────────────────────────────────
 
@@ -476,7 +477,7 @@ export async function runRouteCopilot(
 
   // ── Load all telemetry in parallel ─────────────────────────────────────────
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles, sipErrors] = await Promise.all([
+  const [allScores, pendingSuggestions, fraudProfiles, marginProfiles, sipErrors, snapshotSignals] = await Promise.all([
     db.select().from(carrierQualityScores).orderBy(desc(carrierQualityScores.lastComputedAt)),
     db.select().from(routingSuggestions).where(
       and(eq(routingSuggestions.status, "pending"), gte(routingSuggestions.createdAt, since6h))
@@ -484,7 +485,32 @@ export async function runRouteCopilot(
     loadFraudProfilesPerVendor(since24h),
     loadMarginProfilesPerVendor(since7d),  // 7-day window for more stable margin signal
     loadSipErrorSnapshot().catch(() => [] as SipErrorSnapshot[]),
+    getCopilotVendorSignals().catch(() => new Map()), // route quality snapshots — non-fatal
   ]);
+
+  // Merge snapshot signals into carrier scores to improve copilot accuracy.
+  // For each carrier, if the CDR-based ASR snapshot diverges significantly from
+  // the stored synthetic-test score, override the working score with the real-traffic
+  // value so the rule engine and OpenAI prompt see live traffic quality.
+  const enrichmentLog: string[] = [];
+  if (snapshotSignals.size > 0) {
+    for (const score of allScores) {
+      const signal = snapshotSignals.get(score.carrierName);
+      if (!signal || signal.asr == null || signal.callCount < 10) continue;
+      const storedAsr = score.rollingAsr ?? 100;
+      const delta = Math.abs(storedAsr - signal.asr);
+      if (delta >= 10) {
+        // CDR-based signal diverges ≥10pp — use the real-traffic ASR for rule engine
+        (score as any).rollingAsr = signal.asr;
+        enrichmentLog.push(`${score.carrierName}: asr ${storedAsr.toFixed(1)}→${signal.asr.toFixed(1)} (${signal.callCount} live calls)`);
+      }
+    }
+    if (enrichmentLog.length > 0) {
+      console.log(`[copilot] snapshot enrichment applied to ${enrichmentLog.length} carrier(s): ${enrichmentLog.join("; ")}`);
+    } else {
+      console.debug(`[copilot] snapshot signals loaded (${snapshotSignals.size} vendors); no divergence ≥10pp`);
+    }
+  }
 
   // Deduplicate scores: latest 24h score per carrier
   const latestByCarrier = new Map<string, CarrierRow>();

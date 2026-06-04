@@ -3395,3 +3395,27 @@ export const sipErrorStats = pgTable("sip_error_stats", {
   destPrefix:    varchar("dest_prefix",     { length: 12 }),
 });
 export type SipErrorStat = typeof sipErrorStats.$inferSelect;
+
+// ── Route Quality Snapshots — 15-min rolling aggregation of CDR cache ─────────
+// Persists per-vendor, per-prefix quality metrics so the AI Copilot and
+// Route Intelligence UI can query pre-computed signals without re-processing
+// the entire CDR cache on demand.
+// Index: (vendor_id, prefix, window_hours, computed_at) for fast time-windowed lookups.
+export const routeQualitySnapshots = pgTable("route_quality_snapshots", {
+  id:            serial("id").primaryKey(),
+  vendorId:      varchar("vendor_id",    { length: 64  }).notNull(),  // iVendor or vendor name key
+  vendorName:    varchar("vendor_name",  { length: 128 }).notNull(),
+  prefix:        varchar("prefix",       { length: 32  }).notNull(),  // E.164 prefix or '__all__' for vendor-level
+  windowHours:   integer("window_hours").notNull(),                   // 1 | 4 | 24
+  computedAt:    timestamp("computed_at").notNull().defaultNow(),
+  callCount:     integer("call_count").notNull().default(0),
+  answeredCount: integer("answered_count").notNull().default(0),
+  asr:           real("asr"),              // answered / call_count × 100
+  acdSeconds:    real("acd_seconds"),      // avg duration of answered calls
+  pddMs:         real("pdd_ms"),           // avg post-dial delay in ms (null if not available)
+  totalCostUsd:  real("total_cost_usd"),   // vendor cost (from Mera enrichment)
+  revenueUsd:    real("revenue_usd"),      // gross revenue (CDR cost field = customer billing)
+  marginUsd:     real("margin_usd"),       // margin = revenue - vendor cost
+});
+export type RouteQualitySnapshot = typeof routeQualitySnapshots.$inferSelect;
+export type InsertRouteQualitySnapshot = typeof routeQualitySnapshots.$inferInsert;

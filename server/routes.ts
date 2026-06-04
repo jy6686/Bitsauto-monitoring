@@ -61,6 +61,13 @@ import { computeMOS, estimateMOSFromPDD, mosToGrade } from "./mos";
 import { runCorrelationEngine } from "./aiops/correlation-engine";
 import { initSyntheticScheduler, computeInitialNextRunAt } from "./synthetic-scheduler";
 import { initCarrierScoringEngine, recomputeCarrierScores, setCdrProvider } from "./carrier-scoring-engine";
+import {
+  runRouteIntelligenceAggregation,
+  queryVendorSummary,
+  queryVendorPrefixes,
+  queryVendorTrend,
+  getRouteIntelligenceLastRun,
+} from "./route-intelligence-engine";
 import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql } from "drizzle-orm";
@@ -6389,6 +6396,13 @@ export async function registerRoutes(
   // Does NOT call Sippy — only re-aggregates existing in-memory data.
   setInterval(() => computeAndBroadcastLiveTraffic(), 30 * 1000);
 
+  // Route Intelligence aggregation — runs every 15 minutes, no Sippy calls.
+  // Reads in-memory cdrCache and writes quality snapshots to DB.
+  const _runRouteIntelligence = () =>
+    runRouteIntelligenceAggregation([...cdrCache.values()] as any[]);
+  setTimeout(_runRouteIntelligence, 3 * 60 * 1000);   // first run 3 min after boot
+  setInterval(_runRouteIntelligence, 15 * 60 * 1000); // then every 15 min
+
   // GET /api/live-traffic/snapshot — initial load for the Live Traffic page
   app.get('/api/live-traffic/snapshot', (req: any, res: any, next: any) =>
     requireRole(['admin', 'management', 'noc_operator', 'viewer', 'team_lead', 'super_admin'], req, res, next),
@@ -6403,6 +6417,75 @@ export async function registerRoutes(
         res.status(500).json({ error: e.message });
       }
     }
+  );
+
+  // ── Route Intelligence API ──────────────────────────────────────────────────
+
+  // GET /api/route-intelligence/last-updated — freshness badge
+  app.get('/api/route-intelligence/last-updated',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
+    (_req: any, res: any) => {
+      const lastRun = getRouteIntelligenceLastRun();
+      res.json({ lastUpdatedAt: lastRun ? lastRun.toISOString() : null });
+    },
+  );
+
+  // GET /api/route-intelligence/vendor-summary?window=4h — ranked vendor list
+  app.get('/api/route-intelligence/vendor-summary',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const windowParam = String(req.query.window ?? '4h');
+        const windowHours = windowParam === '1h' ? 1 : windowParam === '24h' ? 24 : 4;
+        const vendors = await queryVendorSummary(windowHours);
+        res.json({ vendors, windowHours, lastUpdatedAt: getRouteIntelligenceLastRun()?.toISOString() ?? null });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    },
+  );
+
+  // GET /api/route-intelligence/vendor/:id/prefixes?window=4h — prefix breakdown
+  app.get('/api/route-intelligence/vendor/:id/prefixes',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const vendorId = req.params.id;
+        const windowParam = String(req.query.window ?? '4h');
+        const windowHours = windowParam === '1h' ? 1 : windowParam === '24h' ? 24 : 4;
+        const prefixes = await queryVendorPrefixes(vendorId, windowHours);
+        res.json({ vendorId, prefixes, windowHours });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    },
+  );
+
+  // GET /api/route-intelligence/vendor/:id/trend — 24h hourly ASR sparkline
+  app.get('/api/route-intelligence/vendor/:id/trend',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const vendorId = req.params.id;
+        const trend = await queryVendorTrend(vendorId);
+        res.json({ vendorId, trend });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    },
+  );
+
+  // POST /api/route-intelligence/trigger — manual snapshot run (admin only)
+  app.post('/api/route-intelligence/trigger',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        runRouteIntelligenceAggregation([...cdrCache.values()] as any[]);
+        res.json({ ok: true, message: 'Aggregation triggered — results in ~30s' });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    },
   );
 
   // GET /api/sippy/cdr/graphs — pre-aggregated CDR data for charts

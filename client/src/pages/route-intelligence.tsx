@@ -8,6 +8,7 @@ import {
   ShieldAlert, PlayCircle, Loader2, RotateCcw, History, Clock,
   UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown, Search,
   Download, CalendarDays, Bell, TimerOff, Radio, LayoutGrid,
+  Database, BarChart3, ChevronUp as ChevUp, SlidersHorizontal,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -2386,15 +2387,430 @@ function RollbackHistoryPanel() {
   );
 }
 
-// ── Tabs ──────────────────────────────────────────────────────────────────────
+// ── CDR Route Intelligence Analytics Panel ─────────────────────────────────────
+
+type RiWindow = "1h" | "4h" | "24h";
+
+interface VendorRow {
+  vendorId: string;
+  vendorName: string;
+  windowHours: number;
+  callCount: number;
+  answeredCount: number;
+  asr: number | null;
+  acdSeconds: number | null;
+  pddMs: number | null;
+  totalCostUsd: number | null;
+  revenueUsd: number | null;
+  marginUsd: number | null;
+  computedAt: string;
+}
+
+interface PrefixRow {
+  prefix: string;
+  callCount: number;
+  answeredCount: number;
+  asr: number | null;
+  acdSeconds: number | null;
+  pddMs: number | null;
+  totalCostUsd: number | null;
+  revenueUsd: number | null;
+  marginUsd: number | null;
+}
+
+interface TrendPoint { hour: string; asr: number | null }
+
+function Sparkline({ points }: { points: { asr: number | null }[] }) {
+  const vals = points.map(p => p.asr ?? 0);
+  if (vals.length < 2) return <span className="text-muted-foreground/30 text-xs">—</span>;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const range = max - min || 1;
+  const W = 72, H = 22;
+  const stepX = W / (vals.length - 1);
+  const points2 = vals.map((v, i) => `${i * stepX},${H - ((v - min) / range) * H}`).join(" ");
+  const last = vals[vals.length - 1];
+  const color = last >= 65 ? "#22c55e" : last >= 45 ? "#f59e0b" : "#ef4444";
+  return (
+    <svg width={W} height={H} className="overflow-visible">
+      <polyline fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" points={points2} />
+    </svg>
+  );
+}
+
+function AsrBadge({ asr }: { asr: number | null }) {
+  if (asr == null) return <span className="text-muted-foreground/40">—</span>;
+  const cls = asr >= 65 ? "text-green-600 dark:text-green-400" : asr >= 45 ? "text-amber-500" : "text-red-500";
+  return <span className={cn("font-mono font-bold tabular-nums", cls)}>{asr.toFixed(1)}%</span>;
+}
+
+function relTimeFromIso(iso: string | null) {
+  if (!iso) return "never";
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ago`;
+}
+
+function CdrAnalyticsPanel() {
+  const [window, setWindow] = useState<RiWindow>("4h");
+  const [expandedVendor, setExpandedVendor] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<"callCount" | "asr" | "acdSeconds" | "pddMs" | "marginUsd" | "revenueUsd">("callCount");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const { data: summaryData, isLoading, refetch, isFetching } = useQuery<{
+    vendors: VendorRow[];
+    windowHours: number;
+    lastUpdatedAt: string | null;
+  }>({
+    queryKey: ["/api/route-intelligence/vendor-summary", window],
+    queryFn: () => fetch(`/api/route-intelligence/vendor-summary?window=${window}`).then(r => r.json()),
+    refetchInterval: 15 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: prefixData, isLoading: prefixLoading } = useQuery<{
+    prefixes: PrefixRow[];
+    vendorId: string;
+  }>({
+    queryKey: ["/api/route-intelligence/vendor", expandedVendor, "prefixes", window],
+    queryFn: () => fetch(`/api/route-intelligence/vendor/${expandedVendor}/prefixes?window=${window}`).then(r => r.json()),
+    enabled: expandedVendor != null,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: trendData } = useQuery<{ trend: TrendPoint[] }>({
+    queryKey: ["/api/route-intelligence/vendor", expandedVendor, "trend"],
+    queryFn: () => fetch(`/api/route-intelligence/vendor/${expandedVendor}/trend`).then(r => r.json()),
+    enabled: expandedVendor != null,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const { data: lastUpdated } = useQuery<{ lastUpdatedAt: string | null }>({
+    queryKey: ["/api/route-intelligence/last-updated"],
+    queryFn: () => fetch("/api/route-intelligence/last-updated").then(r => r.json()),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const triggerMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/route-intelligence/trigger").then(r => r.json()),
+    onSuccess: () => setTimeout(() => refetch(), 5000),
+  });
+
+  const vendors = summaryData?.vendors ?? [];
+  const sorted = [...vendors].sort((a, b) => {
+    const av = a[sortKey] ?? (sortDir === "desc" ? -Infinity : Infinity);
+    const bv = b[sortKey] ?? (sortDir === "desc" ? -Infinity : Infinity);
+    return sortDir === "desc" ? (bv as number) - (av as number) : (av as number) - (bv as number);
+  });
+
+  function toggleSort(key: typeof sortKey) {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir("desc"); }
+  }
+
+  const thCls = "px-3 py-2.5 text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap select-none";
+  const thClickCls = cn(thCls, "cursor-pointer hover:text-foreground transition-colors");
+
+  return (
+    <div className="space-y-4">
+      {/* Header row */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-0.5">
+            {(["1h", "4h", "24h"] as RiWindow[]).map(w => (
+              <button
+                key={w}
+                data-testid={`ri-window-${w}`}
+                onClick={() => setWindow(w)}
+                className={cn(
+                  "px-3 py-1 text-xs font-semibold rounded-md transition-all",
+                  window === w
+                    ? "bg-background shadow text-foreground border border-border"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >{w}</button>
+            ))}
+          </div>
+          {lastUpdated?.lastUpdatedAt && (
+            <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              Updated {relTimeFromIso(lastUpdated.lastUpdatedAt)}
+            </span>
+          )}
+          {!lastUpdated?.lastUpdatedAt && (
+            <span className="text-[11px] text-amber-500 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              No snapshots yet
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            data-testid="ri-refresh"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} />
+            Refresh
+          </button>
+          <button
+            data-testid="ri-trigger"
+            onClick={() => triggerMut.mutate()}
+            disabled={triggerMut.isPending}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border border-primary/30 text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+          >
+            {triggerMut.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Database className="h-3 w-3" />}
+            Run Now
+          </button>
+        </div>
+      </div>
+
+      {/* Main table */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-20 text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin mr-3" />
+          <span className="text-sm">Loading snapshots…</span>
+        </div>
+      ) : vendors.length === 0 ? (
+        <div className="rounded-xl border bg-card flex flex-col items-center justify-center py-20 text-center">
+          <Database className="h-10 w-10 mb-3 opacity-20" />
+          <p className="font-semibold text-foreground">No snapshots available</p>
+          <p className="text-sm text-muted-foreground mt-1 max-w-xs">
+            The aggregation engine runs every 15 minutes. Use "Run Now" to trigger an immediate snapshot, or wait for the next scheduled run.
+          </p>
+          <button
+            onClick={() => triggerMut.mutate()}
+            disabled={triggerMut.isPending}
+            className="mt-4 flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-primary/40 text-primary hover:bg-primary/10 transition-colors"
+            data-testid="ri-trigger-empty"
+          >
+            {triggerMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+            Generate First Snapshot
+          </button>
+        </div>
+      ) : (
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[700px]">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className={thCls}>Vendor</th>
+                  <th
+                    className={thClickCls}
+                    onClick={() => toggleSort("callCount")}
+                    data-testid="ri-sort-calls"
+                  >
+                    <span className="flex items-center gap-1">
+                      Calls
+                      {sortKey === "callCount" && (sortDir === "desc" ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />)}
+                    </span>
+                  </th>
+                  <th
+                    className={thClickCls}
+                    onClick={() => toggleSort("asr")}
+                    data-testid="ri-sort-asr"
+                  >
+                    <span className="flex items-center gap-1">
+                      ASR
+                      {sortKey === "asr" && (sortDir === "desc" ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />)}
+                    </span>
+                  </th>
+                  <th
+                    className={thClickCls}
+                    onClick={() => toggleSort("acdSeconds")}
+                    data-testid="ri-sort-acd"
+                  >
+                    <span className="flex items-center gap-1">
+                      ACD (s)
+                      {sortKey === "acdSeconds" && (sortDir === "desc" ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />)}
+                    </span>
+                  </th>
+                  <th
+                    className={thClickCls}
+                    onClick={() => toggleSort("pddMs")}
+                    data-testid="ri-sort-pdd"
+                  >
+                    <span className="flex items-center gap-1">
+                      PDD (ms)
+                      {sortKey === "pddMs" && (sortDir === "desc" ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />)}
+                    </span>
+                  </th>
+                  <th className={thCls}>Cost (USD)</th>
+                  <th
+                    className={thClickCls}
+                    onClick={() => toggleSort("marginUsd")}
+                    data-testid="ri-sort-margin"
+                  >
+                    <span className="flex items-center gap-1">
+                      Margin
+                      {sortKey === "marginUsd" && (sortDir === "desc" ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />)}
+                    </span>
+                  </th>
+                  <th className={thCls}>Trend (24h)</th>
+                  <th className={thCls} />
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((vendor, i) => {
+                  const isExpanded = expandedVendor === vendor.vendorId;
+                  const prefixes = isExpanded ? (prefixData?.prefixes ?? []) : [];
+                  return [
+                    <tr
+                      key={vendor.vendorId}
+                      data-testid={`ri-vendor-row-${i}`}
+                      className={cn(
+                        "border-b border-border/40 transition-colors cursor-pointer",
+                        isExpanded ? "bg-primary/5" : "hover:bg-muted/30",
+                      )}
+                      onClick={() => setExpandedVendor(isExpanded ? null : vendor.vendorId)}
+                    >
+                      <td className="px-3 py-3">
+                        <div className="font-medium text-foreground">{vendor.vendorName}</div>
+                        <div className="text-[10px] text-muted-foreground font-mono">{vendor.answeredCount}/{vendor.callCount} answered</div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className="font-mono tabular-nums">{vendor.callCount.toLocaleString()}</span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <AsrBadge asr={vendor.asr} />
+                      </td>
+                      <td className="px-3 py-3">
+                        {vendor.acdSeconds != null
+                          ? <span className="font-mono tabular-nums">{vendor.acdSeconds.toFixed(0)}s</span>
+                          : <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      <td className="px-3 py-3">
+                        {vendor.pddMs != null
+                          ? <span className={cn("font-mono tabular-nums", vendor.pddMs > 3000 ? "text-amber-500" : "text-foreground")}>
+                              {Math.round(vendor.pddMs)}ms
+                            </span>
+                          : <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      <td className="px-3 py-3">
+                        {vendor.totalCostUsd != null
+                          ? <span className="font-mono tabular-nums text-muted-foreground">${vendor.totalCostUsd.toFixed(2)}</span>
+                          : <span className="text-muted-foreground/40">—</span>}
+                      </td>
+                      <td className="px-3 py-3">
+                        {vendor.marginUsd != null
+                          ? <span className={cn("font-mono tabular-nums", vendor.marginUsd >= 0 ? "text-green-600 dark:text-green-400" : "text-red-500")}>
+                              {vendor.marginUsd >= 0 ? "+" : ""}${vendor.marginUsd.toFixed(2)}
+                            </span>
+                          : <span className="text-muted-foreground/40 text-xs italic">pending</span>}
+                      </td>
+                      <td className="px-3 py-3">
+                        <VendorTrendCell vendorId={vendor.vendorId} expanded={isExpanded} />
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", isExpanded && "rotate-90")} />
+                      </td>
+                    </tr>,
+                    isExpanded && (
+                      <tr key={`${vendor.vendorId}-prefixes`} className="bg-muted/10">
+                        <td colSpan={9} className="px-3 py-0">
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="py-3">
+                              {prefixLoading ? (
+                                <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading prefix breakdown…
+                                </div>
+                              ) : prefixes.length === 0 ? (
+                                <p className="text-xs text-muted-foreground py-2 italic">No prefix data available for this window.</p>
+                              ) : (
+                                <div>
+                                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                                    Prefix Breakdown — {prefixes.length} destination prefixes
+                                  </p>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-xs min-w-[500px]">
+                                      <thead>
+                                        <tr className="text-muted-foreground border-b border-border/30">
+                                          <th className="text-left px-2 py-1.5 font-semibold">Prefix</th>
+                                          <th className="text-left px-2 py-1.5 font-semibold">Calls</th>
+                                          <th className="text-left px-2 py-1.5 font-semibold">ASR</th>
+                                          <th className="text-left px-2 py-1.5 font-semibold">ACD</th>
+                                          <th className="text-left px-2 py-1.5 font-semibold">PDD</th>
+                                          <th className="text-left px-2 py-1.5 font-semibold">Cost</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {prefixes.slice(0, 20).map((p, pi) => (
+                                          <tr key={p.prefix} className="border-b border-border/20 hover:bg-muted/20" data-testid={`ri-prefix-${pi}`}>
+                                            <td className="px-2 py-1.5 font-mono font-bold text-primary">{p.prefix}</td>
+                                            <td className="px-2 py-1.5 font-mono">{p.callCount}</td>
+                                            <td className="px-2 py-1.5"><AsrBadge asr={p.asr} /></td>
+                                            <td className="px-2 py-1.5 font-mono">
+                                              {p.acdSeconds != null ? `${p.acdSeconds.toFixed(0)}s` : "—"}
+                                            </td>
+                                            <td className="px-2 py-1.5 font-mono">
+                                              {p.pddMs != null ? `${Math.round(p.pddMs)}ms` : "—"}
+                                            </td>
+                                            <td className="px-2 py-1.5 font-mono text-muted-foreground">
+                                              {p.totalCostUsd != null ? `$${p.totalCostUsd.toFixed(3)}` : "—"}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                  {trendData?.trend && trendData.trend.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-border/30">
+                                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">24h ASR Trend</p>
+                                      <div className="flex items-end gap-1 h-10">
+                                        <Sparkline points={trendData.trend} />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        </td>
+                      </tr>
+                    ),
+                  ];
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VendorTrendCell({ vendorId, expanded }: { vendorId: string; expanded: boolean }) {
+  const { data } = useQuery<{ trend: TrendPoint[] }>({
+    queryKey: ["/api/route-intelligence/vendor", vendorId, "trend"],
+    queryFn: () => fetch(`/api/route-intelligence/vendor/${vendorId}/trend`).then(r => r.json()),
+    enabled: true,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  if (!data?.trend?.length) return <span className="text-muted-foreground/30 text-xs">—</span>;
+  return <Sparkline points={data.trend} />;
+}
+
+// ── Tab registry ───────────────────────────────────────────────────────────────
 
 const TABS = [
-  { key: "overview",    label: "Overview",          icon: Activity    },
-  { key: "degradation", label: "Degradation Alert", icon: TrendingDown },
-  { key: "qos",         label: "QoS Analysis",      icon: Zap         },
-  { key: "copilot",     label: "AI Copilot",         icon: Sparkles    },
-  { key: "recs",        label: "Account Recs",       icon: BrainCircuit },
-  { key: "history",     label: "Rollback History",   icon: History     },
+  { key: "overview",       label: "Overview",           icon: Activity    },
+  { key: "cdr-analytics",  label: "CDR Analytics",      icon: BarChart3   },
+  { key: "degradation",    label: "Degradation Alert",  icon: TrendingDown },
+  { key: "qos",            label: "QoS Analysis",       icon: Zap         },
+  { key: "copilot",        label: "AI Copilot",          icon: Sparkles    },
+  { key: "recs",           label: "Account Recs",        icon: BrainCircuit },
+  { key: "history",        label: "Rollback History",    icon: History     },
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -2769,6 +3185,18 @@ export default function RouteIntelligencePage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── CDR Analytics Tab ── */}
+      {activeTab === "cdr-analytics" && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <BarChart3 className="h-4 w-4 text-primary" />
+            <span className="font-semibold text-sm">CDR Traffic Analytics</span>
+            <span className="text-xs text-muted-foreground">— Per-vendor quality snapshots from 72h CDR cache · Refreshes every 15 min</span>
+          </div>
+          <CdrAnalyticsPanel />
         </div>
       )}
 

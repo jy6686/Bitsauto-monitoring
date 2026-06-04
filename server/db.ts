@@ -424,6 +424,39 @@ export async function runSafeMigrations(): Promise<void> {
       )
     `);
 
+    // ── Route Intelligence snapshots (added 2026-06-04) ───────────────────────
+    // Per-vendor / per-prefix quality snapshots aggregated from CDR cache every
+    // 15 minutes for 1h / 4h / 24h rolling windows.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS route_quality_snapshots (
+        id             SERIAL PRIMARY KEY,
+        vendor_id      VARCHAR(64)  NOT NULL,
+        vendor_name    VARCHAR(128) NOT NULL,
+        prefix         VARCHAR(32)  NOT NULL,
+        window_hours   INTEGER      NOT NULL,
+        computed_at    TIMESTAMP    NOT NULL DEFAULT NOW(),
+        call_count     INTEGER      NOT NULL DEFAULT 0,
+        answered_count INTEGER      NOT NULL DEFAULT 0,
+        asr            REAL,
+        acd_seconds    REAL,
+        pdd_ms         REAL,
+        total_cost_usd REAL,
+        revenue_usd    REAL,
+        margin_usd     REAL
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_rqs_vendor_prefix_window
+        ON route_quality_snapshots (vendor_id, prefix, window_hours, computed_at DESC)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_rqs_computed_at
+        ON route_quality_snapshots (computed_at DESC)
+    `);
+    // Add revenue/margin columns to existing installs that pre-date this migration
+    await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS revenue_usd REAL`);
+    await client.query(`ALTER TABLE route_quality_snapshots ADD COLUMN IF NOT EXISTS margin_usd  REAL`);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
