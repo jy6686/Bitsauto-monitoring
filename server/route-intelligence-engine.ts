@@ -571,6 +571,22 @@ export async function queryVendorTrend(vendorId: string): Promise<{ hour: string
   }));
 }
 
+// Bulk trend: fetch 24h hourly ASR + call volume for multiple vendors in one call.
+// Reuses queryVendorTrend internally (parallel) for maintainability.
+export async function queryVendorTrendBulk(
+  vendorIds: string[],
+): Promise<Record<string, { hour: string; asr: number | null; callCount: number }[]>> {
+  if (vendorIds.length === 0) return {};
+  const entries = await Promise.all(
+    vendorIds.map(async (vid) => ({ vid, trend: await queryVendorTrend(vid) })),
+  );
+  const out: Record<string, { hour: string; asr: number | null; callCount: number }[]> = {};
+  for (const { vid, trend } of entries) {
+    out[vid] = trend;
+  }
+  return out;
+}
+
 // For AI Copilot: get latest 4h vendor summary as enrichment signal
 export async function getCopilotVendorSignals(): Promise<Map<string, { asr: number | null; acdSeconds: number | null; callCount: number }>> {
   const rows = await queryVendorSummary(4);

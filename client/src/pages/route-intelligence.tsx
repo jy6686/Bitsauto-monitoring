@@ -9,7 +9,7 @@ import {
   UserCheck, ShieldCheck, XCircle, Filter, ThumbsDown, Search,
   Download, CalendarDays, Bell, TimerOff, Radio, Waves, LayoutGrid,
   Database, BarChart3, ChevronUp as ChevUp, SlidersHorizontal,
-  Settings, Save, LineChart as LineChartIcon,
+  Settings, Save, LineChart as LineChartIcon, Layers,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -26,7 +26,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useNocWebSocket } from "@/hooks/use-noc-ws";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer, LineChart,
 } from "recharts";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -3546,10 +3546,200 @@ function relTimeFromIso(iso: string | null) {
   return `${Math.floor(mins / 60)}h ago`;
 }
 
+// ── Vendor Compare Chart (multi-line ASR) ─────────────────────────────────────
+
+const COMPARE_COLORS = [
+  "#6366f1", "#22c55e", "#f59e0b", "#3b82f6",
+  "#ec4899", "#14b8a6", "#f97316", "#8b5cf6",
+  "#ef4444", "#06b6d4",
+];
+
+function VendorCompareChart({
+  vendors,
+  onClose,
+}: {
+  vendors: { vendorId: string; vendorName: string }[];
+  onClose: () => void;
+}) {
+  const ids = vendors.map(v => v.vendorId);
+  const idsParam = ids.join(",");
+
+  const { data, isLoading } = useQuery<{
+    trends: Record<string, { hour: string; asr: number | null; callCount: number }[]>;
+  }>({
+    queryKey: ["/api/route-intelligence/vendor-compare/trend", idsParam],
+    queryFn: () =>
+      fetch(`/api/route-intelligence/vendor-compare/trend?ids=${encodeURIComponent(idsParam)}`).then(r => r.json()),
+    enabled: ids.length > 0,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const trends = data?.trends ?? {};
+
+  const allHours = [...new Set(
+    Object.values(trends).flatMap(pts => pts.map(p => p.hour))
+  )].sort();
+
+  const chartData = allHours.map(hour => {
+    const point: Record<string, string | number | null> = {
+      label: new Date(hour).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
+    };
+    for (const v of vendors) {
+      const pts = trends[v.vendorId] ?? [];
+      const match = pts.find(p => p.hour === hour);
+      point[v.vendorId] = match?.asr ?? null;
+    }
+    return point;
+  });
+
+  const hasData = chartData.length > 0;
+  const activeVendors = vendors.filter(v => (trends[v.vendorId] ?? []).length > 0);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.18 }}
+      className="rounded-xl border bg-card shadow-sm overflow-hidden"
+      data-testid="vendor-compare-chart"
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-primary" />
+          <span className="font-semibold text-sm text-foreground">Vendor ASR Comparison</span>
+          <span className="text-[11px] text-muted-foreground">— 24h multi-vendor ASR overlay</span>
+        </div>
+        <button
+          data-testid="vendor-compare-close"
+          onClick={onClose}
+          className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="px-4 py-4">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-56 gap-2 text-muted-foreground text-sm">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Loading comparison data…
+          </div>
+        ) : !hasData ? (
+          <div className="flex flex-col items-center justify-center h-56 text-muted-foreground text-sm gap-2">
+            <Database className="h-8 w-8 opacity-20" />
+            <span>No hourly trend data yet — run a snapshot to populate the comparison.</span>
+          </div>
+        ) : (
+          <div>
+            {/* Color-coded legend */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3 text-xs text-muted-foreground">
+              {vendors.map((v, i) => (
+                <span key={v.vendorId} className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block w-5 border-t-2 rounded"
+                    style={{ borderColor: COMPARE_COLORS[i % COMPARE_COLORS.length] }}
+                  />
+                  <span
+                    className="font-medium"
+                    style={{ color: COMPARE_COLORS[i % COMPARE_COLORS.length] }}
+                    data-testid={`compare-legend-${i}`}
+                  >
+                    {v.vendorName}
+                  </span>
+                </span>
+              ))}
+            </div>
+
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={[0, 100]}
+                  width={32}
+                  tickFormatter={(v: number) => `${v}%`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "hsl(var(--card))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    color: "hsl(var(--foreground))",
+                  }}
+                  formatter={(value: number, name: string) => {
+                    const vendor = vendors.find(v => v.vendorId === name);
+                    return [
+                      value != null ? `${Number(value).toFixed(1)}%` : "—",
+                      vendor?.vendorName ?? name,
+                    ];
+                  }}
+                />
+                {vendors.map((v, i) => (
+                  <Line
+                    key={v.vendorId}
+                    dataKey={v.vendorId}
+                    stroke={COMPARE_COLORS[i % COMPARE_COLORS.length]}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4, fill: COMPARE_COLORS[i % COMPARE_COLORS.length] }}
+                    connectNulls
+                    data-testid={`compare-line-${i}`}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+
+            {/* Summary stats row */}
+            {activeVendors.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 pt-3 border-t border-border/40 text-xs text-muted-foreground">
+                {activeVendors.map((v, i) => {
+                  const pts = trends[v.vendorId] ?? [];
+                  const asrs = pts.map(p => p.asr).filter((a): a is number => a != null);
+                  const avg = asrs.length ? asrs.reduce((s, a) => s + a, 0) / asrs.length : null;
+                  return (
+                    <span key={v.vendorId} className="flex items-center gap-1">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full"
+                        style={{ background: COMPARE_COLORS[i % COMPARE_COLORS.length] }}
+                      />
+                      <span className="font-medium text-foreground">{v.vendorName}</span>
+                      {avg != null && (
+                        <span className={cn(
+                          "font-semibold",
+                          avg >= 65 ? "text-green-600 dark:text-green-400" : avg >= 45 ? "text-amber-500" : "text-red-500",
+                        )}>
+                          avg {avg.toFixed(1)}%
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+                <span className="text-muted-foreground/60 ml-auto">{allHours.length} hourly slots</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
 function CdrAnalyticsPanel() {
   const [window, setWindow] = useState<RiWindow>("4h");
   const [expandedVendor, setExpandedVendor] = useState<string | null>(null);
   const [chartVendorId, setChartVendorId] = useState<string | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
   const [sortKey, setSortKey] = useState<"callCount" | "asr" | "acdSeconds" | "pddMs" | "marginUsd" | "revenueUsd">("callCount");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -3645,6 +3835,22 @@ function CdrAnalyticsPanel() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            data-testid="ri-compare-toggle"
+            onClick={() => {
+              setCompareMode(m => !m);
+              setChartVendorId(null);
+            }}
+            className={cn(
+              "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border transition-colors",
+              compareMode
+                ? "border-primary bg-primary/10 text-primary font-semibold"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-primary/30",
+            )}
+          >
+            <Layers className="h-3 w-3" />
+            Compare
+          </button>
+          <button
             data-testid="ri-refresh"
             onClick={() => refetch()}
             disabled={isFetching}
@@ -3665,9 +3871,20 @@ function CdrAnalyticsPanel() {
         </div>
       </div>
 
-      {/* Chart panel — appears when a vendor row is focused */}
+      {/* Compare chart — all vendors side-by-side when compareMode is active */}
       <AnimatePresence>
-        {chartVendor && (
+        {compareMode && vendors.length > 0 && (
+          <VendorCompareChart
+            key="compare"
+            vendors={sorted.map(v => ({ vendorId: v.vendorId, vendorName: v.vendorName }))}
+            onClose={() => setCompareMode(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Single-vendor chart panel — appears when a vendor row is focused (only in normal mode) */}
+      <AnimatePresence>
+        {!compareMode && chartVendor && (
           <VendorChartPanel
             key={chartVendor.vendorId}
             vendorId={chartVendor.vendorId}

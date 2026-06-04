@@ -67,6 +67,7 @@ import {
   queryVendorSummary,
   queryVendorPrefixes,
   queryVendorTrend,
+  queryVendorTrendBulk,
   getRouteIntelligenceLastRun,
 } from "./route-intelligence-engine";
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
@@ -6472,6 +6473,22 @@ export async function registerRoutes(
         const windowHours = windowParam === '1h' ? 1 : windowParam === '24h' ? 24 : 4;
         const prefixes = await queryVendorPrefixes(vendorId, windowHours);
         res.json({ vendorId, prefixes, windowHours });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    },
+  );
+
+  // GET /api/route-intelligence/vendor-compare/trend?ids=v1,v2,... — bulk 24h ASR trends for compare mode
+  app.get('/api/route-intelligence/vendor-compare/trend',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const raw = req.query.ids as string | undefined;
+        if (!raw) return res.json({ trends: {} });
+        const vendorIds = raw.split(',').map((s: string) => s.trim()).filter(Boolean).slice(0, 20);
+        const trends = await queryVendorTrendBulk(vendorIds);
+        res.json({ trends });
       } catch (e: any) {
         res.status(500).json({ error: e.message });
       }
