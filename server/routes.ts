@@ -30333,10 +30333,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         // Build all CDR values once for matching
         const allCdrs = [...cdrCache.values()] as any[];
 
-        // Live CDR supplement: portal scrape scoped to the time window of these cuts.
-        // Catches CDRs that entered Sippy after the last cache refresh (every 5 min).
-        // Uses scrapePortalCDRsAll (single login, proper dedup stop) — not the cache.
-        // Non-critical: errors are swallowed; failure just means status stays 'no_cdr'.
+        // Two-track live CDR supplement for cuts outside the 2-hour XML-RPC rolling window:
+        //   Track A — XML-RPC getAccountCDRs with exact cut time window (most reliable)
+        //   Track B — portal scrape fallback (catches CDRs not accessible via XML-RPC)
+        // Both run; results are deduped and merged into allCdrs before matching.
+        // Non-critical: all errors are swallowed; failure just means status stays 'no_cdr'.
         try {
           const billingSettings = await storage.getSettings();
           if (billingSettings && cuts.length > 0) {
@@ -30355,31 +30356,61 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             if (cutTs.length > 0) {
               const winStart = new Date(Math.min(...cutTs) - 5 * 60_000);
               const winEnd   = new Date(Math.max(...cutTs) + 15 * 60_000);
+              const xmlStart = sippy.toSippyDate(winStart);
+              const xmlEnd   = sippy.toSippyDate(winEnd);
 
+              // ── Track A: XML-RPC CDR fetch (exact time window, no date-parse ambiguity) ──
+              const xmlCredPairs = sippyXmlCredsPairs(billingSettings);
+              const xmlTrack = (async () => {
+                for (const { username, password } of xmlCredPairs) {
+                  try {
+                    const rows = await sippy.getSippyCDRs(username, password, 2000, {
+                      startDate: xmlStart,
+                      endDate:   xmlEnd,
+                    }, bPortalUrl);
+                    if (rows.length > 0) {
+                      console.log(`[billing] XML-RPC supplement: ${rows.length} CDRs window=${xmlStart}–${xmlEnd}`);
+                      return rows;
+                    }
+                  } catch { /* try next cred */ }
+                }
+                return [] as typeof allCdrs;
+              })();
+
+              // ── Track B: portal scrape (fallback, catches different account scopes) ──
               const credSets = [
                 bPortUser && bPortPass ? { u: bPortUser, p: bPortPass } : null,
                 bApiUser  && bWebPass  ? { u: bApiUser,  p: bWebPass  } : null,
                 bApiUser  && bApiPass  ? { u: bApiUser,  p: bApiPass  } : null,
               ].filter((x): x is { u: string; p: string } => x !== null);
 
-              for (const { u, p } of credSets) {
-                try {
-                  const live = await sippy.scrapePortalCDRsAll(u, p, bPortalUrl, {
-                    startDate: winStart.toISOString(),
-                    endDate:   winEnd.toISOString(),
-                    maxPages:  8,
-                  });
-                  if (live.length > 0) {
-                    const seen = new Set(allCdrs.map((c: any) => `${c.startTime}:${c.caller}:${c.callee}`));
-                    let liveAdded = 0;
-                    for (const c of live) {
-                      const key = `${c.startTime}:${c.caller}:${c.callee}`;
-                      if (!seen.has(key)) { seen.add(key); allCdrs.push(c); liveAdded++; }
+              const portalTrack = (async () => {
+                for (const { u, p } of credSets) {
+                  try {
+                    const live = await sippy.scrapePortalCDRsAll(u, p, bPortalUrl, {
+                      startDate: winStart.toISOString(),
+                      endDate:   winEnd.toISOString(),
+                      maxPages:  8,
+                    });
+                    if (live.length > 0) {
+                      console.log(`[billing] portal supplement via ${u}: ${live.length} CDRs`);
+                      return live;
                     }
-                    console.log(`[billing] live supplement via ${u}: fetched=${live.length} new=${liveAdded} pool=${allCdrs.length} window=${winStart.toISOString().slice(11,19)}–${winEnd.toISOString().slice(11,19)}`);
-                    break;
-                  }
-                } catch { /* non-critical */ }
+                  } catch { /* try next cred */ }
+                }
+                return [] as typeof allCdrs;
+              })();
+
+              // Run both tracks in parallel; merge unique CDRs into allCdrs pool
+              const [xmlRows, portalRows] = await Promise.all([xmlTrack, portalTrack]);
+              const seen = new Set(allCdrs.map((c: any) => `${c.startTime}:${c.caller}:${c.callee}`));
+              let liveAdded = 0;
+              for (const c of [...xmlRows, ...portalRows]) {
+                const key = `${c.startTime}:${c.caller}:${c.callee}`;
+                if (!seen.has(key)) { seen.add(key); allCdrs.push(c); liveAdded++; }
+              }
+              if (liveAdded > 0) {
+                console.log(`[billing] supplement merged: xml=${xmlRows.length} portal=${portalRows.length} new=${liveAdded} pool=${allCdrs.length}`);
               }
             }
           }

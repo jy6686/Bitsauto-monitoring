@@ -2992,10 +2992,11 @@ export async function scrapePortalCDRs(
         const mo = CUST_MONTHS[mon] || '01';
         connectTime = `${year}-${mo}-${day.padStart(2,'0')}T${time}Z`;
       } else {
-        // Fallback: "MM/DD/YYYY HH:MM:SS"
+        // Fallback: "DD/MM/YYYY HH:MM:SS" — Sippy portal displays dates in DD/MM/YYYY order.
+        // match[1]=DD, match[2]=MM, match[3]=YYYY → ISO: YYYY-MM-DD
         const dtSlashMatch = setupTime.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
         if (dtSlashMatch) {
-          connectTime = `${dtSlashMatch[3]}-${dtSlashMatch[1]}-${dtSlashMatch[2]}T${dtSlashMatch[4]}Z`;
+          connectTime = `${dtSlashMatch[3]}-${dtSlashMatch[2]}-${dtSlashMatch[1]}T${dtSlashMatch[4]}Z`;
         }
       }
 
@@ -3142,9 +3143,11 @@ export async function scrapePortalCDRsAll(
         const mo = CUST_MONTHS[mon] || '01';
         connectTime = `${year}-${mo}-${day.padStart(2,'0')}T${time}Z`;
       } else {
+        // DD/MM/YYYY HH:MM:SS — Sippy portal displays dates in DD/MM/YYYY order.
+        // match[1]=DD, match[2]=MM, match[3]=YYYY → ISO: YYYY-MM-DD
         const dtSlashMatch = setupTime.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
         if (dtSlashMatch) {
-          connectTime = `${dtSlashMatch[3]}-${dtSlashMatch[1]}-${dtSlashMatch[2]}T${dtSlashMatch[4]}Z`;
+          connectTime = `${dtSlashMatch[3]}-${dtSlashMatch[2]}-${dtSlashMatch[1]}T${dtSlashMatch[4]}Z`;
         }
       }
       const resultCode = billedSec > 0 ? '0' : 'failed';
