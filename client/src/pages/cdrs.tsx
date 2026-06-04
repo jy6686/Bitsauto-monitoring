@@ -269,6 +269,14 @@ export default function CDRsPage() {
     return r === sipCode;
   });
 
+  const spikeWindowMatchCount = useMemo(() => {
+    if (!spikeWindowStart || !spikeWindowEnd) return 0;
+    return displayCdrs.filter(c => {
+      const d = parseSippyRawDate(c.startTime);
+      return d && d >= spikeWindowStart && d <= spikeWindowEnd;
+    }).length;
+  }, [displayCdrs, spikeWindowStart, spikeWindowEnd]);
+
   function applyFilters() {
     const s = tzDateToUTC(startInput, tz);
     const e = tzDateToUTC(endInput, tz);
@@ -365,7 +373,7 @@ export default function CDRsPage() {
       {spikeVendor && (
         <div className="flex items-center gap-2.5 rounded-lg border border-red-500/30 bg-red-500/8 px-3.5 py-2.5 text-sm" data-testid="banner-spike-context">
           <Activity className="h-4 w-4 shrink-0 text-red-400" />
-          <span className="text-red-300/90">
+          <span className="text-red-300/90 flex-1">
             Showing vendor CDRs for spike window on <span className="font-semibold text-red-200">{spikeVendor}</span>.
             Time range is pre-filled from the spike band — adjust above if needed.{' '}
             <span className="inline-flex items-center gap-1 text-red-400/80">
@@ -373,6 +381,22 @@ export default function CDRsPage() {
               Rows inside the spike window are highlighted with a red left border.
             </span>
           </span>
+          {spikeWindowMatchCount > 0 ? (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full bg-red-500/20 border border-red-500/40 px-2.5 py-0.5 text-xs font-semibold text-red-300 shrink-0"
+              data-testid="badge-spike-match-count"
+            >
+              <span className="font-bold text-red-200">{spikeWindowMatchCount}</span>
+              {spikeWindowMatchCount === 1 ? 'row' : 'rows'} matched
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/15 border border-yellow-500/30 px-2.5 py-0.5 text-xs font-semibold text-yellow-400 shrink-0"
+              data-testid="badge-spike-no-match"
+            >
+              No rows in spike window on this page
+            </span>
+          )}
         </div>
       )}
       {/* Header */}
