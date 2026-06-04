@@ -11,7 +11,7 @@
  */
 
 import { db } from "./db";
-import { routeQualitySnapshots, nocIncidents } from "../shared/schema";
+import { routeQualitySnapshots, nocIncidents, nocIncidentEvents } from "../shared/schema";
 import { sql, and, eq, isNull } from "drizzle-orm";
 import { isAnswered, cdrTs } from "./analytics-engine";
 
@@ -412,6 +412,10 @@ async function detectCdrSnapshotAnomalies(
 
     const now = new Date();
 
+    // Track which entity IDs are confirmed healthy in this snapshot run
+    // (vendor present in snapshot, no threshold breach) for auto-resolution below
+    const healthyEntityIds = new Set<string>();
+
     for (const snap of newVendorRows) {
       const vendorId   = String(snap.vendorId ?? "");
       const vendorName = String(snap.vendorName ?? snap.vendorId ?? "Unknown");
@@ -435,10 +439,15 @@ async function detectCdrSnapshotAnomalies(
         reasons.push(`PDD spiked to ${Math.round(newPdd)}ms (threshold: ${PDD_SPIKE_THRESHOLD_MS}ms)`);
       }
 
-      if (reasons.length === 0) continue;
+      const entityId = `cdr-anomaly-${vendorId}`;
+
+      if (reasons.length === 0) {
+        // Vendor is healthy — track entityId so we can resolve any open incident below
+        healthyEntityIds.add(entityId);
+        continue;
+      }
 
       // De-duplicate: skip if an open incident already exists for this vendor+type
-      const entityId = `cdr-anomaly-${vendorId}`;
       const existing = await db.select({ id: nocIncidents.id })
         .from(nocIncidents)
         .where(
@@ -476,6 +485,46 @@ async function detectCdrSnapshotAnomalies(
       });
 
       console.log(`[route-intelligence] NOC incident created for ${vendorName}: ${reasons.join("; ")}`);
+    }
+
+    // ── Auto-resolve recovered vendors ────────────────────────────────────────
+    // Fetch all open cdr_anomaly incidents. Any whose vendor now appears in the
+    // healthy set (snapshot present, no threshold breach) gets auto-resolved.
+    const openAnomalyIncidents = await db.select({
+      id:         nocIncidents.id,
+      entityId:   nocIncidents.entityId,
+      entityName: nocIncidents.entityName,
+    })
+      .from(nocIncidents)
+      .where(
+        and(
+          eq(nocIncidents.type, "cdr_anomaly"),
+          isNull(nocIncidents.resolvedAt),
+        )
+      );
+
+    for (const inc of openAnomalyIncidents) {
+      const incEntityId = inc.entityId ?? "";
+      // Only auto-resolve when the vendor appeared in this snapshot with no
+      // breaches. Skip vendors that are still degraded or not observed at all.
+      if (!healthyEntityIds.has(incEntityId)) continue;
+
+      await db.update(nocIncidents)
+        .set({ status: "resolved", resolvedAt: now, updatedAt: now })
+        .where(eq(nocIncidents.id, inc.id));
+
+      await db.insert(nocIncidentEvents).values({
+        incidentId: inc.id,
+        eventType:  "status_changed",
+        fromStatus: "open",
+        toStatus:   "resolved",
+        actorName:  "system",
+        note:       `Auto-resolved by CDR snapshot engine: vendor quality has recovered — ASR and PDD are back within thresholds.`,
+      });
+
+      console.log(
+        `[route-intelligence] NOC incident auto-resolved (vendor quality recovered): ${inc.entityName ?? incEntityId} (id=${inc.id})`,
+      );
     }
   } catch (err: any) {
     console.error("[route-intelligence] anomaly detection error:", err.message);
