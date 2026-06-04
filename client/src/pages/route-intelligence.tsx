@@ -2546,6 +2546,15 @@ function SipErrorsTab() {
         </div>
         <div className="flex items-center gap-2">
           {(isLoading || isFetching) && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          <a
+            data-testid="sip-errors-export-csv"
+            href="/api/route-intelligence/sip-errors/export?days=7"
+            download
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md border border-border/40 hover:border-border"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export CSV
+          </a>
           <button
             data-testid="sip-errors-tab-refresh"
             onClick={() => refetch()}

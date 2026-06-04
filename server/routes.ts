@@ -6550,6 +6550,59 @@ export async function registerRoutes(
     },
   );
 
+  // GET /api/route-intelligence/sip-errors/export?days=7 — download SIP error history as CSV
+  app.get('/api/route-intelligence/sip-errors/export',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'noc_operator', 'super_admin', 'team_lead'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const days = Math.min(8, Math.max(1, parseInt(String(req.query.days ?? '7'), 10) || 7));
+        const { Pool } = await import('pg');
+        const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+        let rows: any[];
+        try {
+          const result = await pool.query(`
+            SELECT
+              DATE(snapshot_at)::text AS date,
+              vendor_name,
+              code,
+              ROUND(AVG(rate)::numeric, 4) AS avg_rate,
+              AVG(AVG(rate)) OVER (PARTITION BY vendor_name, code) AS period_baseline
+            FROM sip_error_history
+            WHERE snapshot_at > NOW() - INTERVAL '${days} days'
+            GROUP BY DATE(snapshot_at), vendor_name, code
+            ORDER BY date ASC, vendor_name, code
+          `);
+          rows = result.rows;
+        } finally {
+          await pool.end();
+        }
+
+        const today = new Date().toISOString().slice(0, 10);
+        const filename = `sip-error-history-${today}.csv`;
+
+        const csvLines: string[] = ['date,vendor_name,code,avg_rate,spike_flag'];
+        for (const row of rows) {
+          const avgRate = parseFloat(row.avg_rate ?? '0');
+          const baseline = parseFloat(row.period_baseline ?? '0');
+          const spikeFlag = avgRate >= 2 && baseline > 0 && avgRate >= 2 * baseline;
+          csvLines.push([
+            row.date,
+            `"${String(row.vendor_name).replace(/"/g, '""')}"`,
+            row.code,
+            avgRate.toFixed(4),
+            spikeFlag ? '1' : '0',
+          ].join(','));
+        }
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(csvLines.join('\r\n'));
+      } catch (e: any) {
+        res.status(500).json({ success: false, error: e.message });
+      }
+    },
+  );
+
   // POST /api/route-intelligence/trigger — manual snapshot run (admin only)
   app.post('/api/route-intelligence/trigger',
     (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
