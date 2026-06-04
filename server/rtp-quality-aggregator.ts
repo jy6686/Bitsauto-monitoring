@@ -406,30 +406,52 @@ export async function getRtpQualityForVendor(vendorId: string): Promise<VendorQu
 // ── Voice quality digest for Copilot prompt ───────────────────────────────────
 
 export interface VoiceQualityDigest {
-  degradedVendors: Array<{ vendorId: string; avgMos: number; badge: 'degraded' | 'critical' }>;
+  degradedVendors: Array<{
+    vendorId: string;
+    avgMos: number;
+    badge: 'degraded' | 'critical';
+    worstPrefix: { prefix: string; avgMos: number; badge: 'degraded' | 'critical' } | null;
+  }>;
   hasQualityData: boolean;
   summary: string;
 }
 
 export async function buildVoiceQualityDigest(): Promise<VoiceQualityDigest> {
   const { eq } = await import('drizzle-orm');
-  // Only look at vendor-level rows (prefix IS NULL) for 1h window
+  // Load all rows for the 1h window (both vendor-level and per-prefix)
   const allRows = await db.select().from(rtpQualityStats)
     .where(eq(rtpQualityStats.windowMinutes, 60));
 
   const freshnessThreshold = new Date(Date.now() - ROW_MAX_AGE_MS);
-  const vendorRows = allRows.filter(r => r.destinationPrefix == null && r.computedAt >= freshnessThreshold);
+  const freshRows = allRows.filter(r => r.computedAt >= freshnessThreshold);
+  const vendorRows = freshRows.filter(r => r.destinationPrefix == null);
+  const prefixRows = freshRows.filter(r => r.destinationPrefix != null);
 
   if (vendorRows.length === 0) {
     return { degradedVendors: [], hasQualityData: false, summary: 'No RTP quality data available (VQ reporting may not be enabled on this Sippy instance).' };
   }
 
+  // Build a map of vendorId → worst prefix (lowest avgMos among prefix rows with MOS data)
+  const worstPrefixByVendor = new Map<string, { prefix: string; avgMos: number; badge: 'degraded' | 'critical' }>();
+  for (const row of prefixRows) {
+    if (row.avgMos == null || row.avgMos <= 0) continue;
+    const existing = worstPrefixByVendor.get(row.vendorId);
+    if (!existing || row.avgMos < existing.avgMos) {
+      worstPrefixByVendor.set(row.vendorId, {
+        prefix:  row.destinationPrefix!,
+        avgMos:  row.avgMos,
+        badge:   row.avgMos < 3.0 ? 'critical' : 'degraded',
+      });
+    }
+  }
+
   const degraded = vendorRows
     .filter(r => r.avgMos != null && r.avgMos < 3.5)
     .map(r => ({
-      vendorId: r.vendorId,
-      avgMos:   r.avgMos!,
-      badge:    (r.avgMos! < 3.0 ? 'critical' : 'degraded') as 'degraded' | 'critical',
+      vendorId:     r.vendorId,
+      avgMos:       r.avgMos!,
+      badge:        (r.avgMos! < 3.0 ? 'critical' : 'degraded') as 'degraded' | 'critical',
+      worstPrefix:  worstPrefixByVendor.get(r.vendorId) ?? null,
     }))
     .sort((a, b) => a.avgMos - b.avgMos);
 
@@ -441,7 +463,13 @@ export async function buildVoiceQualityDigest(): Promise<VoiceQualityDigest> {
     summary += `All ${good} vendor(s) are above MOS 3.5 threshold (good quality).`;
   } else {
     summary += `${degraded.length} vendor(s) below MOS 3.5: ` +
-      degraded.map(d => `${d.vendorId} (avg MOS ${d.avgMos.toFixed(2)} — ${d.badge})`).join(', ') + '.';
+      degraded.map(d => {
+        let line = `${d.vendorId} (avg MOS ${d.avgMos.toFixed(2)} — ${d.badge}`;
+        if (d.worstPrefix) {
+          line += `; worst prefix: ${d.worstPrefix.prefix}xxx MOS ${d.worstPrefix.avgMos.toFixed(2)} — ${d.worstPrefix.badge}`;
+        }
+        return line + ')';
+      }).join(', ') + '.';
   }
 
   return { degradedVendors: degraded, hasQualityData: true, summary };

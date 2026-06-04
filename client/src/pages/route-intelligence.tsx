@@ -3545,6 +3545,7 @@ function JitterBars({ windows }: { windows: VendorWindow[] }) {
 
 function VoiceQualityCard() {
   const [open, setOpen] = useState(true);
+  const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
   const { data, isLoading, isFetching, refetch } = useQuery<{ success: boolean; data: VendorQualitySummary[] }>({
     queryKey: ["/api/copilot/rtp-quality"],
     refetchInterval: 5 * 60_000,
@@ -3552,6 +3553,15 @@ function VoiceQualityCard() {
   const { toast } = useToast();
 
   const vendors: VendorQualitySummary[] = data?.data ?? [];
+
+  const toggleVendorExpanded = (vendorId: string) => {
+    setExpandedVendors(prev => {
+      const next = new Set(prev);
+      if (next.has(vendorId)) next.delete(vendorId);
+      else next.add(vendorId);
+      return next;
+    });
+  };
 
   const triggerMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/copilot/rtp-quality/trigger"),
@@ -3675,6 +3685,17 @@ function VoiceQualityCard() {
               .map((vendor, i) => {
                 const w1  = windows1h(vendor);
                 const badge = w1?.qualityBadge ?? "no_data";
+                const hasPrefixes = (vendor.prefixes?.length ?? 0) > 0;
+                const isExpanded = expandedVendors.has(vendor.vendorId);
+                // Sort prefixes: worst MOS first (critical → degraded → no_data → good)
+                const sortedPrefixes = hasPrefixes
+                  ? [...vendor.prefixes!].sort((a, b) => {
+                      const order = { critical: 0, degraded: 1, no_data: 2, good: 3 };
+                      const ab = a.windows.find(w => w.windowMinutes === 60)?.qualityBadge ?? "no_data";
+                      const bb = b.windows.find(w => w.windowMinutes === 60)?.qualityBadge ?? "no_data";
+                      return (order[ab] ?? 2) - (order[bb] ?? 2);
+                    })
+                  : [];
                 return (
                   <div key={vendor.vendorId}>
                     <motion.div
@@ -3682,15 +3703,27 @@ function VoiceQualityCard() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.03 }}
                       data-testid={`vq-vendor-${i}`}
-                      className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-x-4 px-4 py-3 items-center hover:bg-muted/20 transition-colors"
+                      className={cn(
+                        "grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-x-4 px-4 py-3 items-center transition-colors",
+                        hasPrefixes ? "cursor-pointer hover:bg-muted/30" : "hover:bg-muted/20",
+                      )}
+                      onClick={() => hasPrefixes && toggleVendorExpanded(vendor.vendorId)}
                     >
-                      <div className="min-w-0">
-                        <span className="text-sm font-medium truncate block">{vendor.vendorId}</span>
-                        {(vendor.prefixes?.length ?? 0) > 0 && (
-                          <span className="text-[10px] text-muted-foreground/60">
-                            {vendor.prefixes!.length} prefix{vendor.prefixes!.length !== 1 ? 'es' : ''}
-                          </span>
+                      <div className="min-w-0 flex items-center gap-1.5">
+                        {hasPrefixes && (
+                          <ChevronRight className={cn(
+                            "h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0 transition-transform duration-150",
+                            isExpanded && "rotate-90",
+                          )} />
                         )}
+                        <div className="min-w-0">
+                          <span className="text-sm font-medium truncate block">{vendor.vendorId}</span>
+                          {hasPrefixes && (
+                            <span className="text-[10px] text-muted-foreground/60">
+                              {vendor.prefixes!.length} prefix{vendor.prefixes!.length !== 1 ? 'es' : ''} · click to {isExpanded ? 'collapse' : 'expand'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <span className={cn("text-[10px] font-bold uppercase border px-1.5 py-0.5 rounded text-center w-20", BADGE_COLOR[badge])}>
                         {MOS_LABEL[badge]}
@@ -3709,20 +3742,35 @@ function VoiceQualityCard() {
                         {w1?.avgLatencyMs != null ? `${w1.avgLatencyMs.toFixed(0)}ms` : "—"}
                       </span>
                     </motion.div>
-                    {/* ── Per-prefix breakdown ── */}
-                    {(vendor.prefixes?.length ?? 0) > 0 && (
+                    {/* ── Per-prefix breakdown (shown when vendor row is expanded) ── */}
+                    {hasPrefixes && isExpanded && (
                       <div className="bg-muted/10 border-t border-dashed border-border/40 divide-y divide-border/30">
-                        {vendor.prefixes!.slice(0, 8).map(pfx => {
+                        {/* Sub-header */}
+                        <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-x-4 px-4 py-1 bg-muted/20 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                          <span className="pl-5">Destination Prefix</span>
+                          <span className="text-center w-20">Status</span>
+                          <span className="text-center w-24">Avg MOS</span>
+                          <span className="w-20" />
+                          <span className="text-center w-14">Jitter</span>
+                          <span className="text-center w-20">Pkt Loss</span>
+                          <span className="text-center w-20">Latency</span>
+                        </div>
+                        {sortedPrefixes.slice(0, 12).map(pfx => {
                           const pw1 = pfx.windows.find(w => w.windowMinutes === 60);
                           const pb = pw1?.qualityBadge ?? "no_data";
                           return (
                             <div
                               key={pfx.prefix}
                               data-testid={`vq-prefix-${pfx.prefix}`}
-                              className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-x-4 px-4 py-1.5 items-center text-xs"
+                              className="grid grid-cols-[1fr_auto_auto_auto_auto_auto_auto] gap-x-4 px-4 py-1.5 items-center text-xs hover:bg-muted/20 transition-colors"
                             >
-                              <span className="text-muted-foreground font-mono pl-4">
-                                <span className="text-muted-foreground/40 mr-1">↳</span>{pfx.prefix}xxx
+                              <span className="text-muted-foreground font-mono pl-5">
+                                <span className="text-muted-foreground/40 mr-1">↳</span>
+                                <span className="text-foreground/80 font-semibold">{pfx.prefix}</span>
+                                <span className="text-muted-foreground/50">xxx</span>
+                                <span className="ml-1.5 text-[10px] text-muted-foreground/40">
+                                  ({pw1?.sampleCount ?? 0} CDRs)
+                                </span>
                               </span>
                               <span className={cn("text-[9px] font-bold uppercase border px-1 rounded text-center w-20", BADGE_COLOR[pb])}>
                                 {MOS_LABEL[pb]}
@@ -3741,9 +3789,9 @@ function VoiceQualityCard() {
                             </div>
                           );
                         })}
-                        {(vendor.prefixes?.length ?? 0) > 8 && (
-                          <div className="px-8 py-1 text-[10px] text-muted-foreground/50">
-                            +{vendor.prefixes!.length - 8} more prefixes
+                        {(vendor.prefixes?.length ?? 0) > 12 && (
+                          <div className="px-8 py-1.5 text-[10px] text-muted-foreground/50">
+                            +{vendor.prefixes!.length - 12} more prefixes (showing top 12 by severity)
                           </div>
                         )}
                       </div>
