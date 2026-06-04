@@ -12583,7 +12583,15 @@ export async function registerRoutes(
   // GET /api/routing-cache/routing-groups — cached routing groups
   app.get('/api/routing-cache/routing-groups', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req, res) => {
     try {
-      const groups = await getCachedRoutingGroups();
+      const rows = await getCachedRoutingGroups();
+      const groups = rows.map((r: any) => ({
+        iRoutingGroup: r.i_routing_group ?? r.iRoutingGroup,
+        name:          r.name,
+        policy:        r.policy ?? null,
+        mediaRelay:    r.media_relay ?? r.mediaRelay ?? null,
+        onNet:         r.on_net      ?? r.onNet      ?? null,
+        membersCount:  r.members_count ?? r.membersCount ?? 0,
+      }));
       res.json({ groups });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
