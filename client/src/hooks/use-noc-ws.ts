@@ -50,6 +50,13 @@ export interface SipSpikeEvent {
   detectedAt:   string;
 }
 
+export interface IncidentUpdatedEvent {
+  incidentId:   number;
+  status:       string;
+  incidentType: string;
+  entityName?:  string | null;
+}
+
 interface UseNocWebSocketResult {
   lastTick: NocTickData | null;
   lastVoiceOtpUpdate: VoiceOtpUpdateEvent | null;
@@ -57,6 +64,7 @@ interface UseNocWebSocketResult {
   lastPendingApproval: PendingApprovalEvent | null;
   lastApprovalExpired: ApprovalExpiredEvent | null;
   lastSipSpike: SipSpikeEvent | null;
+  lastIncidentUpdated: IncidentUpdatedEvent | null;
   connected: boolean;
 }
 
@@ -67,6 +75,7 @@ export function useNocWebSocket(): UseNocWebSocketResult {
   const [lastPendingApproval, setLastPendingApproval] = useState<PendingApprovalEvent | null>(null);
   const [lastApprovalExpired, setLastApprovalExpired] = useState<ApprovalExpiredEvent | null>(null);
   const [lastSipSpike, setLastSipSpike] = useState<SipSpikeEvent | null>(null);
+  const [lastIncidentUpdated, setLastIncidentUpdated] = useState<IncidentUpdatedEvent | null>(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -134,6 +143,13 @@ export function useNocWebSocket(): UseNocWebSocketResult {
               incidentId:   data.incidentId,
               detectedAt:   data.detectedAt,
             });
+          } else if (data.type === "incident_updated") {
+            setLastIncidentUpdated({
+              incidentId:   data.incidentId,
+              status:       data.status,
+              incidentType: data.incidentType,
+              entityName:   data.entityName ?? null,
+            });
           }
         } catch { /* ignore malformed messages */ }
       };
@@ -161,5 +177,5 @@ export function useNocWebSocket(): UseNocWebSocketResult {
     };
   }, [connect]);
 
-  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, lastPendingApproval, lastApprovalExpired, lastSipSpike, connected };
+  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, lastPendingApproval, lastApprovalExpired, lastSipSpike, lastIncidentUpdated, connected };
 }

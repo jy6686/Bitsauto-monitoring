@@ -4154,12 +4154,21 @@ function CdrAnalyticsPanel() {
   const [sortKey, setSortKey] = useState<"callCount" | "asr" | "acdSeconds" | "pddMs" | "marginUsd" | "revenueUsd">("callCount");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
+  const { lastIncidentUpdated } = useNocWebSocket();
+
   const { data: openIncidents = [] } = useQuery<CdrAnomalyIncident[]>({
     queryKey: ["/api/noc/incidents", "cdr_anomaly", "open"],
     queryFn: () => fetch("/api/noc/incidents?type=cdr_anomaly&status=open").then(r => r.json()),
     refetchInterval: 60_000,
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    if (!lastIncidentUpdated) return;
+    if (["resolved", "mitigated"].includes(lastIncidentUpdated.status)) {
+      queryClient.invalidateQueries({ queryKey: ["/api/noc/incidents", "cdr_anomaly", "open"] });
+    }
+  }, [lastIncidentUpdated]);
 
   const incidentsByVendor = new Map<string, CdrAnomalyIncident>();
   for (const inc of openIncidents) {

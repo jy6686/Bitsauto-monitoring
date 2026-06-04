@@ -154,3 +154,20 @@ export function broadcastSipSpikeDetected(data: SipSpikeDetectedData): void {
     }
   }
 }
+
+export interface IncidentUpdatedData {
+  incidentId:   number;
+  status:       string;
+  incidentType: string;
+  entityName?:  string | null;
+}
+
+export function broadcastIncidentUpdated(data: IncidentUpdatedData): void {
+  if (nocClients.size === 0) return;
+  const payload = JSON.stringify({ type: "incident_updated", ...data });
+  for (const client of nocClients) {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      try { client.ws.send(payload); } catch { /* ignore send errors */ }
+    }
+  }
+}

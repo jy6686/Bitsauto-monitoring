@@ -75,7 +75,7 @@ import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as 
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
 const drizzleSql = sqlExpr;
-import { broadcastNocTick, broadcastRouteTestEvent } from "./noc-ws";
+import { broadcastNocTick, broadcastRouteTestEvent, broadcastIncidentUpdated } from "./noc-ws";
 import { lookupDialCode, searchDialCodes } from "./dial-lookup";
 import { readFileSync } from "fs";
 import { join as _pathJoin } from "path";
@@ -31315,6 +31315,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         actorName: (req as any).user?.username ?? 'operator',
         note: note ?? `Status changed to ${newStatus}`,
       });
+      if (['resolved', 'mitigated'].includes(newStatus)) {
+        broadcastIncidentUpdated({
+          incidentId:   id,
+          status:       newStatus,
+          incidentType: updated.type ?? 'manual',
+          entityName:   updated.entityName ?? null,
+        });
+      }
       res.json(updated);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
