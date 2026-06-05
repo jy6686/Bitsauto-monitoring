@@ -33088,6 +33088,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       if (!sessionCookie) return res.status(400).json({ error: 'sessionCookie is required — log into BitsAuto in your browser, then copy the sessionid cookie value' });
       const base = `http://${host}`;
       const cookieHeader = sessionCookie.includes('=') ? sessionCookie : `sessionid=${sessionCookie}`;
+      // Default to 10 most-recent pages (pages are sorted newest-first on BitsAuto)
+      const PAGE_LIMIT = maxPagesParam ? Number(maxPagesParam) : 10;
       const BATCH      = 20;     // concurrent page fetches per round
       const PER_FETCH  = 12000; // ms per individual fetch
       const WALL_LIMIT = 90000; // ms total wall-clock budget
@@ -33176,7 +33178,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       };
 
       absorb(parseRows(page1Html));
-      const totalPages = Math.min(extractMaxPage(page1Html), maxPagesParam ? Number(maxPagesParam) : 9999);
+      const totalPages = Math.min(extractMaxPage(page1Html), PAGE_LIMIT);
 
       // ── Step 2: paginate remaining pages in concurrent batches ──────────────
       let consecutiveEmptyBatches = 0;

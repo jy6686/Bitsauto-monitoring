@@ -782,6 +782,7 @@ function ImportTab() {
   const [legacyHost, setLegacyHost] = useState("23.106.59.17:8081");
   const [legacySessionCookie, setLegacySessionCookie] = useState("");
   const [legacyClientId, setLegacyClientId] = useState("1824");
+  const [legacyMaxPages, setLegacyMaxPages] = useState("10");
   const [syncing, setSyncing] = useState(false);
   const [legacyDebugHtml, setLegacyDebugHtml] = useState("");
 
@@ -858,7 +859,7 @@ function ImportTab() {
     setSyncing(true);
     try {
       const rawRes = await apiRequest("POST", "/api/product-registry/destinations/sync-legacy", {
-        host: legacyHost, sessionCookie: legacySessionCookie.trim(), clientId: legacyClientId,
+        host: legacyHost, sessionCookie: legacySessionCookie.trim(), clientId: legacyClientId, maxPages: parseInt(legacyMaxPages) || 10,
       });
       const res = await rawRes.json() as any;
       if (res.error) throw new Error(res.error);
@@ -923,7 +924,7 @@ function ImportTab() {
             </ol>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Host:Port</Label>
               <Input value={legacyHost} onChange={e => setLegacyHost(e.target.value)} className="h-8 text-sm font-mono" placeholder="23.106.59.17:8081" data-testid="input-legacy-host" />
@@ -931,6 +932,10 @@ function ImportTab() {
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Client ID</Label>
               <Input value={legacyClientId} onChange={e => setLegacyClientId(e.target.value)} className="h-8 text-sm font-mono" placeholder="1824" data-testid="input-legacy-clientid" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Max Pages</Label>
+              <Input value={legacyMaxPages} onChange={e => setLegacyMaxPages(e.target.value)} className="h-8 text-sm font-mono" placeholder="10" type="number" min="1" max="858" data-testid="input-legacy-maxpages" />
             </div>
           </div>
 
