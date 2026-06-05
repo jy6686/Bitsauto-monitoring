@@ -13,8 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   BookOpen, DollarSign, TrendingUp, TrendingDown, Plus, ArrowUpRight, ArrowDownLeft,
-  FileText, CreditCard,
+  FileText, CreditCard, FileSpreadsheet,
 } from "lucide-react";
+import { exportToExcel } from "@/lib/export-excel";
 
 interface Company { id: number; name: string; shortCode: string; }
 interface LedgerEntry {

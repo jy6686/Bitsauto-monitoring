@@ -25,8 +25,9 @@ import {
 import {
   FileText, Play, Eye, CheckCircle, AlertTriangle, DollarSign, Hash,
   RefreshCw, Calendar, User, Zap, CheckCheck, XCircle, Lock, Layers,
-  Send, Mail, MailCheck, MailX, X, Clock, History,
+  Send, Mail, MailCheck, MailX, X, Clock, History, FileSpreadsheet,
 } from "lucide-react";
+import { exportToExcel } from "@/lib/export-excel";
 
 interface Invoice {
   id:              number;

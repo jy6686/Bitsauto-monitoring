@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Clock, DollarSign, Hash, TrendingUp, AlertTriangle, CheckCircle } from "lucide-react";
+import { Clock, DollarSign, Hash, TrendingUp, AlertTriangle, CheckCircle, FileSpreadsheet } from "lucide-react";
+import { exportToExcel } from "@/lib/export-excel";
 
 interface UnbilledGroup {
   iTariff:        string;

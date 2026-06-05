@@ -17,8 +17,9 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, XCircle,
-  DollarSign, Zap, Play, RefreshCw, BellRing, BarChart3, Users, Building2,
+  DollarSign, Zap, Play, RefreshCw, BellRing, BarChart3, Users, Building2, FileSpreadsheet,
 } from "lucide-react";
+import { exportToExcel } from "@/lib/export-excel";
 
 interface MarginRow {
   dimensionName: string;

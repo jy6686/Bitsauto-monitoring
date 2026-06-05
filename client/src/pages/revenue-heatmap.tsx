@@ -7,8 +7,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   DollarSign, TrendingUp, TrendingDown, RefreshCw, Loader2,
-  Globe, BarChart2, X, Phone, Activity, Layers, ShieldAlert, Users,
+  Globe, BarChart2, X, Phone, Activity, Layers, ShieldAlert, Users, FileSpreadsheet,
 } from 'lucide-react';
+import { exportToExcel } from '@/lib/export-excel';
 import { cn } from '@/lib/utils';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;

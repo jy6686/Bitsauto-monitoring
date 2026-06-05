@@ -18,8 +18,9 @@ import {
 import {
   TrendingDown, TrendingUp, RefreshCw, Play, CheckCircle2,
   AlertTriangle, XCircle, Activity, DollarSign, Clock, BarChart3,
-  Info, Search,
+  Info, Search, FileSpreadsheet,
 } from "lucide-react";
+import { exportToExcel } from "@/lib/export-excel";
 
 interface DMRRow {
   id:                 number;
