@@ -61,14 +61,36 @@ export default function UnbilledUsagePage() {
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Clock className="h-6 w-6 text-primary" />
-          Unbilled Usage
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Locked CDR snapshots not yet included in an approved invoice — your WIP receivables.
-        </p>
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Clock className="h-6 w-6 text-primary" />
+            Unbilled Usage
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Locked CDR snapshots not yet included in an approved invoice — your WIP receivables.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          data-testid="button-export-unbilled"
+          onClick={() => {
+            const rows = displayed.map(g => ({
+              "Tariff":          g.iTariff,
+              "Snapshots":       g.snapshotCount,
+              "Amount ($)":      g.totalReproduced?.toFixed(4) ?? "",
+              "Minutes":         g.totalMinutes?.toFixed(2)    ?? "",
+              "Oldest Date":     g.oldestDate ?? "",
+              "Newest Date":     g.newestDate ?? "",
+              "Linked":          g.linkedCount   ?? "",
+              "Unlinked":        g.unlinkedCount ?? "",
+            }));
+            exportToExcel([{ name: "Unbilled Usage", rows }], `Unbilled-Usage-${from}-${to}`);
+          }}
+          disabled={displayed.length === 0}
+        >
+          <FileSpreadsheet className="h-4 w-4 mr-2" />Export
+        </Button>
       </div>
 
       {/* Info banner */}

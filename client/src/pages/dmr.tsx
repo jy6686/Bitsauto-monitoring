@@ -283,6 +283,38 @@ export default function DMRPage() {
             className="w-44"
           />
           <Button
+            variant="outline"
+            data-testid="button-export-dmr"
+            onClick={() => {
+              const rows = reports.map(r => ({
+                "Date":                r.reportDate,
+                "Account":             r.accountName ?? r.accountId ?? "—",
+                "Vendor":              r.vendorName  ?? r.vendorId  ?? "—",
+                "Sippy Duration (m)":  r.sippyDuration    != null ? Math.round(r.sippyDuration    / 60) : "",
+                "Platform Duration (m)":r.platformDuration != null ? Math.round(r.platformDuration / 60) : "",
+                "Drift Duration (m)":  r.driftDuration    != null ? Math.round(r.driftDuration    / 60) : "",
+                "Sippy Amount ($)":    r.sippyAmount    ?? "",
+                "Platform Amount ($)": r.platformAmount ?? "",
+                "Sell ($)":            r.sellAmount     ?? "",
+                "Buy ($)":             r.buyAmount      ?? "",
+                "Margin ($)":          r.marginAmount   ?? "",
+                "Margin %":            r.marginPct      ?? "",
+                "Total Calls":         r.totalCalls     ?? "",
+                "ASR %":               r.asr            ?? "",
+                "ACD (m)":             r.acd != null ? (r.acd / 60).toFixed(2) : "",
+                "Discrepancy":         r.discrepancyType ?? "",
+                "Status":              r.verificationStatus ?? "",
+                "Source":              r.source ?? "",
+                "Notes":               r.notes ?? "",
+              }));
+              exportToExcel([{ name: "DMR", rows }], `DMR-${selectedDate}`);
+            }}
+            disabled={reports.length === 0}
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+          <Button
             data-testid="button-generate-dmr"
             onClick={() => generateMutation.mutate()}
             disabled={generateMutation.isPending}

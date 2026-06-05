@@ -579,9 +579,35 @@ export default function InvoicesPage() {
             Invoice engine sourced exclusively from immutable rating snapshots. Draft → Review → Approve → Send.
           </p>
         </div>
-        <Button data-testid="button-generate-invoice" onClick={() => { setForm(EMPTY_FORM); setAutoTariffName(null); setDmrGateError(null); setDmrAutoResults(null); setShowGenerate(true); }}>
-          <Play className="h-4 w-4 mr-2" />Generate Invoice
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            data-testid="button-export-invoices"
+            onClick={() => {
+              const rows = invoices.map(inv => ({
+                "Invoice #":    inv.invoiceNumber,
+                "Customer":     inv.customerName  ?? "",
+                "Tariff":       inv.iTariff       ?? "",
+                "Period Start": inv.periodStart   ?? "",
+                "Period End":   inv.periodEnd     ?? "",
+                "Lines":        inv.lineCount     ?? "",
+                "Amount ($)":   inv.totalReproduced != null ? Number(inv.totalReproduced).toFixed(4) : "",
+                "Status":       inv.status,
+                "Generated At": inv.generatedAt   ?? "",
+                "Approved At":  inv.approvedAt    ?? "",
+                "Sent At":      inv.sentAt        ?? "",
+                "Notes":        inv.notes         ?? "",
+              }));
+              exportToExcel([{ name: "Invoices", rows }], `Invoices-${new Date().toISOString().slice(0,10)}`);
+            }}
+            disabled={invoices.length === 0}
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" />Export
+          </Button>
+          <Button data-testid="button-generate-invoice" onClick={() => { setForm(EMPTY_FORM); setAutoTariffName(null); setDmrGateError(null); setDmrAutoResults(null); setShowGenerate(true); }}>
+            <Play className="h-4 w-4 mr-2" />Generate Invoice
+          </Button>
+        </div>
       </div>
 
       {/* Warning banner */}

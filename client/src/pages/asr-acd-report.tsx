@@ -9,9 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import {
   RefreshCw, Download, BarChart3, TrendingUp, TrendingDown,
   ChevronDown, Check, AlertCircle, Activity, Shield, Clock,
-  Zap, AlertTriangle, CheckCircle2, XCircle, Info
+  Zap, AlertTriangle, CheckCircle2, XCircle, Info, FileSpreadsheet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { exportToExcel } from "@/lib/export-excel";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -752,6 +753,31 @@ export default function AsrAcdReportPage() {
           <Button variant="outline" size="sm" onClick={downloadCsv} disabled={!data || loading}
             data-testid="button-download-csv" className="gap-1.5 h-8 text-xs">
             <Download className="h-3.5 w-3.5" />CSV
+          </Button>
+          <Button variant="outline" size="sm" disabled={!data || loading}
+            data-testid="button-download-xlsx"
+            className="gap-1.5 h-8 text-xs"
+            onClick={() => {
+              if (!data) return;
+              const mapRow = (r: ReportRow, amtLabel: string) => ({
+                "Name":     r.name,
+                "Calls":    r.totalCalls,
+                "Billable": r.billableCalls,
+                "Duration": fmtDuration(r.durationSec),
+                "ACD":      fmtDuration(r.acdSec),
+                "ASR %":    r.asr.toFixed(2),
+                "NER %":    r.nerPct  != null ? r.nerPct.toFixed(2)  : "",
+                "FAS %":    r.fasRate != null ? r.fasRate.toFixed(2) : "",
+                "PDD (s)":  r.avgPdd.toFixed(3),
+                [amtLabel]: r.amount.toFixed(6),
+              });
+              exportToExcel([
+                { name: "Origination", rows: data.origination.map(r => mapRow(r, "Revenue ($)")) },
+                { name: "Termination", rows: data.termination.map(r => mapRow(r, "Cost ($)"))    },
+              ], `ASR-NER-${new Date().toISOString().slice(0,16).replace('T', '-')}`);
+            }}
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" />Excel
           </Button>
         </div>
       </div>

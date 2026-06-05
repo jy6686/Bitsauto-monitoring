@@ -106,9 +106,33 @@ export default function AccountStatementPage() {
           <p className="text-muted-foreground mt-1">Running ledger — invoices issued and payments received per client.</p>
         </div>
         {companyId && (
-          <Button data-testid="button-add-payment" onClick={() => setShowAddPayment(true)}>
-            <Plus className="h-4 w-4 mr-2" />Record Payment
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              data-testid="button-export-statement"
+              onClick={() => {
+                const entries = statement?.entries ?? [];
+                const rows = entries.map(e => ({
+                  "Date":        e.date,
+                  "Description": e.description,
+                  "Type":        e.type,
+                  "Debit ($)":   e.debit  > 0 ? e.debit.toFixed(4)  : "",
+                  "Credit ($)":  e.credit > 0 ? e.credit.toFixed(4) : "",
+                  "Balance ($)": e.balance.toFixed(4),
+                  "Status":      e.status,
+                  "Reference":   e.reference ?? "",
+                }));
+                const company = statement?.company?.name ?? companyId;
+                exportToExcel([{ name: "Statement", rows }], `Statement-${company}-${new Date().toISOString().slice(0,10)}`);
+              }}
+              disabled={!statement || statement.entries.length === 0}
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />Export
+            </Button>
+            <Button data-testid="button-add-payment" onClick={() => setShowAddPayment(true)}>
+              <Plus className="h-4 w-4 mr-2" />Record Payment
+            </Button>
+          </div>
         )}
       </div>
 

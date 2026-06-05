@@ -505,6 +505,27 @@ export default function RevenueHeatmapPage() {
             ))}
           </div>
           <button
+            onClick={() => {
+              const rows = revData.map(r => ({
+                "Country":    r.country,
+                "Calls":      r.calls,
+                "Answered":   r.answered,
+                "ASR %":      r.calls > 0 ? (r.answered / r.calls * 100).toFixed(1) : "0",
+                "Revenue ($)":r.revenue.toFixed(4),
+                "Cost ($)":   r.cost.toFixed(4),
+                "Margin ($)": r.margin.toFixed(4),
+                "Top Carrier":r.carriers[0]?.carrier ?? "",
+              }));
+              exportToExcel([{ name: "Revenue by Country", rows }], `Revenue-Heatmap-${new Date().toISOString().slice(0,10)}`);
+            }}
+            disabled={revData.length === 0}
+            className="p-2 rounded-lg hover:bg-muted/40 transition-colors disabled:opacity-50"
+            data-testid="btn-export-heatmap"
+            title="Export to Excel"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+          </button>
+          <button
             onClick={() => refetch()}
             disabled={isFetching}
             className="p-2 rounded-lg hover:bg-muted/40 transition-colors disabled:opacity-50"

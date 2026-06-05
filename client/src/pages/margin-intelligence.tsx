@@ -183,6 +183,32 @@ export default function MarginIntelligencePage() {
             className="w-44"
           />
           <Button
+            variant="outline"
+            data-testid="button-export-margin"
+            onClick={() => {
+              const mapRow = (r: MarginRow) => ({
+                "Name":           r.dimensionName,
+                "Revenue ($)":    r.revenueUsd  ?? "",
+                "Cost ($)":       r.costUsd     ?? "",
+                "Margin ($)":     r.marginUsd   ?? "",
+                "Margin %":       r.marginPct   ?? "",
+                "Duration (min)": r.durationMin != null ? Math.round(r.durationMin) : "",
+                "Calls":          r.calls       ?? "",
+                "ASR %":          r.asr         ?? "",
+                "ACD (s)":        r.acd         ?? "",
+                "Cost/Min ($)":   r.costPerMin  ?? "",
+              });
+              exportToExcel([
+                { name: "Clients", rows: clients.map(mapRow) },
+                { name: "Vendors", rows: vendors.map(mapRow) },
+              ], `Margin-Intelligence-${selectedDate}`);
+            }}
+            disabled={clients.length === 0 && vendors.length === 0}
+          >
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+          <Button
             data-testid="button-materialize"
             onClick={() => materializeMutation.mutate()}
             disabled={materializeMutation.isPending}
