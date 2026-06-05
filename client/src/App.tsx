@@ -81,6 +81,7 @@ import AnalyticsPage from "@/pages/analytics";
 import ProductsPage from "@/pages/products";
 import ProductRegistryPage from "@/pages/product-registry";
 import DealsPage from "@/pages/deals";
+import DestinationCatalogPage from "@/pages/destination-catalog";
 import NotFound from "@/pages/not-found";
 import QosHeatmapPage from "@/pages/qos-heatmap";
 import SlaBreachesPage from "@/pages/sla-breaches";
@@ -477,6 +478,9 @@ function Router() {
       </Route>
       <Route path="/products">
         {() => <ProtectedRoute component={ProductsWS} requiredRoles={['admin','management']} mgmtFeature="products" />}
+      </Route>
+      <Route path="/destination-catalog">
+        {() => <DestinationCatalogPage />}
       </Route>
       <Route path="/product-registry">
         {() => <ProtectedRoute component={ProductRegistryPage} requiredRoles={['admin','management']} />}

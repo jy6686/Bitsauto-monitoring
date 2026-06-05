@@ -3652,6 +3652,8 @@ export const globalDestinations = pgTable("global_destinations", {
   operatorName:     varchar("operator_name", { length: 128 }),
   // 'approved'|'blocked'|'testing'|'deprecated'|'pending'
   commercialStatus: varchar("commercial_status", { length: 32 }).notNull().default("pending"),
+  blockedReason:    varchar("blocked_reason",    { length: 256 }),
+  notes:            text("notes"),
   sortOrder:        integer("sort_order").default(0),
   createdAt:        timestamp("created_at").defaultNow().notNull(),
 });

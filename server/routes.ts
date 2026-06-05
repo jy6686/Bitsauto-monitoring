@@ -32939,6 +32939,51 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // POST /api/product-registry/destinations/:id/approve
+  app.post('/api/product-registry/destinations/:id/approve', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [row] = await db.update(globalDestinations)
+        .set({ commercialStatus: 'approved', blockedReason: null })
+        .where(eq(globalDestinations.id, id)).returning();
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/product-registry/destinations/:id/block
+  app.post('/api/product-registry/destinations/:id/block', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { reason } = req.body;
+      const [row] = await db.update(globalDestinations)
+        .set({ commercialStatus: 'blocked', blockedReason: reason ?? null })
+        .where(eq(globalDestinations.id, id)).returning();
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/product-registry/destinations/:id/set-status
+  app.post('/api/product-registry/destinations/:id/set-status', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status, reason } = req.body;
+      const [row] = await db.update(globalDestinations)
+        .set({ commercialStatus: status, blockedReason: reason ?? null })
+        .where(eq(globalDestinations.id, id)).returning();
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/product-registry/destinations/approved
+  app.get('/api/product-registry/destinations/approved', async (_req, res) => {
+    try {
+      const rows = await db.select().from(globalDestinations)
+        .where(eq(globalDestinations.commercialStatus, 'approved'))
+        .orderBy(globalDestinations.level, globalDestinations.sortOrder, globalDestinations.name);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/product-registry/assignments
   app.get('/api/product-registry/assignments', async (_req, res) => {
     try {
