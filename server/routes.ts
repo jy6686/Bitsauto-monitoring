@@ -33103,6 +33103,35 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const { iAccount, customerName, productId, kamName, startDate, endDate, gracePeriodDays, volumeCommitment, notes, destinations } = req.body;
       if (!iAccount || !productId) return res.status(400).json({ error: 'iAccount and productId required' });
+
+      // ── Deal Governance: customer → product → destination chain ─────────────
+      // 1. Verify customer has an active assignment for this product
+      const [ca] = await db.select().from(customerProductAssignments)
+        .where(and(
+          eq(customerProductAssignments.iAccount, iAccount),
+          eq(customerProductAssignments.productId, productId),
+          eq(customerProductAssignments.status, 'active')
+        ))
+        .limit(1);
+      if (!ca) {
+        return res.status(400).json({
+          error: `Commercial governance violation: this customer has no active assignment for the selected product. Assign the product in Product Registry → Customer Assignments first.`
+        });
+      }
+      // 2. Verify each destination is commercially approved
+      if (destinations?.length) {
+        for (const d of destinations) {
+          if (!d.destinationId) continue;
+          const [dest] = await db.select({ commercialStatus: globalDestinations.commercialStatus })
+            .from(globalDestinations).where(eq(globalDestinations.id, d.destinationId)).limit(1);
+          if (!dest || dest.commercialStatus !== 'approved') {
+            return res.status(400).json({
+              error: `Commercial governance violation: destination "${d.destinationName ?? d.destinationId}" is not commercially approved. Update its status in Product Registry → Destination Catalog first.`
+            });
+          }
+        }
+      }
+      // ── End governance check ─────────────────────────────────────────────────
       const dealRef = await nextDealRef();
       const { dealType } = req.body;
       const [deal] = await db.insert(deals).values({

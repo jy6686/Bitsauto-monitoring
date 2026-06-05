@@ -48,8 +48,9 @@ const TABS = [
   { id: "destinations", label: "Destination Catalog",  icon: Globe      },
   { id: "assignments",  label: "Assignments",          icon: Layers     },
   { id: "customers",    label: "Customer Assignments", icon: Users      },
+  { id: "performance",  label: "Performance",          icon: TrendingUp },
   { id: "routing",      label: "Routing Templates",    icon: Network    },
-  { id: "pricing",      label: "Pricing Templates",    icon: TrendingUp },
+  { id: "pricing",      label: "Pricing Templates",    icon: BookOpen   },
   { id: "history",      label: "History",              icon: History    },
 ] as const;
 type TabId = typeof TABS[number]["id"];
@@ -1121,6 +1122,160 @@ function HistoryTab({ history }: { history: HistoryEntry[] }) {
   );
 }
 
+// ── Performance Tab ────────────────────────────────────────────────────────────
+interface DealRow   { id: number; status: string; iAccount: number; customerName?: string; productId: number; volumeCommitment?: string | null; }
+interface DestRow   { dealId?: number | null; destinationName?: string | null; offerRate?: string | null; costRate?: string | null; volumeSplitPct?: string | null; estimatedMinutes?: number | null; }
+
+function PerformanceTab({ products, customerAssignments }: { products: Product[]; customerAssignments: CustomerAssignment[] }) {
+  const { data: deals = [], isLoading: dealsLoading } = useQuery<DealRow[]>({ queryKey: ["/api/deals"] });
+  const { data: allDests = [], isLoading: destsLoading } = useQuery<DestRow[]>({ queryKey: ["/api/deals/all-destinations"] });
+
+  const fmtPct = (v: number) => `${v.toFixed(1)}%`;
+
+  const productStats = products.map(prod => {
+    const prodDeals   = deals.filter(d => d.productId === prod.id);
+    const activeDeals = prodDeals.filter(d => ["active", "approved", "expiring"].includes(d.status));
+    const uniqueCustomers = new Set(activeDeals.map(d => d.iAccount)).size;
+    const assignedCustomers = customerAssignments.filter(ca => ca.productId === prod.id && ca.status === "active").length;
+    const dealIds  = new Set(activeDeals.map(d => d.id));
+    const prodDests = allDests.filter(d => d.dealId && dealIds.has(d.dealId));
+    const uniqueDests = new Set(prodDests.map(d => d.destinationName)).size;
+    const totalMinutes = prodDests.reduce((sum, d) => sum + (d.estimatedMinutes ?? 0), 0);
+    const totalRevenue = prodDests.reduce((sum, d) => {
+      const rate = parseFloat(d.offerRate ?? "0");
+      const mins = d.estimatedMinutes ?? 0;
+      return sum + rate * mins;
+    }, 0);
+    return { prod, activeDeals: activeDeals.length, totalDeals: prodDeals.length, uniqueCustomers, assignedCustomers, uniqueDests, totalMinutes, totalRevenue };
+  }).sort((a, b) => b.activeDeals - a.activeDeals);
+
+  const isLoading = dealsLoading || destsLoading;
+
+  const STATUS_COLOR: Record<string, string> = {
+    active:   "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+    draft:    "bg-slate-500/15 text-slate-400 border-slate-500/30",
+    inactive: "bg-slate-500/15 text-slate-400 border-slate-500/30",
+  };
+
+  return (
+    <div className="p-6 space-y-6 overflow-y-auto h-full">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-semibold">Product Performance</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Active deal count, customer reach, and destination coverage per product</p>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>{products.length} products</span>
+          <span className="text-border">·</span>
+          <span>{deals.filter(d => ["active","approved","expiring"].includes(d.status)).length} active deals</span>
+        </div>
+      </div>
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Total Products",    value: products.length,                                                                 color: "text-violet-400"  },
+          { label: "Active Deals",      value: deals.filter(d => ["active","approved","expiring"].includes(d.status)).length,   color: "text-emerald-400" },
+          { label: "Assigned Customers",value: new Set(customerAssignments.filter(ca => ca.status === "active").map(ca => ca.iAccount)).size, color: "text-blue-400" },
+          { label: "Total Destinations",value: new Set(allDests.map(d => d.destinationName).filter(Boolean)).size,             color: "text-cyan-400"    },
+        ].map(c => (
+          <div key={c.label} className="bg-card border border-border rounded-lg p-4">
+            <div className="text-xs text-muted-foreground mb-1">{c.label}</div>
+            <div className={cn("text-2xl font-bold", c.color)}>{isLoading ? "—" : c.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Per-Product Table */}
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+          <TrendingUp className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Performance by Product</h3>
+        </div>
+        {isLoading ? (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">Loading deal data…</div>
+        ) : productStats.length === 0 ? (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">No products configured yet</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/20">
+                {["Product", "Status", "Active Deals", "Total Deals", "Active Customers", "Assigned Customers", "Destinations Covered", "Est. Volume (min)"].map(h => (
+                  <th key={h} className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {productStats.map(({ prod, activeDeals, totalDeals, uniqueCustomers, assignedCustomers, uniqueDests, totalMinutes }) => (
+                <tr key={prod.id} className="border-b border-border/50 hover:bg-muted/20">
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-xs font-bold px-2 py-0.5 rounded border", PRODUCT_COLORS[prod.color ?? "violet"])}>{prod.code}</span>
+                      <span className="font-medium">{prod.name}</span>
+                    </div>
+                    {prod.description && <div className="text-xs text-muted-foreground mt-0.5 truncate max-w-[200px]">{prod.description}</div>}
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className={cn("text-xs px-2 py-0.5 rounded border capitalize font-medium", STATUS_COLOR[prod.status ?? "inactive"] ?? STATUS_COLOR.inactive)}>{prod.status ?? "inactive"}</span>
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className={cn("text-base font-bold", activeDeals > 0 ? "text-emerald-400" : "text-muted-foreground")}>{activeDeals}</span>
+                  </td>
+                  <td className="py-3 px-4 text-muted-foreground">{totalDeals}</td>
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-1.5">
+                      <span className={cn("font-semibold", uniqueCustomers > 0 ? "text-blue-400" : "text-muted-foreground")}>{uniqueCustomers}</span>
+                      {assignedCustomers > 0 && uniqueCustomers < assignedCustomers && (
+                        <span className="text-xs text-muted-foreground">/ {assignedCustomers} assigned</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 text-muted-foreground">{assignedCustomers}</td>
+                  <td className="py-3 px-4">
+                    <span className={cn("font-semibold", uniqueDests > 0 ? "text-cyan-400" : "text-muted-foreground")}>{uniqueDests}</span>
+                  </td>
+                  <td className="py-3 px-4 text-muted-foreground">{totalMinutes > 0 ? totalMinutes.toLocaleString() : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Deal status breakdown per product */}
+      {!isLoading && productStats.some(ps => ps.totalDeals > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {productStats.filter(ps => ps.totalDeals > 0).map(({ prod, activeDeals, totalDeals, uniqueCustomers, uniqueDests, totalMinutes }) => {
+            const pct = totalDeals > 0 ? Math.round((activeDeals / totalDeals) * 100) : 0;
+            return (
+              <div key={prod.id} className="bg-card border border-border rounded-lg p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className={cn("text-xs font-bold px-2 py-0.5 rounded border shrink-0", PRODUCT_COLORS[prod.color ?? "violet"])}>{prod.code}</span>
+                  <span className="font-medium text-sm truncate">{prod.name}</span>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Active / Total deals</span>
+                    <span className="font-medium text-foreground">{activeDeals} / {totalDeals} ({fmtPct(pct)})</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div><div className="text-sm font-bold text-blue-400">{uniqueCustomers}</div><div className="text-xs text-muted-foreground">Customers</div></div>
+                  <div><div className="text-sm font-bold text-cyan-400">{uniqueDests}</div><div className="text-xs text-muted-foreground">Destinations</div></div>
+                  <div><div className="text-sm font-bold text-slate-300">{totalMinutes > 0 ? `${(totalMinutes / 1000).toFixed(1)}k` : "—"}</div><div className="text-xs text-muted-foreground">Est. min</div></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ProductRegistryPage() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -1169,6 +1324,7 @@ export default function ProductRegistryPage() {
         {activeTab === "destinations" && <div className="h-full overflow-hidden"><DestinationCatalogTab destinations={destinations} products={products} assignments={assignments} /></div>}
         {activeTab === "assignments"  && <div className="h-full overflow-hidden"><AssignmentsTab products={products} destinations={destinations} assignments={assignments} /></div>}
         {activeTab === "customers"    && <div className="h-full overflow-hidden"><CustomerAssignmentsTab products={products} customerAssignments={customerAssignments} /></div>}
+        {activeTab === "performance"  && <div className="h-full overflow-y-auto"><PerformanceTab products={products} customerAssignments={customerAssignments} /></div>}
         {activeTab === "routing"      && <div className="h-full overflow-y-auto"><RoutingTemplatesTab products={products} /></div>}
         {activeTab === "pricing"      && <div className="h-full overflow-y-auto"><PricingTemplatesTab products={products} /></div>}
         {activeTab === "history"      && <div className="h-full overflow-y-auto"><HistoryTab history={history} /></div>}

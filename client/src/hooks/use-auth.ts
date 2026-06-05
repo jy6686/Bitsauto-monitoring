@@ -42,6 +42,13 @@ export function useAuth() {
 
   const role: Role = user?.role ?? 'viewer';
 
+  // Commercial tier helpers (KAM → Trading Manager → Management)
+  const MANAGEMENT_ROLES: Role[] = ['admin', 'super_admin', 'management'];
+  const canSeeCostRate  = MANAGEMENT_ROLES.includes(role);   // buy/cost rates — hidden from KAM-level
+  const canSeeMargin    = MANAGEMENT_ROLES.includes(role);   // margin % — hidden from KAM-level
+  const canSeeFullPnL   = role === 'admin' || role === 'super_admin'; // portfolio profitability breakdown
+  const canApproveDeal  = MANAGEMENT_ROLES.includes(role);   // approve/reject deals
+
   return {
     user,
     role,
@@ -55,6 +62,11 @@ export function useAuth() {
     // Approver ≠ Executor enforcement helpers
     canApproveFailover: role === 'destination_manager' || role === 'admin' || role === 'super_admin',
     canExecuteRouting: role === 'routing_admin' || role === 'admin' || role === 'super_admin',
+    // Commercial visibility model
+    canSeeCostRate,
+    canSeeMargin,
+    canSeeFullPnL,
+    canApproveDeal,
     logout: logoutMutation.mutate,
     isLoggingOut: logoutMutation.isPending,
   };

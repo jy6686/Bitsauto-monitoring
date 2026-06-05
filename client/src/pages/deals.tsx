@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ const TABS = [
   { id: "board",         label: "Deal Board",     icon: LayoutList   },
   { id: "simulator",     label: "Deal Simulator", icon: Sliders      },
   { id: "profitability", label: "Profitability",  icon: TrendingUp   },
+  { id: "expiry",        label: "Expiry Center",  icon: Timer        },
   { id: "approvals",     label: "Approvals",      icon: CheckSquare  },
   { id: "history",       label: "History",        icon: History      },
 ] as const;
@@ -447,6 +449,175 @@ function DealBoardTab({ deals, products, onSelect, onDelete }: {
   );
 }
 
+// ── Expiry Center Tab ─────────────────────────────────────────────────────────
+function ExpiryCenterTab({ deals, products }: { deals: Deal[]; products: Product[] }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const today = new Date();
+  const in7d  = new Date(today); in7d.setDate(today.getDate() + 7);
+  const in30d = new Date(today); in30d.setDate(today.getDate() + 30);
+
+  const expiring7  = deals.filter(d => { if (!d.endDate || d.status !== "active") return false; const e = new Date(d.endDate); return e >= today && e <= in7d; });
+  const expiring30 = deals.filter(d => { if (!d.endDate || d.status !== "active") return false; const e = new Date(d.endDate); return e >= today && e > in7d && e <= in30d; });
+  const inGrace    = deals.filter(d => {
+    if (!d.endDate || !(d.gracePeriodDays ?? 0)) return false;
+    const end = new Date(d.endDate);
+    const graceEnd = new Date(end); graceEnd.setDate(end.getDate() + (d.gracePeriodDays ?? 0));
+    return end < today && graceEnd >= today;
+  });
+  const renewalCandidates = deals.filter(d =>
+    d.status === "expired" ||
+    (d.endDate && new Date(d.endDate) < today && d.status === "active")
+  );
+
+  const renewMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/deals/${id}/renew`, {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/deals"] }); toast({ title: "Deal marked as renewed" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const DealRow = ({ d, urgencyColor, extra }: { d: Deal; urgencyColor: string; extra?: ReactNode }) => {
+    const prod = products.find(p => p.id === d.productId);
+    const days = daysUntil(d.endDate);
+    return (
+      <div className={cn("flex items-center gap-3 text-sm rounded-lg border px-4 py-3", urgencyColor)}>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-xs text-muted-foreground">{d.dealRef}</span>
+            <span className="font-semibold">{d.customerName ?? `Acct ${d.iAccount}`}</span>
+            {prod && <span className={cn("text-xs px-1.5 py-0.5 rounded border font-bold shrink-0", PRODUCT_COLORS[prod.color ?? "violet"])}>{prod.code}</span>}
+            <StatusBadge status={d.status} />
+            {d.kamName && <span className="text-xs text-muted-foreground">KAM: {d.kamName}</span>}
+          </div>
+          <div className="flex items-center gap-4 text-xs text-muted-foreground mt-0.5 flex-wrap">
+            {d.endDate && <span>Ends {new Date(d.endDate).toLocaleDateString()}</span>}
+            {d.volumeCommitment && <span>{Number(d.volumeCommitment).toLocaleString()} min committed</span>}
+            {d.gracePeriodDays ? <span className="text-amber-400">+{d.gracePeriodDays}d grace</span> : null}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {extra}
+          {days !== null && days > 0 ? (
+            <span className={cn("text-sm font-bold px-2 py-0.5 rounded",
+              days <= 7 ? "bg-rose-500/20 text-rose-400" : "bg-orange-500/20 text-orange-400"
+            )}>{days}d</span>
+          ) : days !== null && days <= 0 ? (
+            <span className="text-sm font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-400">Expired</span>
+          ) : null}
+          <Button size="sm" variant="outline" className="h-7 text-xs"
+            onClick={() => renewMut.mutate(d.id)} disabled={renewMut.isPending}
+            data-testid={`btn-renew-deal-${d.id}`}>
+            <RefreshCw className="w-3 h-3 mr-1" />Renew
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  const isEmpty = expiring7.length + expiring30.length + inGrace.length + renewalCandidates.length === 0;
+
+  return (
+    <div className="p-6 space-y-6 overflow-y-auto h-full">
+      <div>
+        <h2 className="font-semibold">Expiry Center</h2>
+        <p className="text-sm text-muted-foreground">Monitor deal expiry, grace periods, and renewal pipeline across your portfolio</p>
+      </div>
+
+      {isEmpty && (
+        <div className="bg-card border border-border rounded-lg p-10 text-center">
+          <Timer className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm font-medium">No expiry alerts</p>
+          <p className="text-xs text-muted-foreground mt-1">All active deals have remaining term. Set end dates on deals to see alerts here.</p>
+        </div>
+      )}
+
+      {/* 7-day flame alerts */}
+      {expiring7.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Flame className="w-4 h-4 text-rose-400" />
+            <h3 className="text-sm font-semibold text-rose-400">Critical — Expiring within 7 days</h3>
+            <span className="ml-auto text-xs bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded px-2 py-0.5 font-bold">{expiring7.length}</span>
+          </div>
+          <div className="space-y-2">
+            {expiring7.map(d => <DealRow key={d.id} d={d} urgencyColor="border-rose-500/30 bg-rose-500/5" />)}
+          </div>
+        </div>
+      )}
+
+      {/* 30-day warning */}
+      {expiring30.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Timer className="w-4 h-4 text-orange-400" />
+            <h3 className="text-sm font-semibold text-orange-400">Warning — Expiring in 8–30 days</h3>
+            <span className="ml-auto text-xs bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded px-2 py-0.5 font-bold">{expiring30.length}</span>
+          </div>
+          <div className="space-y-2">
+            {expiring30.map(d => <DealRow key={d.id} d={d} urgencyColor="border-orange-500/30 bg-orange-500/5" />)}
+          </div>
+        </div>
+      )}
+
+      {/* Grace period */}
+      {inGrace.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-amber-400" />
+            <h3 className="text-sm font-semibold text-amber-400">In Grace Period</h3>
+            <span className="ml-auto text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded px-2 py-0.5 font-bold">{inGrace.length}</span>
+          </div>
+          <div className="space-y-2">
+            {inGrace.map(d => {
+              const end = new Date(d.endDate!);
+              const graceEnd = new Date(end); graceEnd.setDate(end.getDate() + (d.gracePeriodDays ?? 0));
+              const daysLeft = Math.ceil((graceEnd.getTime() - Date.now()) / 86400000);
+              return (
+                <DealRow key={d.id} d={d} urgencyColor="border-amber-500/30 bg-amber-500/5"
+                  extra={<span className="text-xs text-amber-400 font-semibold">{daysLeft}d grace left</span>}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Renewal candidates */}
+      {renewalCandidates.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-sm font-semibold text-cyan-400">Renewal Candidates</h3>
+            <span className="ml-auto text-xs bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded px-2 py-0.5 font-bold">{renewalCandidates.length}</span>
+          </div>
+          <p className="text-xs text-muted-foreground">Expired deals or active deals past end date that should be formally renewed or closed.</p>
+          <div className="space-y-2">
+            {renewalCandidates.map(d => <DealRow key={d.id} d={d} urgencyColor="border-cyan-500/30 bg-cyan-500/5" />)}
+          </div>
+        </div>
+      )}
+
+      {/* Summary stats */}
+      {!isEmpty && (
+        <div className="grid grid-cols-4 gap-3 pt-2 border-t border-border">
+          {[
+            { label: "Critical (7d)",  value: expiring7.length,      color: "text-rose-400"   },
+            { label: "Warning (30d)",  value: expiring30.length,     color: "text-orange-400" },
+            { label: "In Grace",       value: inGrace.length,        color: "text-amber-400"  },
+            { label: "For Renewal",    value: renewalCandidates.length, color: "text-cyan-400"  },
+          ].map(c => (
+            <div key={c.label} className="bg-card border border-border rounded-lg p-3 text-center">
+              <div className={cn("text-2xl font-bold", c.color)}>{c.value}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{c.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Deal Simulator Tab ────────────────────────────────────────────────────────
 function DealSimulatorTab({ products, destinations, customerAssignments, accounts, existingDeal }: {
   products: Product[]; destinations: Destination[];
@@ -456,6 +627,7 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { canSeeCostRate, canSeeMargin } = useAuth();
   const [accountSearch, setAccountSearch] = useState("");
   const [selectedAccount, setSelectedAccount] = useState<SippyAccount | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
@@ -540,7 +712,7 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
     String(a.i_account).includes(accountSearch)
   );
 
-  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  const Field = ({ label, children }: { label: string; children: ReactNode }) => (
     <div className="space-y-1"><Label className="text-xs text-muted-foreground">{label}</Label>{children}</div>
   );
 
@@ -697,15 +869,17 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
                         <X className="w-4 h-4 text-muted-foreground hover:text-rose-400" />
                       </button>
                     </div>
-                    <div className="grid grid-cols-5 gap-2">
+                    <div className={cn("grid gap-2", canSeeCostRate ? "grid-cols-5" : "grid-cols-4")}>
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground">Offer Rate (sell)</Label>
                         <Input type="number" step="0.000001" value={row.offerRate ?? ""} onChange={e => updateDestRow(row._localId!, "offerRate", e.target.value)} placeholder="0.0100" className="h-7 text-xs" data-testid={`input-offer-rate-${i}`} />
                       </div>
+                      {canSeeCostRate && (
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground">Cost Rate (buy)</Label>
                         <Input type="number" step="0.000001" value={row.costRate ?? ""} onChange={e => updateDestRow(row._localId!, "costRate", e.target.value)} placeholder="0.0080" className="h-7 text-xs" data-testid={`input-cost-rate-${i}`} />
                       </div>
+                      )}
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground">Vol Split %</Label>
                         <Input type="number" min={0} max={100} value={row.volumeSplitPct ?? ""} onChange={e => updateDestRow(row._localId!, "volumeSplitPct", e.target.value)} placeholder="100" className="h-7 text-xs" data-testid={`input-vol-split-${i}`} />
@@ -798,12 +972,10 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
                 <span className="text-right">{pnl.volumeMins.toLocaleString()} min</span>
                 <span className="text-muted-foreground">Revenue</span>
                 <span className="font-medium text-emerald-400 text-right">{fmtCurrency(pnl.revenue)}</span>
-                <span className="text-muted-foreground">Cost</span>
-                <span className="font-medium text-rose-400 text-right">{fmtCurrency(pnl.cost)}</span>
-                <span className="text-muted-foreground">Profit</span>
-                <span className={cn("font-bold text-right", pnl.profit >= 0 ? "text-emerald-400" : "text-rose-400")}>{fmtCurrency(pnl.profit)}</span>
-                <span className="text-muted-foreground">Margin</span>
-                <span className="font-bold text-right">{fmtPct(pnl.marginPct)}</span>
+                {canSeeCostRate && <><span className="text-muted-foreground">Cost</span><span className="font-medium text-rose-400 text-right">{fmtCurrency(pnl.cost)}</span></>}
+                {canSeeMargin && <><span className="text-muted-foreground">Profit</span><span className={cn("font-bold text-right", pnl.profit >= 0 ? "text-emerald-400" : "text-rose-400")}>{fmtCurrency(pnl.profit)}</span></>}
+                {canSeeMargin && <><span className="text-muted-foreground">Margin</span><span className="font-bold text-right">{fmtPct(pnl.marginPct)}</span></>}
+                {!canSeeMargin && <><span className="text-muted-foreground col-span-2 text-center italic opacity-60 text-xs">Margin visible to Trading Manager+</span></>}
               </div>
             </div>
           ))}
@@ -824,13 +996,11 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
                 <span className="text-right">{totalPnL.totalVolume.toLocaleString()} min</span>
                 <span className="text-muted-foreground">Total Revenue</span>
                 <span className="font-bold text-emerald-400 text-right">{fmtCurrency(totalPnL.totalRevenue)}</span>
-                <span className="text-muted-foreground">Total Cost</span>
-                <span className="font-bold text-rose-400 text-right">{fmtCurrency(totalPnL.totalCost)}</span>
-                <span className="text-muted-foreground">Net Profit</span>
-                <span className={cn("font-bold text-right text-base", totalPnL.totalProfit >= 0 ? "text-emerald-400" : "text-rose-400")}>{fmtCurrency(totalPnL.totalProfit)}</span>
-                <span className="text-muted-foreground">Margin</span>
-                <span className="font-bold text-right text-base">{fmtPct(totalPnL.overallMarginPct)}</span>
+                {canSeeCostRate && <><span className="text-muted-foreground">Total Cost</span><span className="font-bold text-rose-400 text-right">{fmtCurrency(totalPnL.totalCost)}</span></>}
+                {canSeeMargin && <><span className="text-muted-foreground">Net Profit</span><span className={cn("font-bold text-right text-base", totalPnL.totalProfit >= 0 ? "text-emerald-400" : "text-rose-400")}>{fmtCurrency(totalPnL.totalProfit)}</span></>}
+                {canSeeMargin && <><span className="text-muted-foreground">Margin</span><span className="font-bold text-right text-base">{fmtPct(totalPnL.overallMarginPct)}</span></>}
               </div>
+              {canSeeMargin && (
               <div className={cn("text-xs px-2 py-1.5 rounded mt-1",
                 totalPnL.health === "healthy" ? "bg-emerald-500/10 text-emerald-400" :
                 totalPnL.health === "warning"  ? "bg-amber-500/10 text-amber-400" :
@@ -839,6 +1009,12 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
                  totalPnL.health === "warning"  ? "⚠ Acceptable — margin 10–20%, review before approval" :
                  "✗ At risk — margin below 10%, management sign-off required"}
               </div>
+              )}
+              {!canSeeMargin && (
+                <div className="text-xs px-2 py-1.5 rounded mt-1 bg-muted/30 text-muted-foreground text-center italic">
+                  P&amp;L health visible to Trading Manager and above
+                </div>
+              )}
             </div>
           )}
 
@@ -861,6 +1037,7 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
 
 // ── Profitability Tab ─────────────────────────────────────────────────────────
 function ProfitabilityTab({ deals, products }: { deals: Deal[]; products: Product[] }) {
+  const { canSeeCostRate, canSeeMargin, canSeeFullPnL } = useAuth();
   const { data: allDests = [], isLoading } = useQuery<DealDestination[]>({ queryKey: ["/api/deals/all-destinations"] });
 
   // Only include active / approved deals in portfolio analysis
@@ -994,11 +1171,11 @@ function ProfitabilityTab({ deals, products }: { deals: Deal[]; products: Produc
       {/* Portfolio summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Portfolio Revenue", value: fmtCurrency(portfolioPnL.totalRevenue), color: "text-emerald-400" },
-          { label: "Portfolio Cost",    value: fmtCurrency(portfolioPnL.totalCost),    color: "text-rose-400"    },
-          { label: "Net Profit",        value: fmtCurrency(portfolioPnL.totalProfit),  color: portfolioPnL.totalProfit >= 0 ? "text-emerald-400" : "text-rose-400" },
-          { label: "Overall Margin",    value: fmtPct(portfolioPnL.marginPct),         color: portfolioPnL.marginPct >= 20 ? "text-emerald-400" : portfolioPnL.marginPct >= 10 ? "text-amber-400" : "text-rose-400" },
-        ].map(c => (
+          { label: "Portfolio Revenue", value: fmtCurrency(portfolioPnL.totalRevenue), color: "text-emerald-400", show: true },
+          { label: "Portfolio Cost",    value: fmtCurrency(portfolioPnL.totalCost),    color: "text-rose-400",   show: canSeeCostRate },
+          { label: "Net Profit",        value: fmtCurrency(portfolioPnL.totalProfit),  color: portfolioPnL.totalProfit >= 0 ? "text-emerald-400" : "text-rose-400", show: canSeeMargin },
+          { label: "Overall Margin",    value: fmtPct(portfolioPnL.marginPct),         color: portfolioPnL.marginPct >= 20 ? "text-emerald-400" : portfolioPnL.marginPct >= 10 ? "text-amber-400" : "text-rose-400", show: canSeeMargin },
+        ].filter(c => c.show).map(c => (
           <div key={c.label} className="bg-card border border-border rounded-lg p-4">
             <div className="text-xs text-muted-foreground mb-1">{c.label}</div>
             <div className={cn("text-xl font-bold", c.color)}>{c.value}</div>
@@ -1026,7 +1203,7 @@ function ProfitabilityTab({ deals, products }: { deals: Deal[]; products: Produc
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-sm font-bold text-emerald-400">{fmtCurrency(row.revenue)}</div>
-                  <div className={cn("text-xs font-medium", row.marginPct >= 20 ? "text-emerald-400" : row.marginPct >= 10 ? "text-amber-400" : "text-rose-400")}>{fmtPct(row.marginPct)} margin</div>
+                  {canSeeMargin && <div className={cn("text-xs font-medium", row.marginPct >= 20 ? "text-emerald-400" : row.marginPct >= 10 ? "text-amber-400" : "text-rose-400")}>{fmtPct(row.marginPct)} margin</div>}
                 </div>
               </div>
             ))}
@@ -1050,7 +1227,7 @@ function ProfitabilityTab({ deals, products }: { deals: Deal[]; products: Produc
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-sm font-bold text-emerald-400">{fmtCurrency(row.revenue)}</div>
-                  <div className={cn("text-xs font-medium", row.marginPct >= 20 ? "text-emerald-400" : row.marginPct >= 10 ? "text-amber-400" : "text-rose-400")}>{fmtPct(row.marginPct)}</div>
+                  {canSeeMargin && <div className={cn("text-xs font-medium", row.marginPct >= 20 ? "text-emerald-400" : row.marginPct >= 10 ? "text-amber-400" : "text-rose-400")}>{fmtPct(row.marginPct)}</div>}
                 </div>
               </div>
             ))}
@@ -1068,7 +1245,7 @@ function ProfitabilityTab({ deals, products }: { deals: Deal[]; products: Produc
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/20">
-                {["Destination", "Volume (min)", "Revenue", "Cost", "Profit", "Margin"].map(h => (
+                {["Destination", "Volume (min)", "Revenue", ...(canSeeCostRate ? ["Cost"] : []), ...(canSeeMargin ? ["Profit", "Margin"] : [])].map(h => (
                   <th key={h} className="text-left py-2 px-4 text-xs font-medium text-muted-foreground">{h}</th>
                 ))}
               </tr>
@@ -1079,15 +1256,9 @@ function ProfitabilityTab({ deals, products }: { deals: Deal[]; products: Produc
                   <td className="py-2.5 px-4 font-medium">{row.name}</td>
                   <td className="py-2.5 px-4 text-muted-foreground">{row.mins.toLocaleString()}</td>
                   <td className="py-2.5 px-4 text-emerald-400 font-medium">{fmtCurrency(row.revenue)}</td>
-                  <td className="py-2.5 px-4 text-rose-400">{fmtCurrency(row.cost)}</td>
-                  <td className={cn("py-2.5 px-4 font-bold", row.profit >= 0 ? "text-emerald-400" : "text-rose-400")}>{fmtCurrency(row.profit)}</td>
-                  <td className="py-2.5 px-4">
-                    <span className={cn("text-xs font-bold px-2 py-0.5 rounded",
-                      row.marginPct >= 20 ? "bg-emerald-500/15 text-emerald-400" :
-                      row.marginPct >= 10 ? "bg-amber-500/15 text-amber-400" :
-                      "bg-rose-500/15 text-rose-400"
-                    )}>{fmtPct(row.marginPct)}</span>
-                  </td>
+                  {canSeeCostRate && <td className="py-2.5 px-4 text-rose-400">{fmtCurrency(row.cost)}</td>}
+                  {canSeeMargin  && <td className={cn("py-2.5 px-4 font-bold", row.profit >= 0 ? "text-emerald-400" : "text-rose-400")}>{fmtCurrency(row.profit)}</td>}
+                  {canSeeMargin  && <td className="py-2.5 px-4"><span className={cn("text-xs font-bold px-2 py-0.5 rounded", row.marginPct >= 20 ? "bg-emerald-500/15 text-emerald-400" : row.marginPct >= 10 ? "bg-amber-500/15 text-amber-400" : "bg-rose-500/15 text-rose-400")}>{fmtPct(row.marginPct)}</span></td>}
                 </tr>
               ))}
             </tbody>
@@ -1307,6 +1478,7 @@ export default function DealsPage() {
         {activeTab === "board"         && <div className="h-full overflow-hidden"><DealBoardTab deals={dealList} products={products} onSelect={d => { setSimulatorDeal(d); setActiveTab("simulator"); }} onDelete={id => deleteMut.mutate(id)} /></div>}
         {activeTab === "simulator"     && <div className="h-full overflow-hidden"><DealSimulatorTab products={products} destinations={destinations} customerAssignments={custAssignments} accounts={accounts} existingDeal={simulatorDeal} /></div>}
         {activeTab === "profitability" && <div className="h-full overflow-hidden"><ProfitabilityTab deals={dealList} products={products} /></div>}
+        {activeTab === "expiry"        && <div className="h-full overflow-y-auto"><ExpiryCenterTab deals={dealList} products={products} /></div>}
         {activeTab === "approvals"     && <div className="h-full overflow-y-auto"><ApprovalsTab deals={dealList} products={products} /></div>}
         {activeTab === "history"       && <div className="h-full overflow-y-auto"><DealHistoryTab deals={dealList} products={products} /></div>}
       </div>
