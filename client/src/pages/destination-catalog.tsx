@@ -869,9 +869,10 @@ function ImportTab() {
       setPreview(mappedRows);
       setParsed(true);
       setDetectedFormat("legacy");
-      if (mappedRows.length === 0 && res._debugHtml) {
-        setLegacyDebugHtml(res._debugHtml);
-        toast({ title: "Synced 0 rows — see HTML debug below", description: "The page was reached but no table rows were parsed.", variant: "destructive" });
+      if (mappedRows.length === 0 && res._debug) {
+        const d = res._debug;
+        setLegacyDebugHtml(`HTTP ${d.status} — URL: ${d.url}\nHTML length: ${d.htmlLength} chars\n\n${d.html}`);
+        toast({ title: "Synced 0 rows — debug info below", description: `HTTP ${d.status} · ${d.htmlLength} chars received`, variant: "destructive" });
       } else {
         setLegacyDebugHtml("");
         toast({ title: `Synced ${mappedRows.length} rows from legacy BitsAuto` });
