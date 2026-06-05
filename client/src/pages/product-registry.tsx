@@ -339,7 +339,7 @@ function ProductCatalogTab({ products, destinations, assignments }: {
           </div>
         )}
         {(selected || creating) && (
-          <div className="p-6 space-y-5 max-w-2xl">
+          <div key={creating ? "creating" : `product-${selectedId}`} className="p-6 space-y-5 max-w-2xl">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-lg">{creating ? "New Product" : selected?.name}</h2>
               {selected && <Button size="sm" variant="destructive" onClick={() => deleteMut.mutate(selected.id)} data-testid="btn-delete-product"><Trash2 className="w-3.5 h-3.5 mr-1.5" />Delete</Button>}
@@ -376,7 +376,7 @@ function ProductCatalogTab({ products, destinations, assignments }: {
             </div>
 
             <Field label="Description">
-              <Textarea value={editForm.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} data-testid="input-product-desc" />
+              <Textarea value={(creating ? form.description : editForm.description) ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} data-testid="input-product-desc" />
             </Field>
 
             <div className="grid grid-cols-3 gap-4">
@@ -1384,7 +1384,7 @@ export default function ProductRegistryPage() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
 
   const { data: products = [] } = useQuery<Product[]>({ queryKey: ["/api/product-registry/products"] });
-  const { data: destinations = [], isLoading: destinationsLoading } = useQuery<Destination[]>({ queryKey: ["/api/product-registry/destinations"] });
+  const { data: destinations = [], isLoading: destinationsLoading } = useQuery<Destination[]>({ queryKey: ["/api/product-registry/destinations"], staleTime: 0 });
   const { data: assignments = [] } = useQuery<Assignment[]>({ queryKey: ["/api/product-registry/assignments"] });
   const { data: customerAssignments = [] } = useQuery<CustomerAssignment[]>({ queryKey: ["/api/product-registry/customer-assignments"] });
   const { data: history = [] } = useQuery<HistoryEntry[]>({
