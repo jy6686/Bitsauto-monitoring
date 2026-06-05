@@ -73,7 +73,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
 const drizzleSql = sqlExpr;
@@ -33307,6 +33307,97 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       if (!deal) return res.status(404).json({ error: 'Not found' });
       await db.insert(dealApprovals).values({ dealId: id, action: 'renewed', performedBy: req.user?.claims?.sub ?? 'system', notes: req.body.notes ?? null });
       res.json(deal);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Rate Manager ──────────────────────────────────────────────────────────
+
+  // GET /api/rate-manager/products — active products with trunk prefix
+  app.get('/api/rate-manager/products', async (_req, res) => {
+    try {
+      const rows = await db
+        .select()
+        .from(productRegistry)
+        .where(eq(productRegistry.status, 'active'))
+        .orderBy(productRegistry.sortOrder, productRegistry.name);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/rate-manager/push-batch — push one rate prefix to multiple Sippy accounts
+  // Body: { accountNames: string[], trunkPrefix: string, dialPrefix: string, rate: number,
+  //         effectiveFrom?: string, effectiveTill?: string, format?: 'full'|'partial'|'default' }
+  app.post('/api/rate-manager/push-batch',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const settings = await storage.getSettings();
+        const { accountNames, trunkPrefix, dialPrefix, rate, effectiveFrom, effectiveTill, format } = req.body as {
+          accountNames: string[];
+          trunkPrefix: string;
+          dialPrefix: string;
+          rate: number;
+          effectiveFrom?: string;
+          effectiveTill?: string;
+          format?: 'full' | 'partial' | 'default';
+        };
+        if (!Array.isArray(accountNames) || accountNames.length === 0) {
+          return res.status(400).json({ error: 'accountNames array required' });
+        }
+        if (!dialPrefix || rate === undefined) {
+          return res.status(400).json({ error: 'dialPrefix and rate required' });
+        }
+        const fullPrefix = (trunkPrefix ?? '') + dialPrefix;
+        const { username, password } = sippyXmlCreds(settings);
+        const portalUrl = sippyPortalUrl(settings);
+        const results: { accountName: string; success: boolean; message: string }[] = [];
+        for (const accountName of accountNames) {
+          try {
+            const r = await sippy.pushRateToSippy(
+              {
+                accountName,
+                prefix: fullPrefix,
+                ratePerMin: Number(rate),
+                effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
+                effectiveTo:   effectiveTill ? new Date(effectiveTill) : undefined,
+                format: format ?? 'full',
+              },
+              { username, password },
+              portalUrl,
+            );
+            results.push({ accountName, ...r });
+          } catch (e: any) {
+            results.push({ accountName, success: false, message: e.message });
+          }
+        }
+        const ok = results.filter(r => r.success).length;
+        // Record job summary
+        try {
+          await db.insert(ratePushJobs).values({
+            jobId:        `job-${Date.now()}`,
+            productName:  req.body.productName ?? null,
+            trunkPrefix:  trunkPrefix ?? null,
+            format:       format ?? 'full',
+            rateType:     req.body.rateType ?? 'current',
+            totalClients: accountNames.length,
+            pushedClients: ok,
+            failedClients: accountNames.length - ok,
+            status:       ok === accountNames.length ? 'completed' : ok > 0 ? 'partial' : 'failed',
+            notes:        `Pushed prefix ${fullPrefix} @ ${rate}`,
+            createdBy:    req.user?.claims?.sub ?? 'system',
+            completedAt:  new Date(),
+          });
+        } catch { /* non-critical — don't fail the response */ }
+        res.json({ results, ok, total: accountNames.length });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    },
+  );
+
+  // GET /api/rate-manager/jobs — rate push job history
+  app.get('/api/rate-manager/jobs', async (_req, res) => {
+    try {
+      const jobs = await db.select().from(ratePushJobs).orderBy(desc(ratePushJobs.createdAt)).limit(100);
+      res.json(jobs);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

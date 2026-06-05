@@ -3681,11 +3681,34 @@ export const productRegistry = pgTable("product_registry", {
   offerWindowMin:         real("offer_window_min"),
   offerWindowTarget:      real("offer_window_target"),
   offerWindowPremium:     real("offer_window_premium"),
+  // Sippy trunk prefix encoding (e.g. "1"=First Class, "2"=Business, "6"=Bravo, "7"=Charlie)
+  trunkPrefix:            varchar("trunk_prefix",  { length: 8 }),
   sortOrder:              integer("sort_order").default(0),
   createdAt:              timestamp("created_at").defaultNow().notNull(),
 });
 export type ProductRegistryItem       = typeof productRegistry.$inferSelect;
 export type InsertProductRegistryItem = typeof productRegistry.$inferInsert;
+
+// ── Rate Push Jobs ────────────────────────────────────────────────────────────
+export const ratePushJobs = pgTable("rate_push_jobs", {
+  id:             serial("id").primaryKey(),
+  jobId:          varchar("job_id",        { length: 64  }).unique().notNull(),
+  productName:    varchar("product_name",  { length: 64  }),
+  trunkPrefix:    varchar("trunk_prefix",  { length: 8   }),
+  format:         varchar("format",        { length: 16  }).default("full"),
+  rateType:       varchar("rate_type",     { length: 16  }).default("current"),
+  totalClients:   integer("total_clients").default(0),
+  pushedClients:  integer("pushed_clients").default(0),
+  failedClients:  integer("failed_clients").default(0),
+  // 'pending'|'processing'|'completed'|'partial'|'failed'
+  status:         varchar("status",        { length: 16  }).notNull().default("pending"),
+  notes:          text("notes"),
+  createdBy:      varchar("created_by",    { length: 128 }),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  completedAt:    timestamp("completed_at"),
+});
+export type RatePushJob       = typeof ratePushJobs.$inferSelect;
+export type InsertRatePushJob = typeof ratePushJobs.$inferInsert;
 
 // ── Product → Destination Assignments ────────────────────────────────────────
 // Created via drag & drop in Assignments tab.

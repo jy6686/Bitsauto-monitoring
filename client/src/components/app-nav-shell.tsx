@@ -238,6 +238,9 @@ const DOMAINS: Domain[] = [
       { label: 'Product Registry', desc: 'Product definitions, destinations, and assignment management', icon: Package, items: [
         { href: '/product-registry', label: 'Product Registry',    desc: 'Products, destinations & drag-drop assignments', icon: Package },
       ]},
+      { label: 'Rate Operations', desc: 'Rate management, push workflow, and notification engine', icon: BarChart2, items: [
+        { href: '/rate-manager',      label: 'Rate Manager',        desc: 'View & push rates with trunk-prefix encoding',  icon: BarChart2 },
+      ]},
       { label: 'Catalog Tools', desc: 'Routing templates, pricing policies, and assignment history', icon: Layers, items: [
         { href: '/destination-catalog',               label: 'Destination Catalog', desc: 'Global destination tree & approval workflow', icon: Globe   },
         { href: '/product-registry?tab=assignments',  label: 'Assignments',         desc: 'Drag & drop product assignments',  icon: Layers  },
