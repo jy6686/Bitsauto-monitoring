@@ -80,6 +80,7 @@ import RateCardsPage from "@/pages/rate-cards";
 import AnalyticsPage from "@/pages/analytics";
 import ProductsPage from "@/pages/products";
 import ProductRegistryPage from "@/pages/product-registry";
+import DealsPage from "@/pages/deals";
 import NotFound from "@/pages/not-found";
 import QosHeatmapPage from "@/pages/qos-heatmap";
 import SlaBreachesPage from "@/pages/sla-breaches";
@@ -479,6 +480,10 @@ function Router() {
       </Route>
       <Route path="/product-registry">
         {() => <ProtectedRoute component={ProductRegistryPage} requiredRoles={['admin','management']} />}
+      </Route>
+
+      <Route path="/deals">
+        {() => <ProtectedRoute component={DealsPage} requiredRoles={['admin','management']} />}
       </Route>
 
       <Route path="/qos-heatmap">

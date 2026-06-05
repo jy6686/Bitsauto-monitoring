@@ -3727,3 +3727,54 @@ export const customerProductAssignments = pgTable("customer_product_assignments"
 });
 export type CustomerProductAssignment       = typeof customerProductAssignments.$inferSelect;
 export type InsertCustomerProductAssignment = typeof customerProductAssignments.$inferInsert;
+
+// ── Voice Trading — Deals ─────────────────────────────────────────────────────
+// Replaces manual Excel deal sheets. Commercial deal lifecycle with P&L simulation.
+export const deals = pgTable("deals", {
+  id:               serial("id").primaryKey(),
+  dealRef:          varchar("deal_ref", { length: 64 }).notNull(),
+  iAccount:         integer("i_account").notNull(),          // Sippy customer account
+  customerName:     varchar("customer_name", { length: 256 }),
+  productId:        integer("product_id").notNull(),
+  kamName:          varchar("kam_name", { length: 128 }),
+  status:           varchar("status", { length: 32 }).notNull().default("draft"),
+  // draft | pending_approval | active | expired | rejected | suspended
+  startDate:        date("start_date"),
+  endDate:          date("end_date"),
+  gracePeriodDays:  integer("grace_period_days").default(0),
+  volumeCommitment: numeric("volume_commitment", { precision: 15, scale: 2 }),
+  notes:            text("notes"),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+  createdBy:        varchar("created_by", { length: 128 }),
+  updatedAt:        timestamp("updated_at").defaultNow().notNull(),
+});
+export type Deal       = typeof deals.$inferSelect;
+export type InsertDeal = typeof deals.$inferInsert;
+
+export const dealDestinations = pgTable("deal_destinations", {
+  id:              serial("id").primaryKey(),
+  dealId:          integer("deal_id").notNull(),
+  destinationId:   integer("destination_id"),
+  destinationName: varchar("destination_name", { length: 256 }),
+  offerRate:       numeric("offer_rate",       { precision: 10, scale: 6 }), // selling rate/min
+  costRate:        numeric("cost_rate",        { precision: 10, scale: 6 }), // buying rate/min
+  volumeSplitPct:  numeric("volume_split_pct", { precision: 8,  scale: 4 }), // % of deal volume
+  premiumPct:      numeric("premium_pct",      { precision: 8,  scale: 4 }).default("50"),
+  standardPct:     numeric("standard_pct",     { precision: 8,  scale: 4 }).default("50"),
+  premiumRate:     numeric("premium_rate",     { precision: 10, scale: 6 }), // optional split pricing
+  standardRate:    numeric("standard_rate",    { precision: 10, scale: 6 }),
+  notes:           text("notes"),
+});
+export type DealDestination       = typeof dealDestinations.$inferSelect;
+export type InsertDealDestination = typeof dealDestinations.$inferInsert;
+
+export const dealApprovals = pgTable("deal_approvals", {
+  id:          serial("id").primaryKey(),
+  dealId:      integer("deal_id").notNull(),
+  action:      varchar("action", { length: 32 }).notNull(), // submitted|approved|rejected|changes_requested
+  performedBy: varchar("performed_by", { length: 128 }),
+  notes:       text("notes"),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type DealApproval       = typeof dealApprovals.$inferSelect;
+export type InsertDealApproval = typeof dealApprovals.$inferInsert;

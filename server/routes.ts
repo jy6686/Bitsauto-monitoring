@@ -73,7 +73,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, productDestinationAssignments, productHistory, customerProductAssignments } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
 const drizzleSql = sqlExpr;
@@ -33067,6 +33067,135 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         performedBy: req.user?.claims?.sub ?? 'system',
       });
       res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Voice Trading — Deals ────────────────────────────────────────────────────
+
+  // Helper: generate deal ref
+  async function nextDealRef(): Promise<string> {
+    const year = new Date().getFullYear();
+    const [{ count }] = await db.select({ count: sqlExpr<number>`count(*)` }).from(deals);
+    return `DEAL-${year}-${String(Number(count) + 1).padStart(4, '0')}`;
+  }
+
+  // GET /api/deals
+  app.get('/api/deals', async (_req, res) => {
+    try {
+      const rows = await db.select().from(deals).orderBy(desc(deals.createdAt));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/deals/:id
+  app.get('/api/deals/:id', async (req, res) => {
+    try {
+      const [deal] = await db.select().from(deals).where(eq(deals.id, parseInt(req.params.id))).limit(1);
+      if (!deal) return res.status(404).json({ error: 'Not found' });
+      const dests = await db.select().from(dealDestinations).where(eq(dealDestinations.dealId, deal.id));
+      const approvs = await db.select().from(dealApprovals).where(eq(dealApprovals.dealId, deal.id)).orderBy(desc(dealApprovals.createdAt));
+      res.json({ deal, destinations: dests, approvals: approvs });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/deals
+  app.post('/api/deals', async (req: any, res) => {
+    try {
+      const { iAccount, customerName, productId, kamName, startDate, endDate, gracePeriodDays, volumeCommitment, notes, destinations } = req.body;
+      if (!iAccount || !productId) return res.status(400).json({ error: 'iAccount and productId required' });
+      const dealRef = await nextDealRef();
+      const [deal] = await db.insert(deals).values({
+        dealRef, iAccount, customerName, productId, kamName,
+        startDate: startDate || null, endDate: endDate || null,
+        gracePeriodDays: gracePeriodDays ?? 0,
+        volumeCommitment: volumeCommitment ? String(volumeCommitment) : null,
+        notes, status: 'draft',
+        createdBy: req.user?.claims?.sub ?? 'system',
+      }).returning();
+      if (destinations?.length) {
+        await db.insert(dealDestinations).values(
+          destinations.map((d: any) => ({ ...d, dealId: deal.id }))
+        );
+      }
+      await db.insert(dealApprovals).values({ dealId: deal.id, action: 'created', performedBy: req.user?.claims?.sub ?? 'system', notes: 'Deal created as draft' });
+      res.json(deal);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PUT /api/deals/:id
+  app.put('/api/deals/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { destinations, ...data } = req.body;
+      const [deal] = await db.update(deals).set({ ...data, updatedAt: new Date() }).where(eq(deals.id, id)).returning();
+      if (!deal) return res.status(404).json({ error: 'Not found' });
+      if (destinations !== undefined) {
+        await db.delete(dealDestinations).where(eq(dealDestinations.dealId, id));
+        if (destinations.length) {
+          await db.insert(dealDestinations).values(destinations.map((d: any) => ({ ...d, dealId: id })));
+        }
+      }
+      res.json(deal);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/deals/:id
+  app.delete('/api/deals/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(dealDestinations).where(eq(dealDestinations.dealId, id));
+      await db.delete(dealApprovals).where(eq(dealApprovals.dealId, id));
+      await db.delete(deals).where(eq(deals.id, id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/deals/:id/submit — submit for approval
+  app.post('/api/deals/:id/submit', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [deal] = await db.update(deals).set({ status: 'pending_approval', updatedAt: new Date() }).where(eq(deals.id, id)).returning();
+      if (!deal) return res.status(404).json({ error: 'Not found' });
+      await db.insert(dealApprovals).values({ dealId: id, action: 'submitted', performedBy: req.user?.claims?.sub ?? 'system', notes: req.body.notes ?? null });
+      res.json(deal);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/deals/:id/approve
+  app.post('/api/deals/:id/approve', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [deal] = await db.update(deals).set({ status: 'active', updatedAt: new Date() }).where(eq(deals.id, id)).returning();
+      if (!deal) return res.status(404).json({ error: 'Not found' });
+      await db.insert(dealApprovals).values({ dealId: id, action: 'approved', performedBy: req.user?.claims?.sub ?? 'system', notes: req.body.notes ?? null });
+      res.json(deal);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/deals/:id/reject
+  app.post('/api/deals/:id/reject', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [deal] = await db.update(deals).set({ status: 'rejected', updatedAt: new Date() }).where(eq(deals.id, id)).returning();
+      if (!deal) return res.status(404).json({ error: 'Not found' });
+      await db.insert(dealApprovals).values({ dealId: id, action: 'rejected', performedBy: req.user?.claims?.sub ?? 'system', notes: req.body.notes ?? null });
+      res.json(deal);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/deals/approvals/pending — pending approval queue
+  app.get('/api/deals/approvals/pending', async (_req, res) => {
+    try {
+      const rows = await db.select().from(deals).where(eq(deals.status, 'pending_approval')).orderBy(desc(deals.updatedAt));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/deals/:id/destinations
+  app.get('/api/deals/:id/destinations', async (req, res) => {
+    try {
+      const rows = await db.select().from(dealDestinations).where(eq(dealDestinations.dealId, parseInt(req.params.id)));
+      res.json(rows);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

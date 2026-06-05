@@ -11,7 +11,7 @@ import {
   SlidersHorizontal, Key, Mail, Building2, Wallet, Banknote,
   HeartPulse, Mic, Bot, ClipboardList, ArrowRightLeft, BrainCircuit,
   FileSpreadsheet, Rewind, Upload, Star, Package, Search,
-  MessageSquare, Bell, Sun, Moon, LogOut, UserPlus,
+  MessageSquare, Bell, Sun, Moon, LogOut, UserPlus, Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -247,7 +247,17 @@ const DOMAINS: Domain[] = [
     ],
   },
 
-  // ── 9. PLATFORM ──────────────────────────────────────────────────────────────
+  // ── 9. VOICE TRADING ─────────────────────────────────────────────────────────
+  {
+    id: 'trading', label: 'Voice Trading', icon: Briefcase, color: 'text-amber-400',
+    groups: [
+      { label: 'Deals', desc: 'Commercial deal lifecycle — simulator, approvals, and board', icon: Briefcase, items: [
+        { href: '/deals', label: 'Deal Workspace', desc: 'Deal board, simulator & approvals', icon: Briefcase },
+      ]},
+    ],
+  },
+
+  // ── 10. PLATFORM ─────────────────────────────────────────────────────────────
   {
     id: 'platform', label: 'Platform', icon: Settings, color: 'text-slate-400',
     groups: [
