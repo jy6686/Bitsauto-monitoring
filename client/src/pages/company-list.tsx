@@ -314,16 +314,31 @@ function ProvisioningPanel({ company }: { company: Company }) {
       try { data = typeof res?.json === 'function' ? await res.json() : res; } catch {}
       const authErrors: string[] = data?.authErrors ?? [];
       const spNote: string = data?.servicePlanNote ?? '';
+      const tariffNote: string = data?.tariffNote ?? '';
+      const iTariff: number | undefined = data?.iTariff;
+      const tariffCreated: boolean = data?.tariffCreated ?? false;
+
+      const noteParts: string[] = [];
+      if (tariffNote) noteParts.push(tariffNote);
+      if (spNote)     noteParts.push(spNote);
+      const fullNote = noteParts.join(' · ');
+
       if (authErrors.length > 0) {
         toast({
           title: `${company.name} provisioned — IP auth failed`,
-          description: `Auth rule error(s): ${authErrors.join('; ')}${spNote ? '\n' + spNote : ''}`,
+          description: `Auth rule error(s): ${authErrors.join('; ')}${fullNote ? '\n' + fullNote : ''}`,
           variant: "destructive",
         });
-      } else if (spNote) {
+      } else if (tariffCreated && iTariff) {
         toast({
           title: `${company.name} provisioned to Sippy`,
-          description: spNote,
+          description: `Tariff created (i_tariff=${iTariff})${spNote ? ' · ' + spNote : ''}`,
+          variant: "default",
+        });
+      } else if (fullNote) {
+        toast({
+          title: `${company.name} provisioned to Sippy`,
+          description: fullNote,
           variant: "default",
         });
       } else {

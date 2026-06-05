@@ -26555,6 +26555,65 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
 
       const displayName = step1.displayName || company.name;
+
+      // ── Step: Auto-create Client Tariff + matching Service Plan ────────────
+      // Convention: tariff name = "DisplayName (USD)". Creates a dedicated rate
+      // table per client so rates can be customised independently after provision.
+      let iTariff: number | undefined;
+      let tariffCreated = false;
+      let tariffNote: string | undefined;
+      const tariffName = `${displayName} (USD)`;
+
+      try {
+        // Check if a tariff with this name already exists
+        const existingTariffs = await sippy.getTariffsList(username, password, { name: tariffName }, portalUrl);
+        const existing = existingTariffs.find((t: any) => t.name?.toLowerCase() === tariffName.toLowerCase());
+        if (existing) {
+          iTariff = existing.iTariff;
+          tariffNote = `Reused existing tariff "${tariffName}" (i_tariff=${iTariff})`;
+          console.log(`[Provision] ${tariffNote}`);
+        } else {
+          const tariffResult = await sippy.createTariff(username, password, {
+            name: tariffName,
+            currency: 'USD',
+            iTariffType: 1,  // Customer tariff
+            costRoundUp: true,
+            averageDuration: 200,
+          });
+          iTariff = tariffResult.iTariff;
+          tariffCreated = true;
+          tariffNote = `Created tariff "${tariffName}" (i_tariff=${iTariff})`;
+          console.log(`[Provision] ${tariffNote}`);
+        }
+      } catch (e: any) {
+        console.warn(`[Provision] Tariff creation failed (non-fatal): ${e.message}`);
+        tariffNote = `Tariff auto-creation failed: ${e.message}. Create manually in Sippy → Customers → Tariffs.`;
+      }
+
+      // ── Step: Auto-create Service Plan linked to the new tariff ────────────
+      // Only attempt if we have a tariff and no plan was manually selected in wizard
+      if (iTariff && !servicePlanId) {
+        try {
+          const spResult = await sippy.createSippyServicePlan(
+            portalUrl, adminUser, adminPass, portalUser, portalPass,
+            displayName, iTariff,
+            `Auto-created for ${displayName}`,
+            3, // Weekly billing cycle
+            adminWebPassword,
+          );
+          if (spResult.success && spResult.planId) {
+            servicePlanId = String(spResult.planId);
+            console.log(`[Provision] Service plan ${spResult.alreadyExists ? 'reused' : 'created'}: "${spResult.planName}" id=${servicePlanId}`);
+          } else if (spResult.needsManualCreation) {
+            console.warn(`[Provision] Service plan could not be auto-created (portal inaccessible) — assign manually in Sippy.`);
+          } else {
+            console.warn(`[Provision] Service plan creation returned no plan ID: ${spResult.error ?? 'unknown'}`);
+          }
+        } catch (e: any) {
+          console.warn(`[Provision] Service plan auto-creation failed (non-fatal): ${e.message}`);
+        }
+      }
+
       const result = await sippy.pushAccountToSippy({
         name: displayName,
         type: 'client',
@@ -26716,6 +26775,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       res.json({
         success: true,
         iAccount,
+        iTariff: iTariff ?? undefined,
+        tariffCreated,
+        tariffNote,
         authErrors: authErrors.length ? authErrors : undefined,
         servicePlanNote,
         routingActions: routingActions.length ? routingActions : undefined,
