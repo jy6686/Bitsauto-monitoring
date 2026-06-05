@@ -1,0 +1,2735 @@
+
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>BitsAuto &reg;</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="description" content="">
+        <meta name="author" content="">
+
+        <!-- Le styles
+        <link href="/static/better_admin/css/snap.css" rel="stylesheet">  -->
+
+        <!-- Fav and touch icons -->
+        <link rel="shortcut icon" href="/static/ico/favicon.ico">
+        <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/static/better_admin/ico/apple-touch-icon-144-precomposed.png">
+        <link rel="apple-touch-icon-precomposed" sizes="114x114" href="/static/better_admin/ico/apple-touch-icon-114-precomposed.png">
+        <link rel="apple-touch-icon-precomposed" sizes="72x72" href="/static/better_admin/ico/apple-touch-icon-72-precomposed.png">
+        <link rel="apple-touch-icon-precomposed" href="/static/better_admin/ico/apple-touch-icon-57-precomposed.png">
+        <link rel="shortcut icon" href="/static/better_admin/ico/favicon.png">
+
+        <!-- Home Page CSS --> <!-- temporarily -->
+
+         <!-- <link href="/static/css/metro-bootstrap.css" rel="stylesheet">
+         <link href="/static/css/metro-bootstrap-responsive.css" rel="stylesheet"> -->
+
+        <link href="/static/css/iconFont.css" rel="stylesheet">
+        <!-- ================= -->
+
+        <!-- BootStrap Old CSS --> <!-- temporarily -->
+         <link href="/static/css/bootstrap.css" rel="stylesheet">
+         <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+        <link href="/static/css/google-fonts.css" rel="stylesheet">
+        <link href="/static/css/jquery-ui.css" rel="stylesheet" type="text/css" media="all">
+        <!-- ================= -->
+
+        <!-- sementic-ui CSS -->
+        <link rel="stylesheet" type="text/css" href="/static/dist/semantic.min.css">
+        <link href="/static/css/style.css" rel="stylesheet"> 
+        <!-- ================= -->
+
+
+        <!-- Le styles -->
+        <link href="/static/widgets/css/datetimepicker.css" rel="stylesheet">
+        <link href="/static/css/ui.multiselect.css" rel="stylesheet"/>
+        <link href="/static/css/bootstrap-tags.css" rel="stylesheet">
+        <link href="/static/better_admin/css/dataTables.bootstrap.css" rel="stylesheet">
+        <link href="/static/css/perfect-scrollbar.min.css" rel="stylesheet">
+        <!--
+        <link href="/static/css/checkbox.css" rel="stylesheet">
+         ================= -->
+
+
+    <script src="/static/js/jquery.min.js"></script>
+
+    </head>
+
+    <body >
+        
+        
+
+        
+        
+
+        
+        
+
+    </body>
+</html>
+
+
+    
+        
+        
+    
+
+
+
+    
+        
+            
+                <div class="ui left vertical menu sidebar">
+                    <form id="filterForm" method="GET" action="/products/product/">
+
+                        <div class="ui grid">
+                            <i class="icon remove toggle-sidebar" style="position: absolute; right: -15px; top: -24px; cursor: pointer;"></i>
+
+                            <div class="sixteen wide column">
+                                <h3 class="ui horizontal divider header">Search Filters</h3>
+                                
+
+
+
+
+
+
+    
+        
+            
+    
+
+
+    
+        
+            
+                <div class="control-group">
+    
+        
+            
+                <label class="control-label" for="id_home_product">Home product</label>
+                <div class="controls">
+                    
+    
+
+
+    
+        
+        
+        <input id="id_home_product" name="home_product" type="text" />
+        
+        
+    
+
+
+
+
+                    
+
+                    
+
+                </div>
+            
+        
+    
+</div>
+
+            
+        
+    
+
+
+
+
+        
+    
+
+    
+        
+            
+    
+
+
+    
+        
+            
+                <div class="control-group">
+    
+        
+            
+                <label class="control-label" for="id_product_name">Product name</label>
+                <div class="controls">
+                    
+    
+
+
+    
+        
+        
+        <input id="id_product_name" name="product_name" type="text" />
+        
+        
+    
+
+
+
+
+                    
+
+                    
+
+                </div>
+            
+        
+    
+</div>
+
+            
+        
+    
+
+
+
+
+        
+    
+
+    
+        
+            
+    
+
+
+    
+        
+            
+                <div class="control-group">
+    
+        
+            
+                <label class="control-label" for="id_prefix">Prefix</label>
+                <div class="controls">
+                    
+    
+
+
+    
+        
+        
+        <input id="id_prefix" name="prefix" type="text" />
+        
+        
+    
+
+
+
+
+                    
+
+                    
+
+                </div>
+            
+        
+    
+</div>
+
+            
+        
+    
+
+
+
+
+        
+    
+
+    
+        
+            
+    
+
+
+    
+        
+            
+                <div class="control-group">
+    
+        
+            
+                <label class="control-label" for="id_is_active">Is active</label>
+                <div class="controls">
+                    
+    
+
+
+    
+        
+        
+        <select id="id_is_active" name="is_active">
+<option value="1" selected="selected">Unknown</option>
+<option value="2">Yes</option>
+<option value="3">No</option>
+</select>
+        
+        
+    
+
+
+
+
+                    
+
+                    
+
+                </div>
+            
+        
+    
+</div>
+
+            
+        
+    
+
+
+
+
+        
+    
+
+    
+        
+            
+    
+
+
+    
+        
+            
+                <div class="control-group">
+    
+        
+            
+                <label class="control-label" for="id_trunk_type">Trunk type</label>
+                <div class="controls">
+                    
+    
+
+
+    
+        
+        
+        <select id="id_trunk_type" name="trunk_type">
+<option value="" selected="selected">All</option>
+<option value="rt">Retail</option>
+<option value="ws">WholeSale</option>
+</select>
+        
+        
+    
+
+
+
+
+                    
+
+                    
+
+                </div>
+            
+        
+    
+</div>
+
+            
+        
+    
+
+
+
+
+        
+    
+
+
+
+                                <div class="ui inverted divider"></div>
+                            </div>
+
+                            <div class="sixteen wide column text-center" style="margin-top:-30px;">
+                                <button type="submit" class="ui button blue icon labeled mini">
+                                    <i class="icon filter"></i>
+                                    Filter
+                                </button>
+                                <button id="filterResetBtn" type="button" class="ui button blue icon labeled mini" >
+                                    <i class="icon repeat"></i>
+                                    Reset
+                                </button>
+                                <button class="ui button red inline icon mini toggle-sidebar" data-position="top center" data-content="Close" data-variation="inverted"  >
+                                    <i class="icon remove"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="SidebarDimmer"></div>
+            
+            
+        
+
+        
+            
+
+<div class="ui fixed inverted menu">
+    <div class="ui container">
+        <a href="/home" class="item" id="BA-logo">
+            <img src="/static/img/BA-logo.png"  alt="BitsAuto" />
+        </a>
+
+        <div id="dl-menu" class="dl-menuwrapper item right">
+            <button class="dl-trigger">Open Menu</button>
+            <ul class="dl-menu">
+                
+                    <!-- MENU -->
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                            <li>
+                                <a class="item">Menu</a>
+                                <ul class="dl-submenu" >
+                                    
+                                        <li>
+                                            <a>Company</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li><a href="/corporate/company/">Company List</a></li>
+                                                
+                                                
+                                                    <li><a href="/corporate/company/create">Company Creation</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+                                    
+                                        <li>
+                                            <a>Vendor</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li style="text-align:left"><a tabindex="-1" href="/vendor_registration/wizard/?">Create Vendor</a></li>
+                                                
+                                                
+                                                
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" >Vendor Configuration </a>
+                                                        <ul class="dl-submenu">
+                                                            
+                                                                <li><a href="/tariffs/vendortariff/?sort_by=-updated_at">Rate*</a></li>
+                                                                <li><a href="/tariffs/vendortariff/?sort_by=-updated_at">Vendor Status Report</a>
+                                                                <ul class="dl-submenu">
+                                                                    <li><a href="/tariffs/vendortariffreport/?sort_by=-last_received&product=13">STANDARD PLUS</a></li>
+                                                                    <li><a href="/tariffs/vendortariffreport/?sort_by=-last_received&product=11">PREMIUM</a></li>
+                                                                    <li><a href="/tariffs/vendortariffreport/?sort_by=-last_received&product=12">STANDARD</a></li>
+                                                                    <li><a href="/tariffs/vendortariffreport/?sort_by=-last_received&product=30">BUSINESS</a></li>
+                                                                </ul>
+                                                                </li>
+                                                            
+                                                            
+                                                                <li><a href="/vendor_registration/wizard/update/step1/">Vendor Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/vendor_registration/update/technical_configuration/">Technical Configuration Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/vendor_registration/update/vendor_connections/">Connection Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/vendor_registration/update/validation_rule/">Rules Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/vendor_registration/update/sheet_identifier/">RateSheet Identifier Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/vendor_registration/ratesheetparsemaker/">RateSheet Parsing Update</a></li>
+                                                            
+                                                        </ul>
+                                                    </li>
+                                                
+                                                
+                                                    <li style="text-align:left"><a tabindex="-1" href="/corporate/vendor/?status=A">Vendors List</a></li>
+                                                
+                                                
+                                                    <li><a href="/rate_sheets/ratesvaultsummary/">View Received Rate Sheets</a></li>
+                                                    <li><a href="/rate_sheets/ratesheetreport/">Rate Sheets Report</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+                                    
+                                        <li>
+                                            <a>Client</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li style="text-align:left"><a tabindex="-1" href="/client_registration/?">Create Client</a></li>
+                                                
+                                                
+                                                
+                                                
+                                                
+                                                    <li>
+                                                        <a>Client Configuration</a>
+                                                        <ul class="dl-submenu">
+                                                            
+                                                                <li><a href="/tariffs/clienttariffview/?sort_by=-updated_at">Rate*</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/emails/clientemailtemplates/?sort_by=name">Email</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_registration/updateclient/">Client Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_registration/update/trunk_configuration/">Trunk Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_registration/update/auth_configuration/">Authentication Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_registration/clientratesheetconfupdate/">Ratesheet Config. Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_registration/update/technical_configuration/">Technical Config. Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_registration/update/validation_rule/">Rules Update</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_registration/update/invoice_format/">Email Format Update</a></li>
+                                                            
+                                                        </ul>
+                                                    </li>
+                                                
+                                                
+                                                    <li style="text-align:left"><a tabindex="-1" href="/corporate/clientview/">Client List</a></li>
+                                                
+                                                    <li style="text-align:left"><a tabindex="-1" href="/authentications/report_comparison/">Authentications Comparison</a></li>
+                                                
+                                                    <li style="text-align:left"><a tabindex="-1" href="/rate_plan/clientbussinessdestination/">Client Core Destinations</a></li>
+                                                
+                                                
+                                                    <li><a href="/rate_notifications/ratenotificationjobsview/?sort_by=-creation_date&creation_date_0=2026-01-01&creation_date_1=2026-12-31">Rate Notifications</a></li>
+                                                
+                                                
+                                                    <li><a href="/rate_notifications/ratenotificationtemplate/?sort_by=-creation_date&status=c">New Client Rate Job</a></li>
+                                                
+                                                
+                                                    
+                                                        <li><a href="/rate_notifications/notificationmanagerapproval/?status=pn">Notification Manager Approval</a></li>
+                                                    
+                                                
+                                                
+                                                    
+                                                        <li><a href="/rate_notifications/notificationmanagementapproval/?status=rc">Notification Management Approval</a></li>
+                                                    
+                                                
+                                            </ul>
+                                        </li>
+                                    
+                                    
+                                        <li>
+                                            <a>Reseller</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li style="text-align:left"><a tabindex="-1" href="/corporate/resellerview/create/?">Create Reseller</a></li>
+                                                
+                                                
+                                                
+                                                
+                                                
+                                                    <li>
+                                                        <a>Reseller Configuration</a>
+                                                        <ul class="dl-submenu">
+                                                            
+                                                                <li><a href="/corporate/updatereseller/">Update Reseller</a></li>
+                                                                <li><a href="/corporate/update/reseller_ratesheet_conf/">Update Attachment Config</a></li>
+                                                                <li><a href="/corporate/update/reseller_trunk_configuration/">Update Trunk Config</a></li>
+                                                                <li><a href="/corporate/update/reseller_validation_rule/">Update Rules</a></li>
+                                                                <li><a href="/corporate/update/reseller_invoice_format/">Update Email Formate</a></li>
+                                                                <li><a href="/tariffs/resellertariffview/?sort_by=name">Rate*</a></li>
+                                                                <li><a href="/emails/clientemailtemplates/?sort_by=name">Email</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/authentications/resellerauthentication/?sort_by=i_tariff__name">Technical</a></li>
+                                                            
+                                                        </ul>
+                                                    </li>
+                                                
+                                                
+                                                    <li style="text-align:left"><a tabindex="-1" href="/corporate/resellerview/">Reseller List</a></li>
+                                                
+                                                
+                                                    <li><a href="/rate_notifications/ratenotificationjobsview/?sort_by=job_order">Rate Notifications</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+                                    
+                                        <li>
+                                            <a>LCR Rate Ranks</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li><a href="/rate_ranks/vendorglobalrrtemplateview/?sort_by=-creation_time">Vendor Global LCR</a></li>
+                                                
+                                                
+                                                    <li><a href="/rate_ranks/vendorglobalrrtemplate/?sort_by=-creation_time">Vendor Destination LCR</a></li>
+                                                
+                                                
+                                                    <li><a href="/rate_ranks/vendorrrtemplate/?sort_by=-creation_time">Vendor LCR Generation</a></li>
+                                                
+                                                
+                                                    <li><a href="/rate_ranks/clientglobalrrtemplate/?sort_by=-creation_time">Client Global Rate Ranks</a></li>
+                                                
+                                                
+                                                    <li><a href="/rate_ranks/clientrrtemplate/?sort_by=-creation_time">Client Rate Rank Generation</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+                                    
+                                        <li><a href="/deals/dealtemplate/">Deal Management</a></li>
+                                    
+                                    
+                                        <li><a href="/rateeditor/rateeditor/">Rate Editor</a></li>
+                                    
+                                    
+                                        <li><a href="/rateeditor/globalcodeset/">Global Code Set</a></li>
+                                    
+                                </ul>
+                            </li>
+                        
+                    <!-- MENU ENDS -->
+
+                    <!-- JOB NOTIFICATION -->
+                        
+                        
+                        
+                        
+                        
+                            <li>
+                                <a class="item">Job Notification</a>
+                                <ul class="dl-submenu">
+                                    
+                                        <li>
+                                            <a>LCR Notifications</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li><a href="/job_notifier/cronjobnotifier/?title=Vendor+Global+LCR+generations&status=F">Vendor Global LCR Generation</a></li>
+                                                
+                                                
+                                                    <li><a href="/job_notifier/cronjobnotifier/?title=Vendor+LCR+generations&status=F">Vendor LCR Generation</a></li>
+                                                
+                                                
+                                                    <li><a href="/job_notifier/cronjobnotifier/?title=Client+Global+LCR+and+HCR+generations&status=F">Client Global LOR & HOR Generation</a></li>
+                                                
+                                                
+                                                    <li><a href="/job_notifier/cronjobnotifier/?title=Client+LCR+and+HCR+generations&status=F">Client LOR & HOR Generation</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+                                </ul>
+                            </li>
+                        
+                    <!-- JOB NOTIFICATION ENDS -->
+
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+
+                    <!-- FINANCE -->
+                        
+                            <li>
+                                <a class="item">Finance</a>
+                                <ul class="dl-submenu">
+                                    <li>
+                                        <a>Company Profile</a>
+                                        <ul class="dl-submenu">
+                                            <li>
+                                                <a>Client</a>
+
+                                                <ul class="dl-submenu">
+                                                    <li><a href="/corporate/clientprofilepageview/">Client Profile</a></li>
+                                                    <li><a href="/payments/client_profile_registrant/">Client Registrant Create</a></li>
+                                                    <li><a href="/payments/client_profile_reg_list/">Client Registrant List</a></li>
+                                                </ul>
+                                            </li>
+                                            <li><a href="/corporate/vendorprofilepageview/">Vendor Profile</a></li>
+                                        </ul>
+                                    </li>
+                                    <li>
+                                        <a>Activities</a>
+                                        <ul class="dl-submenu">
+                                            <li>
+                                                <a>Client</a>
+                                                <ul class="dl-submenu">
+                                                    <li><a href="/invoices/clientinvoice/">Invoices</a></li>
+                                                    <li><a href="/invoices/clientinvoicedraftview/">Invoices Draft</a></li>
+                                                    <li><a href="/invoices/clientinvoicedifferencesview/">Invoices Draft - Differences</a></li>
+                                                    
+                                                        <li><a href="/invoices/clientinvoiceapproval/">Invoice Approval Pending</a></li>
+                                                        <li><a href="/invoices/clientinvoicerejected/">Rejected Invoices</a></li>
+                                                    
+
+                                                    <li><a href="/payments/payment_finance_management/?direction=c">Finance Management</a></li>
+                                                </ul>
+                                            </li>
+                                            <li>
+                                                <a>Vendor</a>
+                                                <ul class="dl-submenu">
+                                                    <li><a href="/invoices/vendorinvoicerecievedview/">Invoices</a></li>
+                                                    <li><a href="/invoices/vendorinvoice/">Invoices Draft</a></li>
+                                                    <li><a href="/payments/payment_finance_management/?direction=v">Finance Management</a></li>
+                                                </ul>
+                                            </li>
+                                            <li><a href="/bank/bankinfo/">Bank Management</a></li>
+                                            <li><a href="/bank/bankbranches/">Branch Management</a></li>
+                                        </ul>
+                                    </li>
+                                    <li>
+                                        <a>Template Designer</a>
+                                        <ul class="dl-submenu">
+                                            <li><a href="/invoice_designer/invoicedesigner/">Invoice</a></li>
+                                            <li><a href="/emails/clientemailtemplates/?subject_type=invoice&email_type=IN">Email</a></li>
+                                        </ul>
+                                    </li>
+                                    <li><a href="/dispute/invoicedispute/">Dispute</a></li>
+                                    <li><a href="/dispute/cdrreconciliationjobs/">CDR Reconciliation</a></li>
+                                    <li><a href="/invoices/recalculateinvoice/">Recalculate Invoice</a></li>
+                                    <li><a href="/credit_debit_notes/creditdebitnotes/">Credit Debit Notes</a></li>
+                                    <li>
+                                        <a>Adjustment Entries</a>
+                                        <ul class="dl-submenu">
+                                            <li><a href="/payment_adjustment/clientadjustment/">Client Adjustment</a></li>
+                                            <li><a href="/payment_adjustment/vendoradjustment/">Vendor Adjustment</a></li>
+                                        </ul>
+                                    </li>
+                                    <li>
+                                        <a>Report</a>
+                                        <ul class="dl-submenu">
+                                            <li><a href="/payments/clientpayment/?sort_by=-creation_time&direction=c">Client Payment</a></li>
+                                            <li><a href="/payments/vendorpayment/">Vendor Payment</a></li>
+                                            <li><a href="/payments/reconcile_payments/">Payment Reconciliation</a></li>
+                                            <li><a href="/payments/payments/vat_report/">VAT Report</a></li>
+                                        </ul>
+                                    </li>
+                                </ul>
+                            </li>
+                        
+                    <!-- FINANCE ENDS -->
+
+                    <!-- TOOLS -->
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+
+
+                        
+                            <li>
+                                <a class="item">Tools</a>
+                                <ul class="dl-submenu">
+                                    
+                                        <li>
+                                            <a>Tool</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li><a href="/tariffs/vendor_filteration/">Vendor Rate Report</a></li>
+                                                
+                                                
+                                                    <li><a href="/tariffs/client_filteration/">Client Rate Report</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+
+                                    
+                                        <li>
+                                            <a>Configuration</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li><a href="/tariffs_profile/clienttariffprofile/">Client Tariff Profile</a></li>
+                                                
+                                                
+                                                    <li><a href="/configuration_values/configurationvalues/">Configuration Values</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+
+                                    
+                                        <li>
+                                            <a>Settings</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li><a href="/products/product/">Products</a></li>
+                                                
+                                                
+                                                    <li><a href="/currencies/currency/">Currencies</a></li>
+                                                
+                                                
+                                                    <li><a href="/departments/department/">Departments</a></li>
+                                                
+                                                
+                                                    <li>
+                                                        <a>Themes</a>
+                                                        <ul class="dl-submenu">
+                                                            <li><a href="/themes/icon/">Icons</a></li>
+                                                        </ul>
+                                                    </li>
+                                                
+                                                
+                                                    <li><a href="/sip_response/sipresponse/">Sip Responses</a></li>
+                                                
+
+                                                
+                                                    <li>
+                                                        <a>MailBot</a>
+                                                        <ul class="dl-submenu">
+                                                            
+                                                                <li><a href="/mail_bot/sendemail/">MailBot Senders</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/mail_bot/receiveemail/">MailBot Receivers</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/mail_bot/ignoreemail/">MailBot Ignorers</a></li>
+                                                            
+                                                        </ul>
+                                                    </li>
+                                                
+
+                                                
+                                                    <li>
+                                                        <a>BriefCase</a>
+                                                        <ul class="dl-submenu">
+                                                            
+                                                                <li><a href="/briefcase/document/">Document Mangement</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/briefcase/documentstatus/">Document Status</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/briefcase/documenttype/">Document Type</a></li>
+                                                            
+                                                        </ul>
+                                                    </li>
+                                                
+                                                
+                                                    <li><a href="/time_zones/timezone/">Time Zones</a></li>
+                                                
+                                                
+                                                    <li>
+                                                        <a>KAM Hierarchy</a>
+                                                        <ul class="dl-submenu">
+                                                            
+                                                                <li><a href="/organization_chart/organization/">Organization</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/organization_chart/organizationdepartment/">Organization Department</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/organization_chart/organizationteam/">Organization Team</a></li>
+                                                            
+                                                            <li><a href="/auth/user/?is_staff=True">Organization KAM</a></li>
+                                                        </ul>
+                                                    </li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+                                    
+                                        <li>
+                                            <a>Destinations</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li><a href="/destinations/carriertype/">Carrier Types</a></li>
+                                                
+                                                
+                                                    <li><a href="/destinations/destinationcategory/">Destination Categories</a></li>
+                                                
+                                                
+                                                    <li><a href="/destinations/destination/">Destinations</a></li>
+                                                
+                                                
+                                                    <li>
+                                                        <a>Global Destinations</a>
+                                                        <ul class="dl-submenu">
+                                                            
+                                                                <li><a href="/destinations/globaldestination/">Global Destinations</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/destinations/dialcodeaddition/">Add Dial Code</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/destinations/globaldestinationpending/">Global Destinations Pending</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/destinations/globaldestinationapproval/">Global Destinations Approval</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/destinations/globaldestinationstatus/">Global Destinations Status</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/destinations/globaldestinationamendment/">Global Destination Amendment</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_destination_override/client_destination_override_approval/?sort_by=-creation_date&approval_status=rp">Client Destination Override job pending approvals</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_destination_override/destination_override_approval/?sort_by=-creation_date&approval_status=rp">Destination Active/ Deactivate pending approvals</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/client_destination_override/client_destination_override_interface/">Client Destination Override</a></li>
+                                                            
+                                                        </ul>
+                                                    </li>
+                                                
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" href="#">Routing Groups</a>
+                                                        <ul class="dl-submenu">
+                                                            
+                                                                <li>
+                                                                    <a tabindex="-1" href="/routing_groups/destinationselection/">Destination Selection</a>
+                                                                </li>
+                                                            
+                                                            
+                                                                <li>
+                                                                    <a tabindex="-1" href="/routing_groups/routinggroup/">Routing Group</a>
+                                                                </li>
+                                                            
+                                                            
+                                                                <li>
+                                                                    <a tabindex="-1" href="/routing_groups/routinggroupmembers/">Routing Group Members</a>
+                                                                </li>
+                                                            
+                                                        </ul>
+                                                    </li>
+                                                
+                                                
+                                                    <li><a href="/destinations/globaldestinationsshortlisted/">Global Destinations ShortListed</a></li>
+                                                
+                                                
+                                                    <li><a href="/dailcode_changes_bucket/proposedgcs/">Global Destinations ShortListed :: Proposed</a></li>
+                                                
+                                                
+                                                    <li><a href="/destinations/vendordestination/">Vendor Destinations</a></li>
+                                                
+                                                
+                                                    <li><a href="/destinations/clientdestinationoverridesummary/">Client Destinations Over-ride Summary</a></li>
+                                                
+                                                
+                                                    <li><a href="/destinations/destinationoverridesummary/">Destination Override Summary</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+
+                                    
+                                        <li><a href="/poc/pointofcontact/">Point of Contacts</a></li>
+                                    
+                                    
+                                        <li><a href="/rate_plan/rateplan/">Rate Plans</a></li>
+                                    
+                                        <li><a href="/rate_ranks/vendors/vendor_complete_codes/">Global Codes And Destination Analysis</a></li>
+                                    
+                                        <li>
+                                            <a>Base Selling Rates</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" href="/bsr/bsr_wizard/">BSR Creation </a>
+                                                    </li>
+                                                
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" href="/bsr_wizard/bsrtemplatewizard/?sort_by=-creation_time">BSR</a>
+                                                    </li>
+                                                
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" href="/bsr_wizard/mbrvendorratechanges/?sort_by=destination__category__carrier_type__country__name">BSR Suggestions</a>
+                                                    </li>
+                                                
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" href="/bsr_wizard/mbrtemplatewizard/?sort_by=created_by__user__first_name">MBR</a>
+                                                    </li>
+                                                
+                                                
+                                                    
+                                                        <li>
+                                                            <a tabindex="-1" href="/bsr_wizard/mbrmargin/?sort_by=margin_for__user__username">MBR Margin</a>
+                                                        </li>
+                                                    
+                                                
+                                                <li>
+                                                    <a tabindex="-1" href="/bsr/mbr_history_report/">MBR History Report</a>
+                                                </li>
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" href="/bsr/removal_of_country_dest/">MBR Country/Destination Removal</a>
+                                                    </li>
+                                                
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" href="/bsr_wizard/negativemarginhistory/">Negative Margin History</a>
+                                                    </li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+
+                                    
+                                        <li>
+                                            <a>Routing Preferences</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" href="/routing_preference/routing_preferences/">Routing Preference</a>
+                                                    </li>
+                                                
+                                                <li id="vendor_rates_preference_details">
+                                                    <a>Vendor Rates Preference Details</a>
+                                                </li>
+                                                
+                                                    <li>
+                                                        <a tabindex="-1" href="/routing_preference/countrywiseswitch/">Country Wise Switches</a>
+                                                    </li>
+                                                
+                                                
+                                                    <li><a href="/sync_vendor_rates/destinationset/">Destination Sets</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+                                    
+                                        <li><a href="/routing_groups/transactionwizard/">Create Client Product</a></li>
+                                    
+                                    <li><a href="/gcs_import/gcsimport/">GCS Report Tools</a></li>
+                                    <li><a href="/rate_change/ratechange/">Change Rate</a></li>
+                                    
+                                    
+                                    
+                                    
+                                    
+                                    
+                                    
+                                        <li>
+                                            <a>Deal Management</a>
+                                            <ul class="dl-submenu">
+                                                 
+                                                     <li><a href="/deal_management/deal_create/">Create Deal</a></li>
+                                                 
+                                                 
+                                                    <li><a href="/deal_management/dealtemplates/">Deal List</a></li>
+                                                 
+                                                 
+                                                     <li><a href="/deal_management/approvallistview/">Deal Approval</a></li>
+                                                 
+                                            </ul>
+                                        </li>
+                                    
+                                    <li>
+                                        <a>Rate Management</a>
+                                        <ul class="dl-submenu">
+                                            <li>
+                                                <a>Code Management</a>
+                                                <ul class="dl-submenu">
+                                                    <li>
+                                                        <a>Global Codes</a>
+                                                        <ul class="dl-submenu">
+                                                            <li>
+                                                                <a>GCS Logs</a>
+                                                                <ul class="dl-submenu">
+                                                                    <li>
+                                                                        <a href="/gcs_changes/gcs_logs/">Logs Summary</a>
+                                                                    </li>
+                                                                    <li>
+                                                                        <a href="/gcs_changes/gcslog/">Logs Detail</a>
+                                                                    </li>
+                                                                </ul>
+                                                            </li>
+                                                            <li><a href="/destinations/countrydialcodes/">Country DialCodes</a></li>
+                                                            <li><a href="/gcs_changes/gcsadd/">GCS Addition</a></li>
+                                                            <li><a href="/gcs_changes/gcs_addition_approval/">GCS Approval</a></li>
+                                                            <li><a href="/gcs_changes/gcsswap/">GCS Swap</a></li>
+                                                            <li><a href="/gcs_changes/gcs_dest_approval/">Destinations Approval</a></li>
+                                                            <li><a href="/gcs_changes/gcsmaster/">GCS Master</a></li>
+                                                            
+                                                                <li><a href="/dailcode_changes_bucket/dialcodechangesbucket/">Dail Code Changes Bucket</a></li>
+                                                            
+                                                            
+                                                                <li><a href="/dailcode_changes_bucket/dialcodechangesjob/">Dail Code Changes Jobs</a></li>
+                                                            
+                                                        </ul>
+                                                    </li>
+                                                    <li>
+                                                        <a>Sales Destination</a>
+                                                        <ul class="dl-submenu">
+                                                            <li>
+                                                                <a>Sales Destination Logs</a>
+                                                                <ul class="dl-submenu">
+                                                                    <li>
+                                                                        <a href="/gcs_changes/sales_logs/">Logs Summary</a>
+                                                                    </li>
+                                                                    <li>
+                                                                        <a href="/gcs_changes/saleslogs/">Logs Detail</a>
+                                                                    </li>
+                                                                </ul>
+                                                            </li>
+                                                            <li><a href="/gcs_changes/sales_dest_update/">Sales Destination</a></li>
+                                                            <li><a href="/gcs_changes/sales_dest_approval/">Sales Destination Approval</a></li>
+                                                            <li><a href="/gcs_changes/master_sales_dest/">Master Sales Destination</a></li>
+                                                        </ul>
+                                                    </li>
+                                                </ul>
+                                            </li>
+                                        </ul>
+                                    </li>
+                                </ul>
+                            </li>
+                        
+                    <!-- TOOLS END -->
+                    <!-- REPORTS -->
+                       <li>
+                           <a href="#" class="item">Reports</a>
+                           <ul class="dl-submenu">
+                               <!-- <li>
+                                   <a href="#">Kam Summary Report</a>
+                                   <ul class="dl-submenu">
+                                        <li><a href="/targets/kam/">KAM</a></li>
+                                        <li><a href="/targets/analysis/">Analysis Report</a></li>
+                                        <li><a href="/targets/management/">Management</a></li>
+                                        <li><a href="/targets/analysisac/">Analysis Report (Actual Cost)</a></li>
+                                        <li><a href="/targets/ac_management/">Management (Actual Cost)</a></li>
+                                   </ul>
+                               </li> !-->
+                               <li>
+                                    <a>Analysis</a>
+                                    <ul class="dl-submenu">
+                                        <li>
+                                            <a href="http://23.106.59.17:8083/bitswise_custom_reports/detailed_reports/">
+                                                <img src="/static/img/BW-logo.png" alt="BitsAuto" style="width:107px;margin-top: -6px;margin-left: -8px;margin-bottom: -12px;display: inline-block;">
+                                            </a>
+                                        </li>
+                                   </ul>
+                               </li>
+                               <li>
+                                    <a>Monitoring</a>
+                                    
+                                    
+
+                                    <ul class="dl-submenu">
+                                        
+                                        <li>
+                                            <a href="http://23.106.59.17:8083/newgraphs/new2/">
+                                                <img src="/static/img/BE-logo.png" alt="BitsEyes" style="width:107px;margin-top: -6px;margin-left: -8px;margin-bottom: -12px;display: inline-block;">
+                                            </a>
+                                        </li>
+                                        
+
+                                        
+                                        <li>
+                                            <a href="http://23.106.59.17:8083/newgraphs/monitor/">
+                                                <img src="/static/img/BitsPulse-logo.png" alt="BitsPulse"style="width:107px;margin-top: -6px;margin-left: -8px;margin-bottom: -12px;display: inline-block;" >
+                                            </a>
+                                        </li>
+                                        
+                                   </ul>
+                               </li>
+                           </ul>
+                       </li>
+                    <!-- REPORTS END-->
+                    <!-- CALL RECORDS -->
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                        
+                            <li>
+                                <a  class="item">Call Records</a>
+                                <ul class="dl-submenu">
+                                    
+                                        <li>
+                                            <a>Rerate</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li><a href="/rerate/clientrerateview/">Client Rerate</a></li>
+                                                
+                                                
+                                                    <li><a href="/rerate/resellerrerateview/">Reseller Rerate</a></li>
+                                                
+                                                
+                                                    <li><a href="/rerate/vendorrerate/">Vendor Rerate</a></li>
+                                                
+                                                
+                                                    <li><a href="/rerate/clientreratesuggestionview/">Client Rerate Suggestion</a></li>
+                                                
+                                                
+                                                    <li><a href="/rerate/resellerreratesuggestionview/">Reseller Rerate Suggestion</a></li>
+                                                
+                                                
+                                                    <li><a href="/rerate/vendorreratesuggestion/">Vendor Rerate Suggestion</a></li>
+                                                
+                                            </ul>
+                                        </li>
+                                    
+                                    
+                                        <li>
+                                            <a>CDRs</a>
+                                            <ul class="dl-submenu">
+                                                
+                                                    <li><a href="/cdrs_compare/clientcomparecdrs/?sort_by=-i_compare_cdrs">Client Compare CDRs</a></li>
+                                                
+                                                
+                                                    <li><a href="/cdrs_compare/vendorcomparecdrs/?sort_by=-i_vendorcomparecdrs">Vendor Compare CDRs</a></li>
+                                                
+                                                <li><a href="/cdrs_summary_report/cdrssummaryreport/">Export CDRs</a></li>
+                                            </ul>
+                                        </li>
+                                    
+                                </ul>
+                            </li>
+                        
+                    <!-- CALL RECORDS END-->
+
+                    <!-- PCAP -->
+                        
+                        
+                            <li>
+                                <a class="item">PCAP</a>
+                                <ul class="dl-submenu">
+                                    <li><a href="/pcap/pcapjob/?sort_by=-job_number">PCAP Archive</a></li>
+                                </ul>
+                            </li>
+                        
+                    <!-- PCAP END-->
+
+                    <!-- USER MANAGEMENT -->
+                        
+                        
+                        
+                        
+                        
+                        
+                            <li>
+                                <a class="item">User Management</a>
+                                <ul class="dl-submenu">
+                                    
+                                        <li><a href="/profiles/profile/?sort_by=user__username">User Profile</a></li>
+                                    
+                                    
+                                        <li><a href="/permissions/permissiongroups/">Permission Groups</a></li>
+                                    
+                                    
+                                        <li><a href="/auth/group/">Sieve Groups</a></li>
+                                    
+                                    
+                                        <li><a href="/secure_sessions/session/">User Sessions</a></li>
+                                    
+                                    
+                                        <li><a href="/permissions/sieveview/">Data Filtering</a></li>
+                                    
+                                </ul>
+                            </li>
+                        
+                    <!-- USER MANAGEMENT END-->
+
+                    <!-- USER NAME AND OPTIONS -->
+                        <li>
+                            <a class="item">
+                                <i class="icon-user icon-large icon-white"></i>
+                            </a>
+                            <ul class="dl-submenu">
+                                
+                                    <li class="username"><a><strong style="font-size:12px;">Junaid Qadeer</strong></a></li>
+                                
+                                <li><a href="/profiles/profile/21/">Profile</a></li>
+                                <li><a href="/profiles/password/change/">Change Password</a></li>
+                                <li style="background-color:#000;"><a href="/accounts/logout/">Sign-out</a></li>
+                            </ul>
+                        </li>
+                    <!-- USER NAME AND OPTIONS END-->
+                
+            </ul>
+        </div>
+        <!-- /dl-menuwrapper -->
+    </div>
+</div>
+
+        
+
+        <div class="pusher">
+            <div class="full height">
+                <div class="ui container ">
+                    
+
+<div class="container">
+    <div class="row">
+        <div class="span12">
+            <ul class="breadcrumb">
+                <li>
+                    <a href="/home">Home</a> <span class="divider">/</span>
+                </li>
+                <li>
+                    <a href="#">Tools</a> <span class="divider">/</span>
+                </li>
+                <li class="active">Product</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+                    
+    
+    <br>
+    <div class="row-fluid">
+        <div class="span4">
+            <span style="font-size:20px">Products</span>
+        </div>
+        <div class="span8">
+            <a class="btn btn-primary btn-small pull-right toggle-sidebar" style="margin-left:10px"><i class="icon-filter"></i></a>
+            <div class="btn-group pull-right">
+                
+                    <a class="btn btn-primary btn-small" href="./create/?">Create</a>
+                
+            </div>
+        </div>
+    </div>
+    <div class="row-fluid">
+        <div class="span12">
+            
+
+            
+
+
+
+<table class="table table-bordered table-condensed table-hover table-striped">
+    <thead>
+        <tr>
+            <th><a href="./?sort_by=parent__name">
+Home Product
+</a></th>
+            <th><a href="./?sort_by=name">
+Product Name
+</a></th>
+            <th><a href="./?sort_by=prefix">
+Prefix
+</a></th>
+            <th><a href="./?sort_by=external_description">
+External Description
+</a></th>
+            <th><a href="./?sort_by=trunk_type">
+Trunk Type
+</a></th>
+            <th><a href="./?sort_by=is_active">
+Is Active
+</a></th>
+            <th style="width:75px;"><center><b>Actions</b></center></th>
+        </tr>
+    </thead>
+    <tbody>
+    
+        <tr>
+            <td></td>
+            <td>SPECIAL DELTA - RETAIL</td>
+            <td>8</td>
+            <td>special delta</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./23/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./23/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>SPECIAL BRAVO - RETAIL</td>
+            <td>6</td>
+            <td>special bravo</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./6/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./6/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>BUSINESS CLASS - WHOLESALE</td>
+            <td>2</td>
+            <td>business class</td>
+            <td>WholeSale</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./28/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./28/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>PREMIUM</td>
+            <td>1</td>
+            <td>first class</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./1/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./1/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>STANDARD</td>
+            <td>2</td>
+            <td>business class</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./2/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./2/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td>ECONOMY CLASS - RETAIL</td>
+            <td>STANDARD PLUS</td>
+            <td>3</td>
+            <td>standard plus</td>
+            <td>WholeSale</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./13/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./13/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>FIRST CLASS - WHOLESALE</td>
+            <td>1</td>
+            <td>first class</td>
+            <td>WholeSale</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./27/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./27/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>A2Z</td>
+            <td>4</td>
+            <td>A2Z</td>
+            <td>r </td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./7/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./7/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>SPECIAL CHARLIE - WHOLESALE</td>
+            <td>7</td>
+            <td>special charlie</td>
+            <td>WholeSale</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./31/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./31/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>BUSINESS</td>
+            <td></td>
+            <td>business</td>
+            <td>r </td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./4/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./4/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>SPECIAL CHARLIE - RETAIL</td>
+            <td>7</td>
+            <td>special charlie</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./19/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./19/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td>PREMIUM</td>
+            <td>PREMIUM</td>
+            <td>1</td>
+            <td>premium</td>
+            <td>r </td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./11/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./11/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td>STANDARD</td>
+            <td>STANDARD</td>
+            <td>2</td>
+            <td>standard</td>
+            <td>r </td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./12/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./12/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td>BUSINESS</td>
+            <td>BUSINESS</td>
+            <td>098</td>
+            <td>business</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./30/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./30/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>INDIA SPECIAL 2 - RETAIL</td>
+            <td>9003</td>
+            <td>india special 2</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./36/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./36/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>INDIA SPECIAL 3 - RETAIL</td>
+            <td>9001</td>
+            <td>india special 3</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./34/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./34/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>SPECIAL ALPHA - RETAIL</td>
+            <td>5</td>
+            <td>special alpha</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./21/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./21/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>ECONOMY CLASS - RETAIL</td>
+            <td>3</td>
+            <td>economy class</td>
+            <td>r </td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./25/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./25/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>BW_TEST_WHOLESALE</td>
+            <td>111</td>
+            <td>bw test wholesale</td>
+            <td>WholeSale</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./29/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./29/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>RELIANCE SPECIAL - RETAIL-OLD</td>
+            <td>11</td>
+            <td>reliance special</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./32/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./32/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>IDEA SPECIAL - RETAIL-OLD</td>
+            <td>12</td>
+            <td>idea special</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./33/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./33/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+        <tr>
+            <td></td>
+            <td>IDEA SPECIAL - RETAIL</td>
+            <td>9002</td>
+            <td>idea special</td>
+            <td>Retail</td>
+            <td style="text-align:center"><i class="icon-ok icon-large"></i></td>
+            <td><center>
+
+<div class="dropdown">
+    <div class="btn-group">
+        <a class="btn btn-mini dropdown-toggle" data-toggle="dropdown" href="#">
+             <i class="icon play"></i>&nbsp;
+            <span class="caret"></span>
+        </a>
+        <ul class="dropdown-menu" role="menu" aria-labelledby="drop3">
+            
+                <li style="text-align:left"><a tabindex="-1" href="./35/?">&nbsp;&nbsp;View Details</a></li>
+            
+            
+                <li style="text-align:left"><a tabindex="-1" href="./35/update/?"><i class="icon edit"></i>&nbsp;&nbsp;Edit it!</a></li>
+            
+        </ul>
+    </div>
+</div>
+</center></td>
+        </tr>
+    
+    </tbody>
+</table>
+
+
+
+    <div class="pull-left">
+        <strong>Displaying </strong> 1 to 22 Record(s) out of 22 Record(s) | Page: 1 | showing: 22 rows
+    </div>
+
+</div>
+
+        </div>
+    </div>
+    
+
+                </div>
+            </div>
+        </div>
+    
+
+
+
+
+    
+        <div class="extra_content hide"></div>
+    
+
+
+
+
+
+<!-- ====================================================================================================
+====================================================================================================
+====================================================================================================
+====================================================================================================
+  -->
+
+
+
+    <script type="text/javascript" src="/static/js/jquery-ui.js"></script>
+    <script type="text/javascript" src="/static/js/jquery.form.js"></script>
+    <script type="text/javascript" src="/static/js/vendors/jquery.dataTables.min.js"></script>
+
+    <script src="/static/js/modernizr.custom.js"></script>
+    <script src="/static/js/jquery.dlmenu.js"></script>
+
+    <!-- Semantic-UI Script -->
+    <script type="text/javascript" src="/static/js/bootstrap.js"></script>
+    <script src="/static/dist/semantic.js"></script>
+    <script type="text/javascript" src="/static/js/vendors/dataTables.fixedColumns.min.js"></script>
+
+
+
+
+
+<!-- ====================================================================================================
+====================================================================================================
+====================================================================================================
+==================================================================================================== -->
+
+    <script type="text/javascript" src="/static/chained_selectbox/js/jquery.js"></script>
+    <script type="text/javascript" src="/static/chained_selectbox/js/jquery.init.js"></script>
+    <script type="text/javascript" src="/static/chained_selectbox/js/chained-select.js"></script>
+
+
+
+    <script type="text/javascript" src="/static/better_admin/js/jquery.expander.js"></script>
+    <!-- <script type="text/javascript" src="/static/better_admin/js/snap.js"></script> -->
+    <script type="text/javascript" src="/static/admin/js/admin/RelatedObjectLookups.js"></script>
+    <script type="text/javascript" src="/static/widgets/js/bootstrap-datetimepicker.js"></script>
+    <script type="text/javascript" src="/static/js/plugins/scrollTo/jquery.scrollTo-min.js"></script>
+    <script type="text/javascript" src="/static/js/ui.multiselect.js"></script>
+    <script type="text/javascript" src="/static/js/jquery.combobox.js"></script>
+    <script type="text/javascript" src="/static/ckeditor/ckeditor/ckeditor.js"></script>
+    <script type="text/javascript" src="/static/js/bootstrap-tags.js"></script>
+    <script type="text/javascript" src="/static/better_admin/js/jquery.dataTables.js"></script>
+    <script type="text/javascript" src="/static/better_admin/js/dataTables.bootstrap.js"></script>
+
+
+    <!-- <script type="text/javascript" src="/static/js/material.js"></script> -->
+    <script type="text/javascript" src="/static/js/perfect-scrollbar.jquery.min.js"></script>
+
+
+
+
+    <script type="text/javascript">
+
+
+        function responsiveTable(elem) {
+            $(elem).find(".ba-table tbody tr td:first-child").append("<span class='tr-button'></span>");
+            $(elem).find(".ba-table tbody tr .tr-button").off().on("click",function(){
+                $(this).toggleClass("open").parent().parent().toggleClass("open");
+            });
+        }
+
+        $(document).ready(function(){
+
+            var windowHeight = $(window).height();
+            var windowWidth = $(window).width();
+
+            responsiveTable(this);
+
+
+            /* Adding daynamic Submenus To ("Tool > Routing Preferences > Vendor Rates Preference Details") */
+
+
+            /* AddClass to Submenus Container */
+            $('.dl-menu li ul.dl-submenu').parent().addClass('submenu-container');
+
+            // Calling Dl_menus
+            //~ dl_menus();
+
+            // Semantic UI Sidebar
+            //$('.ui.sidebar').sidebar('setting', 'transition', 'scale down').sidebar('attach events', '.toggle-sidebar');
+
+            $('.toggle-sidebar').click(function(){ // Temp Function to Make Compatible with Bootstrap
+                $(".ui.sidebar").toggleClass('scale down animating visible');
+                $(".pusher").toggleClass('dimmer');
+            });
+
+            $('.message .close')
+              .on('click', function() {
+                $(this)
+                  .closest('.message')
+                  .transition('fade');
+              });
+
+            // Semantic UI Dropdown Menus
+            $('.ui.dropdown').dropdown({
+                // you can use any ui transition
+                transition: 'horizontal flip'
+            });
+            $('.ui.checkbox').checkbox();
+
+            // Semantic UI [popup == ToolTip]
+            $('.inline.icon, .ba-table tbody tr td > span, .label.th, .popup').popup({
+                    transition: "scale",
+            });
+
+
+            // DataList Example to test on Tables
+            $('.Dlist').dataTable({
+                    "processing": true,
+                    "serverSide": true,
+                    "ajax": "../server_side/scripts/server_processing.php"
+                } ); //
+
+            // login Form
+            $('.ui.form')
+              .form({
+                inline : true,
+                on: 'blur',
+                fields: {
+                  username: {
+                    identifier  : 'username',
+                    rules: [
+                      {
+                        type   : 'empty',
+                        prompt : 'Please enter username'
+                      }
+                    ]
+                  },
+                  password: {
+                    identifier : 'password',
+                    rules: [
+                      {
+                        type   : 'empty',
+                        prompt : 'Please enter a password'
+                      }
+                    ]
+                  }
+                }
+              })
+            ;
+
+        });
+
+        // Function for Main Navigation for Responsive
+        function dl_menus() {
+            $('#dl-menu').dlmenu({
+                animationClasses : { in : 'dl-animate-in-2', out : 'dl-animate-out-2' }
+            });
+        }
+
+        function status_modal_client(i){
+            var elem = $('#id_client_switch_modal').bodal({
+                blurring: true,
+                onShow: function () {
+                    $.ajax({
+                        method:'get',
+                        url:'/corporate/switch_account_mapping/'+ i + '/',
+                        success:function(data) {
+                            $('#id_client_switch_modal').html(data);
+                            $('#id_client_switch_modal .loader').addClass('hide');
+                            $('#id_client_switch_modal .ui.dimmer').addClass('hide');
+
+                                responsiveTable(elem);
+
+                            // Semantic UI [popup == ToolTip]
+                            $('.ui.modle .inline.icon, .ui.modle .ba-table tbody tr td > span').popup({
+                                inline: true
+                            });
+                        }
+                    });
+                }
+            })
+            .bodal('setting', 'closable', false)
+            .bodal('show');
+        };
+
+        function status_modal_vendor(i){
+             var elem = $('#id_vendor_switch_modal').bodal({
+                blurring: true,
+                onShow: function () {
+                    $.ajax({
+                        method:'get',
+                        url:'/corporate/switch_vendor_mapping/'+ i + '/',
+                        success:function(data) {
+                            $('#id_vendor_switch_modal').html(data);
+                            $('#id_vendor_switch_modal .loader').addClass('hide');
+                            $('#id_vendor_switch_modal .ui.dimmer').addClass('hide');
+
+                            responsiveTable(elem);
+
+                            // Semantic UI [popup == ToolTip]
+                            $('.ui.modle .inline.icon, .ui.modle .ba-table tbody tr td > span').popup({
+                                inline: true
+                            });
+
+                        }
+                    });
+                }
+            })
+            .bodal('setting', 'closable', false)
+            .bodal('show');
+        };
+
+
+        // Function for Compnay SBC Status Modal Semantic-Ui
+        function status_modal(i){
+             var elem = $('#id_company_status_modal').bodal({
+                blurring: true,
+                onShow: function () {
+                    $.ajax({
+                        method:'get',
+                        dataType:'json',
+                        url:'/switch_api/'+i+'/',
+                        success:function(data){
+                            var reseller = false;
+                            var client = false;
+                            var st_red = '<i class="icon-circle" style="background:red"></i>';
+                            var st_green = '<i class="icon-circle" style="background:green"></i>';
+                            var client_tbody = $('#id_company_status_modal .client-status table tbody').html('');
+                            var reseller_tbody = $('#id_company_status_modal .reseller-status table tbody').html('');
+
+                            responsiveTable(elem);
+
+                            $.each(data,function(ind,val){
+                                var status = val.error.length==0?(val.status?st_green:st_red):val.error;
+                                if(val.is_reseller){
+                                    reseller = true;
+                                    $(reseller_tbody).append('<tr><td data-title="SBC">'+val.name+'</td><td data-title="status">'+status+'</td></tr>')
+                                    $('.reseller-status').removeClass('hide');
+                                }
+                                else{
+                                    client = true;
+                                    $(client_tbody).append('<tr><td data-title="SBC">'+val.name+'</td><td data-title="status">'+status+'</td></tr>')
+                                    $('.client-status').removeClass('hide');
+                                }
+                            });
+                            if(data.length==0){
+                                $('#id_company_status_modal .alert').removeClass('hide');
+                            }
+                            else{
+                                $('#id_company_status_modal .alert').addClass('hide');
+                            }
+                            $('#id_company_status_modal .loader').addClass('hide');
+                            $('#id_company_status_modal .ui.dimmer').addClass('hide');
+                        }
+                    })
+
+                }
+            })
+            .bodal('setting', 'closable', false)
+            .bodal('show');
+        };
+
+        // Modal Scripts
+
+
+
+
+
+        /* Tested dataTable for Company List View*/
+        /*$.ajax({
+            dataType: 'JSON',
+            async: false,
+            url: '/corporate/get_company_data/',
+            success: function (json) {
+                console.log(json);
+                testdata = json;
+            }
+        });
+
+        $(document).ready(function () {
+            $('#satest').dataTable({
+                "aaData": testdata,
+                "aoColumns": [
+                    {"mDataProp": "name"},
+                    {"mDataProp": "client_KAM"},
+                    {"mDataProp": "c_billing_cycle"},
+                    {"mDataProp": "c_time_zone_id"},
+                    {"mDataProp": "traffic_direction"},
+                    {"mDataProp": "client_KAM"}
+                ]
+            });
+        });*/
+    </script>
+
+
+<!--
+    Seprator ================================================================================================
+-->
+
+
+
+
+    <script>
+        $(function(){
+
+            $('[data-toggle="modal"]').click(function(event) {
+                $('body').addClass('modal-open');
+            });
+            $('[data-dismiss="modal"]').click(function(event) {
+                $('body').removeClass('modal-open');
+            });
+
+            //Crossbrowser Checkbox init
+           //$.material.checkbox($('input[type="checkbox"]'));
+
+            // Resetting Filter Form Explicitly
+            $('#filterResetBtn').click(function() {
+                $('#filterForm input[type="text"]').val('');
+                $('#filterForm select').find('option:first').attr('selected', 'selected');
+                $('#filterForm input:checkbox').removeAttr('checked');
+                $('#filterForm input:radio').prop('checked', false);
+            })
+
+            // Cross Browser Scrollbar
+            //$("#content, .snap-drawer").perfectScrollbar();
+            //$(".tag-list").perfectScrollbar();
+
+        })
+
+
+        //Custom Script For UI
+        //$('#content').css('background-color',$('body').css('background-color'));Dynamic background for changing themes.
+        String.prototype.toTitleCase = function (){
+            return this.replace(/\w\S*/g, function(txt){return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();});
+        };
+        $(function() {
+            // $('[data-toggle="tooltip"]').tooltip().css('cursor','pointer');
+            // $('.snap-drawers').removeClass('hide')
+            // snapper = new Snap({
+            //     element: document.getElementById('content'),
+            //     disable:'right'
+            // });
+            // settings = {
+            //     maxPosition: 290,
+            //     minPosition: -360,
+            //     tapToClose: false,
+            //     touchToDrag: false,
+            // }
+            // snapper.settings(settings);
+            // $('#toolbar').click(function(){
+            //     var data = snapper.state();
+            //     if(data.state=='closed') {
+            //         snapper.open('left');
+            //         $('#content').width($('body').width()-290);
+            //         $('#content').css({'border-left':'solid #ddd',
+            //                             });
+            //         $('#content>div').css({
+            //             'padding-left':'15px',
+            //             'padding-right':'15px'
+            //             });
+            //     }
+            //     else {
+            //         snapper.close();
+            //         $('#content').css('width','100%');
+            //         $('#content').css('border-left','none');
+            //         $('#content>div').css({
+            //             'padding-left':'0',
+            //             'padding-right':'0'
+            //             });
+            //     }
+            // });
+
+            // $('table td .dropdownd').each(function(){
+            //         $(this).find('i.icon play').parent().addClass('pull-right').html('<span class="caret"></span>')
+            //         var detail = $(this).parent().find('li a:contains("View Details")');
+            //         var edit = $(this).parent().find('li a:contains("Edit it")');
+            //         $(this).children('.btn-group').append($(edit).addClass('btn btn-mini').html('<i class="icon edit" data-toggle="tooltip" data-placement="top" title="" data-original-title="Update"></i>'));
+            //         $(this).children('.btn-group').append($(detail).addClass('btn btn-mini').html('<i class="icon-zoom-in" data-toggle="tooltip" data-placement="top" title="" data-original-title="View Details"></i>'));
+            //         $(this).find('.dropdown-menu').children('li:not(:has(*))').remove();
+            //         if($(this).find('.dropdown-menu').children().length==0){
+            //             $(this).find('.dropdown-menu:not(:has(*))').remove();
+            //             $(this).find('.btn-mini .caret').parent().remove();
+
+            //         }
+            //     $('[data-toggle="tooltip"]').tooltip().css('cursor','pointer');
+            // })
+            //$('.table').addClass('table-striped');//Add Strips in table
+            $('.icon-filter').addClass('icon-white');//Filter icon white
+            $('.btn-inverse').addClass('btn-info').removeClass('btn-inverse');//reversing the colors of btn-info from black to purple
+
+            //For giving a sidebar(filter bar) toggle class
+            $('.toggle-sidebar').click(function(){
+                $('#toolbar').click();
+            })
+            //For Adding Icons to Import, Export and Create Buttons. (optional)
+            $('a.btn:contains("Import")').html('<i class="icon-arrow-down icon-white"></i>Import')
+            $('a.btn:contains("Create")').html('<i class="icon-plus icon-white"></i>Create')
+            $('a.btn:contains("Export")').html('<i class="icon-arrow-up icon-white"></i>Export')
+            $('div.snap-drawers').find('form:contains("Filters")').find("a").remove( ":contains('+')" );//To remove add button + from filters
+        });
+
+
+        // When the user clicks the checkbox in table head, select all checkboxes in table body
+            $(function () {
+                $("table thead tr th.select input:checkbox").click( function () {
+                    $(this).closest('table').find(':checkbox').prop('checked', this.checked);
+                    $(this).closest('table').find(':disabled').prop('checked', false);
+                });
+            });
+
+        // load the expander library that will convert large text in tables to teasers
+            $(function () {
+                $('.expandable').expander({
+                slicePoint:15, // default is 100
+                expandPrefix:'...', // default is '... '
+                expandText:'more', // default is 'read more'
+                userCollapseText:'less'  // default is 'read less'
+                });
+            });
+
+            $(function () {
+                $(".dropcontent").expander({
+                widow: 2,
+                expandEffect: 'slideDown',
+                expandPrefix:' ',
+                expandText:$(this).innerHTML='<i class="icon-chevron-down icon-small"></i>',
+                userCollapseText:$(this).innerHTML='<i class="icon-chevron-up icon-small"></i>',
+                });
+            });
+
+
+
+            // Form Disable to False for proper form submition
+            $('#zform').submit(function () {
+                console.log('ss')
+                $("select").removeAttr('disabled');
+                $("input").removeAttr('disabled');
+                $("textarea").removeAttr('disabled');
+            });
+
+             search_array=[
+                ['DBCONERROR01','We are unable to connect database server. Please try again.'],
+                ['DBCONERROR02','We have observed an error with database connection.'],
+                ['DBCONERROR03','We are unable to communicate with database.'],
+                ['DBQRYERROR01','Invalid Query OR DataBase Error'],
+                ['DBCONERROR04','We have lost connection with database. Please try again.'],
+                ['DBQRYERROR02','It seems that your command has not not been accepted by the database at this time. Please try again.'],
+                ['DBQRYERROR03','Invalid to Wrong Sql Query'],
+                ['TARIFERROR01','No Rates Found for Tariff'],
+                ['AUTHSERROR01','We are unable to find "Authentication Rules". Kindly prepare "Authentication Rules" and try later.'],
+                ['SWICHERROR01','We are unable to find SBCs details.'],
+                ['IOPRMERROR01','Filer permission denied. Please contact System Adminstrator.'],
+                ['IOPRMERROR02','System has not responded to your input/request. Please try again.'],
+                ['IOPRMERROR03','System has not responded to your input/request. Please try again.'],
+                ['OPSSHERROR01','Your request to connect SBC has been failed. Please try again.'],
+                ['OPSSHERROR02','Your request to connect SBC has been rejected. Please contact System Adminstrator.'],
+                ['OPSSHERROR03','Unable to Copy Scripts to Switch. Please contact System Adminstrator.'],
+                ['OPSSHERROR04','Unable to Execute Script on Switch. Please contact System Adminstrator.'],
+                ['JSONPERROR01','Unable to Parse Json. Please contact System Adminstrator.'],
+                ['TARIFERROR02','It seems that there is some problem with "Authentication Rules". Please rectify and try again.'],
+                ['TARIFERROR03','We are unable to push rates to SBC. Please contact System Adminstrator.'],
+                ['INVALIDEMAIL','Provided Emails Address for Company are invalid, please check configuration and try again'],
+                ['IOPRMERROR04','Template for Email Body Not Found - please contact System Administrator'],
+                ['IOPRMERROR05','Template for Email Attachment Not Found - please contact System Administrator'],
+                ['EMAILERROR01','It Seems that there may be Email Sending issue - please contact System Administrator'],
+                ['PARSEERROR01','Invalid activation date'],
+                ['PARSEERROR02','Invalid Price N'],
+                ['PARSEERROR03','Code not found'],
+                ['PARSEERROR04','Invalid combination of country and area code'],
+                ['PARSEERROR11','Empty sementic dictionary'],
+                ['PARSEERROR12','Faild to found semantic dictionary'],
+                ['PARSEERROR13','Duplication rate'],
+                ['PARSEERROR14','Parser failed to find header'],
+                ['PARSEERROR15','rate(s) failed to parse'],
+                ['PARSEERROR16','Library Error while opening file'],
+                ['IMPRTERROR01','Same code with diffrent rates'],
+                ['IMPRTERROR02','Notice time is less then 7 day'],
+                ['IMPRTERROR03','Cannot import old rate'],
+                ['IMPRTERROR04','rate(s) failed to import'],
+                ['IMPRTERROR05','There is no rate to import'],
+                ['IMPRTERROR06','Tariff not Found'],
+                ['IMPRTERROR07','Routing not Found'],
+                ['DIALCODEERROR00','Dial code(s) failed to sync'],
+                ["[u'",''],
+                ["['",''],
+                ["jvs",' (SBC: JVS)'],
+                ["jvs2",' (SBC: JVS2)'],
+                ["s1",' (SBC: S1)'],
+                ["sm1'",' (SBC: SM1)'],
+                ["sm3",' (SBC: SM3)'],
+                ["sm4",' (SBC: SM4)'],
+                ["sm5",' (SBC: SM5)'],
+                ["sm6",' (SBC: SM6)'],
+                ["sm7",' (SBC: SM7)'],
+                ["sm8",' (SBC: SM8)'],
+                ["sm9",' (SBC: SM9)'],
+                ["VOEDLE",'Effective date older than allowed limit'],
+                ["SRATEI",'Suspect rate-increase'],
+                ["RINPVE",'Rate-increase notification period voilation'],
+                ["SRATED",'Suspect rate-decrease'],
+                ["VFEDLE",'Effective date greater than allowed limit'],
+                ["EXPRLE",'Exceed number of pending rate limit'],
+                ["']",'']
+            ]
+
+            $(document).ready(function() {
+                $('p').text(function(_, text) {
+                   for (var i = 0; i < search_array.length; i++) {
+                       text = text.replace(search_array[i][0], search_array[i][1]);
+                   };
+                   return text;
+                });
+            });
+
+            var bindDateTimes = function() {
+                $(".datetime").each(function () {
+                    try
+                    {
+                        $(this).datetimepicker({
+                                    format: "yyyy-mm-dd hh:ii:00",
+                                    weekStart: 1,
+                                    todayBtn:  1,
+                                    autoclose: 1,
+                                    startView: 3,
+                                    minView: 0,
+                                    forceParse: 0,
+                                    minuteStep: 5,
+                                    todayHighlight: true
+                                    });
+                    }
+                    catch(e){}
+                });
+            };
+
+            var bindDates = function() {
+                $(".date").each(function () {
+                    try
+                    {
+                        $(this).datetimepicker({
+                                    format: "yyyy-mm-dd",
+                                    weekStart: 1,
+                                    todayBtn:  1,
+                                    autoclose: 1,
+                                    startView: 3,
+                                    minView: 2,
+                                    forceParse: 0,
+                                    minuteStep: 5,
+                                    todayHighlight: true
+                                    });
+                    }
+                    catch(e){}
+                });
+            };
+            var bindTimes = function() {
+                $(".time").each(function () {
+                    try
+                    {
+                        $(this).datetimepicker({
+                                    format: "hh:ii:00",
+                                    weekStart: 1,
+                                    todayBtn:  1,
+                                    autoclose: 1,
+                                    todayHighlight: false,
+                                    startView: 1,
+                                    minView: 0,
+                                    forceParse: 0,
+                                    minuteStep: 5,
+                                    });
+                    }
+                    catch(e){}
+                });
+            };
+
+           var bindMultiselect = function () {
+            $(".multiselect").multiselect();
+           };
+
+            var bindSortselect= function(){
+                var selectedOption;
+                $("select").each(function(){
+                    selectedOption = $(this).children("option").filter(function(index,option){
+                        return $(option).prop("selected");
+                    });
+
+                    $(this).html($(this).children("option").sort(function (a, b) {
+                        if (a.text.toUpperCase() == b.text.toUpperCase()) return 0;
+                        if (a.text.toUpperCase() < b.text.toUpperCase()) return -1;
+                        if (a.text.toUpperCase() > b.text.toUpperCase()) return 1;
+                    }));
+                    //Set selected option
+                    $(selectedOption).prop("selected", "selected");
+                });
+            };
+
+            var bindWidgets = function() {
+                bindDateTimes();
+                bindDates();
+                bindTimes();
+                bindMultiselect();
+                bindSortselect();
+            };
+        // Appends ANY to status field
+        //$("#id_status").append("<option value=''>---------</option>")
+
+
+        // Replaces Unknown with ---------
+        $('select option:contains("Unknown")').text("---------");
+
+        $(function() {
+            bindWidgets();
+            // any other page load code, etc.
+        });
+
+        $(".form_datetime").datetimepicker({
+            format: "yyyy-mm-dd hh:ii:ss",
+            autoclose: true,
+            todayBtn: true,
+            minuteStep: 1,
+            pickerPosition: "bottom-left"
+        });
+
+
+        $(".form_time").datetimepicker({
+            format: 'hh:ii:ss',
+            autoclose: true,
+            todayBtn: true,
+            showMeridian: true,
+            pickerPosition: "bottom-left",
+            startView: 0,
+            maxView: 0
+        });
+
+
+        $('.modal').hide();
+        $( "input[type=submit]" ).not('#signin').click(function( event ) {
+            $(this).attr('data-loading-text', 'Saving...');
+            $(this).button('loading');
+        });
+
+        $(function() {
+            bindWidgets();
+            // any other page load code, etc.
+        });
+
+        $(".form_datetime").datetimepicker({
+            format: "yyyy-mm-dd hh:ii:ss",
+            autoclose: true,
+            todayBtn: true,
+            minuteStep: 1,
+            pickerPosition: "bottom-left"
+        });
+
+
+        $(".form_time").datetimepicker({
+            format: 'hh:ii:ss',
+            autoclose: true,
+            todayBtn: true,
+            showMeridian: true,
+            pickerPosition: "bottom-left",
+            startView: 0,
+            maxView: 0
+        });
+        $("#vendor_rates_preference_details" ).hover(function() {
+            if(!$(this).find('ul').length){
+                $.get('/bsr/get_mbr_products_wise/', function(data) {
+                    var data = $.parseJSON(data);
+                    var $DynamicLI = '<ul class="dl-submenu">';
+                    $.each(data, function( index, value ) {
+                       $DynamicLI += '<li><a tabindex="-1" href="/bsr/mbr_vendor_preferred_rates/' + value[0] +'">'+ value[1] + '</a></li>';
+                    });
+                    $DynamicLI += '</ul>'
+                    $("#vendor_rates_preference_details" ).append($DynamicLI);
+                 });
+            }
+
+          }, function() {
+          }
+        );
+    </script>
+
+    
+    
