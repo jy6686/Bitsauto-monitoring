@@ -328,7 +328,7 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
         for (const code of SIP_ERROR_CODES) {
           const count = codes.get(code) ?? 0;
           const rate  = total > 0 ? Math.round((count / total) * 10000) / 100 : 0;
-          rows.push({ vendor_name: vendor, window_minutes: minutes, code, count, rate, dest_prefix: null, computed_at: computedAt, time_bucket: timeBucket.toISOString() });
+          rows.push({ vendor_name: vendor, window_minutes: minutes, code, count, rate, dest_prefix: '', computed_at: computedAt, time_bucket: timeBucket.toISOString() });
 
           // Also collect 60-min window rows for history
           if (minutes === 60) {
@@ -373,7 +373,7 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
           await pool.query(
             `INSERT INTO sip_error_stats (vendor_name, window_minutes, code, count, rate, computed_at, dest_prefix, time_bucket)
              VALUES ${placeholders}
-             ON CONFLICT (vendor_name, window_minutes, code, time_bucket, COALESCE(dest_prefix, ''))
+             ON CONFLICT (vendor_name, window_minutes, code, time_bucket, dest_prefix)
              DO UPDATE SET count = EXCLUDED.count, rate = EXCLUDED.rate, computed_at = EXCLUDED.computed_at`,
             vals,
           );
@@ -403,8 +403,8 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
       await pool.end();
     }
 
-    const vendorCount = new Set(rows.filter(r => !r.dest_prefix).map(r => r.vendor_name)).size;
-    const prefixCount = new Set(rows.filter(r => r.dest_prefix).map(r => r.dest_prefix)).size;
+    const vendorCount = new Set(rows.filter(r => r.dest_prefix === '').map(r => r.vendor_name)).size;
+    const prefixCount = new Set(rows.filter(r => r.dest_prefix !== '').map(r => r.dest_prefix)).size;
 
     console.log(`[sip-error-agg] Bucket ${timeBucket.toISOString()} — ${rows.length} rows for ${vendorCount} vendor(s), ${prefixCount} prefix(es) from ${cdrsProcessed} CDRs`);
 
@@ -412,7 +412,7 @@ export async function computeSipErrorFromCdrs(cdrs: ReadonlyArray<any>): Promise
     // Build a flat list of 15-min vendor×code stats for the incident check
     const vendorStats15m: Array<{ vendorName: string; code: number; rate: number; codeLabel: string }> = [];
     for (const row of rows) {
-      if (row.window_minutes === 15 && row.dest_prefix === null) {
+      if (row.window_minutes === 15 && row.dest_prefix === '') {
         vendorStats15m.push({
           vendorName: row.vendor_name,
           code:       row.code,
@@ -501,7 +501,7 @@ async function processSpikesAfterAggregation(
     // Identify currently spiking vendor+code pairs (60-min window, no prefix)
     const currentSpikeRows = new Map<string, { vendorName: string; code: number; rate: number; baselineRate: number; multiplier: number }>();
     for (const row of rows) {
-      if (row.window_minutes !== 60 || row.dest_prefix !== null) continue;
+      if (row.window_minutes !== 60 || row.dest_prefix !== '') continue;
       const key = `${row.vendor_name}:${row.code}`;
       const baselineRate = baselineMap.get(key) ?? 0;
       const isSpiking = row.rate >= 2 && baselineRate > 0 && row.rate >= 2 * baselineRate;
@@ -569,7 +569,7 @@ async function processSpikesAfterAggregation(
       const [vendorName, codeStr] = key.split(':');
       const code = parseInt(codeStr, 10);
       const baselineRate = baselineMap.get(key) ?? 0;
-      const row = rows.find(r => r.vendor_name === vendorName && r.code === code && r.window_minutes === 60 && !r.dest_prefix);
+      const row = rows.find(r => r.vendor_name === vendorName && r.code === code && r.window_minutes === 60 && r.dest_prefix === '');
       const currentRate = row?.rate ?? 0;
 
       // Only resolve when rate has dropped below 1.5× baseline (hysteresis)
@@ -655,7 +655,7 @@ export async function loadSipErrorSnapshot(): Promise<SipErrorSnapshot[]> {
       SELECT DISTINCT ON (vendor_name, window_minutes, code)
         vendor_name, window_minutes, code, count, rate, computed_at, time_bucket
       FROM sip_error_stats
-      WHERE dest_prefix IS NULL
+      WHERE dest_prefix = ''
         AND time_bucket IS NOT NULL
       ORDER BY vendor_name, window_minutes, code, time_bucket DESC
     `);
@@ -700,7 +700,7 @@ export async function loadSipErrorSnapshotWithSpikes(windowMinutes: 15 | 60 | 24
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
     const [snapRes, baselineRes] = await Promise.all([
-      pool.query(`SELECT * FROM sip_error_stats WHERE dest_prefix IS NULL`),
+      pool.query(`SELECT * FROM sip_error_stats WHERE dest_prefix = ''`),
       pool.query(`
         SELECT vendor_name, code, AVG(rate) AS baseline_rate
         FROM sip_error_history
@@ -839,7 +839,7 @@ export async function loadSipPrefixSnapshot(): Promise<SipPrefixRow[]> {
         count AS total_failures,
         time_bucket
       FROM sip_error_stats
-      WHERE dest_prefix IS NOT NULL AND window_minutes = 15
+      WHERE dest_prefix != '' AND window_minutes = 15
         AND time_bucket IS NOT NULL
       ORDER BY dest_prefix, vendor_name, time_bucket DESC, rate DESC
     `);
@@ -874,7 +874,7 @@ export async function loadSipPrefixSnapshot(): Promise<SipPrefixRow[]> {
 
 /**
  * Load up to 12 historical samples per (vendor, window, code) for sparkline rendering.
- * Returns vendor-level rows only (dest_prefix IS NULL).
+ * Returns vendor-level rows only (dest_prefix = '').
  */
 export async function loadSipErrorHistory(windowMinutes: 15 | 60 | 240): Promise<SipVendorHistory[]> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -883,7 +883,7 @@ export async function loadSipErrorHistory(windowMinutes: 15 | 60 | 240): Promise
     const bucketsRes = await pool.query(`
       SELECT DISTINCT time_bucket
       FROM sip_error_stats
-      WHERE dest_prefix IS NULL
+      WHERE dest_prefix = ''
         AND window_minutes = $1
         AND time_bucket IS NOT NULL
       ORDER BY time_bucket DESC
@@ -898,7 +898,7 @@ export async function loadSipErrorHistory(windowMinutes: 15 | 60 | 240): Promise
     const res = await pool.query(`
       SELECT vendor_name, code, rate, time_bucket
       FROM sip_error_stats
-      WHERE dest_prefix IS NULL
+      WHERE dest_prefix = ''
         AND window_minutes = $1
         AND time_bucket = ANY($2::timestamptz[])
       ORDER BY vendor_name, code, time_bucket

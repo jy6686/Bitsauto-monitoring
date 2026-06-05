@@ -1,6 +1,5 @@
 
 import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json, jsonb, uniqueIndex, bigint, index, date, numeric } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -3390,7 +3389,8 @@ export type InsertBalanceAlertEvent = typeof balanceAlertEvents.$inferInsert;
 // windowMinutes: 15 | 60 | 240
 // code: 503 | 486 | 480 | 404 | 603 | 487
 // timeBucket: 5-minute rounded timestamp — used to preserve up to 24hr of history
-// Unique constraint: (vendor_name, window_minutes, code, time_bucket, COALESCE(dest_prefix,''))
+// dest_prefix: '' = vendor-level aggregate row, 'XXXXX' = prefix-level row (15-min only)
+// Unique constraint: (vendor_name, window_minutes, code, time_bucket, dest_prefix)
 export const sipErrorStats = pgTable("sip_error_stats", {
   id:            serial("id").primaryKey(),
   vendorName:    varchar("vendor_name",     { length: 128 }).notNull(),
@@ -3399,12 +3399,11 @@ export const sipErrorStats = pgTable("sip_error_stats", {
   count:         integer("count").notNull().default(0),
   rate:          real("rate").notNull().default(0),
   computedAt:    timestamp("computed_at").notNull().defaultNow(),
-  destPrefix:    varchar("dest_prefix",     { length: 12 }),
+  destPrefix:    varchar("dest_prefix",     { length: 12 }).notNull().default(""),
   timeBucket:    timestamp("time_bucket"),
 }, (t) => [
   uniqueIndex("sip_error_stats_uniq").on(
-    t.vendorName, t.windowMinutes, t.code, t.timeBucket,
-    sql`COALESCE(${t.destPrefix}, '')`
+    t.vendorName, t.windowMinutes, t.code, t.timeBucket, t.destPrefix
   ),
 ]);
 export type SipErrorStat = typeof sipErrorStats.$inferSelect;
