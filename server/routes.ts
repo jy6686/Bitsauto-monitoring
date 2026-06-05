@@ -33104,12 +33104,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { iAccount, customerName, productId, kamName, startDate, endDate, gracePeriodDays, volumeCommitment, notes, destinations } = req.body;
       if (!iAccount || !productId) return res.status(400).json({ error: 'iAccount and productId required' });
       const dealRef = await nextDealRef();
+      const { dealType } = req.body;
       const [deal] = await db.insert(deals).values({
         dealRef, iAccount, customerName, productId, kamName,
         startDate: startDate || null, endDate: endDate || null,
         gracePeriodDays: gracePeriodDays ?? 0,
         volumeCommitment: volumeCommitment ? String(volumeCommitment) : null,
         notes, status: 'draft',
+        dealType: dealType ?? 'traffic_mix',
         createdBy: req.user?.claims?.sub ?? 'system',
       }).returning();
       if (destinations?.length) {
@@ -33196,6 +33198,41 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const rows = await db.select().from(dealDestinations).where(eq(dealDestinations.dealId, parseInt(req.params.id)));
       res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/deals/all-destinations — all deal destinations joined with deal metadata (for profitability tab)
+  app.get('/api/deals/all-destinations', async (_req, res) => {
+    try {
+      const allDeals = await db.select().from(deals);
+      const allDests = await db.select().from(dealDestinations);
+      const joined = allDests.map(d => {
+        const deal = allDeals.find(dl => dl.id === d.dealId);
+        return { ...d, deal };
+      });
+      res.json(joined);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/deals/:id/negotiate — move to negotiating status
+  app.post('/api/deals/:id/negotiate', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [deal] = await db.update(deals).set({ status: 'negotiating', updatedAt: new Date() }).where(eq(deals.id, id)).returning();
+      if (!deal) return res.status(404).json({ error: 'Not found' });
+      await db.insert(dealApprovals).values({ dealId: id, action: 'negotiating', performedBy: req.user?.claims?.sub ?? 'system', notes: req.body.notes ?? null });
+      res.json(deal);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/deals/:id/renew — mark as renewed
+  app.post('/api/deals/:id/renew', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [deal] = await db.update(deals).set({ status: 'renewed', updatedAt: new Date() }).where(eq(deals.id, id)).returning();
+      if (!deal) return res.status(404).json({ error: 'Not found' });
+      await db.insert(dealApprovals).values({ dealId: id, action: 'renewed', performedBy: req.user?.claims?.sub ?? 'system', notes: req.body.notes ?? null });
+      res.json(deal);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

@@ -3738,7 +3738,9 @@ export const deals = pgTable("deals", {
   productId:        integer("product_id").notNull(),
   kamName:          varchar("kam_name", { length: 128 }),
   status:           varchar("status", { length: 32 }).notNull().default("draft"),
-  // draft | pending_approval | active | expired | rejected | suspended
+  // draft | negotiating | pending_approval | approved | active | expiring | expired | renewed | rejected
+  dealType:         varchar("deal_type", { length: 32 }).default("traffic_mix"),
+  // traffic_mix | incremental | wholesale | special_pricing | volume_commitment
   startDate:        date("start_date"),
   endDate:          date("end_date"),
   gracePeriodDays:  integer("grace_period_days").default(0),

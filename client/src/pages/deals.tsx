@@ -12,15 +12,15 @@ import {
   Briefcase, BarChart2, LayoutList, Sliders, CheckSquare, History,
   Plus, Trash2, Check, X, Edit2, RefreshCw, ArrowRight, Search,
   Building2, Package, Globe, TrendingUp, TrendingDown,
-  AlertTriangle, ChevronRight, ChevronDown, FileText,
+  AlertTriangle, ChevronRight, FileText, Calendar,
   Send, ThumbsUp, ThumbsDown, Clock, DollarSign, Percent,
-  Activity, Info,
+  Activity, Info, Timer, Flame, BarChart3, Users, Shield,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Deal {
   id: number; dealRef: string; iAccount: number; customerName?: string;
-  productId: number; kamName?: string; status: string;
+  productId: number; kamName?: string; status: string; dealType?: string;
   startDate?: string; endDate?: string; gracePeriodDays?: number;
   volumeCommitment?: string; notes?: string; createdAt: string; updatedAt: string;
 }
@@ -29,8 +29,8 @@ interface DealDestination {
   offerRate?: string; costRate?: string; volumeSplitPct?: string;
   premiumPct?: string; standardPct?: string;
   premiumRate?: string; standardRate?: string; notes?: string;
-  // simulator local state
   _localId?: string;
+  deal?: Deal;
 }
 interface DealApproval { id: number; dealId: number; action: string; performedBy?: string; notes?: string; createdAt: string; }
 interface Product { id: number; code: string; name: string; status: string; color?: string; }
@@ -40,22 +40,34 @@ interface SippyAccount { i_account: number; id?: string; username?: string; }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const TABS = [
-  { id: "dashboard",  label: "Dashboard",      icon: BarChart2   },
-  { id: "board",      label: "Deal Board",     icon: LayoutList  },
-  { id: "simulator",  label: "Deal Simulator", icon: Sliders     },
-  { id: "approvals",  label: "Approvals",      icon: CheckSquare },
-  { id: "history",    label: "History",        icon: History     },
+  { id: "dashboard",     label: "Dashboard",      icon: BarChart2    },
+  { id: "board",         label: "Deal Board",     icon: LayoutList   },
+  { id: "simulator",     label: "Deal Simulator", icon: Sliders      },
+  { id: "profitability", label: "Profitability",  icon: TrendingUp   },
+  { id: "approvals",     label: "Approvals",      icon: CheckSquare  },
+  { id: "history",       label: "History",        icon: History      },
 ] as const;
 type TabId = typeof TABS[number]["id"];
 
 const DEAL_STATUSES: Record<string, { label: string; color: string; bg: string; border: string }> = {
   draft:            { label: "Draft",            color: "text-slate-400",   bg: "bg-slate-500/15",   border: "border-slate-500/30"   },
+  negotiating:      { label: "Negotiating",      color: "text-blue-400",    bg: "bg-blue-500/15",    border: "border-blue-500/30"    },
   pending_approval: { label: "Pending Approval", color: "text-amber-400",   bg: "bg-amber-500/15",   border: "border-amber-500/30"   },
+  approved:         { label: "Approved",         color: "text-violet-400",  bg: "bg-violet-500/15",  border: "border-violet-500/30"  },
   active:           { label: "Active",           color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
+  expiring:         { label: "Expiring",         color: "text-orange-400",  bg: "bg-orange-500/15",  border: "border-orange-500/30"  },
   expired:          { label: "Expired",          color: "text-rose-400",    bg: "bg-rose-500/15",    border: "border-rose-500/30"    },
+  renewed:          { label: "Renewed",          color: "text-cyan-400",    bg: "bg-cyan-500/15",    border: "border-cyan-500/30"    },
   rejected:         { label: "Rejected",         color: "text-rose-400",    bg: "bg-rose-500/15",    border: "border-rose-500/30"    },
-  suspended:        { label: "Suspended",        color: "text-orange-400",  bg: "bg-orange-500/15",  border: "border-orange-500/30"  },
 };
+
+const DEAL_TYPE_OPTIONS = [
+  { value: "traffic_mix",       label: "Traffic Mix",        desc: "Premium + Standard traffic blend" },
+  { value: "incremental",       label: "Incremental",        desc: "Volume above existing baseline" },
+  { value: "wholesale",         label: "Wholesale",          desc: "Bulk committed volume" },
+  { value: "special_pricing",   label: "Special Pricing",    desc: "One-time / promotional rate" },
+  { value: "volume_commitment", label: "Volume Commitment",  desc: "Guaranteed minimum minutes" },
+];
 
 const PRODUCT_COLORS: Record<string, string> = {
   blue:   "bg-blue-500/15 text-blue-400 border-blue-500/30",
@@ -78,20 +90,20 @@ interface TotalPnL {
 }
 
 function calcDestPnL(d: DealDestination, totalVolume: number): DestPnL {
-  const volSplit  = parseFloat(d.volumeSplitPct ?? "100") / 100;
+  const volSplit   = parseFloat(d.volumeSplitPct ?? "100") / 100;
   const volumeMins = totalVolume * volSplit;
-  const premPct   = parseFloat(d.premiumPct  ?? "50") / 100;
-  const stdPct    = parseFloat(d.standardPct ?? "50") / 100;
-  const offerRate = parseFloat(d.offerRate   ?? "0");
-  const costRate  = parseFloat(d.costRate    ?? "0");
-  const premRate  = parseFloat(d.premiumRate ?? "0");
-  const stdRate   = parseFloat(d.standardRate ?? "0");
+  const premPct    = parseFloat(d.premiumPct  ?? "50") / 100;
+  const stdPct     = parseFloat(d.standardPct ?? "50") / 100;
+  const offerRate  = parseFloat(d.offerRate   ?? "0");
+  const costRate   = parseFloat(d.costRate    ?? "0");
+  const premRate   = parseFloat(d.premiumRate ?? "0");
+  const stdRate    = parseFloat(d.standardRate ?? "0");
   const blendedRate = (premRate > 0 || stdRate > 0)
     ? premPct * premRate + stdPct * stdRate
     : offerRate;
-  const revenue = volumeMins * blendedRate;
-  const cost    = volumeMins * costRate;
-  const profit  = revenue - cost;
+  const revenue  = volumeMins * blendedRate;
+  const cost     = volumeMins * costRate;
+  const profit   = revenue - cost;
   const marginPct = revenue > 0 ? (profit / revenue) * 100 : 0;
   const health: "healthy" | "warning" | "risk" =
     marginPct >= 20 ? "healthy" : marginPct >= 10 ? "warning" : "risk";
@@ -112,8 +124,14 @@ function calcTotalPnL(dests: DealDestination[], totalVolume: number): TotalPnL {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number, dec = 4) { return n.toFixed(dec); }
-function fmtCurrency(n: number)   { return `$${n.toFixed(2)}`; }
-function fmtPct(n: number)        { return `${n.toFixed(2)}%`; }
+function fmtCurrency(n: number)  { return `$${n.toFixed(2)}`; }
+function fmtPct(n: number)       { return `${n.toFixed(2)}%`; }
+
+function daysUntil(dateStr?: string): number | null {
+  if (!dateStr) return null;
+  const diff = new Date(dateStr).getTime() - Date.now();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
 
 function StatusBadge({ status }: { status: string }) {
   const s = DEAL_STATUSES[status] ?? DEAL_STATUSES.draft;
@@ -136,24 +154,44 @@ function HealthBadge({ health, pct }: { health: "healthy" | "warning" | "risk"; 
 
 // ── Dashboard Tab ─────────────────────────────────────────────────────────────
 function DashboardTab({ deals, products }: { deals: Deal[]; products: Product[] }) {
+  const today = new Date();
+  const in7d  = new Date(today); in7d.setDate(today.getDate() + 7);
+  const in30d = new Date(today); in30d.setDate(today.getDate() + 30);
+
   const counts = {
-    active:  deals.filter(d => d.status === "active").length,
-    pending: deals.filter(d => d.status === "pending_approval").length,
-    draft:   deals.filter(d => d.status === "draft").length,
-    expired: deals.filter(d => d.status === "expired" || d.status === "rejected").length,
+    active:   deals.filter(d => d.status === "active").length,
+    pending:  deals.filter(d => d.status === "pending_approval").length,
+    draft:    deals.filter(d => ["draft", "negotiating"].includes(d.status)).length,
+    expiring: deals.filter(d => {
+      if (!d.endDate || !["active", "expiring"].includes(d.status)) return false;
+      const end = new Date(d.endDate);
+      return end >= today && end <= in30d;
+    }).length,
+    expired:  deals.filter(d => d.status === "expired" || d.status === "rejected").length,
   };
 
+  const expiring7  = deals.filter(d => { if (!d.endDate || d.status !== "active") return false; const end = new Date(d.endDate); return end >= today && end <= in7d; });
+  const expiring30 = deals.filter(d => { if (!d.endDate || d.status !== "active") return false; const end = new Date(d.endDate); return end >= today && end > in7d && end <= in30d; });
+  const inGrace    = deals.filter(d => {
+    if (!d.endDate || !(d.gracePeriodDays ?? 0)) return false;
+    const end = new Date(d.endDate);
+    const graceEnd = new Date(end); graceEnd.setDate(end.getDate() + (d.gracePeriodDays ?? 0));
+    return end < today && graceEnd >= today;
+  });
+
   const productDealCount = (pid: number) => deals.filter(d => d.productId === pid).length;
+  const productActiveCount = (pid: number) => deals.filter(d => d.productId === pid && d.status === "active").length;
 
   return (
     <div className="p-6 space-y-6">
       {/* KPI cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {[
-          { label: "Active Deals",    value: counts.active,  icon: Activity,     color: "text-emerald-400" },
-          { label: "Pending Approval",value: counts.pending, icon: Clock,        color: "text-amber-400"   },
-          { label: "Drafts",          value: counts.draft,   icon: FileText,     color: "text-slate-400"   },
-          { label: "Closed / Expired",value: counts.expired, icon: AlertTriangle,color: "text-rose-400"    },
+          { label: "Active Deals",     value: counts.active,   icon: Activity,      color: "text-emerald-400" },
+          { label: "Pending Approval", value: counts.pending,  icon: Clock,         color: "text-amber-400"   },
+          { label: "Drafts / Neg.",    value: counts.draft,    icon: FileText,      color: "text-slate-400"   },
+          { label: "Expiring (30d)",   value: counts.expiring, icon: Timer,         color: "text-orange-400"  },
+          { label: "Closed / Expired", value: counts.expired,  icon: AlertTriangle, color: "text-rose-400"    },
         ].map(c => (
           <div key={c.label} className="bg-card border border-border rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
@@ -182,6 +220,87 @@ function DashboardTab({ deals, products }: { deals: Deal[]; products: Product[] 
         <p className="text-xs text-muted-foreground mt-2">Deal Simulator replaces Excel — input customer, product, and rates, get live P&L output with commercial health scoring.</p>
       </div>
 
+      {/* Expiry Intelligence */}
+      {(expiring7.length + expiring30.length + inGrace.length > 0) && (
+        <div className="bg-card border border-border rounded-lg">
+          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+            <Timer className="w-4 h-4 text-orange-400" />
+            <h3 className="text-sm font-semibold">Expiry Intelligence</h3>
+            <span className="ml-auto text-xs text-muted-foreground">Action required</span>
+          </div>
+          <div className="divide-y divide-border">
+            {expiring7.length > 0 && (
+              <div className="px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Flame className="w-3.5 h-3.5 text-rose-400" />
+                  <span className="text-xs font-semibold text-rose-400">Expiring within 7 days ({expiring7.length})</span>
+                </div>
+                <div className="space-y-1">
+                  {expiring7.map(d => {
+                    const days = daysUntil(d.endDate);
+                    const prod = products.find(p => p.id === d.productId);
+                    return (
+                      <div key={d.id} className="flex items-center gap-3 text-xs bg-rose-500/5 border border-rose-500/20 rounded px-3 py-2">
+                        <span className="font-mono text-muted-foreground w-28 shrink-0">{d.dealRef}</span>
+                        <span className="font-medium flex-1 truncate">{d.customerName ?? `Acct ${d.iAccount}`}</span>
+                        {prod && <span className={cn("px-1.5 py-0.5 rounded border font-bold shrink-0", PRODUCT_COLORS[prod.color ?? "violet"])}>{prod.code}</span>}
+                        <span className="text-rose-400 font-semibold shrink-0">{days === 0 ? "Today" : `${days}d`}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {expiring30.length > 0 && (
+              <div className="px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Timer className="w-3.5 h-3.5 text-orange-400" />
+                  <span className="text-xs font-semibold text-orange-400">Expiring 8–30 days ({expiring30.length})</span>
+                </div>
+                <div className="space-y-1">
+                  {expiring30.map(d => {
+                    const days = daysUntil(d.endDate);
+                    const prod = products.find(p => p.id === d.productId);
+                    return (
+                      <div key={d.id} className="flex items-center gap-3 text-xs bg-orange-500/5 border border-orange-500/20 rounded px-3 py-2">
+                        <span className="font-mono text-muted-foreground w-28 shrink-0">{d.dealRef}</span>
+                        <span className="font-medium flex-1 truncate">{d.customerName ?? `Acct ${d.iAccount}`}</span>
+                        {prod && <span className={cn("px-1.5 py-0.5 rounded border font-bold shrink-0", PRODUCT_COLORS[prod.color ?? "violet"])}>{prod.code}</span>}
+                        <span className="text-orange-400 font-semibold shrink-0">{days}d</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {inGrace.length > 0 && (
+              <div className="px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-xs font-semibold text-amber-400">In Grace Period ({inGrace.length})</span>
+                </div>
+                <div className="space-y-1">
+                  {inGrace.map(d => {
+                    const prod = products.find(p => p.id === d.productId);
+                    const graceEnd = d.endDate ? new Date(d.endDate) : null;
+                    if (graceEnd) graceEnd.setDate(graceEnd.getDate() + (d.gracePeriodDays ?? 0));
+                    const daysLeft = graceEnd ? Math.ceil((graceEnd.getTime() - Date.now()) / 86400000) : null;
+                    return (
+                      <div key={d.id} className="flex items-center gap-3 text-xs bg-amber-500/5 border border-amber-500/20 rounded px-3 py-2">
+                        <span className="font-mono text-muted-foreground w-28 shrink-0">{d.dealRef}</span>
+                        <span className="font-medium flex-1 truncate">{d.customerName ?? `Acct ${d.iAccount}`}</span>
+                        {prod && <span className={cn("px-1.5 py-0.5 rounded border font-bold shrink-0", PRODUCT_COLORS[prod.color ?? "violet"])}>{prod.code}</span>}
+                        <span className="text-amber-400 font-semibold shrink-0">{daysLeft !== null ? `${daysLeft}d grace` : "Grace"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Deals by product */}
       {products.length > 0 && (
         <div className="bg-card border border-border rounded-lg">
@@ -190,18 +309,16 @@ function DashboardTab({ deals, products }: { deals: Deal[]; products: Product[] 
           </div>
           <div className="divide-y divide-border">
             {products.map(p => {
-              const count = productDealCount(p.id);
-              const active = deals.filter(d => d.productId === p.id && d.status === "active").length;
+              const total  = productDealCount(p.id);
+              const active = productActiveCount(p.id);
               return (
                 <div key={p.id} className="px-4 py-3 flex items-center gap-4">
                   <div className={cn("w-8 h-8 rounded flex items-center justify-center text-xs font-bold border shrink-0", PRODUCT_COLORS[p.color ?? "violet"])}>{p.code}</div>
                   <div className="flex-1">
                     <div className="text-sm font-medium">{p.name}</div>
-                    <div className="text-xs text-muted-foreground">{count} deal{count !== 1 ? "s" : ""} total · {active} active</div>
+                    <div className="text-xs text-muted-foreground">{total} deal{total !== 1 ? "s" : ""} · {active} active</div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm font-bold">{count}</div>
-                  </div>
+                  <div className="text-sm font-bold">{total}</div>
                 </div>
               );
             })}
@@ -212,9 +329,7 @@ function DashboardTab({ deals, products }: { deals: Deal[]; products: Product[] 
       {/* Recent deals */}
       {deals.length > 0 && (
         <div className="bg-card border border-border rounded-lg">
-          <div className="px-4 py-3 border-b border-border">
-            <h3 className="text-sm font-semibold">Recent Deals</h3>
-          </div>
+          <div className="px-4 py-3 border-b border-border"><h3 className="text-sm font-semibold">Recent Deals</h3></div>
           <div className="divide-y divide-border">
             {deals.slice(0, 8).map(d => {
               const prod = products.find(p => p.id === d.productId);
@@ -259,7 +374,6 @@ function DealBoardTab({ deals, products, onSelect, onDelete }: {
 
   return (
     <div className="flex h-full">
-      {/* Status sidebar */}
       <div className="w-44 shrink-0 border-r border-border p-3 space-y-1">
         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Status</div>
         {[{ id: "all", label: "All Deals", count: deals.length }, ...Object.entries(DEAL_STATUSES).map(([id, s]) => ({ id, label: s.label, count: deals.filter(d => d.status === id).length }))].map(f => (
@@ -273,7 +387,6 @@ function DealBoardTab({ deals, products, onSelect, onDelete }: {
         ))}
       </div>
 
-      {/* Main list */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="p-3 border-b border-border">
           <div className="relative">
@@ -292,7 +405,7 @@ function DealBoardTab({ deals, products, onSelect, onDelete }: {
             {filtered.length > 0 && (
               <thead>
                 <tr className="border-b border-border bg-muted/30 sticky top-0">
-                  {["Deal Ref", "Customer", "Product", "KAM", "Dates", "Volume", "Status", "Actions"].map(h => (
+                  {["Deal Ref", "Customer", "Product", "Type", "KAM", "Dates", "Volume", "Status", "Actions"].map(h => (
                     <th key={h} className="text-left py-2 px-3 text-xs font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -301,6 +414,7 @@ function DealBoardTab({ deals, products, onSelect, onDelete }: {
             <tbody>
               {filtered.map(d => {
                 const prod = products.find(p => p.id === d.productId);
+                const typeLabel = DEAL_TYPE_OPTIONS.find(t => t.value === d.dealType)?.label ?? d.dealType ?? "—";
                 return (
                   <tr key={d.id} data-testid={`deal-row-${d.id}`} className="border-b border-border/50 hover:bg-muted/20">
                     <td className="py-2.5 px-3 font-mono text-xs text-muted-foreground">{d.dealRef}</td>
@@ -308,9 +422,11 @@ function DealBoardTab({ deals, products, onSelect, onDelete }: {
                     <td className="py-2.5 px-3">
                       {prod ? <span className={cn("text-xs px-1.5 py-0.5 rounded border font-bold", PRODUCT_COLORS[prod.color ?? "violet"])}>{prod.code}</span> : "—"}
                     </td>
+                    <td className="py-2.5 px-3 text-xs text-muted-foreground">{typeLabel}</td>
                     <td className="py-2.5 px-3 text-muted-foreground">{d.kamName ?? "—"}</td>
                     <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">
                       {d.startDate ? new Date(d.startDate).toLocaleDateString() : "—"} {d.endDate ? `→ ${new Date(d.endDate).toLocaleDateString()}` : ""}
+                      {d.gracePeriodDays ? <span className="text-amber-400 ml-1">+{d.gracePeriodDays}d</span> : null}
                     </td>
                     <td className="py-2.5 px-3 text-muted-foreground">{d.volumeCommitment ? `${Number(d.volumeCommitment).toLocaleString()} min` : "—"}</td>
                     <td className="py-2.5 px-3"><StatusBadge status={d.status} /></td>
@@ -343,18 +459,18 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
   const [accountSearch, setAccountSearch] = useState("");
   const [selectedAccount, setSelectedAccount] = useState<SippyAccount | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [dealType, setDealType] = useState("traffic_mix");
   const [kamName, setKamName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [gracePeriod, setGracePeriod] = useState(0);
-  const [volume, setVolume] = useState(100000); // minutes
+  const [volume, setVolume] = useState(100000);
   const [notes, setNotes] = useState("");
   const [destRows, setDestRows] = useState<DealDestination[]>([]);
   const [destSearch, setDestSearch] = useState("");
   const [showDestPicker, setShowDestPicker] = useState(false);
   const [submitNotes, setSubmitNotes] = useState("");
 
-  // Products available for this customer
   const availableProducts = useMemo(() => {
     if (!selectedAccount) return products.filter(p => p.status === "commercial");
     const assigned = customerAssignments.filter(a => a.iAccount === selectedAccount.i_account && a.status === "active").map(a => a.productId);
@@ -363,7 +479,6 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
 
   const selectedProduct = products.find(p => p.id === selectedProductId);
 
-  // Destinations available for selected product (via product_destination_assignments — approximate with all approved dests)
   const availableDests = useMemo(() =>
     destinations.filter(d => d.commercialStatus === "approved" && d.level >= 2 &&
       !destRows.some(r => r.destinationId === d.id) &&
@@ -401,14 +516,12 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
 
   const removeDestRow = (localId: string) => setDestRows(prev => prev.filter(r => r._localId !== localId));
 
-  // Auto-balance volume splits
   const autoBalance = () => {
     if (destRows.length === 0) return;
     const each = (100 / destRows.length).toFixed(2);
     setDestRows(prev => prev.map(r => ({ ...r, volumeSplitPct: each })));
   };
 
-  // Live P&L
   const destPnLs = useMemo(() => destRows.map(d => calcDestPnL(d, volume)), [destRows, volume]);
   const totalPnL = useMemo(() => calcTotalPnL(destRows, volume), [destRows, volume]);
 
@@ -416,9 +529,10 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
     iAccount: selectedAccount?.i_account,
     customerName: selectedAccount?.id ?? `Account ${selectedAccount?.i_account}`,
     productId: selectedProductId,
+    dealType,
     kamName, startDate: startDate || undefined, endDate: endDate || undefined,
     gracePeriodDays: gracePeriod, volumeCommitment: volume, notes,
-    destinations: destRows.map(({ _localId, ...r }) => r),
+    destinations: destRows.map(({ _localId, deal, ...r }) => r),
   });
 
   const filteredAccounts = accounts.filter(a =>
@@ -442,7 +556,6 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
             <h3 className="font-semibold text-sm">Customer & Product</h3>
           </div>
 
-          {/* Customer picker */}
           <Field label="Customer (Sippy Account)">
             <div className="relative">
               <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
@@ -473,7 +586,6 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
             )}
           </Field>
 
-          {/* Product picker */}
           {selectedAccount && (
             <Field label="Product">
               <div className="grid grid-cols-2 gap-2">
@@ -505,6 +617,22 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
                 <div className="w-6 h-6 rounded-full bg-amber-500/20 border border-amber-500/40 text-xs font-bold text-amber-400 flex items-center justify-center">2</div>
                 <h3 className="font-semibold text-sm">Deal Terms</h3>
               </div>
+
+              {/* Deal type */}
+              <Field label="Deal Type">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {DEAL_TYPE_OPTIONS.map(t => (
+                    <button key={t.value} data-testid={`deal-type-${t.value}`}
+                      onClick={() => setDealType(t.value)}
+                      className={cn("flex flex-col items-start px-3 py-2 rounded-lg border text-left transition-all",
+                        dealType === t.value ? "border-amber-500/60 bg-amber-500/10" : "border-border hover:bg-muted/50")}>
+                      <span className={cn("text-xs font-semibold", dealType === t.value ? "text-amber-400" : "")}>{t.label}</span>
+                      <span className="text-xs text-muted-foreground leading-tight mt-0.5">{t.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
               <div className="grid grid-cols-2 gap-4">
                 <Field label="KAM Name"><Input value={kamName} onChange={e => setKamName(e.target.value)} placeholder="Account manager" data-testid="input-sim-kam" /></Field>
                 <Field label="Volume Commitment (minutes)">
@@ -529,7 +657,6 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
                 </div>
               </div>
 
-              {/* Destination picker dropdown */}
               {showDestPicker && (
                 <div className="border border-border rounded-lg bg-card p-3 space-y-2">
                   <div className="relative">
@@ -551,7 +678,6 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
                 </div>
               )}
 
-              {/* Destination rows */}
               {destRows.length === 0 && !showDestPicker && (
                 <div className="text-center py-6 border border-dashed border-border rounded-lg">
                   <Globe className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -593,7 +719,6 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
                         <Input type="number" min={0} max={100} value={row.standardPct ?? "50"} onChange={e => { updateDestRow(row._localId!, "standardPct", e.target.value); updateDestRow(row._localId!, "premiumPct", String(100 - parseFloat(e.target.value || "0"))); }} placeholder="50" className="h-7 text-xs" data-testid={`input-std-pct-${i}`} />
                       </div>
                     </div>
-                    {/* Optional split pricing row */}
                     <details className="text-xs">
                       <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Split pricing (optional — Premium/Standard rates)</summary>
                       <div className="grid grid-cols-2 gap-2 mt-2">
@@ -639,7 +764,7 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
           <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground gap-3">
             <Sliders className="w-10 h-10 opacity-30" />
             <p className="text-sm font-medium">Select a customer to start building a deal</p>
-            <p className="text-xs opacity-60">Customer → Product → Destinations → Rates → Live P&L</p>
+            <p className="text-xs opacity-60">Customer → Product → Deal Type → Destinations → Rates → Live P&L</p>
           </div>
         )}
       </div>
@@ -659,7 +784,6 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
             </div>
           )}
 
-          {/* Per-destination P&L */}
           {destPnLs.map((pnl, i) => (
             <div key={destRows[i]._localId} className="bg-card border border-border rounded-lg p-3 space-y-2">
               <div className="flex items-center gap-2">
@@ -684,7 +808,6 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
             </div>
           ))}
 
-          {/* Total P&L */}
           {destRows.length > 0 && (
             <div className={cn("border rounded-lg p-3 space-y-2",
               totalPnL.health === "healthy" ? "border-emerald-500/30 bg-emerald-500/5" :
@@ -719,7 +842,6 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
             </div>
           )}
 
-          {/* Info panel */}
           <div className="bg-muted/20 border border-border/50 rounded p-3">
             <div className="flex items-start gap-2">
               <Info className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
@@ -733,6 +855,245 @@ function DealSimulatorTab({ products, destinations, customerAssignments, account
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Profitability Tab ─────────────────────────────────────────────────────────
+function ProfitabilityTab({ deals, products }: { deals: Deal[]; products: Product[] }) {
+  const { data: allDests = [], isLoading } = useQuery<DealDestination[]>({ queryKey: ["/api/deals/all-destinations"] });
+
+  // Only include active / approved deals in portfolio analysis
+  const activeDealIds = new Set(deals.filter(d => ["active", "approved", "expiring"].includes(d.status)).map(d => d.id));
+  const activeDests = allDests.filter(d => d.dealId && activeDealIds.has(d.dealId));
+
+  // Portfolio totals
+  const portfolioPnL = useMemo(() => {
+    let totalRevenue = 0, totalCost = 0;
+    for (const row of activeDests) {
+      const deal = deals.find(d => d.id === row.dealId);
+      if (!deal) continue;
+      const vol = parseFloat(deal.volumeCommitment ?? "0");
+      const pnl = calcDestPnL(row, vol);
+      totalRevenue += pnl.revenue;
+      totalCost    += pnl.cost;
+    }
+    const totalProfit  = totalRevenue - totalCost;
+    const marginPct    = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+    return { totalRevenue, totalCost, totalProfit, marginPct };
+  }, [activeDests, deals]);
+
+  // By product
+  const byProduct = useMemo(() => {
+    const map = new Map<number, { revenue: number; cost: number; mins: number; dealCount: number }>();
+    for (const row of activeDests) {
+      const deal = deals.find(d => d.id === row.dealId);
+      if (!deal) continue;
+      const vol = parseFloat(deal.volumeCommitment ?? "0");
+      const pnl = calcDestPnL(row, vol);
+      const cur = map.get(deal.productId) ?? { revenue: 0, cost: 0, mins: 0, dealCount: 0 };
+      map.set(deal.productId, {
+        revenue:    cur.revenue    + pnl.revenue,
+        cost:       cur.cost       + pnl.cost,
+        mins:       cur.mins       + pnl.volumeMins,
+        dealCount:  cur.dealCount,
+      });
+    }
+    // Count unique deals per product
+    for (const d of deals.filter(dl => activeDealIds.has(dl.id))) {
+      const cur = map.get(d.productId);
+      if (cur) map.set(d.productId, { ...cur, dealCount: cur.dealCount + 1 });
+    }
+    return Array.from(map.entries()).map(([productId, stats]) => ({
+      productId,
+      product: products.find(p => p.id === productId),
+      ...stats,
+      profit:    stats.revenue - stats.cost,
+      marginPct: stats.revenue > 0 ? ((stats.revenue - stats.cost) / stats.revenue) * 100 : 0,
+    })).sort((a, b) => b.revenue - a.revenue);
+  }, [activeDests, deals, products]);
+
+  // By customer (top 8)
+  const byCustomer = useMemo(() => {
+    const map = new Map<number, { name: string; revenue: number; cost: number; dealCount: number }>();
+    for (const row of activeDests) {
+      const deal = deals.find(d => d.id === row.dealId);
+      if (!deal) continue;
+      const vol = parseFloat(deal.volumeCommitment ?? "0");
+      const pnl = calcDestPnL(row, vol);
+      const cur = map.get(deal.iAccount) ?? { name: deal.customerName ?? `Acct ${deal.iAccount}`, revenue: 0, cost: 0, dealCount: 0 };
+      map.set(deal.iAccount, { ...cur, revenue: cur.revenue + pnl.revenue, cost: cur.cost + pnl.cost });
+    }
+    for (const d of deals.filter(dl => activeDealIds.has(dl.id))) {
+      const cur = map.get(d.iAccount);
+      if (cur) map.set(d.iAccount, { ...cur, dealCount: cur.dealCount + 1 });
+    }
+    return Array.from(map.values()).map(c => ({
+      ...c,
+      profit:    c.revenue - c.cost,
+      marginPct: c.revenue > 0 ? ((c.revenue - c.cost) / c.revenue) * 100 : 0,
+    })).sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+  }, [activeDests, deals]);
+
+  // By destination (top 10)
+  const byDestination = useMemo(() => {
+    const map = new Map<string, { revenue: number; cost: number; mins: number }>();
+    for (const row of activeDests) {
+      const deal = deals.find(d => d.id === row.dealId);
+      if (!deal || !row.destinationName) continue;
+      const vol = parseFloat(deal.volumeCommitment ?? "0");
+      const pnl = calcDestPnL(row, vol);
+      const key = row.destinationName;
+      const cur = map.get(key) ?? { revenue: 0, cost: 0, mins: 0 };
+      map.set(key, { revenue: cur.revenue + pnl.revenue, cost: cur.cost + pnl.cost, mins: cur.mins + pnl.volumeMins });
+    }
+    return Array.from(map.entries()).map(([name, stats]) => ({
+      name, ...stats,
+      profit:    stats.revenue - stats.cost,
+      marginPct: stats.revenue > 0 ? ((stats.revenue - stats.cost) / stats.revenue) * 100 : 0,
+    })).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
+  }, [activeDests, deals]);
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center h-full text-muted-foreground gap-2">
+      <RefreshCw className="w-4 h-4 animate-spin" /><span className="text-sm">Loading portfolio data…</span>
+    </div>
+  );
+
+  const hasData = activeDests.length > 0;
+
+  if (!hasData) return (
+    <div className="p-6 max-w-3xl">
+      <div className="bg-card border border-border rounded-lg p-10 text-center">
+        <BarChart3 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+        <p className="text-sm font-medium">No active deal data yet</p>
+        <p className="text-xs text-muted-foreground mt-1">Create deals in the Simulator, then approve them — profitability will appear here once active deals have destination rate data.</p>
+      </div>
+    </div>
+  );
+
+  const govNote = (
+    <div className="flex items-start gap-2 p-3 bg-muted/30 border border-border/50 rounded-lg text-xs text-muted-foreground">
+      <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+      <span><strong>Governance:</strong> True margin and vendor cost visible to Trading Manager and Management only. KAMs see offer rate, target rate, and deal status.</span>
+    </div>
+  );
+
+  return (
+    <div className="p-6 space-y-6 overflow-y-auto h-full">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-semibold">Portfolio Profitability</h2>
+          <p className="text-sm text-muted-foreground">Active deal P&amp;L — based on committed volume × deal rates</p>
+        </div>
+        <span className="text-xs text-muted-foreground">{activeDealIds.size} active deal{activeDealIds.size !== 1 ? "s" : ""} · {activeDests.length} destination{activeDests.length !== 1 ? "s" : ""}</span>
+      </div>
+
+      {govNote}
+
+      {/* Portfolio summary */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Portfolio Revenue", value: fmtCurrency(portfolioPnL.totalRevenue), color: "text-emerald-400" },
+          { label: "Portfolio Cost",    value: fmtCurrency(portfolioPnL.totalCost),    color: "text-rose-400"    },
+          { label: "Net Profit",        value: fmtCurrency(portfolioPnL.totalProfit),  color: portfolioPnL.totalProfit >= 0 ? "text-emerald-400" : "text-rose-400" },
+          { label: "Overall Margin",    value: fmtPct(portfolioPnL.marginPct),         color: portfolioPnL.marginPct >= 20 ? "text-emerald-400" : portfolioPnL.marginPct >= 10 ? "text-amber-400" : "text-rose-400" },
+        ].map(c => (
+          <div key={c.label} className="bg-card border border-border rounded-lg p-4">
+            <div className="text-xs text-muted-foreground mb-1">{c.label}</div>
+            <div className={cn("text-xl font-bold", c.color)}>{c.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* By Product */}
+        <div className="bg-card border border-border rounded-lg">
+          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+            <Package className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">By Product</h3>
+          </div>
+          <div className="divide-y divide-border">
+            {byProduct.length === 0 && <div className="px-4 py-6 text-center text-xs text-muted-foreground">No data</div>}
+            {byProduct.map(row => (
+              <div key={row.productId} className="px-4 py-3 flex items-center gap-3">
+                {row.product && (
+                  <div className={cn("w-8 h-8 rounded flex items-center justify-center text-xs font-bold border shrink-0", PRODUCT_COLORS[row.product.color ?? "violet"])}>{row.product.code}</div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium">{row.product?.name ?? `Product ${row.productId}`}</div>
+                  <div className="text-xs text-muted-foreground">{row.dealCount} deal{row.dealCount !== 1 ? "s" : ""} · {row.mins.toLocaleString()} min</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-sm font-bold text-emerald-400">{fmtCurrency(row.revenue)}</div>
+                  <div className={cn("text-xs font-medium", row.marginPct >= 20 ? "text-emerald-400" : row.marginPct >= 10 ? "text-amber-400" : "text-rose-400")}>{fmtPct(row.marginPct)} margin</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* By Customer */}
+        <div className="bg-card border border-border rounded-lg">
+          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+            <Users className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">Top Customers by Revenue</h3>
+          </div>
+          <div className="divide-y divide-border">
+            {byCustomer.length === 0 && <div className="px-4 py-6 text-center text-xs text-muted-foreground">No data</div>}
+            {byCustomer.map((row, i) => (
+              <div key={i} className="px-4 py-3 flex items-center gap-3">
+                <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground shrink-0">{i + 1}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{row.name}</div>
+                  <div className="text-xs text-muted-foreground">{row.dealCount} active deal{row.dealCount !== 1 ? "s" : ""}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-sm font-bold text-emerald-400">{fmtCurrency(row.revenue)}</div>
+                  <div className={cn("text-xs font-medium", row.marginPct >= 20 ? "text-emerald-400" : row.marginPct >= 10 ? "text-amber-400" : "text-rose-400")}>{fmtPct(row.marginPct)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* By Destination */}
+      {byDestination.length > 0 && (
+        <div className="bg-card border border-border rounded-lg">
+          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+            <Globe className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">Top Destinations by Revenue</h3>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/20">
+                {["Destination", "Volume (min)", "Revenue", "Cost", "Profit", "Margin"].map(h => (
+                  <th key={h} className="text-left py-2 px-4 text-xs font-medium text-muted-foreground">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {byDestination.map((row, i) => (
+                <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
+                  <td className="py-2.5 px-4 font-medium">{row.name}</td>
+                  <td className="py-2.5 px-4 text-muted-foreground">{row.mins.toLocaleString()}</td>
+                  <td className="py-2.5 px-4 text-emerald-400 font-medium">{fmtCurrency(row.revenue)}</td>
+                  <td className="py-2.5 px-4 text-rose-400">{fmtCurrency(row.cost)}</td>
+                  <td className={cn("py-2.5 px-4 font-bold", row.profit >= 0 ? "text-emerald-400" : "text-rose-400")}>{fmtCurrency(row.profit)}</td>
+                  <td className="py-2.5 px-4">
+                    <span className={cn("text-xs font-bold px-2 py-0.5 rounded",
+                      row.marginPct >= 20 ? "bg-emerald-500/15 text-emerald-400" :
+                      row.marginPct >= 10 ? "bg-amber-500/15 text-amber-400" :
+                      "bg-rose-500/15 text-rose-400"
+                    )}>{fmtPct(row.marginPct)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -754,6 +1115,11 @@ function ApprovalsTab({ deals, products }: { deals: Deal[]; products: Product[] 
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/deals"] }); toast({ title: "Deal rejected" }); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+  const negotiateMut = useMutation({
+    mutationFn: ({ id, n }: { id: number; n: string }) => apiRequest("POST", `/api/deals/${id}/negotiate`, { notes: n }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/deals"] }); toast({ title: "Returned for negotiation" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
 
   return (
     <div className="p-6 space-y-4 max-w-3xl">
@@ -772,6 +1138,7 @@ function ApprovalsTab({ deals, products }: { deals: Deal[]; products: Product[] 
         {pending.map(d => {
           const prod = products.find(p => p.id === d.productId);
           const n = notes[d.id] ?? "";
+          const typeLabel = DEAL_TYPE_OPTIONS.find(t => t.value === d.dealType)?.label;
           return (
             <div key={d.id} data-testid={`approval-card-${d.id}`} className="bg-card border border-amber-500/20 rounded-lg p-4 space-y-3">
               <div className="flex items-start gap-3">
@@ -781,12 +1148,13 @@ function ApprovalsTab({ deals, products }: { deals: Deal[]; products: Product[] 
                     <span className="font-semibold">{d.customerName ?? `Account ${d.iAccount}`}</span>
                     {prod && <span className={cn("text-xs px-1.5 py-0.5 rounded border font-bold", PRODUCT_COLORS[prod.color ?? "violet"])}>{prod.code} — {prod.name}</span>}
                     <StatusBadge status={d.status} />
+                    {typeLabel && <span className="text-xs px-1.5 py-0.5 rounded border border-border text-muted-foreground">{typeLabel}</span>}
                   </div>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1 flex-wrap">
                     {d.kamName && <span>KAM: {d.kamName}</span>}
                     {d.startDate && <span>{new Date(d.startDate).toLocaleDateString()} → {d.endDate ? new Date(d.endDate).toLocaleDateString() : "Open"}</span>}
                     {d.volumeCommitment && <span>{Number(d.volumeCommitment).toLocaleString()} min</span>}
-                    {d.gracePeriodDays ? <span>Grace: {d.gracePeriodDays}d</span> : null}
+                    {d.gracePeriodDays ? <span className="text-amber-400">Grace: {d.gracePeriodDays}d</span> : null}
                   </div>
                   {d.notes && <p className="text-xs text-muted-foreground mt-1 italic">"{d.notes}"</p>}
                 </div>
@@ -798,6 +1166,11 @@ function ApprovalsTab({ deals, products }: { deals: Deal[]; products: Product[] 
                     onClick={() => approveMut.mutate({ id: d.id, n })} disabled={approveMut.isPending}
                     data-testid={`btn-approve-${d.id}`}>
                     <ThumbsUp className="w-3.5 h-3.5 mr-1.5" />Approve
+                  </Button>
+                  <Button size="sm" variant="outline"
+                    onClick={() => negotiateMut.mutate({ id: d.id, n })} disabled={negotiateMut.isPending}
+                    data-testid={`btn-negotiate-${d.id}`}>
+                    <Edit2 className="w-3.5 h-3.5 mr-1.5" />Return for Negotiation
                   </Button>
                   <Button size="sm" variant="destructive"
                     onClick={() => rejectMut.mutate({ id: d.id, n })} disabled={rejectMut.isPending}
@@ -816,17 +1189,7 @@ function ApprovalsTab({ deals, products }: { deals: Deal[]; products: Product[] 
 
 // ── History Tab ───────────────────────────────────────────────────────────────
 function DealHistoryTab({ deals, products }: { deals: Deal[]; products: Product[] }) {
-  const { data: allApprovals = [] } = useQuery<DealApproval[]>({ queryKey: ["/api/deals/approvals/pending"] });
-  // Show all deals sorted by updatedAt as timeline
   const timeline = [...deals].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-
-  const ACTION_CONF: Record<string, { color: string; icon: typeof Plus }> = {
-    created:            { color: "text-blue-400",    icon: Plus        },
-    submitted:          { color: "text-amber-400",   icon: Send        },
-    approved:           { color: "text-emerald-400", icon: ThumbsUp    },
-    rejected:           { color: "text-rose-400",    icon: ThumbsDown  },
-    changes_requested:  { color: "text-orange-400",  icon: Edit2       },
-  };
 
   return (
     <div className="p-6 max-w-3xl space-y-4">
@@ -841,6 +1204,8 @@ function DealHistoryTab({ deals, products }: { deals: Deal[]; products: Product[
         {timeline.map((d, i) => {
           const prod = products.find(p => p.id === d.productId);
           const s = DEAL_STATUSES[d.status] ?? DEAL_STATUSES.draft;
+          const typeLabel = DEAL_TYPE_OPTIONS.find(t => t.value === d.dealType)?.label;
+          const days = daysUntil(d.endDate);
           return (
             <div key={d.id} data-testid={`history-deal-${d.id}`} className="flex gap-3 pb-4">
               <div className="flex flex-col items-center">
@@ -855,11 +1220,14 @@ function DealHistoryTab({ deals, products }: { deals: Deal[]; products: Product[
                   <span className="font-medium text-sm">{d.customerName ?? `Account ${d.iAccount}`}</span>
                   {prod && <span className={cn("text-xs px-1.5 py-0.5 rounded border font-bold", PRODUCT_COLORS[prod.color ?? "violet"])}>{prod.code}</span>}
                   <StatusBadge status={d.status} />
+                  {typeLabel && <span className="text-xs text-muted-foreground border border-border rounded px-1.5 py-0.5">{typeLabel}</span>}
                 </div>
-                <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
                   <span>{new Date(d.updatedAt).toLocaleString()}</span>
                   {d.kamName && <span>· KAM: {d.kamName}</span>}
                   {d.volumeCommitment && <span>· {Number(d.volumeCommitment).toLocaleString()} min</span>}
+                  {d.endDate && days !== null && days > 0 && <span className="text-orange-400">· {days}d remaining</span>}
+                  {d.gracePeriodDays ? <span className="text-amber-400">· {d.gracePeriodDays}d grace</span> : null}
                 </div>
               </div>
             </div>
@@ -875,11 +1243,11 @@ export default function DealsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [simulatorDeal, setSimulatorDeal] = useState<Deal | null>(null);
 
-  const { data: dealList = [] }  = useQuery<Deal[]>({ queryKey: ["/api/deals"] });
-  const { data: products = [] }  = useQuery<any[]>({ queryKey: ["/api/product-registry/products"] });
-  const { data: destinations = [] } = useQuery<Destination[]>({ queryKey: ["/api/product-registry/destinations"] });
-  const { data: custAssignments = [] } = useQuery<CustomerAssignment[]>({ queryKey: ["/api/product-registry/customer-assignments"] });
-  const { data: accountsData }   = useQuery<{ accounts: SippyAccount[] }>({ queryKey: ["/api/sippy/accounts"] });
+  const { data: dealList = [] }         = useQuery<Deal[]>({ queryKey: ["/api/deals"] });
+  const { data: products = [] }         = useQuery<any[]>({ queryKey: ["/api/product-registry/products"] });
+  const { data: destinations = [] }     = useQuery<Destination[]>({ queryKey: ["/api/product-registry/destinations"] });
+  const { data: custAssignments = [] }  = useQuery<CustomerAssignment[]>({ queryKey: ["/api/product-registry/customer-assignments"] });
+  const { data: accountsData }          = useQuery<{ accounts: SippyAccount[] }>({ queryKey: ["/api/sippy/accounts"] });
   const accounts = accountsData?.accounts ?? [];
 
   const qc = useQueryClient();
@@ -892,6 +1260,11 @@ export default function DealsPage() {
 
   const pendingCount = dealList.filter(d => d.status === "pending_approval").length;
 
+  // Expiry warning count for tab badge
+  const today = new Date();
+  const in7d  = new Date(today); in7d.setDate(today.getDate() + 7);
+  const expiringCount = dealList.filter(d => { if (!d.endDate || d.status !== "active") return false; const end = new Date(d.endDate); return end >= today && end <= in7d; }).length;
+
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Tab bar */}
@@ -901,21 +1274,25 @@ export default function DealsPage() {
             <Briefcase className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden sm:inline">Voice Trading</span>
           </div>
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-0.5 overflow-x-auto">
             {TABS.map(tab => {
               const Icon = tab.icon;
-              const badge = tab.id === "approvals" && pendingCount > 0 ? pendingCount : null;
+              const badge =
+                tab.id === "approvals"  && pendingCount   > 0 ? pendingCount   :
+                tab.id === "dashboard"  && expiringCount  > 0 ? expiringCount  : null;
               return (
                 <button key={tab.id} data-testid={`tab-${tab.id}`}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap relative",
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap relative shrink-0",
                     activeTab === tab.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                   )}>
                   <Icon className="w-3.5 h-3.5" />
                   <span>{tab.label}</span>
                   {badge && (
-                    <span className="ml-1 text-xs bg-amber-500 text-white rounded-full px-1.5 py-0.5 font-bold leading-none">{badge}</span>
+                    <span className={cn("ml-1 text-xs text-white rounded-full px-1.5 py-0.5 font-bold leading-none",
+                      tab.id === "approvals" ? "bg-amber-500" : "bg-orange-500"
+                    )}>{badge}</span>
                   )}
                 </button>
               );
@@ -926,11 +1303,12 @@ export default function DealsPage() {
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {activeTab === "dashboard"  && <div className="h-full overflow-y-auto"><DashboardTab deals={dealList} products={products} /></div>}
-        {activeTab === "board"      && <div className="h-full overflow-hidden"><DealBoardTab deals={dealList} products={products} onSelect={d => { setSimulatorDeal(d); setActiveTab("simulator"); }} onDelete={id => deleteMut.mutate(id)} /></div>}
-        {activeTab === "simulator"  && <div className="h-full overflow-hidden"><DealSimulatorTab products={products} destinations={destinations} customerAssignments={custAssignments} accounts={accounts} existingDeal={simulatorDeal} /></div>}
-        {activeTab === "approvals"  && <div className="h-full overflow-y-auto"><ApprovalsTab deals={dealList} products={products} /></div>}
-        {activeTab === "history"    && <div className="h-full overflow-y-auto"><DealHistoryTab deals={dealList} products={products} /></div>}
+        {activeTab === "dashboard"     && <div className="h-full overflow-y-auto"><DashboardTab deals={dealList} products={products} /></div>}
+        {activeTab === "board"         && <div className="h-full overflow-hidden"><DealBoardTab deals={dealList} products={products} onSelect={d => { setSimulatorDeal(d); setActiveTab("simulator"); }} onDelete={id => deleteMut.mutate(id)} /></div>}
+        {activeTab === "simulator"     && <div className="h-full overflow-hidden"><DealSimulatorTab products={products} destinations={destinations} customerAssignments={custAssignments} accounts={accounts} existingDeal={simulatorDeal} /></div>}
+        {activeTab === "profitability" && <div className="h-full overflow-hidden"><ProfitabilityTab deals={dealList} products={products} /></div>}
+        {activeTab === "approvals"     && <div className="h-full overflow-y-auto"><ApprovalsTab deals={dealList} products={products} /></div>}
+        {activeTab === "history"       && <div className="h-full overflow-y-auto"><DealHistoryTab deals={dealList} products={products} /></div>}
       </div>
     </div>
   );
