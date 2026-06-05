@@ -33079,81 +33079,143 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // POST /api/product-registry/destinations/sync-legacy
-  // Scrapes the legacy BitsAuto system using a browser session cookie (2FA-compatible)
+  // Scrapes ALL pages of the legacy BitsAuto client_filteration view.
+  // Uses concurrent batching + diminishing-returns stop to handle 800+ page sets efficiently.
   app.post('/api/product-registry/destinations/sync-legacy', async (req: any, res) => {
     try {
-      const { host, sessionCookie, clientId = '1824' } = req.body;
-      if (!host) return res.status(400).json({ error: 'host is required' });
+      const { host, sessionCookie, clientId = '1824', maxPages: maxPagesParam } = req.body;
+      if (!host)          return res.status(400).json({ error: 'host is required' });
       if (!sessionCookie) return res.status(400).json({ error: 'sessionCookie is required — log into BitsAuto in your browser, then copy the sessionid cookie value' });
       const base = `http://${host}`;
-
-      // Use the session cookie directly — no login needed (2FA-compatible)
-      // The cookie string should be in the format: "sessionid=abc123; csrftoken=xyz"
-      // or just the raw sessionid value — we normalise both
       const cookieHeader = sessionCookie.includes('=') ? sessionCookie : `sessionid=${sessionCookie}`;
+      const BATCH      = 20;     // concurrent page fetches per round
+      const PER_FETCH  = 12000; // ms per individual fetch
+      const WALL_LIMIT = 90000; // ms total wall-clock budget
+      const wallStart  = Date.now();
 
-      // Fetch with a 25-second timeout
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 25000);
+      // ── Helper: fetch one page of the filtration view ──────────────────────
+      const buildUrl = (page: number) =>
+        `${base}/tariffs/client_filteration/?page=${page}&country=&destination=&Submit=&prefix=&i_tariff__i_client=${clientId}&active_from_1=&active_from_0=`;
 
-      const filterUrl = `${base}/tariffs/client_filteration/?i_tariff__i_client=${clientId}&Submit=`;
-      let filterRes: Response;
-      try {
-        filterRes = await fetch(filterUrl, {
-          headers: {
-            'Cookie': cookieHeader,
-            'User-Agent': 'Mozilla/5.0 (compatible; BitsautoSync/1.0)',
-          },
-          signal: controller.signal,
-        });
-      } finally { clearTimeout(timer); }
-      const filterHtml = await filterRes.text();
+      const fetchPage = async (page: number): Promise<string | null> => {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), PER_FETCH);
+        try {
+          const r = await fetch(buildUrl(page), {
+            headers: { 'Cookie': cookieHeader, 'User-Agent': 'Mozilla/5.0 (compatible; BitsautoSync/1.0)' },
+            signal: ctrl.signal,
+          });
+          return await r.text();
+        } catch { return null; }
+        finally { clearTimeout(t); }
+      };
 
-      if (filterHtml.includes('accounts/login') && !filterHtml.includes('client_filteration')) {
-        return res.status(401).json({ error: 'Login failed — check credentials' });
+      // ── Helper: parse rows from one page of HTML ────────────────────────────
+      const parseRows = (html: string): Array<{ country: string; carrier: string; category: string; destination: string; code: string; rate: number | null; activationDate: string; expirationDate: string }> => {
+        const out: any[] = [];
+        const trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+        let m;
+        while ((m = trPattern.exec(html)) !== null) {
+          const cells = (m[1].match(/<td[^>]*>([\s\S]*?)<\/td>/gi) ?? [])
+            .map((td: string) => td.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim());
+          if (cells.length < 5) continue;
+          const [country, carrier, category, destination, code, rate, activationDate = '', expirationDate = ''] = cells;
+          if (!code || !country || code.length < 2 || isNaN(Number(code.slice(0, 1)))) continue;
+          if (country.toLowerCase() === 'country') continue;
+          out.push({ country, carrier, category, destination, code, rate: rate ? parseFloat(rate) : null, activationDate, expirationDate });
+        }
+        return out;
+      };
+
+      // ── Helper: extract max page number from pagination HTML ────────────────
+      const extractMaxPage = (html: string): number => {
+        let max = 1;
+        const re = /[?&]page=(\d+)/g;
+        let m;
+        while ((m = re.exec(html)) !== null) {
+          const n = parseInt(m[1], 10);
+          if (n > max) max = n;
+        }
+        return max;
+      };
+
+      // ── Step 1: fetch page 1 ────────────────────────────────────────────────
+      const page1Html = await fetchPage(1);
+      if (!page1Html) return res.status(502).json({ error: 'Could not reach BitsAuto host.' });
+      if (page1Html.includes('accounts/login') && !page1Html.includes('client_filteration')) {
+        return res.status(401).json({ error: 'Session cookie invalid or expired — please copy a fresh sessionid from your browser.' });
       }
 
-      // Step 4: Parse the table rows
-      const rows: any[] = [];
-      const seen = new Set<string>();
-      const trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-      let trMatch;
-      let headerFound = false;
-      while ((trMatch = trPattern.exec(filterHtml)) !== null) {
-        const tdMatches = (trMatch[1].match(/<td[^>]*>([\s\S]*?)<\/td>/gi) ?? [])
-          .map((td: string) => td.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&nbsp;/g, '').trim());
-        if (tdMatches.length < 5) continue;
-        const [country, carrier, category, destination, code, rate] = tdMatches;
-        if (!code || !country || code.length < 3) continue;
-        if (country.toLowerCase() === 'country') { headerFound = true; continue; }
-        const dedupKey = `${country}|${carrier}|${code}`;
-        if (seen.has(dedupKey)) continue;
-        seen.add(dedupKey);
-        rows.push({
-          countryName: country.trim(),
-          carrier: carrier.trim(),
-          category: category.trim(),
-          destination: destination.trim(),
-          code: code.trim(),
-          rate: rate ? parseFloat(rate) : null,
-          // Mapped fields ready for import
-          name: `${country.trim()} ${carrier.trim() || destination.trim()}`,
-          dialPrefix: code.trim(),
-          countryCode: null,
-          operatorName: carrier.trim() || destination.trim(),
-          operatorCategory: category.trim() || 'Mobile',
-          level: 3,
-        });
+      const seen     = new Set<string>();
+      const allRows: any[] = [];
+
+      const absorb = (rawRows: ReturnType<typeof parseRows>) => {
+        for (const r of rawRows) {
+          // Dedup: latest activation date wins — keep first seen (pages sorted newest-first)
+          const key = `${r.country}|${r.carrier}|${r.code}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          allRows.push({
+            countryName:      r.country,
+            carrier:          r.carrier,
+            category:         r.category,
+            destination:      r.destination,
+            code:             r.code,
+            rate:             r.rate,
+            activationDate:   r.activationDate,
+            expirationDate:   r.expirationDate,
+            // import-ready fields
+            name:             `${r.country} ${r.carrier || r.destination}`.trim(),
+            dialPrefix:       r.code,
+            countryCode:      null,
+            operatorName:     r.carrier || r.destination,
+            operatorCategory: r.category || 'Mobile',
+            level:            3,
+          });
+        }
+      };
+
+      absorb(parseRows(page1Html));
+      const totalPages = Math.min(extractMaxPage(page1Html), maxPagesParam ? Number(maxPagesParam) : 9999);
+
+      // ── Step 2: paginate remaining pages in concurrent batches ──────────────
+      let consecutiveEmptyBatches = 0;
+      let pagesScanned = 1;
+
+      for (let batchStart = 2; batchStart <= totalPages; batchStart += BATCH) {
+        if (Date.now() - wallStart > WALL_LIMIT) break; // wall-clock budget
+        const batchEnd = Math.min(batchStart + BATCH - 1, totalPages);
+        const pageNums = Array.from({ length: batchEnd - batchStart + 1 }, (_, i) => batchStart + i);
+        const htmlPages = await Promise.all(pageNums.map(fetchPage));
+
+        let newInBatch = 0;
+        for (const html of htmlPages) {
+          if (!html) continue;
+          const before = seen.size;
+          absorb(parseRows(html));
+          newInBatch += seen.size - before;
+        }
+        pagesScanned += pageNums.length;
+
+        // Diminishing-returns stop: 4 consecutive batches with 0 new unique rows
+        if (newInBatch === 0) {
+          consecutiveEmptyBatches++;
+          if (consecutiveEmptyBatches >= 4) break;
+        } else {
+          consecutiveEmptyBatches = 0;
+        }
       }
 
-      // Return debug info when rows=0 so the caller can diagnose the page structure
-      const _debug = rows.length === 0 ? {
-        status: filterRes.status,
-        htmlLength: filterHtml.length,
-        html: filterHtml.substring(0, 4000) || '(empty response body)',
-        url: filterUrl,
-      } : null;
-      res.json({ rows, count: rows.length, loginOk: true, _debug });
+      const elapsed = Date.now() - wallStart;
+      res.json({
+        rows: allRows,
+        count: allRows.length,
+        pagesScanned,
+        totalPages,
+        elapsedMs: elapsed,
+        loginOk: true,
+        partial: pagesScanned < totalPages,
+      });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

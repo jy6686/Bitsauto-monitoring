@@ -876,7 +876,11 @@ function ImportTab() {
         toast({ title: "Synced 0 rows — debug info below", description: `HTTP ${d.status} · ${d.htmlLength} chars received`, variant: "destructive" });
       } else {
         setLegacyDebugHtml("");
-        toast({ title: `Synced ${mappedRows.length} rows from legacy BitsAuto` });
+        const pagesInfo = res.pagesScanned && res.totalPages
+          ? ` (${res.pagesScanned}/${res.totalPages} pages, ${Math.round((res.elapsedMs ?? 0) / 1000)}s)`
+          : "";
+        const partialNote = res.partial ? " — partial (hit time limit)" : "";
+        toast({ title: `Synced ${mappedRows.length} unique rows from legacy BitsAuto${pagesInfo}${partialNote}` });
       }
     } catch (e: any) {
       toast({ title: "Sync failed", description: e.message, variant: "destructive" });
