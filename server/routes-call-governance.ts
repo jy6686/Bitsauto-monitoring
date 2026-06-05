@@ -154,10 +154,60 @@ async function reconcileActiveCalls() {
   try {
     if (!amiGovernance.isConnected) return;
 
+    // ── Age-based stale cleanup (always runs) ─────────────────────────────
+    // Mark 'active' rows as completed when their cap time + 5 min buffer has
+    // passed. Handles calls that ended while AMI was down / server restarted
+    // and whose Hangup event was never delivered.
+    const staleByAge = await db.select().from(governedCalls).where(
+      and(
+        eq(governedCalls.status, 'active'),
+        sql`start_time + (COALESCE(cap_sec, 120) || ' seconds')::interval + interval '5 minutes' < NOW()`,
+      )
+    );
+    for (const row of staleByAge) {
+      const timer = activeTimers.get(row.id);
+      if (timer) { clearTimeout(timer); activeTimers.delete(row.id); }
+      await db.update(governedCalls)
+        .set({ completedAt: new Date(), status: 'completed' })
+        .where(eq(governedCalls.id, row.id));
+      await db.insert(callGovernanceLogs).values({
+        governedCallId: row.id,
+        eventType:      'stale_cleanup',
+        channel:        row.channelB,
+        details:        'Auto-completed: cap time + 5 min elapsed with no Hangup event received',
+      });
+      console.log(`[call-governance] Stale cleanup (age): call #${row.id} (${row.channelB}) auto-completed`);
+    }
+
     const rules = await db.select().from(callGovernanceRules).where(eq(callGovernanceRules.enabled, true));
     if (!rules.length) return;
 
     const amiChannels = await amiGovernance.fetchActiveBridges();
+
+    // ── AMI channel-based stale cleanup ───────────────────────────────────
+    // When AMI returned a valid channel list, mark any 'active' DB row whose
+    // channels are no longer present in Asterisk as completed.
+    const amiChannelSet = new Set(amiChannels.map(c => c.channel));
+    const dbActive = await db.select().from(governedCalls).where(eq(governedCalls.status, 'active'));
+    for (const row of dbActive) {
+      const aLive = row.channelA ? amiChannelSet.has(row.channelA) : false;
+      const bLive = row.channelB ? amiChannelSet.has(row.channelB) : false;
+      if (!aLive && !bLive) {
+        const timer = activeTimers.get(row.id);
+        if (timer) { clearTimeout(timer); activeTimers.delete(row.id); }
+        await db.update(governedCalls)
+          .set({ completedAt: new Date(), status: 'completed' })
+          .where(eq(governedCalls.id, row.id));
+        await db.insert(callGovernanceLogs).values({
+          governedCallId: row.id,
+          eventType:      'stale_cleanup',
+          channel:        row.channelB,
+          details:        'Auto-completed: channels absent from AMI bridge list',
+        });
+        console.log(`[call-governance] Stale cleanup (AMI): call #${row.id} (${row.channelB}) not in AMI → completed`);
+      }
+    }
+
     if (!amiChannels.length) return;
 
     console.log(`[call-governance] Reconcile: ${amiChannels.length} bridged channel(s) from AMI`);
