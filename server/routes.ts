@@ -73,7 +73,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, productDestinationAssignments, productHistory } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
 const drizzleSql = sqlExpr;
@@ -32824,6 +32824,189 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── Vendor & Route Health Engine ────────────────────────────────────────────
   initVendorHealthEngine();
+
+  // ── Product Registry & Global Destination Catalog ─────────────────────────
+  // GET /api/product-registry/products
+  app.get('/api/product-registry/products', async (_req, res) => {
+    try {
+      const rows = await db
+        .select()
+        .from(productRegistry)
+        .orderBy(productRegistry.sortOrder, productRegistry.name);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/product-registry/products
+  app.post('/api/product-registry/products', async (req: any, res) => {
+    try {
+      const { code, name, description, status, color, defaultRoutingTemplate, backupRoutingTemplate,
+              defaultPricingTemplate, minMarginPct, discountRangeMin, discountRangeMax,
+              noticePeriodDays, offerWindowMin, offerWindowTarget, offerWindowPremium, sortOrder } = req.body;
+      if (!code || !name) return res.status(400).json({ error: 'code and name required' });
+      const [row] = await db.insert(productRegistry).values({
+        code, name, description, status: status ?? 'active', color: color ?? 'violet',
+        defaultRoutingTemplate, backupRoutingTemplate, defaultPricingTemplate,
+        minMarginPct, discountRangeMin, discountRangeMax, noticePeriodDays,
+        offerWindowMin, offerWindowTarget, offerWindowPremium, sortOrder: sortOrder ?? 0,
+      }).returning();
+      await db.insert(productHistory).values({
+        productId: row.id, eventType: 'product_created',
+        description: `Product "${name}" created`,
+        performedBy: req.user?.claims?.sub ?? 'system',
+      });
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PUT /api/product-registry/products/:id
+  app.put('/api/product-registry/products/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(productRegistry).where(eq(productRegistry.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ error: 'Not found' });
+      const [row] = await db.update(productRegistry).set(req.body).where(eq(productRegistry.id, id)).returning();
+      await db.insert(productHistory).values({
+        productId: id, eventType: 'product_updated',
+        description: `Product "${row.name}" updated`,
+        previousValue: existing, newValue: row,
+        performedBy: req.user?.claims?.sub ?? 'system',
+      });
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/product-registry/products/:id
+  app.delete('/api/product-registry/products/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(productDestinationAssignments).where(eq(productDestinationAssignments.productId, id));
+      await db.delete(productRegistry).where(eq(productRegistry.id, id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/product-registry/destinations  — flat list
+  app.get('/api/product-registry/destinations', async (_req, res) => {
+    try {
+      const rows = await db.select().from(globalDestinations).orderBy(globalDestinations.level, globalDestinations.sortOrder, globalDestinations.name);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/product-registry/destinations
+  app.post('/api/product-registry/destinations', async (req: any, res) => {
+    try {
+      const { parentId, level, name, countryCode, dialPrefix, operatorName, commercialStatus, sortOrder } = req.body;
+      if (!name) return res.status(400).json({ error: 'name required' });
+      const [row] = await db.insert(globalDestinations).values({
+        parentId: parentId ?? null, level: level ?? 1, name, countryCode, dialPrefix,
+        operatorName, commercialStatus: commercialStatus ?? 'pending', sortOrder: sortOrder ?? 0,
+      }).returning();
+      await db.insert(productHistory).values({
+        destinationId: row.id, eventType: 'destination_created',
+        description: `Destination "${name}" created`,
+        performedBy: req.user?.claims?.sub ?? 'system',
+      });
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PUT /api/product-registry/destinations/:id
+  app.put('/api/product-registry/destinations/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(globalDestinations).where(eq(globalDestinations.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ error: 'Not found' });
+      const [row] = await db.update(globalDestinations).set(req.body).where(eq(globalDestinations.id, id)).returning();
+      await db.insert(productHistory).values({
+        destinationId: id, eventType: 'destination_updated',
+        description: `Destination "${row.name}" updated`,
+        previousValue: existing, newValue: row,
+        performedBy: req.user?.claims?.sub ?? 'system',
+      });
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/product-registry/destinations/:id
+  app.delete('/api/product-registry/destinations/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(productDestinationAssignments).where(eq(productDestinationAssignments.destinationId, id));
+      await db.delete(globalDestinations).where(eq(globalDestinations.id, id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/product-registry/assignments
+  app.get('/api/product-registry/assignments', async (_req, res) => {
+    try {
+      const rows = await db.select().from(productDestinationAssignments)
+        .where(eq(productDestinationAssignments.status, 'active'));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/product-registry/assignments  (drag & drop result)
+  app.post('/api/product-registry/assignments', async (req: any, res) => {
+    try {
+      const { productId, destinationId } = req.body;
+      if (!productId || !destinationId) return res.status(400).json({ error: 'productId and destinationId required' });
+      // Upsert — remove existing inactive, or return existing active
+      const [existing] = await db.select().from(productDestinationAssignments)
+        .where(and(
+          eq(productDestinationAssignments.productId, productId),
+          eq(productDestinationAssignments.destinationId, destinationId),
+        )).limit(1);
+      if (existing?.status === 'active') return res.json(existing);
+      if (existing) {
+        const [row] = await db.update(productDestinationAssignments)
+          .set({ status: 'active' }).where(eq(productDestinationAssignments.id, existing.id)).returning();
+        return res.json(row);
+      }
+      const [row] = await db.insert(productDestinationAssignments).values({
+        productId, destinationId, status: 'active',
+        createdBy: req.user?.claims?.sub ?? 'system',
+      }).returning();
+      // fetch product + destination names for history
+      const [prod] = await db.select({ name: productRegistry.name }).from(productRegistry).where(eq(productRegistry.id, productId)).limit(1);
+      const [dest] = await db.select({ name: globalDestinations.name }).from(globalDestinations).where(eq(globalDestinations.id, destinationId)).limit(1);
+      await db.insert(productHistory).values({
+        productId, destinationId, eventType: 'destination_assigned',
+        description: `${prod?.name ?? productId} assigned to ${dest?.name ?? destinationId}`,
+        performedBy: req.user?.claims?.sub ?? 'system',
+      });
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/product-registry/assignments/:id
+  app.delete('/api/product-registry/assignments/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(productDestinationAssignments)
+        .where(eq(productDestinationAssignments.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ error: 'Not found' });
+      await db.update(productDestinationAssignments).set({ status: 'inactive' }).where(eq(productDestinationAssignments.id, id));
+      const [prod] = await db.select({ name: productRegistry.name }).from(productRegistry).where(eq(productRegistry.id, existing.productId)).limit(1);
+      const [dest] = await db.select({ name: globalDestinations.name }).from(globalDestinations).where(eq(globalDestinations.id, existing.destinationId)).limit(1);
+      await db.insert(productHistory).values({
+        productId: existing.productId, destinationId: existing.destinationId,
+        eventType: 'destination_removed',
+        description: `${prod?.name ?? existing.productId} removed from ${dest?.name ?? existing.destinationId}`,
+      });
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/product-registry/history
+  app.get('/api/product-registry/history', async (_req, res) => {
+    try {
+      const rows = await db.select().from(productHistory).orderBy(desc(productHistory.createdAt)).limit(200);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 
   return httpServer;
 }

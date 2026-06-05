@@ -231,7 +231,23 @@ const DOMAINS: Domain[] = [
     ],
   },
 
-  // ── 8. PLATFORM ──────────────────────────────────────────────────────────────
+  // ── 8. PRODUCTS ──────────────────────────────────────────────────────────────
+  {
+    id: 'products', label: 'Products', icon: Package, color: 'text-violet-400',
+    groups: [
+      { label: 'Product Registry', desc: 'Product definitions, destinations, and assignment management', icon: Package, items: [
+        { href: '/product-registry', label: 'Product Registry',    desc: 'Products, destinations & drag-drop assignments', icon: Package },
+      ]},
+      { label: 'Catalog Tools', desc: 'Routing templates, pricing policies, and assignment history', icon: Layers, items: [
+        { href: '/product-registry?tab=destinations', label: 'Destination Catalog', desc: 'Global destination tree',          icon: Globe   },
+        { href: '/product-registry?tab=assignments',  label: 'Assignments',         desc: 'Drag & drop product assignments',  icon: Layers  },
+        { href: '/product-registry?tab=routing',      label: 'Routing Templates',   desc: 'Product routing template mgmt',   icon: Route   },
+        { href: '/product-registry?tab=history',      label: 'Change History',      desc: 'Product & destination audit log', icon: History },
+      ]},
+    ],
+  },
+
+  // ── 9. PLATFORM ──────────────────────────────────────────────────────────────
   {
     id: 'platform', label: 'Platform', icon: Settings, color: 'text-slate-400',
     groups: [

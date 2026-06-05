@@ -3637,3 +3637,78 @@ export const routeHealthScores = pgTable("route_health_scores", {
 
 export type RouteHealthScore       = typeof routeHealthScores.$inferSelect;
 export type InsertRouteHealthScore = typeof routeHealthScores.$inferInsert;
+
+// ── Global Destination Catalog ────────────────────────────────────────────────
+// Master destination registry — hierarchical tree (self-referencing parent_id).
+// All commercial modules reference destination_id, never free-text names.
+// level: 1=Country, 2=Type(Fixed/Mobile), 3=Operator, 4=Sub-type
+export const globalDestinations = pgTable("global_destinations", {
+  id:               serial("id").primaryKey(),
+  parentId:         integer("parent_id"),
+  level:            integer("level").notNull().default(1),
+  name:             varchar("name",          { length: 128 }).notNull(),
+  countryCode:      varchar("country_code",  { length: 4  }),
+  dialPrefix:       varchar("dial_prefix",   { length: 32 }),
+  operatorName:     varchar("operator_name", { length: 128 }),
+  // 'approved'|'blocked'|'testing'|'deprecated'|'pending'
+  commercialStatus: varchar("commercial_status", { length: 32 }).notNull().default("pending"),
+  sortOrder:        integer("sort_order").default(0),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+});
+export type GlobalDestination       = typeof globalDestinations.$inferSelect;
+export type InsertGlobalDestination = typeof globalDestinations.$inferInsert;
+
+// ── Product Registry ──────────────────────────────────────────────────────────
+// Formal commercial product definitions (First Class, Business Class, etc.).
+// Every rate sheet, tariff, notification and customer offer becomes product-aware.
+export const productRegistry = pgTable("product_registry", {
+  id:                     serial("id").primaryKey(),
+  code:                   varchar("code", { length: 16 }).unique().notNull(),   // FC, BC, SB, SC
+  name:                   varchar("name", { length: 64 }).notNull(),
+  description:            text("description"),
+  status:                 varchar("status",    { length: 16 }).notNull().default("active"),
+  color:                  varchar("color",     { length: 32 }).default("violet"), // UI colour tag
+  defaultRoutingTemplate: varchar("default_routing_template", { length: 128 }),
+  backupRoutingTemplate:  varchar("backup_routing_template",  { length: 128 }),
+  defaultPricingTemplate: varchar("default_pricing_template", { length: 128 }),
+  minMarginPct:           real("min_margin_pct").default(0),
+  discountRangeMin:       real("discount_range_min"),
+  discountRangeMax:       real("discount_range_max"),
+  noticePeriodDays:       integer("notice_period_days").default(7),
+  // KAM-visible offer window — never exposes underlying vendor cost
+  offerWindowMin:         real("offer_window_min"),
+  offerWindowTarget:      real("offer_window_target"),
+  offerWindowPremium:     real("offer_window_premium"),
+  sortOrder:              integer("sort_order").default(0),
+  createdAt:              timestamp("created_at").defaultNow().notNull(),
+});
+export type ProductRegistryItem       = typeof productRegistry.$inferSelect;
+export type InsertProductRegistryItem = typeof productRegistry.$inferInsert;
+
+// ── Product → Destination Assignments ────────────────────────────────────────
+// Created via drag & drop in Assignments tab.
+export const productDestinationAssignments = pgTable("product_destination_assignments", {
+  id:            serial("id").primaryKey(),
+  productId:     integer("product_id").notNull(),
+  destinationId: integer("destination_id").notNull(),
+  status:        varchar("status", { length: 16 }).notNull().default("active"),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+  createdBy:     varchar("created_by", { length: 128 }),
+});
+export type ProductDestinationAssignment       = typeof productDestinationAssignments.$inferSelect;
+export type InsertProductDestinationAssignment = typeof productDestinationAssignments.$inferInsert;
+
+// ── Product History / Audit Trail ─────────────────────────────────────────────
+export const productHistory = pgTable("product_history", {
+  id:            serial("id").primaryKey(),
+  productId:     integer("product_id"),
+  destinationId: integer("destination_id"),
+  eventType:     varchar("event_type", { length: 64 }).notNull(),
+  description:   text("description").notNull(),
+  previousValue: jsonb("previous_value"),
+  newValue:      jsonb("new_value"),
+  performedBy:   varchar("performed_by", { length: 128 }),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+});
+export type ProductHistoryEntry       = typeof productHistory.$inferSelect;
+export type InsertProductHistoryEntry = typeof productHistory.$inferInsert;

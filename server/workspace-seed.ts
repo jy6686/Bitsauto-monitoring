@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { workspaceDefinitions, workspaceTabs, workspaceTabItems } from "@shared/schema";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 interface TabSeed {
   slug: string;
@@ -22,6 +22,26 @@ interface WorkspaceSeed {
 }
 
 const WORKSPACES: WorkspaceSeed[] = [
+  // ── PHASE 1: Products & Destinations ──────────────────────────────────────
+  {
+    slug: "products-catalog",
+    label: "Products & Destinations",
+    description: "Product registry, global destination catalog, and assignments",
+    portalSlug: "products",
+    domainId: "products",
+    icon: "Package",
+    sortOrder: 5,
+    tabs: [
+      { slug: "pr-dashboard",    label: "Dashboard",           icon: "BarChart2",  routes: ["/product-registry"] },
+      { slug: "pr-products",     label: "Product Catalog",     icon: "BookOpen",   routes: ["/product-registry/products"] },
+      { slug: "pr-destinations", label: "Destinations",        icon: "Globe",      routes: ["/product-registry/destinations"] },
+      { slug: "pr-assignments",  label: "Assignments",         icon: "Layers",     routes: ["/product-registry/assignments"] },
+      { slug: "pr-routing",      label: "Routing Templates",   icon: "Network",    routes: ["/product-registry/routing"] },
+      { slug: "pr-pricing",      label: "Pricing Templates",   icon: "TrendingUp", routes: ["/product-registry/pricing"] },
+      { slug: "pr-history",      label: "History",             icon: "BookOpen",   routes: ["/product-registry/history"] },
+    ],
+  },
+
   // ── PHASE 2: Finance ─────────────────────────────────────────────────────
   {
     slug: "billing-ops",
@@ -115,15 +135,17 @@ const WORKSPACES: WorkspaceSeed[] = [
 
 export async function seedWorkspacesIfEmpty(): Promise<void> {
   try {
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(workspaceDefinitions);
-
-    if (count > 0) return;
-
-    console.log("[workspace-seed] Seeding workspace definitions…");
-
     for (const ws of WORKSPACES) {
+      const [existing] = await db
+        .select({ id: workspaceDefinitions.id })
+        .from(workspaceDefinitions)
+        .where(eq(workspaceDefinitions.slug, ws.slug))
+        .limit(1);
+
+      if (existing) continue; // already seeded — skip
+
+      console.log(`[workspace-seed] Seeding workspace: ${ws.slug}`);
+
       const [wsRow] = await db
         .insert(workspaceDefinitions)
         .values({
@@ -181,8 +203,8 @@ export async function seedWorkspacesIfEmpty(): Promise<void> {
       }
     }
 
-    console.log(`[workspace-seed] Seeded ${WORKSPACES.length} workspaces successfully.`);
-  } catch (err) {
-    console.error("[workspace-seed] Seed failed:", err);
+    console.log(`[workspace-seed] Workspace sync complete.`);
+  } catch (err: any) {
+    console.warn('[workspace-seed] Non-fatal seed error:', err?.message ?? err);
   }
 }

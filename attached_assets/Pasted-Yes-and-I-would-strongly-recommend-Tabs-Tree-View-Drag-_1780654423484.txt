@@ -1,0 +1,287 @@
+Yes — and I would strongly recommend Tabs + Tree View + Drag & Drop, not traditional forms.
+
+Looking at where BitsAuto is heading, the commercial side is becoming hierarchical:
+
+Destination
+    ↓
+Product
+    ↓
+Customer
+    ↓
+Rate
+    ↓
+Deal
+
+Trying to manage that through forms and dropdowns will become painful very quickly.
+
+Recommended Workspace
+Products & Destinations Workspace
+
+Single top-level menu:
+
+Products
+
+Inside:
+
+Products
+├── Dashboard
+├── Product Catalog
+├── Destination Catalog
+├── Assignments
+├── Routing Templates
+├── Pricing Templates
+├── History
+Tab 1 — Product Catalog
+Left Panel
+
+Product Tree
+
+First Class
+├── Pakistan
+├── Bangladesh
+├── UK
+
+Business Class
+├── Pakistan
+├── India
+
+Bravo Special
+├── Pakistan
+├── Nepal
+Right Panel
+
+Selected Product Details
+
+Product Name
+Status
+Default Routing Template
+Default Pricing Template
+Offer Window
+Tab 2 — Global Destination Catalog
+Left Panel
+
+Global Tree
+
+Pakistan
+ ├ Fixed
+ └ Mobile
+      ├ Jazz
+      ├ Zong
+      ├ Ufone
+      └ Telenor
+
+India
+ ├ Fixed
+ └ Mobile
+      ├ Airtel
+      ├ Jio
+      └ BSNL
+
+Searchable.
+
+Expandable.
+
+Collapsible.
+
+Right Panel
+
+Destination Details
+
+Country
+Operator
+Prefix
+Status
+Approved Products
+Tab 3 — Assignments
+
+This is where Drag & Drop becomes powerful.
+
+Left
+
+Products
+
+First Class
+Business Class
+Bravo
+Charlie
+Right
+
+Destination Tree
+
+Pakistan
+ └ Mobile
+     ├ Jazz
+     ├ Zong
+     └ Ufone
+Drag & Drop
+
+Drag:
+
+First Class
+
+onto:
+
+Pakistan Jazz
+
+Result:
+
+Pakistan Jazz
+✓ First Class
+
+Example:
+
+Pakistan Jazz
+
+Products:
+
+✓ First Class
+✓ Business Class
+✗ Bravo
+✗ Charlie
+
+No forms.
+
+No dropdowns.
+
+Operations teams love this.
+
+Tab 4 — Routing Templates
+
+Product owns routing.
+
+Example:
+
+First Class
+
+Default:
+
+Pakistan First Class RTP
+
+Backup:
+
+Pakistan First Class Backup
+
+Drag & Drop Routing Groups.
+
+Tab 5 — Pricing Templates
+
+Product owns pricing.
+
+Example:
+
+First Class
+
+Rules:
+
+Minimum Margin
+Discount Range
+Notice Period
+
+Management only.
+
+Tab 6 — Product History
+
+Timeline:
+
+2026-06-01
+Pakistan Jazz added
+
+2026-06-03
+Business Class removed
+
+2026-06-04
+Routing template changed
+
+Audit trail.
+
+Future Rate Management
+
+Once Products exist:
+
+Rate Management
+
+becomes much cleaner.
+
+Instead of:
+
+9230
+9231
+9232
+9233
+
+you get:
+
+Pakistan Jazz
+    ↓
+First Class
+    ↓
+Rate
+Drag & Drop Use Cases
+Product → Destination
+First Class
+
+drag to:
+
+Pakistan Mobile
+Destination → Product
+Pakistan Jazz
+
+drag to:
+
+Business Class
+Routing Template Assignment
+Pakistan First Class RTP
+
+drag to:
+
+First Class
+Pricing Template Assignment
+First Class Template
+
+drag to:
+
+Pakistan Jazz
+What I Would NOT Use
+
+Avoid:
+
+10-step wizards
+nested popup forms
+multiple dropdowns
+
+for daily operations.
+
+They become painful when managing:
+
+100+ countries
+500+ operators
+10+ products
+What I Would Build First
+Workspace
+Products
+Tabs
+Dashboard
+Product Catalog
+Destination Catalog
+Assignments
+Routing Templates
+Pricing Templates
+History
+UI
+Tree View
+Drag & Drop
+Split Panels
+Inline Edit
+Excel Import/Export
+
+This will give you a strong foundation for:
+
+Provisioning Studio
+Voice Trading Desk
+Pricing Intelligence
+Customer Rate Distribution
+Routing Templates
+
+without building the full Rate Management platform yet.
+
+One note: some of the files you referenced earlier are no longer available in the conversation. If you want me to re-review a specific deal sheet or rate sheet tab, please upload it again and I'll analyze all tabs in detail.
