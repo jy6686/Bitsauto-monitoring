@@ -33611,6 +33611,93 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Tariff Profile Templates ──────────────────────────────────────────────────
+
+  // GET /api/tariff-profiles — list all templates
+  app.get('/api/tariff-profiles', async (_req, res) => {
+    try {
+      const rows = await db.execute(sql`SELECT id, name, config, created_at, updated_at FROM tariff_profile_templates ORDER BY id ASC`);
+      res.json({ success: true, profiles: rows.rows });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/tariff-profiles/:id — get single template
+  app.get('/api/tariff-profiles/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid id.' });
+      const rows = await db.execute(sql`SELECT id, name, config, created_at, updated_at FROM tariff_profile_templates WHERE id = ${id}`);
+      if (!rows.rows.length) return res.status(404).json({ success: false, error: 'Not found.' });
+      res.json({ success: true, profile: rows.rows[0] });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // POST /api/tariff-profiles — create new template
+  app.post('/api/tariff-profiles', async (req: any, res) => {
+    try {
+      const { name, config } = req.body;
+      if (!name?.trim()) return res.status(400).json({ success: false, error: 'Name is required.' });
+      const configJson = JSON.stringify(config ?? {});
+      const rows = await db.execute(sql`INSERT INTO tariff_profile_templates (name, config) VALUES (${name.trim()}, ${configJson}::jsonb) RETURNING id, name, config, created_at, updated_at`);
+      res.json({ success: true, profile: rows.rows[0] });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // PUT /api/tariff-profiles/:id — update template
+  app.put('/api/tariff-profiles/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid id.' });
+      const { name, config } = req.body;
+      if (!name?.trim()) return res.status(400).json({ success: false, error: 'Name is required.' });
+      const configJson = JSON.stringify(config ?? {});
+      const rows = await db.execute(sql`UPDATE tariff_profile_templates SET name = ${name.trim()}, config = ${configJson}::jsonb, updated_at = NOW() WHERE id = ${id} RETURNING id, name, config, created_at, updated_at`);
+      if (!rows.rows.length) return res.status(404).json({ success: false, error: 'Not found.' });
+      res.json({ success: true, profile: rows.rows[0] });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // DELETE /api/tariff-profiles/:id — delete template
+  app.delete('/api/tariff-profiles/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ success: false, error: 'Invalid id.' });
+      await db.execute(sql`DELETE FROM tariff_profile_templates WHERE id = ${id}`);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ success: false, error: e.message }); }
+  });
+
+  // GET /api/sippy/accounts/:id/tariff-rates — full tariff rates with activation/expiration
+  // Fetches account info to find i_tariff, then lists full tariff rates
+  app.get('/api/sippy/accounts/:id/tariff-rates', async (req: any, res) => {
+    try {
+      const iAccount = parseInt(req.params.id, 10);
+      if (isNaN(iAccount)) return res.status(400).json({ success: false, error: 'Invalid i_account.' });
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+
+      // Step 1: get account info to find i_tariff
+      const accountInfo = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
+      if (!accountInfo) {
+        // Fallback: use getAccountRates (simpler, no activation/expiration)
+        const result = await sippy.getAccountRates(username, password, iAccount);
+        return res.json({ success: result.success, rates: result.rates, currency: result.currency, error: result.error });
+      }
+
+      const iTariff = accountInfo.iTariff;
+      if (!iTariff) {
+        // No tariff assigned — fallback to getAccountRates
+        const result = await sippy.getAccountRates(username, password, iAccount);
+        return res.json({ success: result.success, rates: result.rates, currency: result.currency, iTariff: null, error: result.error ?? 'No tariff assigned to this account.' });
+      }
+
+      // Step 2: get full tariff rates (returns SippyTariffRate[] directly)
+      const rates = await sippy.getTariffRatesListFull(username, password, iTariff);
+      res.json({ success: true, iTariff, rates });
+    } catch (e: any) { res.status(500).json({ success: false, rates: [], error: e.message }); }
+  });
+
   return httpServer;
 }
 

@@ -239,10 +239,12 @@ const DOMAINS: Domain[] = [
         { href: '/product-registry', label: 'Product Registry',    desc: 'Products, destinations & drag-drop assignments', icon: Package },
       ]},
       { label: 'Rate Operations', desc: 'Rate management, push workflow, and notification engine', icon: BarChart2, items: [
-        { href: '/rate-manager',      label: 'Rate Manager',        desc: 'View & push rates with trunk-prefix encoding',  icon: BarChart2 },
+        { href: '/rate-manager',       label: 'Rate Manager',       desc: 'View & push rates with trunk-prefix encoding',  icon: BarChart2 },
+        { href: '/client-rate-report', label: 'Client Rate Report', desc: 'Destination filtration by client account',      icon: FileSpreadsheet },
       ]},
       { label: 'Catalog Tools', desc: 'Routing templates, pricing policies, and assignment history', icon: Layers, items: [
         { href: '/destination-catalog',               label: 'Destination Catalog', desc: 'Global destination tree & approval workflow', icon: Globe   },
+        { href: '/tariff-profiles',                   label: 'Tariff Profiles',     desc: 'Excel/PDF rate sheet template management',    icon: FileSpreadsheet },
         { href: '/product-registry?tab=assignments',  label: 'Assignments',         desc: 'Drag & drop product assignments',  icon: Layers  },
         { href: '/product-registry?tab=routing',      label: 'Routing Templates',   desc: 'Product routing template mgmt',   icon: Route   },
         { href: '/product-registry?tab=history',      label: 'Change History',      desc: 'Product & destination audit log', icon: History },
