@@ -1,0 +1,149 @@
+I was able to open the uploaded email and inspect the attachment.
+
+Email Summary
+
+Subject
+
+RATE NOTIFICATION (FULL) | QUICKCOM | FIRST CLASS | June 4, 2026
+
+Sender
+
+pricing@ichibaanlogic.com
+
+Attachment
+
+QUICKCOM-FIRST CLASS-202606041405-FULL.xlsx
+What This Confirms
+
+This file reinforces several things we've been discussing:
+
+Customer
+    ↓
+Product
+    ↓
+Destination
+    ↓
+Rate
+
+The sheet itself identifies:
+
+Company Name = quickcom
+Product Name = first class
+Send Date = 04-Jun-2026
+
+This means the commercial workflow is already product-centric.
+
+The rate notification is not:
+
+Vendor
+    ↓
+Prefix
+    ↓
+Rate
+
+It is:
+
+Customer
+    ↓
+Product
+    ↓
+Destination
+    ↓
+Rate Change
+
+which is exactly why I recommended:
+
+Build Now
+
+✅ Global Destination Catalog
+✅ Product Registry
+✅ Product Assignments
+
+Delay
+
+❌ Full Rate Automation Platform
+
+until Products and Destinations become master data.
+
+Based on This File, I Would Enhance Product Registry
+
+Add two more tabs:
+
+Products
+├ Dashboard
+├ Product Catalog
+├ Destination Catalog
+├ Assignments
+├ Customer Assignments
+├ Rate Templates
+├ Notifications
+├ History
+Rate Templates Tab
+
+Example:
+
+First Class
+    ↓
+Pakistan Jazz
+    ↓
+Default Rate Logic
+
+This is NOT customer pricing.
+
+This is the commercial template.
+
+Notifications Tab
+
+Store every sent rate sheet:
+
+Quickcom
+First Class
+04-Jun-2026
+FULL
+Delivered
+
+Later you'll have:
+
+Rate History
+Customer History
+Product History
+
+without searching emails.
+
+One More Recommendation
+
+Since you already built:
+
+Product Registry
+Destination Catalog
+
+the next commercial object should be:
+
+Customer Product Assignment
+
+Example:
+
+Quickcom
+    ├ First Class
+    └ Business Class
+
+ABC Telecom
+    ├ Bravo
+
+Then Auth Studio, Deal Workspace, Pricing Intelligence, and future Rate Management can all use the same assignment model.
+
+My recommendation right now
+
+Do not jump into mailbox parsing, rate import automation, approval queues, and customer distribution yet.
+
+Instead build:
+
+Product Registry
+    ↓
+Destination Catalog
+    ↓
+Customer Product Assignment
+
+and let those become the commercial master-data layer first.
+
+After that, the Rate Management workspace becomes much cleaner and much easier to automate.

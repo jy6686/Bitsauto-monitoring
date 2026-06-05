@@ -73,7 +73,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, productDestinationAssignments, productHistory } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, productDestinationAssignments, productHistory, customerProductAssignments } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, sql as sqlExpr } from "drizzle-orm";
 const drizzleSql = sqlExpr;
@@ -33005,6 +33005,68 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const rows = await db.select().from(productHistory).orderBy(desc(productHistory.createdAt)).limit(200);
       res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Customer → Product Assignments ─────────────────────────────────────────
+  // GET /api/product-registry/customer-assignments
+  app.get('/api/product-registry/customer-assignments', async (_req, res) => {
+    try {
+      const rows = await db.select().from(customerProductAssignments)
+        .where(eq(customerProductAssignments.status, 'active'))
+        .orderBy(customerProductAssignments.customerName);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/product-registry/customer-assignments
+  app.post('/api/product-registry/customer-assignments', async (req: any, res) => {
+    try {
+      const { productId, iAccount, customerName } = req.body;
+      if (!productId || !iAccount) return res.status(400).json({ error: 'productId and iAccount required' });
+      // Upsert — reactivate if soft-deleted
+      const [existing] = await db.select().from(customerProductAssignments)
+        .where(and(
+          eq(customerProductAssignments.productId, productId),
+          eq(customerProductAssignments.iAccount, iAccount),
+        )).limit(1);
+      if (existing?.status === 'active') return res.json(existing);
+      if (existing) {
+        const [row] = await db.update(customerProductAssignments)
+          .set({ status: 'active', customerName: customerName ?? existing.customerName })
+          .where(eq(customerProductAssignments.id, existing.id)).returning();
+        return res.json(row);
+      }
+      const [row] = await db.insert(customerProductAssignments).values({
+        productId, iAccount, customerName, status: 'active',
+        createdBy: req.user?.claims?.sub ?? 'system',
+      }).returning();
+      const [prod] = await db.select({ name: productRegistry.name }).from(productRegistry).where(eq(productRegistry.id, productId)).limit(1);
+      await db.insert(productHistory).values({
+        productId, eventType: 'customer_assigned',
+        description: `Customer "${customerName ?? iAccount}" assigned to ${prod?.name ?? productId}`,
+        performedBy: req.user?.claims?.sub ?? 'system',
+      });
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/product-registry/customer-assignments/:id
+  app.delete('/api/product-registry/customer-assignments/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [existing] = await db.select().from(customerProductAssignments)
+        .where(eq(customerProductAssignments.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ error: 'Not found' });
+      await db.update(customerProductAssignments).set({ status: 'inactive' })
+        .where(eq(customerProductAssignments.id, id));
+      const [prod] = await db.select({ name: productRegistry.name }).from(productRegistry).where(eq(productRegistry.id, existing.productId)).limit(1);
+      await db.insert(productHistory).values({
+        productId: existing.productId, eventType: 'customer_removed',
+        description: `Customer "${existing.customerName ?? existing.iAccount}" removed from ${prod?.name ?? existing.productId}`,
+        performedBy: req.user?.claims?.sub ?? 'system',
+      });
+      res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

@@ -3712,3 +3712,18 @@ export const productHistory = pgTable("product_history", {
 });
 export type ProductHistoryEntry       = typeof productHistory.$inferSelect;
 export type InsertProductHistoryEntry = typeof productHistory.$inferInsert;
+
+// ── Customer → Product Assignments ────────────────────────────────────────────
+// Links a Sippy account (customer) to a product tier.
+// This is the foundation of Customer → Product → Destination → Rate.
+export const customerProductAssignments = pgTable("customer_product_assignments", {
+  id:           serial("id").primaryKey(),
+  productId:    integer("product_id").notNull(),
+  iAccount:     integer("i_account").notNull(),        // Sippy account ID
+  customerName: varchar("customer_name", { length: 256 }),
+  status:       varchar("status", { length: 16 }).notNull().default("active"),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  createdBy:    varchar("created_by", { length: 128 }),
+});
+export type CustomerProductAssignment       = typeof customerProductAssignments.$inferSelect;
+export type InsertCustomerProductAssignment = typeof customerProductAssignments.$inferInsert;
