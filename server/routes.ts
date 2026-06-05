@@ -33146,7 +33146,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         });
       }
 
-      res.json({ rows, count: rows.length, loginOk: true });
+      // Return debug snippet when rows=0 so the caller can diagnose the page structure
+      const debugHtml = rows.length === 0 ? filterHtml.substring(0, 4000) : undefined;
+      res.json({ rows, count: rows.length, loginOk: true, _debugHtml: debugHtml });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

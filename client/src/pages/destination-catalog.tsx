@@ -783,6 +783,7 @@ function ImportTab() {
   const [legacySessionCookie, setLegacySessionCookie] = useState("");
   const [legacyClientId, setLegacyClientId] = useState("1824");
   const [syncing, setSyncing] = useState(false);
+  const [legacyDebugHtml, setLegacyDebugHtml] = useState("");
 
   const loadFileContent = (file: File) => {
     setFileName(file.name);
@@ -868,7 +869,13 @@ function ImportTab() {
       setPreview(mappedRows);
       setParsed(true);
       setDetectedFormat("legacy");
-      toast({ title: `Synced ${mappedRows.length} rows from legacy BitsAuto` });
+      if (mappedRows.length === 0 && res._debugHtml) {
+        setLegacyDebugHtml(res._debugHtml);
+        toast({ title: "Synced 0 rows — see HTML debug below", description: "The page was reached but no table rows were parsed.", variant: "destructive" });
+      } else {
+        setLegacyDebugHtml("");
+        toast({ title: `Synced ${mappedRows.length} rows from legacy BitsAuto` });
+      }
     } catch (e: any) {
       toast({ title: "Sync failed", description: e.message, variant: "destructive" });
     } finally { setSyncing(false); }
@@ -943,6 +950,24 @@ function ImportTab() {
             {syncing ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
             {syncing ? "Syncing…" : "Sync Now"}
           </Button>
+
+          {/* Debug HTML panel — shown only when 0 rows returned */}
+          {legacyDebugHtml && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+                <span>⚠ 0 rows parsed — raw page HTML (first 4000 chars)</span>
+                <button className="text-[10px] text-muted-foreground underline ml-auto" onClick={() => setLegacyDebugHtml("")}>dismiss</button>
+              </p>
+              <p className="text-[10px] text-muted-foreground">Copy the snippet below and share it so the parser can be fixed to match the actual page structure.</p>
+              <textarea
+                readOnly
+                value={legacyDebugHtml}
+                className="w-full h-40 text-[10px] font-mono bg-black/40 border border-border rounded p-2 resize-y text-muted-foreground"
+                onClick={e => (e.target as HTMLTextAreaElement).select()}
+                data-testid="debug-legacy-html"
+              />
+            </div>
+          )}
         </div>
       )}
 
