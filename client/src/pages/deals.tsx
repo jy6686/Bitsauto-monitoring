@@ -155,7 +155,7 @@ function HealthBadge({ health, pct }: { health: "healthy" | "warning" | "risk"; 
 }
 
 // ── Dashboard Tab ─────────────────────────────────────────────────────────────
-function DashboardTab({ deals, products }: { deals: Deal[]; products: Product[] }) {
+function DashboardTab({ deals, products, onNewDeal }: { deals: Deal[]; products: Product[]; onNewDeal?: () => void }) {
   const today = new Date();
   const in7d  = new Date(today); in7d.setDate(today.getDate() + 7);
   const in30d = new Date(today); in30d.setDate(today.getDate() + 30);
@@ -353,7 +353,13 @@ function DashboardTab({ deals, products }: { deals: Deal[]; products: Product[] 
         <div className="bg-card border border-border rounded-lg p-10 text-center">
           <Briefcase className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm font-medium">No deals yet</p>
-          <p className="text-xs text-muted-foreground mt-1">Use the Deal Simulator tab to build your first commercial deal</p>
+          <p className="text-xs text-muted-foreground mt-2 mb-4">Use the Deal Simulator to build your first commercial deal</p>
+          {onNewDeal && (
+            <Button size="sm" onClick={onNewDeal} data-testid="btn-new-deal-empty">
+              <Plus className="w-4 h-4 mr-1.5" />
+              New Deal
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -1445,7 +1451,7 @@ export default function DealsPage() {
             <Briefcase className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden sm:inline">Voice Trading</span>
           </div>
-          <div className="flex items-center gap-0.5 overflow-x-auto">
+          <div className="flex items-center gap-0.5 overflow-x-auto flex-1">
             {TABS.map(tab => {
               const Icon = tab.icon;
               const badge =
@@ -1469,12 +1475,21 @@ export default function DealsPage() {
               );
             })}
           </div>
+          <Button
+            data-testid="btn-new-deal"
+            size="sm"
+            className="ml-2 shrink-0 h-7 px-3 text-xs gap-1.5"
+            onClick={() => { setSimulatorDeal(null); setActiveTab("simulator"); }}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New Deal
+          </Button>
         </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {activeTab === "dashboard"     && <div className="h-full overflow-y-auto"><DashboardTab deals={dealList} products={products} /></div>}
+        {activeTab === "dashboard"     && <div className="h-full overflow-y-auto"><DashboardTab deals={dealList} products={products} onNewDeal={() => { setSimulatorDeal(null); setActiveTab("simulator"); }} /></div>}
         {activeTab === "board"         && <div className="h-full overflow-hidden"><DealBoardTab deals={dealList} products={products} onSelect={d => { setSimulatorDeal(d); setActiveTab("simulator"); }} onDelete={id => deleteMut.mutate(id)} /></div>}
         {activeTab === "simulator"     && <div className="h-full overflow-hidden"><DealSimulatorTab products={products} destinations={destinations} customerAssignments={custAssignments} accounts={accounts} existingDeal={simulatorDeal} /></div>}
         {activeTab === "profitability" && <div className="h-full overflow-hidden"><ProfitabilityTab deals={dealList} products={products} /></div>}
