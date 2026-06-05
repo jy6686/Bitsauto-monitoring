@@ -204,6 +204,7 @@ export default function ClientWizardPage() {
     ratesheetFormats: ["Full CSV"] as string[],
     dialcodeFormat: "E.164",
     prefixStyle: "with_plus",
+    servicePlanId: "",
   });
 
   // ── Step 3 state ────────────────────────────────────────────────────────────
@@ -225,9 +226,13 @@ export default function ClientWizardPage() {
   const { data: routingData }   = useQuery<{ groups: { id: number; name: string }[] }>({
     queryKey: ["/api/sippy/routing-groups"], retry: false,
   });
+  const { data: billingPlansData } = useQuery<{ plans: { id: number; name: string }[]; error?: string }>({
+    queryKey: ["/api/sippy/billing-plans"], retry: false,
+  });
 
-  const companies     = companiesData?.companies ?? [];
-  const routingGroups = routingData?.groups ?? [];
+  const companies      = companiesData?.companies ?? [];
+  const routingGroups  = routingData?.groups ?? [];
+  const billingPlans   = billingPlansData?.plans ?? [];
   const selectedCompany = companies.find(c => String(c.id) === s1.companyId);
 
   // Filter companies by department
@@ -338,6 +343,7 @@ export default function ClientWizardPage() {
       ratesheetFormats: s2.ratesheetFormats,
       dialcodeFormat: s2.dialcodeFormat,
       prefixStyle: s2.prefixStyle,
+      servicePlanId: s2.servicePlanId || undefined,
     },
     trunks,
     ips: ips.filter(ip => ip.ip.trim()),
@@ -772,6 +778,39 @@ export default function ClientWizardPage() {
                   Example: <span className="font-mono">{s2.prefixStyle === "with_plus" ? "+447911123456" : "447911123456"}</span>
                 </p>
               </div>
+
+              {/* Billing Package — selects an existing Sippy Service Plan */}
+              <div className="space-y-2">
+                <Label className="text-xs">Billing Package (Sippy Service Plan)</Label>
+                {billingPlans.length === 0 ? (
+                  <div className="flex items-center gap-2 text-[10px] text-amber-400 border border-amber-500/30 rounded-lg px-3 py-2 bg-amber-500/5">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    {billingPlansData?.error
+                      ? `Could not load plans: ${billingPlansData.error}. Provision will auto-select.`
+                      : "Loading billing plans from Sippy…"}
+                  </div>
+                ) : (
+                  <Select
+                    value={s2.servicePlanId}
+                    onValueChange={v => setS2(p => ({ ...p, servicePlanId: v }))}
+                  >
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-billing-package">
+                      <SelectValue placeholder="— Auto-select during provisioning —" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— Auto-select during provisioning —</SelectItem>
+                      {billingPlans.map(bp => (
+                        <SelectItem key={bp.id} value={String(bp.id)}>
+                          {bp.name} <span className="text-muted-foreground">(#{bp.id})</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  Selects the Sippy billing plan assigned to this account. Choose one that matches the client's product tier, or leave blank to auto-detect.
+                </p>
+              </div>
             </div>
           )}
 
@@ -1177,6 +1216,7 @@ export default function ClientWizardPage() {
                     ["Formats",         s2.ratesheetFormats.join(", ") || "None selected"],
                     ["Dialcode Format", s2.dialcodeFormat],
                     ["Prefix Style",    s2.prefixStyle.replace("_", " ")],
+                    ["Billing Package", s2.servicePlanId ? (billingPlans.find(b => String(b.id) === s2.servicePlanId)?.name ?? `Plan #${s2.servicePlanId}`) : "Auto-select"],
                   ]
                 },
               ].map(section => (

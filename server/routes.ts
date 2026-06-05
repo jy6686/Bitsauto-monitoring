@@ -26525,44 +26525,33 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const portalPass = (settings as any)?.portalPassword || '';
       const adminWebPassword = (settings as any)?.adminWebPassword || undefined;
       const primaryTrunk = trunks?.[0] ?? {};
-      // Naming convention: base = shortCode (e.g. "PTCL"), then distinct suffixes per object
-      const planBase    = company.shortCode || company.name;
-      const tariffName  = `${planBase}-TARIFF`;
-      const servicePlanName = `${planBase}-SP`;
+      const step2 = draft.step2 ?? {};
 
-      // ── Step 1: create tariff named <CODE>-TARIFF ──────────────────────────
+      // ── Billing plan resolution ─────────────────────────────────────────────
+      // Priority 1: user pre-selected a specific plan in the wizard (Step 2 "Billing Package").
+      // This mirrors how BitsAuto works: it uses pre-existing Sippy billing plans linked to
+      // "Client Classes" rather than creating new ones. Portal scraping is skipped entirely.
       let servicePlanId: string | undefined;
-      let servicePlanCreated = false;
       let servicePlanFallbackName: string | undefined;
-      try {
-        const tariffRes = await sippy.createSippyTariff(username, password, { name: tariffName, currency: 'USD' }, portalUrl);
-        if (tariffRes.success && tariffRes.iTariff) {
-          console.log(`[Provision] Tariff "${tariffName}" id=${tariffRes.iTariff}${tariffRes.message.includes('reusing') ? ' (reused)' : ''}`);
-          // ── Step 2: create service plan named <CODE>-SP ────────────────────
-          const planRes = await sippy.createSippyServicePlan(
-            portalUrl, adminUser, adminPass, portalUser, portalPass,
-            servicePlanName, tariffRes.iTariff, undefined, 3, adminWebPassword,
-          );
-          if (planRes.success && planRes.planId) {
-            servicePlanId = String(planRes.planId);
-            servicePlanCreated = true;
-            console.log(`[Provision] Service plan "${servicePlanName}" id=${planRes.planId}${planRes.alreadyExists ? ' (already existed)' : ''}`);
+      if (step2.servicePlanId) {
+        servicePlanId = String(step2.servicePlanId);
+        console.log(`[Provision] Using wizard-selected billing plan id=${servicePlanId}`);
+      } else {
+        // Priority 2: discover an existing billing plan via XML-RPC probe (no portal needed).
+        // Trying to create service plans via portal scraping is unreliable on /web_ng/ Sippy
+        // instances — skip it and use what's already there.
+        try {
+          const bpFallback = await sippy.listSippyBillingPlans(username, password, portalUrl);
+          if (bpFallback.plans.length > 0) {
+            servicePlanId = String(bpFallback.plans[0].id);
+            servicePlanFallbackName = bpFallback.plans[0].name;
+            console.log(`[Provision] Auto-selected billing plan: id=${bpFallback.plans[0].id} "${bpFallback.plans[0].name}"`);
           } else {
-            console.error(`[Provision] Service plan creation incomplete: ${planRes.error || 'no plan ID'}`);
-            // Service plan portal write failed — discover an existing billing plan via XML-RPC
-            // so pushAccountToSippy can use a valid ID without its own probe round-trip.
-            const bpFallback = await sippy.listSippyBillingPlans(username, password, portalUrl);
-            if (bpFallback.plans.length > 0) {
-              servicePlanId = String(bpFallback.plans[0].id);
-              servicePlanFallbackName = bpFallback.plans[0].name;
-              console.log(`[Provision] Using fallback billing plan: ${bpFallback.plans[0].id} "${bpFallback.plans[0].name}"`);
-            }
+            console.warn(`[Provision] No billing plans found via XML-RPC — account will use Sippy default. ${bpFallback.error ?? ''}`);
           }
-        } else {
-          console.error(`[Provision] Tariff creation failed: ${tariffRes.message}`);
+        } catch (e: any) {
+          console.error(`[Provision] Billing plan probe error (non-fatal): ${e.message}`);
         }
-      } catch (e: any) {
-        console.error(`[Provision] Tariff/plan setup error (non-fatal): ${e.message}`);
       }
 
       const displayName = step1.displayName || company.name;
