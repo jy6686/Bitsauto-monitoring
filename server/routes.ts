@@ -26533,7 +26533,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // "Client Classes" rather than creating new ones. Portal scraping is skipped entirely.
       let servicePlanId: string | undefined;
       let servicePlanFallbackName: string | undefined;
-      if (step2.servicePlanId) {
+      if (step2.servicePlanId && step2.servicePlanId !== '_auto') {
         servicePlanId = String(step2.servicePlanId);
         console.log(`[Provision] Using wizard-selected billing plan id=${servicePlanId}`);
       } else {

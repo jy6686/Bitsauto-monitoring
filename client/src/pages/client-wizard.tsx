@@ -378,7 +378,7 @@ export default function ClientWizardPage() {
       ratesheetFormats: s2.ratesheetFormats,
       dialcodeFormat: s2.dialcodeFormat,
       prefixStyle: s2.prefixStyle,
-      servicePlanId: s2.servicePlanId || undefined,
+      servicePlanId: (s2.servicePlanId && s2.servicePlanId !== "_auto") ? s2.servicePlanId : undefined,
     },
     trunks,
     ips: ips.filter(ip => ip.ip.trim()),
@@ -834,7 +834,7 @@ export default function ClientWizardPage() {
                       <SelectValue placeholder="— Auto-select during provisioning —" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">— Auto-select during provisioning —</SelectItem>
+                      <SelectItem value="_auto">— Auto-select during provisioning —</SelectItem>
                       {billingPlans.map(bp => (
                         <SelectItem key={bp.id} value={String(bp.id)}>
                           {bp.name} <span className="text-muted-foreground">(#{bp.id})</span>
