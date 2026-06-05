@@ -1279,11 +1279,8 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
         ALTER TABLE sip_error_stats
           ADD COLUMN IF NOT EXISTS time_bucket TIMESTAMPTZ
       `);
-      // Add unique constraint to support ON CONFLICT upserts and prevent duplicates.
-      await db.execute(sql`
-        CREATE UNIQUE INDEX IF NOT EXISTS sip_error_stats_uniq
-          ON sip_error_stats (vendor_name, window_minutes, code, time_bucket, COALESCE(dest_prefix, ''))
-      `);
+      // Note: sip_error_stats_uniq is defined in shared/schema.ts (Drizzle-managed)
+      // and applied via drizzle-kit push — no runtime creation needed.
 
       // ── Copilot settings table bootstrap ──────────────────────────────────
       await db.execute(sql`
