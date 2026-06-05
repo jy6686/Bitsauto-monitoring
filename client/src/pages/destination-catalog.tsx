@@ -780,8 +780,7 @@ function ImportTab() {
   // Legacy BitsAuto sync
   const [showLegacy, setShowLegacy] = useState(false);
   const [legacyHost, setLegacyHost] = useState("23.106.59.17:8081");
-  const [legacyUser, setLegacyUser] = useState("");
-  const [legacyPass, setLegacyPass] = useState("");
+  const [legacySessionCookie, setLegacySessionCookie] = useState("");
   const [legacyClientId, setLegacyClientId] = useState("1824");
   const [syncing, setSyncing] = useState(false);
 
@@ -854,11 +853,11 @@ function ImportTab() {
   });
 
   const handleLegacySync = async () => {
-    if (!legacyUser || !legacyPass) { toast({ title: "Enter username and password", variant: "destructive" }); return; }
+    if (!legacySessionCookie.trim()) { toast({ title: "Paste your BitsAuto session cookie first", variant: "destructive" }); return; }
     setSyncing(true);
     try {
       const res = await apiRequest("POST", "/api/product-registry/destinations/sync-legacy", {
-        host: legacyHost, username: legacyUser, password: legacyPass, clientId: legacyClientId,
+        host: legacyHost, sessionCookie: legacySessionCookie.trim(), clientId: legacyClientId,
       }) as any;
       if (res.error) throw new Error(res.error);
       const mappedRows: PreviewRow[] = (res.rows ?? []).map((r: any) => ({
@@ -893,12 +892,24 @@ function ImportTab() {
 
       {/* ── Legacy BitsAuto Sync Panel ── */}
       {showLegacy && (
-        <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+        <div className="bg-card border border-border rounded-lg p-4 space-y-4">
           <div className="flex items-center gap-2 text-sm font-medium">
             <Link2 className="w-4 h-4 text-cyan-400" />
             <span>Sync from Legacy BitsAuto</span>
-            <span className="text-xs text-muted-foreground font-normal ml-1">— pulls Client Destination Filtration data directly</span>
+            <span className="text-xs text-muted-foreground font-normal ml-1">— 2FA-compatible session cookie method</span>
           </div>
+
+          {/* Step-by-step instructions */}
+          <div className="bg-muted/30 border border-border/60 rounded-md p-3 space-y-2">
+            <p className="text-xs font-semibold text-foreground">How to get your session cookie:</p>
+            <ol className="text-xs text-muted-foreground space-y-1 list-none">
+              <li className="flex gap-2"><span className="text-cyan-400 font-bold shrink-0">1.</span><span>Open BitsAuto in your browser and log in normally (including 2FA).</span></li>
+              <li className="flex gap-2"><span className="text-cyan-400 font-bold shrink-0">2.</span><span>Press <kbd className="bg-muted border border-border rounded px-1 py-0.5 text-[10px] font-mono">F12</kbd> to open DevTools → go to <strong>Application</strong> tab → <strong>Cookies</strong> → select the BitsAuto site.</span></li>
+              <li className="flex gap-2"><span className="text-cyan-400 font-bold shrink-0">3.</span><span>Find the cookie named <code className="bg-muted px-1 rounded font-mono text-[10px]">sessionid</code> and copy its <strong>Value</strong>.</span></li>
+              <li className="flex gap-2"><span className="text-cyan-400 font-bold shrink-0">4.</span><span>Paste the value below and click <strong>Sync Now</strong>.</span></li>
+            </ol>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Host:Port</Label>
@@ -908,16 +919,27 @@ function ImportTab() {
               <Label className="text-xs text-muted-foreground">Client ID</Label>
               <Input value={legacyClientId} onChange={e => setLegacyClientId(e.target.value)} className="h-8 text-sm font-mono" placeholder="1824" data-testid="input-legacy-clientid" />
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Username</Label>
-              <Input value={legacyUser} onChange={e => setLegacyUser(e.target.value)} className="h-8 text-sm" autoComplete="off" data-testid="input-legacy-user" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Password</Label>
-              <Input type="password" value={legacyPass} onChange={e => setLegacyPass(e.target.value)} className="h-8 text-sm" autoComplete="off" data-testid="input-legacy-pass" />
-            </div>
           </div>
-          <Button size="sm" onClick={handleLegacySync} disabled={syncing} data-testid="btn-legacy-sync">
+
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+              Session Cookie Value
+              <span className="text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded px-1.5 py-0.5">required</span>
+            </Label>
+            <Input
+              value={legacySessionCookie}
+              onChange={e => setLegacySessionCookie(e.target.value)}
+              className="h-8 text-sm font-mono"
+              placeholder="Paste sessionid value here (e.g. abc123xyz…)"
+              autoComplete="off"
+              data-testid="input-legacy-session-cookie"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              You can also paste the full cookie string e.g. <code className="bg-muted px-1 rounded">sessionid=abc123; csrftoken=xyz</code>
+            </p>
+          </div>
+
+          <Button size="sm" onClick={handleLegacySync} disabled={syncing || !legacySessionCookie.trim()} data-testid="btn-legacy-sync">
             {syncing ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
             {syncing ? "Syncing…" : "Sync Now"}
           </Button>

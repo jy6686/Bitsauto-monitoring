@@ -33079,39 +33079,34 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // POST /api/product-registry/destinations/sync-legacy
-  // Scrapes the legacy BitsAuto system for destination data
+  // Scrapes the legacy BitsAuto system using a browser session cookie (2FA-compatible)
   app.post('/api/product-registry/destinations/sync-legacy', async (req: any, res) => {
     try {
-      const { host, username, password, clientId = '1824' } = req.body;
-      if (!host || !username || !password) return res.status(400).json({ error: 'host, username and password required' });
+      const { host, sessionCookie, clientId = '1824' } = req.body;
+      if (!host) return res.status(400).json({ error: 'host is required' });
+      if (!sessionCookie) return res.status(400).json({ error: 'sessionCookie is required — log into BitsAuto in your browser, then copy the sessionid cookie value' });
       const base = `http://${host}`;
 
-      // Step 1: GET login page for CSRF token
-      const loginPageRes = await fetch(`${base}/accounts/login/`, { redirect: 'follow' });
-      const loginPageHtml = await loginPageRes.text();
-      const setCookieHeader = loginPageRes.headers.get('set-cookie') ?? '';
-      const csrfFromCookie = (setCookieHeader.match(/csrftoken=([^;,\s]+)/) ?? [])[1] ?? '';
-      const csrfFromForm = (loginPageHtml.match(/name=['"]csrfmiddlewaretoken['"][^>]+value=['"]([^'"]+)['"]/) ?? [])[1] ?? csrfFromCookie;
-      const loginCookies = setCookieHeader.split(',').map((c: string) => c.split(';')[0].trim()).filter(Boolean).join('; ');
+      // Use the session cookie directly — no login needed (2FA-compatible)
+      // The cookie string should be in the format: "sessionid=abc123; csrftoken=xyz"
+      // or just the raw sessionid value — we normalise both
+      const cookieHeader = sessionCookie.includes('=') ? sessionCookie : `sessionid=${sessionCookie}`;
 
-      // Step 2: POST login
-      const loginRes = await fetch(`${base}/accounts/login/`, {
-        method: 'POST',
-        redirect: 'manual',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Cookie': loginCookies,
-          'Referer': `${base}/accounts/login/`,
-        },
-        body: new URLSearchParams({ username, password, csrfmiddlewaretoken: csrfFromForm, next: '/' }).toString(),
-      });
-      const loginSetCookie = loginRes.headers.get('set-cookie') ?? '';
-      const sessionCookies = loginSetCookie.split(',').map((c: string) => c.split(';')[0].trim()).filter(Boolean).join('; ');
-      const allCookies = [loginCookies, sessionCookies].filter(Boolean).join('; ');
+      // Fetch with a 25-second timeout
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 25000);
 
-      // Step 3: Fetch the destination filteration page
       const filterUrl = `${base}/tariffs/client_filteration/?i_tariff__i_client=${clientId}&Submit=`;
-      const filterRes = await fetch(filterUrl, { headers: { 'Cookie': allCookies } });
+      let filterRes: Response;
+      try {
+        filterRes = await fetch(filterUrl, {
+          headers: {
+            'Cookie': cookieHeader,
+            'User-Agent': 'Mozilla/5.0 (compatible; BitsautoSync/1.0)',
+          },
+          signal: controller.signal,
+        });
+      } finally { clearTimeout(timer); }
       const filterHtml = await filterRes.text();
 
       if (filterHtml.includes('accounts/login') && !filterHtml.includes('client_filteration')) {
