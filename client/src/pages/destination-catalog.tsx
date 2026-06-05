@@ -829,10 +829,10 @@ function ImportTab() {
   const importMut = useMutation({
     mutationFn: async () => {
       const toImport = preview.filter(r => r._status === "new");
-      const res = await apiRequest("POST", "/api/product-registry/destinations/bulk-smart", {
+      const rawRes = await apiRequest("POST", "/api/product-registry/destinations/bulk-smart", {
         rows: toImport, autoApprove, autoParent,
       });
-      return res as any;
+      return rawRes.json() as any;
     },
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["/api/product-registry/destinations"] });
@@ -857,9 +857,10 @@ function ImportTab() {
     if (!legacySessionCookie.trim()) { toast({ title: "Paste your BitsAuto session cookie first", variant: "destructive" }); return; }
     setSyncing(true);
     try {
-      const res = await apiRequest("POST", "/api/product-registry/destinations/sync-legacy", {
+      const rawRes = await apiRequest("POST", "/api/product-registry/destinations/sync-legacy", {
         host: legacyHost, sessionCookie: legacySessionCookie.trim(), clientId: legacyClientId,
-      }) as any;
+      });
+      const res = await rawRes.json() as any;
       if (res.error) throw new Error(res.error);
       const mappedRows: PreviewRow[] = (res.rows ?? []).map((r: any) => ({
         name: r.name, dialPrefix: r.dialPrefix, countryCode: r.countryCode,
