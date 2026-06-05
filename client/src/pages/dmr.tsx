@@ -83,9 +83,7 @@ function fmt(v?: number | null, decimals = 2): string {
 function fmtDur(sec?: number | null): string {
   if (sec == null) return '—';
   const m = Math.round(sec / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  return `${m}m`;
 }
 
 function DiffCell({ sippy, platform, unit = 'amount' }: { sippy?: number; platform?: number; unit?: 'amount' | 'duration' }) {

@@ -136,7 +136,13 @@ export default function MarginIntelligencePage() {
   });
 
   const materializeMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/margin/materialize", { date: selectedDate }).then(r => r.json()),
+    mutationFn: async () => {
+      const dmrRows = await apiRequest("GET", `/api/dmr?date=${selectedDate}`).then(r => r.json()).catch(() => []);
+      if (!Array.isArray(dmrRows) || dmrRows.length === 0) {
+        await apiRequest("POST", "/api/dmr/generate", { date: selectedDate }).then(r => r.json()).catch(() => null);
+      }
+      return apiRequest("POST", "/api/margin/materialize", { date: selectedDate }).then(r => r.json());
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/margin"] });
       toast({

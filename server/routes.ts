@@ -26904,7 +26904,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const country: string = (c as any).country || (c as any).termCountry || '';
         if (!country || country === 'Unknown' || country === '-') continue;
         const cost:    number = parseFloat((c as any).cost    ?? 0) || 0;
-        const revenue: number = parseFloat((c as any).revenue ?? 0) || 0;
+        const revenue: number = parseFloat((c as any).revenue ?? (c as any).cost ?? 0) || 0;
         const answered = String((c as any).result) === '0' || Number((c as any).result) === 0;
         const vendor: string = (c as any).vendorName || (c as any).vendor || 'Unknown';
         const numId: string | null = (c as any).countryNumericId ?? null;
