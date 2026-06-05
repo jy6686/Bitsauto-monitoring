@@ -13,8 +13,9 @@ import {
   Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard,
   Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle,
   PlusCircle, ShieldPlus, Tag, Package, MapPin, DollarSign, Cpu, ExternalLink,
-  RefreshCw, Play, AlertCircle, Server,
+  RefreshCw, Play, AlertCircle, Server, Upload, List, Trash,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
 
@@ -359,6 +360,73 @@ function ProvisioningPanel({ company }: { company: Company }) {
     });
   };
 
+  // ── Rate Push state ──────────────────────────────────────────────────────
+  const isProvisioned = !!(companyAny.sippyIAccount);
+  const hasTariff     = !!(companyAny.sippyITariff);
+
+  const [showRatePanel, setShowRatePanel] = useState(false);
+  const [rateRows, setRateRows] = useState<{ prefix: string; rate: string }[]>([{ prefix: "", rate: "" }]);
+
+  const { data: tariffData, isFetching: tariffFetching, refetch: refetchTariff } = useQuery<{ iTariff: number; rates: any[] }>({
+    queryKey: [`/api/companies/${company.id}/tariff-rates`],
+    queryFn: () => fetch(`/api/companies/${company.id}/tariff-rates`, { credentials: "include" }).then(r => r.json()),
+    enabled: isProvisioned && hasTariff && showRatePanel,
+  });
+
+  const pushRatesMutation = useMutation({
+    mutationFn: async (rates: { prefix: string; rate: number }[]) => {
+      const res = await apiRequest("POST", `/api/companies/${company.id}/push-rates`, { rates });
+      return typeof res?.json === 'function' ? res.json() : res;
+    },
+    onSuccess: (data: any) => {
+      refetchTariff();
+      toast({ title: `Rates pushed`, description: `${data.pushed} pushed, ${data.failed} failed` });
+      setRateRows([{ prefix: "", rate: "" }]);
+    },
+    onError: (e: any) => toast({ title: "Push failed", description: e.message, variant: "destructive" }),
+  });
+
+  const handlePushRates = () => {
+    const valid = rateRows.filter(r => r.prefix.trim() && r.rate.trim() && !isNaN(Number(r.rate)));
+    if (!valid.length) { toast({ title: "Enter at least one valid prefix/rate", variant: "destructive" }); return; }
+    pushRatesMutation.mutate(valid.map(r => ({ prefix: r.prefix.trim(), rate: Number(r.rate) })));
+  };
+
+  // ── Product Assignment state ──────────────────────────────────────────────
+  const [showProductPanel, setShowProductPanel] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+
+  const { data: assignedProducts = [], refetch: refetchProducts } = useQuery<any[]>({
+    queryKey: [`/api/companies/${company.id}/products`],
+    queryFn: () => fetch(`/api/companies/${company.id}/products`, { credentials: "include" }).then(r => r.json()),
+    enabled: isProvisioned && showProductPanel,
+  });
+
+  const { data: allProducts = [] } = useQuery<any[]>({
+    queryKey: ["/api/products"],
+    queryFn: () => fetch("/api/products?status=commercial", { credentials: "include" }).then(r => r.json()),
+    enabled: isProvisioned && showProductPanel,
+  });
+
+  const assignProductMutation = useMutation({
+    mutationFn: async (productId: number) => {
+      const res = await apiRequest("POST", `/api/companies/${company.id}/products`, { productId });
+      return typeof res?.json === 'function' ? res.json() : res;
+    },
+    onSuccess: () => {
+      refetchProducts();
+      setSelectedProductId("");
+      toast({ title: "Product assigned" });
+    },
+    onError: (e: any) => toast({ title: "Assign failed", description: e.message, variant: "destructive" }),
+  });
+
+  const removeProductMutation = useMutation({
+    mutationFn: (assignmentId: number) => apiRequest("DELETE", `/api/companies/${company.id}/products/${assignmentId}`),
+    onSuccess: () => { refetchProducts(); toast({ title: "Product removed" }); },
+    onError: (e: any) => toast({ title: "Remove failed", description: e.message, variant: "destructive" }),
+  });
+
   const allRequests = ipData?.requests ?? [];
   const pendingIps = allRequests.filter(r => r.status === "pending");
   const approvedIps = allRequests.filter(r => r.status === "approved");
@@ -518,6 +586,210 @@ function ProvisioningPanel({ company }: { company: Company }) {
           {pendingIps.length > 0 && <Badge variant="outline" className="ml-1 text-[9px] text-amber-400 border-amber-500/30">{pendingIps.length} pending</Badge>}
           {!hasWizardDraft && <Badge variant="outline" className="ml-1 text-[9px] text-blue-400 border-blue-500/30">wizard required</Badge>}
         </Button>
+      )}
+
+      {/* ── Rate Push Panel (only when provisioned with tariff) ─────────────── */}
+      {isProvisioned && (
+        <div className="border-t border-border/40 pt-2 mt-1">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+              <Upload className="h-2.5 w-2.5" />
+              Rate Sheet
+              {hasTariff && (
+                <span className="text-[9px] font-mono text-violet-400 ml-1">tariff #{companyAny.sippyITariff}</span>
+              )}
+            </p>
+            <button
+              data-testid={`btn-toggle-rate-panel-${company.id}`}
+              onClick={() => setShowRatePanel(v => !v)}
+              className="text-[10px] text-violet-400 hover:text-violet-300 transition-colors"
+            >
+              {showRatePanel ? "Hide" : "Manage"}
+            </button>
+          </div>
+
+          {showRatePanel && !hasTariff && (
+            <p className="mt-1 text-[10px] text-amber-400 flex items-center gap-1 bg-amber-500/5 border border-amber-500/20 rounded px-2 py-1.5">
+              <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+              No Sippy tariff linked. Re-provision to auto-create one.
+            </p>
+          )}
+
+          {showRatePanel && hasTariff && (
+            <div className="mt-1.5 space-y-1.5">
+              {/* Current rates */}
+              {tariffFetching && (
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" /> Loading live rates…
+                </div>
+              )}
+              {tariffData && !tariffFetching && (
+                <div className="rounded border border-border/30 bg-background/40 overflow-hidden">
+                  <div className="flex items-center justify-between px-2 py-1 border-b border-border/30">
+                    <span className="text-[10px] text-muted-foreground">
+                      <List className="h-2.5 w-2.5 inline mr-1" />
+                      {tariffData.rates?.length ?? 0} rate{(tariffData.rates?.length ?? 0) !== 1 ? "s" : ""} on tariff
+                    </span>
+                    <button onClick={() => refetchTariff()} className="text-[9px] text-blue-400 hover:text-blue-300">
+                      <RefreshCw className="h-2.5 w-2.5 inline" /> refresh
+                    </button>
+                  </div>
+                  {(tariffData.rates?.length ?? 0) > 0 && (
+                    <div className="max-h-28 overflow-y-auto divide-y divide-border/20">
+                      {tariffData.rates.slice(0, 20).map((r: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between px-2 py-0.5">
+                          <span className="text-[10px] font-mono text-foreground/80">{r.prefix ?? r.i_prefix ?? r.destination ?? "—"}</span>
+                          <span className="text-[10px] font-mono text-emerald-400">{r.price ?? r.rate ?? r.i_rate ?? "—"}</span>
+                        </div>
+                      ))}
+                      {tariffData.rates.length > 20 && (
+                        <p className="text-[9px] text-muted-foreground text-center py-0.5">+ {tariffData.rates.length - 20} more</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Push new rates */}
+              <div className="rounded border border-violet-500/20 bg-violet-500/5 p-2 space-y-1.5">
+                <p className="text-[10px] font-medium text-violet-300">Push rates to Sippy tariff</p>
+                {rateRows.map((row, idx) => (
+                  <div key={idx} className="flex gap-1.5 items-center">
+                    <Input
+                      data-testid={`input-rate-prefix-${company.id}-${idx}`}
+                      placeholder="Prefix (e.g. 44)"
+                      value={row.prefix}
+                      onChange={e => setRateRows(rows => rows.map((r, i) => i === idx ? { ...r, prefix: e.target.value } : r))}
+                      className="h-6 text-xs font-mono flex-1 border-violet-500/30 bg-transparent focus:border-violet-400"
+                    />
+                    <Input
+                      data-testid={`input-rate-value-${company.id}-${idx}`}
+                      placeholder="Rate (e.g. 0.012)"
+                      value={row.rate}
+                      onChange={e => setRateRows(rows => rows.map((r, i) => i === idx ? { ...r, rate: e.target.value } : r))}
+                      className="h-6 text-xs font-mono w-28 border-violet-500/30 bg-transparent focus:border-violet-400"
+                    />
+                    {rateRows.length > 1 && (
+                      <button onClick={() => setRateRows(rows => rows.filter((_, i) => i !== idx))} className="text-rose-400 hover:text-rose-300">
+                        <XCircle className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setRateRows(rows => [...rows, { prefix: "", rate: "" }])}
+                    className="text-[10px] text-violet-400 hover:text-violet-300 flex items-center gap-0.5"
+                  >
+                    <PlusCircle className="h-2.5 w-2.5" /> Add row
+                  </button>
+                  <button
+                    data-testid={`btn-push-rates-${company.id}`}
+                    onClick={handlePushRates}
+                    disabled={pushRatesMutation.isPending}
+                    className="ml-auto flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/10 rounded px-2 py-0.5 transition-colors disabled:opacity-40"
+                  >
+                    {pushRatesMutation.isPending
+                      ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Pushing…</>
+                      : <><Upload className="h-2.5 w-2.5" /> Push to Sippy</>
+                    }
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Product Assignment Panel ─────────────────────────────────────────── */}
+      {isProvisioned && (
+        <div className="border-t border-border/40 pt-2 mt-1">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+              <Package className="h-2.5 w-2.5" />
+              Products
+              {assignedProducts.length > 0 && (
+                <Badge variant="outline" className="ml-1 text-[9px] text-emerald-400 border-emerald-500/30">
+                  {assignedProducts.length}
+                </Badge>
+              )}
+            </p>
+            <button
+              data-testid={`btn-toggle-product-panel-${company.id}`}
+              onClick={() => setShowProductPanel(v => !v)}
+              className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              {showProductPanel ? "Hide" : "Assign"}
+            </button>
+          </div>
+
+          {showProductPanel && (
+            <div className="mt-1.5 space-y-1.5">
+              {/* Assigned products list */}
+              {assignedProducts.length > 0 && (
+                <div className="rounded border border-border/30 bg-background/40 divide-y divide-border/20 overflow-hidden">
+                  {assignedProducts.map((a: any) => (
+                    <div key={a.id} className="flex items-center gap-2 px-2 py-1">
+                      <div
+                        className="h-2 w-2 rounded-full shrink-0"
+                        style={{ background: a.productColor ?? '#6366f1' }}
+                      />
+                      <span className="text-[10px] flex-1 text-foreground/80 truncate">{a.productName ?? `Product #${a.productId}`}</span>
+                      {a.productCode && <span className="text-[9px] font-mono text-muted-foreground">{a.productCode}</span>}
+                      <Badge variant="outline" className="text-[9px] text-emerald-400 border-emerald-500/30">active</Badge>
+                      <button
+                        data-testid={`btn-remove-product-${company.id}-${a.id}`}
+                        onClick={() => removeProductMutation.mutate(a.id)}
+                        disabled={removeProductMutation.isPending}
+                        className="text-rose-400 hover:text-rose-300 transition-colors disabled:opacity-40 ml-1"
+                        title="Remove assignment"
+                      >
+                        <Trash className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {assignedProducts.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/60 italic">No products assigned yet.</p>
+              )}
+
+              {/* Assign new product */}
+              <div className="flex gap-1.5 items-center">
+                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                  <SelectTrigger
+                    data-testid={`select-product-assign-${company.id}`}
+                    className="h-6 text-xs flex-1 border-blue-500/30 bg-transparent focus:border-blue-400"
+                  >
+                    <SelectValue placeholder="Select commercial product…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allProducts.map((p: any) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name} {p.code ? `(${p.code})` : ""}
+                      </SelectItem>
+                    ))}
+                    {allProducts.length === 0 && (
+                      <SelectItem value="_none" disabled>No commercial products available</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                <button
+                  data-testid={`btn-assign-product-${company.id}`}
+                  onClick={() => selectedProductId && selectedProductId !== "_none" && assignProductMutation.mutate(Number(selectedProductId))}
+                  disabled={!selectedProductId || selectedProductId === "_none" || assignProductMutation.isPending}
+                  className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:bg-blue-500/10 rounded px-2 py-1 transition-colors disabled:opacity-40"
+                >
+                  {assignProductMutation.isPending
+                    ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    : <PlusCircle className="h-2.5 w-2.5" />
+                  }
+                  Assign
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

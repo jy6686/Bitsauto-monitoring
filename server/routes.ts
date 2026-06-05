@@ -26766,7 +26766,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
 
       const reviewer = (req as any).user?.claims?.sub || 'admin';
-      await storage.updateCompany(companyId, { provisioningStatus: 'provisioned', sippyIAccount: iAccount, provisionedAt: new Date(), provisionedBy: reviewer } as any);
+      await storage.updateCompany(companyId, {
+        provisioningStatus: 'provisioned',
+        sippyIAccount: iAccount,
+        sippyITariff: iTariff ?? null,
+        provisionedAt: new Date(),
+        provisionedBy: reviewer,
+      } as any);
       const servicePlanNote = servicePlanFallbackName
         ? `Account assigned existing billing plan "${servicePlanFallbackName}" (id=${servicePlanId}).`
         : servicePlanId
@@ -26783,6 +26789,124 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         routingActions: routingActions.length ? routingActions : undefined,
         destinationsLinked: hasDestinations ? Object.entries(destinations).flatMap(([c, ops]) => ops.map(o => `${c}/${o}`)) : undefined,
       });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Phase 1: Rate Push to Client Tariff ────────────────────────────────────
+
+  // GET /api/companies/:id/tariff-rates — fetch live rates from the client's Sippy tariff
+  app.get('/api/companies/:id/tariff-rates', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.id, 10);
+      const company   = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: 'Company not found.' });
+      const tariffId  = (company as any).sippyITariff;
+      if (!tariffId)  return res.status(400).json({ message: 'No tariff linked to this company. Provision first.' });
+      const settings  = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings as any);
+      const rates = await sippy.getTariffRatesListFull(username, password, tariffId, {}, portalUrl);
+      res.json({ iTariff: tariffId, rates });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/companies/:id/push-rates — push rate entries to the client's Sippy tariff
+  // Body: { rates: [{ prefix: string, rate: number, effectiveFrom?: string, effectiveTill?: string }] }
+  app.post('/api/companies/:id/push-rates', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.id, 10);
+      const company   = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: 'Company not found.' });
+      const tariffId  = (company as any).sippyITariff;
+      if (!tariffId)  return res.status(400).json({ message: 'No tariff linked to this company. Provision first.' });
+      const { rates } = req.body ?? {};
+      if (!Array.isArray(rates) || rates.length === 0) return res.status(400).json({ message: 'rates[] array required.' });
+      const settings  = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings as any);
+      const results: { prefix: string; rate: number; success: boolean; message: string }[] = [];
+      for (const entry of rates) {
+        const r = await sippy.setSippyRateEntry(username, password, String(tariffId), {
+          prefix:        entry.prefix,
+          rate:          Number(entry.rate),
+          effectiveFrom: entry.effectiveFrom  ? entry.effectiveFrom  : undefined,
+          effectiveTill: entry.effectiveTill  ? entry.effectiveTill  : undefined,
+        }, portalUrl);
+        results.push({ prefix: entry.prefix, rate: Number(entry.rate), success: r.success, message: r.message });
+      }
+      const pushed = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      console.log(`[push-rates] Company #${companyId} tariff=${tariffId}: ${pushed} pushed, ${failed} failed`);
+      res.json({ pushed, failed, results });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ── Phase 3: Product → Client Assignments ──────────────────────────────────
+
+  // GET /api/companies/:id/products — list product assignments for a company
+  app.get('/api/companies/:id/products', (req: any, res: any, next: any) => requireRole(['admin','management','support'], req, res, next), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.id, 10);
+      const company   = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: 'Company not found.' });
+      const iAccount = (company as any).sippyIAccount;
+      if (!iAccount) return res.json([]);
+      const assignments = await db.select({
+        id:          customerProductAssignments.id,
+        productId:   customerProductAssignments.productId,
+        iAccount:    customerProductAssignments.iAccount,
+        status:      customerProductAssignments.status,
+        assignedAt:  customerProductAssignments.assignedAt,
+        assignedBy:  customerProductAssignments.assignedBy,
+        productName: productRegistry.name,
+        productCode: productRegistry.code,
+        productColor: productRegistry.color,
+        trunkPrefix: productRegistry.trunkPrefix,
+      })
+      .from(customerProductAssignments)
+      .leftJoin(productRegistry, eq(customerProductAssignments.productId, productRegistry.id))
+      .where(eq(customerProductAssignments.iAccount, iAccount));
+      res.json(assignments);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/companies/:id/products — assign a product to a company
+  app.post('/api/companies/:id/products', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.id, 10);
+      const company   = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: 'Company not found.' });
+      const iAccount = (company as any).sippyIAccount;
+      if (!iAccount) return res.status(400).json({ message: 'Company not yet provisioned in Sippy.' });
+      const { productId } = req.body ?? {};
+      if (!productId) return res.status(400).json({ message: 'productId required.' });
+      // Check product exists and is commercial
+      const [product] = await db.select().from(productRegistry).where(eq(productRegistry.id, productId)).limit(1);
+      if (!product) return res.status(404).json({ message: 'Product not found.' });
+      if (product.status !== 'commercial') return res.status(400).json({ message: `Product "${product.name}" is not in commercial status (current: ${product.status}).` });
+      // Check for duplicate
+      const [existing] = await db.select().from(customerProductAssignments)
+        .where(and(eq(customerProductAssignments.iAccount, iAccount), eq(customerProductAssignments.productId, productId), eq(customerProductAssignments.status, 'active')))
+        .limit(1);
+      if (existing) return res.status(409).json({ message: `Product "${product.name}" is already assigned to this client.` });
+      const [assignment] = await db.insert(customerProductAssignments).values({
+        iAccount,
+        productId,
+        status: 'active',
+        assignedBy: (req as any).user?.claims?.sub ?? 'admin',
+      } as any).returning();
+      res.json(assignment);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // DELETE /api/companies/:id/products/:assignmentId — remove a product assignment
+  app.delete('/api/companies/:id/products/:assignmentId', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const assignmentId = parseInt(req.params.assignmentId, 10);
+      await db.update(customerProductAssignments)
+        .set({ status: 'inactive' })
+        .where(eq(customerProductAssignments.id, assignmentId));
+      res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
@@ -33648,14 +33772,53 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // POST /api/deals/:id/approve
+  // POST /api/deals/:id/approve — approve deal + auto-push rates to client tariff
   app.post('/api/deals/:id/approve', async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       const [deal] = await db.update(deals).set({ status: 'active', updatedAt: new Date() }).where(eq(deals.id, id)).returning();
       if (!deal) return res.status(404).json({ error: 'Not found' });
       await db.insert(dealApprovals).values({ dealId: id, action: 'approved', performedBy: req.user?.claims?.sub ?? 'system', notes: req.body.notes ?? null });
-      res.json(deal);
+
+      // ── Auto push deal rates to client's Sippy tariff ─────────────────────
+      let ratePushResult: { pushed: number; failed: number; skipped?: string } | undefined;
+      try {
+        // Find the company by sippyIAccount
+        const allCompanies = await storage.getCompanies();
+        const clientCompany = allCompanies.find((c: any) => c.sippyIAccount === deal.iAccount);
+        const tariffId = (clientCompany as any)?.sippyITariff;
+        if (tariffId) {
+          const dests = await db.select().from(dealDestinations).where(eq(dealDestinations.dealId, id));
+          if (dests.length > 0) {
+            const settings  = await storage.getSettings();
+            const { username, password } = sippyXmlCreds(settings as any);
+            const portalUrl = sippyPortalUrl(settings as any);
+            let pushed = 0, failed = 0;
+            for (const d of dests) {
+              const rate = parseFloat(d.offerRate ?? '0');
+              if (!d.destinationName || rate <= 0) continue;
+              // Derive dial prefix from destination name (use numeric prefix from globalDestinations)
+              const [gd] = await db.select({ dialPrefix: globalDestinations.dialPrefix })
+                .from(globalDestinations).where(eq(globalDestinations.id, d.destinationId ?? 0)).limit(1);
+              const prefix = gd?.dialPrefix ?? d.destinationName;
+              const r = await sippy.setSippyRateEntry(username, password, String(tariffId), { prefix, rate }, portalUrl);
+              r.success ? pushed++ : failed++;
+              console.log(`[deal-approve] Rate push ${prefix}=${rate}: ${r.success ? 'OK' : r.message}`);
+            }
+            ratePushResult = { pushed, failed };
+            console.log(`[deal-approve] Deal #${id} rate push complete: ${pushed} pushed, ${failed} failed → tariff=${tariffId}`);
+          } else {
+            ratePushResult = { pushed: 0, failed: 0, skipped: 'No destinations on deal' };
+          }
+        } else {
+          ratePushResult = { pushed: 0, failed: 0, skipped: 'No tariff linked to client (provision first)' };
+        }
+      } catch (e: any) {
+        console.warn(`[deal-approve] Rate push non-fatal error: ${e.message}`);
+        ratePushResult = { pushed: 0, failed: 0, skipped: e.message };
+      }
+
+      res.json({ ...deal, ratePushResult });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

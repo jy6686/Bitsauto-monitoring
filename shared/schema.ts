@@ -1414,6 +1414,7 @@ export const companies = pgTable("companies", {
   provisionedAt:       timestamp("provisioned_at"),
   provisionedBy:       varchar("provisioned_by",       { length: 255 }),
   sippyIAccount:       integer("sippy_i_account"),
+  sippyITariff:        integer("sippy_i_tariff"),
   wizardDraft:         text("wizard_draft"),
 });
 export type Company = typeof companies.$inferSelect;

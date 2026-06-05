@@ -1283,8 +1283,21 @@ function ApprovalsTab({ deals, products }: { deals: Deal[]; products: Product[] 
   const [notes, setNotes] = useState<Record<number, string>>({});
 
   const approveMut = useMutation({
-    mutationFn: ({ id, n }: { id: number; n: string }) => apiRequest("POST", `/api/deals/${id}/approve`, { notes: n }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/deals"] }); toast({ title: "Deal approved ✓" }); },
+    mutationFn: async ({ id, n }: { id: number; n: string }) => {
+      const res = await apiRequest("POST", `/api/deals/${id}/approve`, { notes: n });
+      return typeof res?.json === 'function' ? res.json() : res;
+    },
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/deals"] });
+      const rp = data?.ratePushResult;
+      if (rp && !rp.skipped) {
+        toast({ title: `Deal approved ✓ — Rates pushed to Sippy`, description: `${rp.pushed} rate(s) pushed${rp.failed ? `, ${rp.failed} failed` : ''}` });
+      } else if (rp?.skipped) {
+        toast({ title: "Deal approved ✓", description: `Rates not pushed: ${rp.skipped}` });
+      } else {
+        toast({ title: "Deal approved ✓" });
+      }
+    },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
   const rejectMut = useMutation({
