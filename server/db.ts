@@ -586,7 +586,7 @@ export async function runSafeMigrations(): Promise<void> {
     `);
     await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS rtp_quality_stats_uidx
-        ON rtp_quality_stats (vendor_id, COALESCE(destination_prefix, ''), window_minutes)
+        ON rtp_quality_stats (vendor_id, destination_prefix, window_minutes)
     `);
     await client.query(`
       ALTER TABLE rtp_quality_stats ADD COLUMN IF NOT EXISTS avg_latency_ms REAL

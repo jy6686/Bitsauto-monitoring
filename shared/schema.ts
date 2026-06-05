@@ -3400,7 +3400,7 @@ export const sipErrorStats = pgTable("sip_error_stats", {
   rate:          real("rate").notNull().default(0),
   computedAt:    timestamp("computed_at").notNull().defaultNow(),
   destPrefix:    varchar("dest_prefix",     { length: 12 }).notNull().default(""),
-  timeBucket:    timestamp("time_bucket"),
+  timeBucket:    timestamp("time_bucket").notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("sip_error_stats_uniq").on(
     t.vendorName, t.windowMinutes, t.code, t.timeBucket, t.destPrefix
@@ -3523,7 +3523,7 @@ export type BalanceAlertNotificationSettings = typeof balanceAlertNotificationSe
 export const rtpQualityStats = pgTable("rtp_quality_stats", {
   id:                serial("id").primaryKey(),
   vendorId:          varchar("vendor_id", { length: 128 }).notNull(),
-  destinationPrefix: varchar("destination_prefix", { length: 32 }),
+  destinationPrefix: varchar("destination_prefix", { length: 32 }).notNull().default(""),
   windowMinutes:     integer("window_minutes").notNull(),
   avgMos:            real("avg_mos"),
   p10Mos:            real("p10_mos"),
@@ -3532,7 +3532,9 @@ export const rtpQualityStats = pgTable("rtp_quality_stats", {
   avgLatencyMs:      real("avg_latency_ms"),
   sampleCount:       integer("sample_count").notNull().default(0),
   computedAt:        timestamp("computed_at").defaultNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("rtp_quality_stats_uidx").on(t.vendorId, t.destinationPrefix, t.windowMinutes),
+]);
 export type RtpQualityStat = typeof rtpQualityStats.$inferSelect;
 
 // ── Reconciliation Report Schedules — recurring email delivery ────────────────
@@ -3577,7 +3579,7 @@ export type InsertReconciliationEmailLog = typeof reconciliationEmailLog.$inferI
 
 // ── RTP / MOS Quality History ─────────────────────────────────────────────────
 // Append-only time-series snapshots written on every aggregation run (every 5 min).
-// Vendor-level only (destination_prefix = NULL equivalent). Purged after 25h.
+// Vendor-level only (destination_prefix = ''). Purged after 25h.
 export const rtpQualityHistory = pgTable("rtp_quality_history", {
   id:            serial("id").primaryKey(),
   vendorId:      varchar("vendor_id", { length: 128 }).notNull(),

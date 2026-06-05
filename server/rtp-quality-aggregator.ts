@@ -129,7 +129,7 @@ async function aggregateWindow(cdrs: RtpCdrRecord[], windowMinutes: number): Pro
 
   // Group by composite key: "vendorId\x00destPrefix" (NULL prefix → empty string)
   const byKey = new Map<string, WindowAccumulator>();
-  const keyMeta = new Map<string, { vendorId: string; prefix: string | null }>();
+  const keyMeta = new Map<string, { vendorId: string; prefix: string }>();
 
   for (const cdr of windowCdrs) {
     const vendor = (cdr.vendorName ?? cdr.vendor ?? '').trim();
@@ -140,7 +140,7 @@ async function aggregateWindow(cdrs: RtpCdrRecord[], windowMinutes: number): Pro
     const vendorKey = `${vendor}\x00`;
     if (!byKey.has(vendorKey)) {
       byKey.set(vendorKey, { mosValues: [], jitterValues: [], pktLossValues: [], latencyValues: [], sampleCount: 0 });
-      keyMeta.set(vendorKey, { vendorId: vendor, prefix: null });
+      keyMeta.set(vendorKey, { vendorId: vendor, prefix: '' });
     }
 
     // Prefix-level aggregate
@@ -201,7 +201,7 @@ async function aggregateWindow(cdrs: RtpCdrRecord[], windowMinutes: number): Pro
         INSERT INTO rtp_quality_stats
           (vendor_id, destination_prefix, window_minutes, avg_mos, p10_mos, avg_jitter_ms, avg_pkt_loss_pct, avg_latency_ms, sample_count, computed_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-        ON CONFLICT (vendor_id, COALESCE(destination_prefix, ''), window_minutes)
+        ON CONFLICT (vendor_id, destination_prefix, window_minutes)
         DO UPDATE SET
           avg_mos          = EXCLUDED.avg_mos,
           p10_mos          = EXCLUDED.p10_mos,
@@ -233,7 +233,7 @@ async function snapshotHistory(): Promise<void> {
   try {
     // Fetch fresh vendor-level rows from rtp_quality_stats (all windows)
     const allRows = await db.select().from(rtpQualityStats);
-    const vendorRows = allRows.filter(r => r.destinationPrefix == null && r.windowMinutes === 60);
+    const vendorRows = allRows.filter(r => r.destinationPrefix === '' && r.windowMinutes === 60);
     if (vendorRows.length === 0) return;
 
     const client = await pool.connect();
@@ -326,9 +326,9 @@ export async function getRtpQualitySummary(): Promise<VendorQualitySummary[]> {
   const freshnessThreshold = new Date(Date.now() - ROW_MAX_AGE_MS);
   const rows = allRows.filter(r => r.computedAt >= freshnessThreshold);
 
-  // Separate vendor-level rows (prefix IS NULL) from prefix rows
-  const vendorRows    = rows.filter(r => r.destinationPrefix == null);
-  const prefixRows    = rows.filter(r => r.destinationPrefix != null);
+  // Separate vendor-level rows (prefix = '') from prefix rows
+  const vendorRows    = rows.filter(r => r.destinationPrefix === '');
+  const prefixRows    = rows.filter(r => r.destinationPrefix !== '');
 
   // Group vendor rows by vendorId
   const byVendor = new Map<string, typeof vendorRows>();
@@ -393,8 +393,8 @@ export async function getRtpQualityForVendor(vendorId: string): Promise<VendorQu
   const rows = allRows.filter(r => r.computedAt >= freshnessThreshold);
   if (rows.length === 0) return null;
 
-  const vendorRows = rows.filter(r => r.destinationPrefix == null);
-  const prefixRows = rows.filter(r => r.destinationPrefix != null);
+  const vendorRows = rows.filter(r => r.destinationPrefix === '');
+  const prefixRows = rows.filter(r => r.destinationPrefix !== '');
 
   const prefixMap = new Map<string, typeof prefixRows>();
   for (const row of prefixRows) {
@@ -542,8 +542,8 @@ export async function buildVoiceQualityDigest(): Promise<VoiceQualityDigest> {
 
   const freshnessThreshold = new Date(Date.now() - ROW_MAX_AGE_MS);
   const freshRows = allRows.filter(r => r.computedAt >= freshnessThreshold);
-  const vendorRows = freshRows.filter(r => r.destinationPrefix == null);
-  const prefixRows = freshRows.filter(r => r.destinationPrefix != null);
+  const vendorRows = freshRows.filter(r => r.destinationPrefix === '');
+  const prefixRows = freshRows.filter(r => r.destinationPrefix !== '');
 
   if (vendorRows.length === 0) {
     return { degradedVendors: [], hasQualityData: false, summary: 'No RTP quality data available (VQ reporting may not be enabled on this Sippy instance).' };
