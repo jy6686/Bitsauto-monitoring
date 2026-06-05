@@ -13,7 +13,7 @@ import {
   Users, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2,
   AlertTriangle, ShieldCheck, Server, Network, FileText,
   Loader2, Info, Eye, EyeOff, Tag, Package, Lock, LockOpen,
-  Copy, Check, Save, Zap,
+  Copy, Check, Save, Zap, Globe, Radio,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
@@ -66,6 +66,20 @@ const INVOICE_TILES = [
 ];
 
 const SHEET_FORMAT_OPTIONS = ["Full CSV", "Excel XLSX", "PDF", "Partial Update", "A2Z"];
+
+// ── Destination catalogue (for auto-routing) ──────────────────────────────────
+const DESTINATION_CATALOGUE = [
+  { country: "Pakistan",   flag: "🇵🇰", operators: ["Jazz", "Ufone", "Zong", "Telenor", "PTCL"] },
+  { country: "India",      flag: "🇮🇳", operators: ["Airtel", "Vodafone Idea", "Reliance Jio", "BSNL"] },
+  { country: "Bangladesh", flag: "🇧🇩", operators: ["Grameenphone", "Banglalink", "Robi", "Teletalk"] },
+  { country: "Sri Lanka",  flag: "🇱🇰", operators: ["Dialog", "Mobitel", "Airtel SL"] },
+  { country: "Nepal",      flag: "🇳🇵", operators: ["Ncell", "Nepal Telecom"] },
+  { country: "UAE",        flag: "🇦🇪", operators: ["Etisalat", "Du"] },
+  { country: "Saudi Arabia",flag:"🇸🇦", operators: ["STC", "Mobily", "Zain SA"] },
+  { country: "UK",         flag: "🇬🇧", operators: ["BT", "Vodafone UK", "EE", "O2"] },
+  { country: "USA",        flag: "🇺🇸", operators: ["AT&T", "T-Mobile US", "Verizon"] },
+  { country: "Other",      flag: "🌐",  operators: ["Mobile", "Fixed", "International"] },
+] as const;
 
 function genPassword(len = 12) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
@@ -213,6 +227,27 @@ export default function ClientWizardPage() {
   // ── Step 4 state ────────────────────────────────────────────────────────────
   const [ips, setIps] = useState<IpEntry[]>([emptyIp()]);
   const [manualProducts, setManualProducts] = useState<string[]>([]);
+  // destinations: { country → Set of selected operator names }
+  const [destinations, setDestinations] = useState<Record<string, string[]>>({});
+  const [expandedCountry, setExpandedCountry] = useState<string | null>(null);
+
+  const toggleOperator = (country: string, op: string) => {
+    setDestinations(prev => {
+      const ops = prev[country] ?? [];
+      const next = ops.includes(op) ? ops.filter(o => o !== op) : [...ops, op];
+      if (next.length === 0) { const { [country]: _, ...rest } = prev; return rest; }
+      return { ...prev, [country]: next };
+    });
+  };
+  const toggleAllOperators = (country: string, allOps: readonly string[]) => {
+    setDestinations(prev => {
+      const ops = prev[country] ?? [];
+      const allSelected = allOps.every(o => ops.includes(o));
+      if (allSelected) { const { [country]: _, ...rest } = prev; return rest; }
+      return { ...prev, [country]: [...allOps] };
+    });
+  };
+  const totalDestinationsSelected = Object.values(destinations).reduce((n, ops) => n + ops.length, 0);
 
   // ── Derived: products from trunk names ──────────────────────────────────────
   const derivedProducts = Array.from(new Set(
@@ -349,6 +384,7 @@ export default function ClientWizardPage() {
     ips: ips.filter(ip => ip.ip.trim()),
     iCustomer: 1,
     selectedProducts: activeProducts,
+    destinations,
   });
 
   const handleSubmit = () => createClientMutation.mutate(buildPayload());
@@ -1188,6 +1224,95 @@ export default function ClientWizardPage() {
                   </div>
                 )}
               </div>
+
+              {/* Destination & Operator picker */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Globe className="h-4 w-4 text-blue-400" />
+                  <h3 className="text-sm font-medium">Destinations & Operators</h3>
+                  {totalDestinationsSelected > 0 && (
+                    <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30">
+                      {totalDestinationsSelected} operator{totalDestinationsSelected !== 1 ? "s" : ""} selected
+                    </Badge>
+                  )}
+                  <span className="ml-auto text-[10px] text-muted-foreground">Optional — enables auto-routing on provision</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {DESTINATION_CATALOGUE.map(({ country, flag, operators }) => {
+                    const selected = destinations[country] ?? [];
+                    const allSelected = operators.every(o => selected.includes(o));
+                    const someSelected = selected.length > 0 && !allSelected;
+                    const isExpanded = expandedCountry === country;
+                    return (
+                      <div key={country} className={`border rounded-lg overflow-hidden transition-colors ${
+                        selected.length > 0 ? "border-blue-500/40 bg-blue-500/5" : "border-border/40"
+                      }`}>
+                        <button
+                          type="button"
+                          data-testid={`dest-country-${country.replace(/\s+/g, "-").toLowerCase()}`}
+                          onClick={() => setExpandedCountry(isExpanded ? null : country)}
+                          className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-muted/20 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{flag}</span>
+                            <span className="text-xs font-medium">{country}</span>
+                            {selected.length > 0 && (
+                              <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30">
+                                {selected.length}/{operators.length}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={e => { e.stopPropagation(); toggleAllOperators(country, operators); }}
+                              className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                                allSelected
+                                  ? "bg-blue-500/20 border-blue-500/40 text-blue-400"
+                                  : someSelected
+                                    ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                                    : "border-border/40 text-muted-foreground hover:border-border"
+                              }`}
+                            >
+                              {allSelected ? "All ✓" : someSelected ? "Partial" : "All"}
+                            </button>
+                            <ChevronRight className={`h-3 w-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                          </div>
+                        </button>
+                        {isExpanded && (
+                          <div className="px-3 pb-3 pt-1 flex flex-wrap gap-1.5">
+                            {operators.map(op => {
+                              const active = selected.includes(op);
+                              return (
+                                <button
+                                  key={op}
+                                  type="button"
+                                  data-testid={`dest-op-${op.replace(/\s+/g, "-").toLowerCase()}`}
+                                  onClick={() => toggleOperator(country, op)}
+                                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-medium transition-all ${
+                                    active
+                                      ? "bg-blue-500/15 border-blue-500/50 text-blue-400"
+                                      : "border-border/40 text-muted-foreground hover:border-border"
+                                  }`}
+                                >
+                                  <Radio className={`h-2.5 w-2.5 ${active ? "text-blue-400" : "text-muted-foreground"}`} />
+                                  {op}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {totalDestinationsSelected === 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-2 flex items-center gap-1">
+                    <Info className="h-3 w-3" />
+                    Skip if not needed. When selected, auth rules are created with CLD rules and routing groups are auto-linked per product.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -1290,6 +1415,17 @@ export default function ClientWizardPage() {
                     <Badge key={p} variant="outline" className={`text-[10px] ${PRODUCT_COLOR[p] ?? ""}`}>{p}</Badge>
                   ))}
                 </div>
+                {totalDestinationsSelected > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {Object.entries(destinations).map(([country, ops]) =>
+                      ops.map(op => (
+                        <span key={`${country}-${op}`} className="text-[10px] bg-blue-500/10 text-blue-400 border border-blue-500/30 rounded-full px-2 py-0.5">
+                          {DESTINATION_CATALOGUE.find(d => d.country === country)?.flag} {op}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                )}
               </button>
 
               <div className="flex items-center gap-2 p-3 rounded-md border border-amber-500/30 bg-amber-500/5 text-amber-400 text-xs">

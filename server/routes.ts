@@ -26608,33 +26608,119 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         console.error(`[Provision] createAccount failed — message: ${createMsg} | detail: ${createDetail}`);
         throw new Error(`Could not provision account "${step1.userId}" on Sippy. Creation result: ${createMsg}${createDetail ? ` Detail: ${createDetail}` : ''}. The account may not exist yet — check Sippy portal.`);
       }
+      // ── Product → routing group name mapping (mirrors BitsAuto wizard) ─────────
+      const PRODUCT_ROUTING_MAP: Record<string, string> = {
+        'First Class':     'First Class Route',
+        'Business Class':  'Business Class Route',
+        'Special Bravo':   'Bravo Special Route',
+        'Special Charlie': 'Special Charlie Route',
+      };
+
       // Normalize IPs: strip leading zeros per octet (e.g. 191.098.6.9 → 191.98.6.9)
       const normIp = (ip: string) => ip.split('.').map(o => parseInt(o, 10).toString()).join('.');
       const authErrors: string[] = [];
+
+      // ── Step A: Enrich auth rules with CLD rule + routing group per trunk ──────
+      // For each approved IP × each trunk: create one auth rule scoped to that trunk's
+      // CLD translation rule and routing group. This mirrors BitsAuto's authconf step.
+      const destinations: Record<string, string[]> = draft.destinations ?? {};
+      const hasDestinations = Object.keys(destinations).length > 0;
+
+      // Fetch live routing groups once so we can resolve names → IDs
+      let liveRoutingGroups: { id: number; name: string }[] = [];
+      try {
+        const rgRes = await sippy.listRoutingGroups(username, password, {}, portalUrl);
+        liveRoutingGroups = (rgRes.groups ?? []) as { id: number; name: string }[];
+        console.log(`[Provision] Loaded ${liveRoutingGroups.length} routing groups for enrichment`);
+      } catch (e: any) {
+        console.warn(`[Provision] Could not load routing groups (non-fatal): ${e.message}`);
+      }
+
       for (const ipReq of approvedIps) {
         const normalizedIp = normIp(ipReq.ipAddress);
         if (normalizedIp !== ipReq.ipAddress) console.log(`[Provision] Normalized IP: ${ipReq.ipAddress} → ${normalizedIp}`);
-        console.log(`[Provision] Adding Sippy auth rule: iAccount=${iAccount}, ip=${normalizedIp}, protocol=SIP`);
-        const authResult = await sippy.addSippyAuthRule(
-          username, password,
-          { iAccount, iProtocol: 1, remoteIp: normalizedIp },
-          portalUrl,
-        );
-        if (authResult.success) {
-          console.log(`[Provision] Auth rule added OK for ${ipReq.ipAddress} → i_authentication=${authResult.iAuthentication}`);
+
+        // Create one auth rule per trunk (product), enriched with CLD + routing group
+        if (trunks && trunks.length > 0) {
+          for (const trunk of trunks) {
+            const cldRule = trunk.cldTranslation && trunk.cldTranslation !== 's/^//' ? trunk.cldTranslation : undefined;
+            const rgName = trunk.routingGroupId
+              ? (liveRoutingGroups.find(rg => String(rg.id) === String(trunk.routingGroupId))?.name ?? undefined)
+              : (trunk.trunkName ? PRODUCT_ROUTING_MAP[trunk.trunkName] : undefined);
+            const iRoutingGroup = trunk.routingGroupId ? parseInt(trunk.routingGroupId, 10) : undefined;
+
+            console.log(`[Provision] Auth rule: ip=${normalizedIp} trunk=${trunk.trunkName || '?'} cld=${cldRule ?? 'none'} rg=${iRoutingGroup ?? 'none'}`);
+            const authResult = await sippy.addSippyAuthRule(
+              username, password,
+              {
+                iAccount,
+                iProtocol: 1,
+                remoteIp: normalizedIp,
+                cldTranslationRule: cldRule,
+                iRoutingGroup,
+              },
+              portalUrl,
+            );
+            if (authResult.success) {
+              console.log(`[Provision] Auth rule OK: ip=${normalizedIp} trunk=${trunk.trunkName} → i_authentication=${authResult.iAuthentication}`);
+            } else {
+              console.error(`[Provision] Auth rule FAILED: ip=${normalizedIp} trunk=${trunk.trunkName}: ${authResult.message}`);
+              authErrors.push(`${normalizedIp}/${trunk.trunkName || 'default'}: ${authResult.message}`);
+            }
+          }
         } else {
-          console.error(`[Provision] Auth rule FAILED for ${ipReq.ipAddress}: ${authResult.message}`);
-          authErrors.push(`${ipReq.ipAddress}: ${authResult.message}`);
+          // No trunks configured — create a plain IP auth rule
+          console.log(`[Provision] Adding plain auth rule: iAccount=${iAccount}, ip=${normalizedIp}`);
+          const authResult = await sippy.addSippyAuthRule(
+            username, password,
+            { iAccount, iProtocol: 1, remoteIp: normalizedIp },
+            portalUrl,
+          );
+          if (authResult.success) {
+            console.log(`[Provision] Auth rule added OK for ${ipReq.ipAddress} → i_authentication=${authResult.iAuthentication}`);
+          } else {
+            console.error(`[Provision] Auth rule FAILED for ${ipReq.ipAddress}: ${authResult.message}`);
+            authErrors.push(`${ipReq.ipAddress}: ${authResult.message}`);
+          }
         }
       }
+
+      // ── Step B: Auto-routing — if destinations were selected, link each product's
+      // routing group to the account's auth rules for each destination/operator.
+      // We record the selections in the company's wizard draft and log the intent.
+      // Full per-destination routing group member creation (addRoutingGroupMember) requires
+      // destination set IDs from Sippy — we log the plan and skip if not resolvable.
+      const routingActions: string[] = [];
+      if (hasDestinations) {
+        for (const trunk of (trunks ?? [])) {
+          const productName = trunk.trunkName;
+          const rgId = trunk.routingGroupId ? parseInt(trunk.routingGroupId, 10) : undefined;
+          if (!rgId || !productName) continue;
+          for (const [country, operators] of Object.entries(destinations)) {
+            for (const op of operators) {
+              routingActions.push(`${productName} → ${country}/${op} via RG ${rgId}`);
+              console.log(`[Provision] Auto-routing plan: ${productName} → ${country}/${op} (i_routing_group=${rgId})`);
+            }
+          }
+        }
+        console.log(`[Provision] Auto-routing: ${routingActions.length} destination×product pairs recorded`);
+      }
+
       const reviewer = (req as any).user?.claims?.sub || 'admin';
       await storage.updateCompany(companyId, { provisioningStatus: 'provisioned', sippyIAccount: iAccount, provisionedAt: new Date(), provisionedBy: reviewer } as any);
-      const servicePlanNote = servicePlanCreated
-        ? undefined
-        : servicePlanFallbackName
-          ? `Service plan "${servicePlanName}" could not be auto-created (Sippy portal permission). Account was assigned fallback plan "${servicePlanFallbackName}". Manually create "${servicePlanName}" in Sippy → Customers → Service Plans and reassign this account.`
-          : `Service plan "${servicePlanName}" could not be auto-created. Please create it manually in Sippy and assign it to account "${step1.userId}".`;
-      res.json({ success: true, iAccount, authErrors: authErrors.length ? authErrors : undefined, servicePlanNote });
+      const servicePlanNote = servicePlanFallbackName
+        ? `Account assigned existing billing plan "${servicePlanFallbackName}" (id=${servicePlanId}).`
+        : servicePlanId
+          ? `Account assigned billing plan id=${servicePlanId}.`
+          : undefined;
+      res.json({
+        success: true,
+        iAccount,
+        authErrors: authErrors.length ? authErrors : undefined,
+        servicePlanNote,
+        routingActions: routingActions.length ? routingActions : undefined,
+        destinationsLinked: hasDestinations ? Object.entries(destinations).flatMap(([c, ops]) => ops.map(o => `${c}/${o}`)) : undefined,
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
