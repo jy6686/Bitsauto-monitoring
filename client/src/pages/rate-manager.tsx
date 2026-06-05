@@ -861,7 +861,7 @@ function SendRateTab({
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground font-medium">Category</label>
+              <label className="text-[10px] text-muted-foreground font-medium">Operator</label>
               <select
                 value={notifCategory}
                 onChange={e => { setNotifCategory(e.target.value); setNotifDetail(""); }}
@@ -869,23 +869,24 @@ function SendRateTab({
                 className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background disabled:opacity-50"
                 data-testid="notif-category"
               >
-                <option value="">Select category</option>
-                {categories.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
+                <option value="">Select operator</option>
+                {categories.map(d => <option key={d.id} value={String(d.id)}>{d.name} {d.dialPrefix ? `(${d.dialPrefix})` : ""}</option>)}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground font-medium">Detail</label>
-              <select
-                value={notifDetail}
-                onChange={e => setNotifDetail(e.target.value)}
-                disabled={!notifCategory || details.length === 0}
-                className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background disabled:opacity-50"
-                data-testid="notif-detail"
-              >
-                <option value="">Select detail</option>
-                {details.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
-              </select>
-            </div>
+            {details.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] text-muted-foreground font-medium">Detail</label>
+                <select
+                  value={notifDetail}
+                  onChange={e => setNotifDetail(e.target.value)}
+                  className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background"
+                  data-testid="notif-detail"
+                >
+                  <option value="">Select detail</option>
+                  {details.map(d => <option key={d.id} value={String(d.id)}>{d.name} {d.dialPrefix ? `(${d.dialPrefix})` : ""}</option>)}
+                </select>
+              </div>
+            )}
             <div className="space-y-1">
               <label className="text-[10px] text-muted-foreground font-medium">Price (USD/min)</label>
               <input
