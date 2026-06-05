@@ -3726,6 +3726,9 @@ export const productDestinationAssignments = pgTable("product_destination_assign
   status:        varchar("status", { length: 16 }).notNull().default("active"),
   createdAt:     timestamp("created_at").defaultNow().notNull(),
   createdBy:     varchar("created_by", { length: 128 }),
+  offerMin:      real("offer_min"),
+  offerTarget:   real("offer_target"),
+  offerPremium:  real("offer_premium"),
 });
 export type ProductDestinationAssignment       = typeof productDestinationAssignments.$inferSelect;
 export type InsertProductDestinationAssignment = typeof productDestinationAssignments.$inferInsert;

@@ -33026,6 +33026,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // PATCH /api/product-registry/assignments/:id  — update per-destination offer rates
+  app.patch('/api/product-registry/assignments/:id', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { offerMin, offerTarget, offerPremium } = req.body;
+      const [row] = await db.update(productDestinationAssignments)
+        .set({ offerMin: offerMin ?? null, offerTarget: offerTarget ?? null, offerPremium: offerPremium ?? null })
+        .where(eq(productDestinationAssignments.id, id))
+        .returning();
+      if (!row) return res.status(404).json({ error: 'Not found' });
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // DELETE /api/product-registry/assignments/:id
   app.delete('/api/product-registry/assignments/:id', async (req: any, res) => {
     try {

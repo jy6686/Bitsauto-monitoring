@@ -33,7 +33,7 @@ interface Destination {
   commercialStatus: string; sortOrder?: number;
 }
 interface DestinationNode extends Destination { children: DestinationNode[]; }
-interface Assignment { id: number; productId: number; destinationId: number; status: string; }
+interface Assignment { id: number; productId: number; destinationId: number; status: string; offerMin?: number | null; offerTarget?: number | null; offerPremium?: number | null; }
 interface CustomerAssignment { id: number; productId: number; iAccount: number; customerName?: string; status: string; }
 interface HistoryEntry {
   id: number; productId?: number; destinationId?: number;
@@ -246,12 +246,16 @@ function DashboardTab({ products, assignments, destinations, customerAssignments
 }
 
 // ── Product Catalog Tab ───────────────────────────────────────────────────────
-function ProductCatalogTab({ products }: { products: Product[] }) {
+function ProductCatalogTab({ products, destinations, assignments }: {
+  products: Product[]; destinations: Destination[]; assignments: Assignment[];
+}) {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<Partial<Product>>({});
+  const [destSearch, setDestSearch] = useState("");
+  const [rateEdits, setRateEdits] = useState<Record<number, { min: string; target: string; premium: string }>>({});
 
   const selected = products.find(p => p.id === selectedId);
   const editForm = selected ? { ...selected, ...form } : form;
@@ -269,6 +273,27 @@ function ProductCatalogTab({ products }: { products: Product[] }) {
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/product-registry/products/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/products"] }); setSelectedId(null); toast({ title: "Deleted" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const assignDestMut = useMutation({
+    mutationFn: ({ productId, destinationId }: { productId: number; destinationId: number }) =>
+      apiRequest("POST", "/api/product-registry/assignments", { productId, destinationId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/product-registry/assignments"] }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const unassignDestMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/product-registry/assignments/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/product-registry/assignments"] }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const saveRatesMut = useMutation({
+    mutationFn: ({ id, rates }: { id: number; rates: { offerMin: number | null; offerTarget: number | null; offerPremium: number | null } }) =>
+      apiRequest("PATCH", `/api/product-registry/assignments/${id}`, rates),
+    onSuccess: (_r, { id }) => {
+      qc.invalidateQueries({ queryKey: ["/api/product-registry/assignments"] });
+      setRateEdits(prev => { const next = { ...prev }; delete next[id]; return next; });
+      toast({ title: "Rates saved" });
+    },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
@@ -359,10 +384,10 @@ function ProductCatalogTab({ products }: { products: Product[] }) {
                 <Input type="number" value={editForm.minMarginPct ?? 0} onChange={e => setForm(f => ({ ...f, minMarginPct: parseFloat(e.target.value) }))} data-testid="input-product-margin" />
               </Field>
               <Field label="Discount Min %">
-                <Input type="number" value={editForm.discountRangeMin ?? ""} onChange={e => setForm(f => ({ ...f, discountRangeMin: parseFloat(e.target.value) }))} data-testid="input-disc-min" />
+                <Input type="number" value={editForm.discountRangeMin ?? ""} onChange={e => setForm(f => ({ ...f, discountRangeMin: e.target.value === "" ? undefined : parseFloat(e.target.value) }))} data-testid="input-disc-min" />
               </Field>
               <Field label="Discount Max %">
-                <Input type="number" value={editForm.discountRangeMax ?? ""} onChange={e => setForm(f => ({ ...f, discountRangeMax: parseFloat(e.target.value) }))} data-testid="input-disc-max" />
+                <Input type="number" value={editForm.discountRangeMax ?? ""} onChange={e => setForm(f => ({ ...f, discountRangeMax: e.target.value === "" ? undefined : parseFloat(e.target.value) }))} data-testid="input-disc-max" />
               </Field>
             </div>
 
@@ -383,14 +408,85 @@ function ProductCatalogTab({ products }: { products: Product[] }) {
             </div>
 
             <div className="pt-2 border-t border-border">
-              <h3 className="text-sm font-semibold mb-3">KAM Offer Window</h3>
+              <h3 className="text-sm font-semibold mb-1">KAM Offer Window <span className="text-xs font-normal text-muted-foreground">(product-level default)</span></h3>
               <div className="grid grid-cols-3 gap-4">
-                <Field label="Minimum"><Input type="number" step="0.0001" value={editForm.offerWindowMin ?? ""} onChange={e => setForm(f => ({ ...f, offerWindowMin: parseFloat(e.target.value) }))} data-testid="input-offer-min" /></Field>
-                <Field label="Target"> <Input type="number" step="0.0001" value={editForm.offerWindowTarget ?? ""} onChange={e => setForm(f => ({ ...f, offerWindowTarget: parseFloat(e.target.value) }))} data-testid="input-offer-target" /></Field>
-                <Field label="Premium"><Input type="number" step="0.0001" value={editForm.offerWindowPremium ?? ""} onChange={e => setForm(f => ({ ...f, offerWindowPremium: parseFloat(e.target.value) }))} data-testid="input-offer-premium" /></Field>
+                <Field label="Minimum"><Input type="number" step="0.0001" value={editForm.offerWindowMin ?? ""} onChange={e => setForm(f => ({ ...f, offerWindowMin: e.target.value === "" ? null : parseFloat(e.target.value) }))} data-testid="input-offer-min" /></Field>
+                <Field label="Target"> <Input type="number" step="0.0001" value={editForm.offerWindowTarget ?? ""} onChange={e => setForm(f => ({ ...f, offerWindowTarget: e.target.value === "" ? null : parseFloat(e.target.value) }))} data-testid="input-offer-target" /></Field>
+                <Field label="Premium"><Input type="number" step="0.0001" value={editForm.offerWindowPremium ?? ""} onChange={e => setForm(f => ({ ...f, offerWindowPremium: e.target.value === "" ? null : parseFloat(e.target.value) }))} data-testid="input-offer-premium" /></Field>
               </div>
               <p className="text-xs text-muted-foreground mt-2">KAMs negotiate within this window — vendor cost and true margin are never exposed.</p>
             </div>
+
+            {!creating && selected && (
+              <div className="pt-2 border-t border-border">
+                <h3 className="text-sm font-semibold mb-1">Destination Rates</h3>
+                <p className="text-xs text-muted-foreground mb-2">Assign destinations and set per-destination offer rates for this product.</p>
+                <div className="relative mb-2">
+                  <Search className="absolute left-2 top-2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                  <Input value={destSearch} onChange={e => setDestSearch(e.target.value)} placeholder="Filter destinations…" className="h-8 pl-7 text-xs" data-testid="input-dest-rate-search" />
+                </div>
+                <div className="space-y-1 max-h-72 overflow-y-auto pr-0.5">
+                  {destinations
+                    .filter(d => !destSearch || d.name.toLowerCase().includes(destSearch.toLowerCase()) || d.dialPrefix?.includes(destSearch))
+                    .map(dest => {
+                      const asgn = assignments.find(a => a.productId === selected.id && a.destinationId === dest.id && a.status === "active");
+                      const key = asgn?.id ?? -dest.id;
+                      const edits = rateEdits[key];
+                      const displayMin = edits ? edits.min : (asgn?.offerMin?.toString() ?? "");
+                      const displayTarget = edits ? edits.target : (asgn?.offerTarget?.toString() ?? "");
+                      const displayPremium = edits ? edits.premium : (asgn?.offerPremium?.toString() ?? "");
+                      const isDirty = !!edits;
+                      return (
+                        <div key={dest.id} className={cn("rounded border px-2 py-1.5 transition-colors",
+                          asgn ? "border-emerald-500/20 bg-emerald-500/5" : "border-border bg-muted/10",
+                          dest.level === 1 && "opacity-60",
+                        )}>
+                          <div className="flex items-center gap-1.5">
+                            <Globe className={cn("w-3 h-3 shrink-0", dest.level === 1 ? "text-blue-400" : dest.level === 2 ? "text-emerald-400" : "text-amber-400")} style={{ marginLeft: `${(dest.level - 1) * 10}px` }} />
+                            <span className="text-xs font-medium flex-1 truncate">{dest.name}</span>
+                            {dest.dialPrefix && <span className="text-xs text-muted-foreground font-mono shrink-0">{dest.dialPrefix}</span>}
+                            {asgn ? (
+                              <button onClick={() => unassignDestMut.mutate(asgn.id)} className="text-xs text-rose-400 hover:text-rose-300 shrink-0 px-1" data-testid={`btn-unassign-${dest.id}`}>✕ Remove</button>
+                            ) : (
+                              <button onClick={() => assignDestMut.mutate({ productId: selected.id, destinationId: dest.id })}
+                                className="text-xs text-muted-foreground hover:text-primary shrink-0 px-1" data-testid={`btn-assign-${dest.id}`}>+ Assign</button>
+                            )}
+                          </div>
+                          {asgn && (
+                            <div className="flex items-center gap-1 mt-1">
+                              <input type="number" step="0.0001" placeholder="Min"
+                                className="flex-1 h-6 text-xs rounded border border-border bg-background px-1.5 min-w-0 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                value={displayMin}
+                                onChange={e => setRateEdits(prev => ({ ...prev, [key]: { min: e.target.value, target: displayTarget, premium: displayPremium } }))}
+                                data-testid={`rate-min-${dest.id}`} />
+                              <input type="number" step="0.0001" placeholder="Target"
+                                className="flex-1 h-6 text-xs rounded border border-border bg-background px-1.5 min-w-0 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                value={displayTarget}
+                                onChange={e => setRateEdits(prev => ({ ...prev, [key]: { min: displayMin, target: e.target.value, premium: displayPremium } }))}
+                                data-testid={`rate-target-${dest.id}`} />
+                              <input type="number" step="0.0001" placeholder="Premium"
+                                className="flex-1 h-6 text-xs rounded border border-border bg-background px-1.5 min-w-0 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                value={displayPremium}
+                                onChange={e => setRateEdits(prev => ({ ...prev, [key]: { min: displayMin, target: displayTarget, premium: e.target.value } }))}
+                                data-testid={`rate-premium-${dest.id}`} />
+                              {isDirty && (
+                                <button onClick={() => saveRatesMut.mutate({ id: asgn.id, rates: {
+                                  offerMin: displayMin === "" ? null : parseFloat(displayMin),
+                                  offerTarget: displayTarget === "" ? null : parseFloat(displayTarget),
+                                  offerPremium: displayPremium === "" ? null : parseFloat(displayPremium),
+                                }})} className="text-xs bg-primary text-primary-foreground px-2 h-6 rounded shrink-0 hover:opacity-90" data-testid={`btn-save-rate-${dest.id}`}>Save</button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  {destinations.filter(d => !destSearch || d.name.toLowerCase().includes(destSearch.toLowerCase()) || d.dialPrefix?.includes(destSearch)).length === 0 && (
+                    <div className="text-center text-xs text-muted-foreground py-3">{destSearch ? "No destinations match" : "No destinations configured yet"}</div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="pt-2 border-t border-border">
               <h3 className="text-sm font-semibold mb-3">Templates</h3>
@@ -417,8 +513,8 @@ function ProductCatalogTab({ products }: { products: Product[] }) {
 }
 
 // ── Destination Catalog Tab ───────────────────────────────────────────────────
-function DestinationCatalogTab({ destinations, products, assignments }: {
-  destinations: Destination[]; products: Product[]; assignments: Assignment[];
+function DestinationCatalogTab({ destinations, products, assignments, isLoading }: {
+  destinations: Destination[]; products: Product[]; assignments: Assignment[]; isLoading?: boolean;
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -473,10 +569,17 @@ function DestinationCatalogTab({ destinations, products, assignments }: {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto py-1">
-          {filterTree(tree, search).map(n => (
+          {isLoading ? (
+            <div className="p-4 space-y-2">
+              {[1,2,3,4,5].map(i => <div key={i} className="h-8 rounded bg-muted/40 animate-pulse" style={{ width: `${60 + i * 7}%` }} />)}
+            </div>
+          ) : filterTree(tree, search).length > 0 ? filterTree(tree, search).map(n => (
             <DestTreeNode key={n.id} node={n} selectedId={selectedNode?.id} onSelect={n2 => { setSelectedNode(n2); setCreating(false); setForm({}); }} />
-          ))}
-          {destinations.length === 0 && <div className="p-4 text-center text-xs text-muted-foreground">No destinations yet</div>}
+          )) : (
+            <div className="p-4 text-center text-xs text-muted-foreground">
+              {destinations.length === 0 ? "No destinations yet — click + to add one" : "No results for your search"}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1281,7 +1384,7 @@ export default function ProductRegistryPage() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
 
   const { data: products = [] } = useQuery<Product[]>({ queryKey: ["/api/product-registry/products"] });
-  const { data: destinations = [] } = useQuery<Destination[]>({ queryKey: ["/api/product-registry/destinations"] });
+  const { data: destinations = [], isLoading: destinationsLoading } = useQuery<Destination[]>({ queryKey: ["/api/product-registry/destinations"] });
   const { data: assignments = [] } = useQuery<Assignment[]>({ queryKey: ["/api/product-registry/assignments"] });
   const { data: customerAssignments = [] } = useQuery<CustomerAssignment[]>({ queryKey: ["/api/product-registry/customer-assignments"] });
   const { data: history = [] } = useQuery<HistoryEntry[]>({
@@ -1320,8 +1423,8 @@ export default function ProductRegistryPage() {
       {/* Tab Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === "dashboard"    && <div className="h-full overflow-y-auto"><DashboardTab products={products} assignments={assignments} destinations={destinations} customerAssignments={customerAssignments} /></div>}
-        {activeTab === "products"     && <div className="h-full overflow-hidden"><ProductCatalogTab products={products} /></div>}
-        {activeTab === "destinations" && <div className="h-full overflow-hidden"><DestinationCatalogTab destinations={destinations} products={products} assignments={assignments} /></div>}
+        {activeTab === "products"     && <div className="h-full overflow-hidden"><ProductCatalogTab products={products} destinations={destinations} assignments={assignments} /></div>}
+        {activeTab === "destinations" && <div className="h-full overflow-hidden"><DestinationCatalogTab destinations={destinations} products={products} assignments={assignments} isLoading={destinationsLoading} /></div>}
         {activeTab === "assignments"  && <div className="h-full overflow-hidden"><AssignmentsTab products={products} destinations={destinations} assignments={assignments} /></div>}
         {activeTab === "customers"    && <div className="h-full overflow-hidden"><CustomerAssignmentsTab products={products} customerAssignments={customerAssignments} /></div>}
         {activeTab === "performance"  && <div className="h-full overflow-y-auto"><PerformanceTab products={products} customerAssignments={customerAssignments} /></div>}
