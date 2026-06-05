@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
+import * as XLSX from "xlsx";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -14,7 +15,8 @@ import {
   Globe, Search, ChevronRight, ChevronDown, Plus, Check, X, Shield,
   TrendingUp, Upload, RefreshCw, AlertTriangle, BarChart2, Phone,
   Edit2, Trash2, CheckCircle2, XCircle, Clock, Layers, MapPin, FileText,
-  Flag, Building2, BookOpen, Filter, Download,
+  Flag, Building2, BookOpen, Filter, Download, Link2, FileSpreadsheet,
+  Clipboard, Eye, Loader2, WifiOff, SkipForward,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -722,93 +724,360 @@ function MarketIntelTab({ flatNodes }: { flatNodes: Dest[] }) {
 }
 
 // ── ImportTab ─────────────────────────────────────────────────────────────────
+interface PreviewRow {
+  name: string; dialPrefix: string | null; countryCode: string | null;
+  countryName?: string; operatorName: string | null; operatorCategory?: string;
+  level: number; rate?: number | null; _status: "new" | "exists" | "invalid"; _reason?: string;
+}
+
+function detectFormat(lines: string[]): "legacy" | "new" {
+  const header = lines[0]?.toLowerCase() ?? "";
+  if (header.includes("carrier") || header.includes("category") || (header.includes("country") && header.includes("code") && !header.includes("level"))) return "legacy";
+  return "new";
+}
+
+function parseLegacyRow(line: string): Omit<PreviewRow, "_status"> | null {
+  const parts = line.split(",").map(s => s.trim());
+  if (parts.length < 5) return null;
+  const [country, carrier, category, destination, code, rateStr] = parts;
+  if (!code || !country || code.length < 3) return null;
+  const rate = rateStr ? parseFloat(rateStr) : null;
+  return {
+    name: `${country} ${carrier || destination}`.trim(),
+    dialPrefix: code, countryCode: null, countryName: country,
+    operatorName: carrier || destination, operatorCategory: category || "Mobile",
+    level: 3, rate,
+  };
+}
+
+function parseNewRow(line: string): Omit<PreviewRow, "_status"> | null {
+  const [name, dialPrefix, countryCode, operatorName, levelStr] = line.split(",").map(s => s.trim());
+  if (!name) return null;
+  const level = levelStr ? parseInt(levelStr) : (dialPrefix ? 3 : 1);
+  return { name, dialPrefix: dialPrefix || null, countryCode: countryCode || null, operatorName: operatorName || null, level };
+}
+
 function ImportTab() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Input mode
+  const [inputMode, setInputMode] = useState<"paste" | "file">("paste");
   const [csv, setCsv] = useState("");
-  const [preview, setPreview] = useState<Partial<Dest>[]>([]);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  // Options
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [autoParent, setAutoParent] = useState(true);
+
+  // Preview
+  const [preview, setPreview] = useState<PreviewRow[]>([]);
   const [parsed, setParsed] = useState(false);
+  const [detectedFormat, setDetectedFormat] = useState<"legacy" | "new">("new");
+
+  // Legacy BitsAuto sync
+  const [showLegacy, setShowLegacy] = useState(false);
+  const [legacyHost, setLegacyHost] = useState("23.106.59.17:8081");
+  const [legacyUser, setLegacyUser] = useState("");
+  const [legacyPass, setLegacyPass] = useState("");
+  const [legacyClientId, setLegacyClientId] = useState("1824");
+  const [syncing, setSyncing] = useState(false);
+
+  const loadFileContent = (file: File) => {
+    setFileName(file.name);
+    if (file.name.endsWith(".csv") || file.name.endsWith(".txt")) {
+      const reader = new FileReader();
+      reader.onload = e => { setCsv(e.target?.result as string ?? ""); setParsed(false); };
+      reader.readAsText(file);
+    } else if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const wb = XLSX.read(e.target?.result, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const csvData = XLSX.utils.sheet_to_csv(ws);
+        setCsv(csvData); setParsed(false);
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      toast({ title: "Unsupported file type", description: "Please use .csv, .xlsx, or .xls", variant: "destructive" });
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) loadFileContent(file);
+  };
 
   const parse = () => {
     const lines = csv.trim().split("\n").filter(l => l.trim() && !l.startsWith("#"));
-    const rows = lines.map(line => {
-      const [name, dialPrefix, countryCode, operatorName, levelStr] = line.split(",").map(s => s.trim());
-      const level = levelStr ? parseInt(levelStr) : (dialPrefix ? 3 : 1);
-      return { name, dialPrefix: dialPrefix || null, countryCode: countryCode || null, operatorName: operatorName || null, level, commercialStatus: "pending" } as Partial<Dest>;
-    }).filter(r => r.name);
+    if (lines.length === 0) return;
+    const fmt = detectFormat(lines);
+    setDetectedFormat(fmt);
+    const dataLines = fmt === "legacy" ? lines.slice(1) : lines; // skip header for legacy
+    const rows: PreviewRow[] = dataLines.map(line => {
+      const parsed = fmt === "legacy" ? parseLegacyRow(line) : parseNewRow(line);
+      if (!parsed) return null;
+      return { ...parsed, _status: "new" as const };
+    }).filter(Boolean) as PreviewRow[];
     setPreview(rows);
     setParsed(true);
   };
 
   const importMut = useMutation({
     mutationFn: async () => {
-      for (const row of preview) {
-        await apiRequest("POST", "/api/product-registry/destinations", row);
-      }
+      const toImport = preview.filter(r => r._status === "new");
+      const res = await apiRequest("POST", "/api/product-registry/destinations/bulk-smart", {
+        rows: toImport, autoApprove, autoParent,
+      });
+      return res as any;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["/api/product-registry/destinations"] });
-      toast({ title: `${preview.length} destinations imported` });
-      setCsv(""); setPreview([]); setParsed(false);
+      toast({
+        title: `Import complete`,
+        description: `${data.created} created · ${data.skipped} skipped · ${data.failed} invalid`,
+      });
+      // Update preview rows with server response statuses
+      if (data.results) {
+        const newPreview = preview.map((r, i) => {
+          const srv = data.results[i];
+          if (!srv) return r;
+          return { ...r, _status: srv._status === "created" ? "new" : srv._status === "exists" ? "exists" : "invalid" } as PreviewRow;
+        });
+        setPreview(newPreview);
+      }
     },
     onError: (e: any) => toast({ title: "Import failed", description: e.message, variant: "destructive" }),
   });
 
+  const handleLegacySync = async () => {
+    if (!legacyUser || !legacyPass) { toast({ title: "Enter username and password", variant: "destructive" }); return; }
+    setSyncing(true);
+    try {
+      const res = await apiRequest("POST", "/api/product-registry/destinations/sync-legacy", {
+        host: legacyHost, username: legacyUser, password: legacyPass, clientId: legacyClientId,
+      }) as any;
+      if (res.error) throw new Error(res.error);
+      const mappedRows: PreviewRow[] = (res.rows ?? []).map((r: any) => ({
+        name: r.name, dialPrefix: r.dialPrefix, countryCode: r.countryCode,
+        countryName: r.countryName, operatorName: r.operatorName, operatorCategory: r.operatorCategory,
+        level: r.level ?? 3, rate: r.rate, _status: "new" as const,
+      }));
+      setPreview(mappedRows);
+      setParsed(true);
+      setDetectedFormat("legacy");
+      toast({ title: `Synced ${mappedRows.length} rows from legacy BitsAuto` });
+    } catch (e: any) {
+      toast({ title: "Sync failed", description: e.message, variant: "destructive" });
+    } finally { setSyncing(false); }
+  };
+
+  const newCount    = preview.filter(r => r._status === "new").length;
+  const existsCount = preview.filter(r => r._status === "exists").length;
+  const invalidCount = preview.filter(r => r._status === "invalid").length;
+
   return (
-    <div className="p-6 space-y-5 overflow-y-auto h-full max-w-2xl">
-      <div>
-        <h2 className="font-semibold">Bulk Import Destinations</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Paste CSV data to import multiple destinations at once. Each line: <code className="text-xs bg-muted px-1 rounded">Name, Dial Prefix, Country Code, Operator Name, Level</code>
-        </p>
-      </div>
-      <div className="bg-muted/20 border border-border rounded p-3 text-xs font-mono text-muted-foreground space-y-0.5">
-        <div className="text-foreground font-semibold mb-1">Example:</div>
-        <div>Pakistan,,PK,,1</div>
-        <div>Pakistan Mobile,,PK,,2</div>
-        <div>Pakistan Jazz,9230,PK,Jazz,3</div>
-        <div>Pakistan Zong,9231,PK,Zong,3</div>
-      </div>
-      <div className="space-y-2">
-        <Label className="text-xs text-muted-foreground">CSV Data</Label>
-        <Textarea value={csv} onChange={e => { setCsv(e.target.value); setParsed(false); }}
-          rows={8} className="font-mono text-xs" placeholder="Paste CSV here…" />
-      </div>
-      <div className="flex gap-2">
-        <Button size="sm" variant="outline" onClick={parse} disabled={!csv.trim()} data-testid="btn-parse-csv">
-          <RefreshCw className="w-3.5 h-3.5 mr-1.5" />Parse
+    <div className="p-6 space-y-5 overflow-y-auto h-full max-w-3xl">
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="font-semibold">Bulk Import Destinations</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Upload a CSV / Excel file, paste data, or sync directly from Legacy BitsAuto.</p>
+        </div>
+        <Button size="sm" variant={showLegacy ? "default" : "outline"} onClick={() => setShowLegacy(v => !v)} data-testid="btn-toggle-legacy">
+          <Link2 className="w-3.5 h-3.5 mr-1.5" />Legacy BitsAuto Sync
         </Button>
-        {parsed && preview.length > 0 && (
+      </div>
+
+      {/* ── Legacy BitsAuto Sync Panel ── */}
+      {showLegacy && (
+        <div className="bg-card border border-border rounded-lg p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Link2 className="w-4 h-4 text-cyan-400" />
+            <span>Sync from Legacy BitsAuto</span>
+            <span className="text-xs text-muted-foreground font-normal ml-1">— pulls Client Destination Filtration data directly</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Host:Port</Label>
+              <Input value={legacyHost} onChange={e => setLegacyHost(e.target.value)} className="h-8 text-sm font-mono" placeholder="23.106.59.17:8081" data-testid="input-legacy-host" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Client ID</Label>
+              <Input value={legacyClientId} onChange={e => setLegacyClientId(e.target.value)} className="h-8 text-sm font-mono" placeholder="1824" data-testid="input-legacy-clientid" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Username</Label>
+              <Input value={legacyUser} onChange={e => setLegacyUser(e.target.value)} className="h-8 text-sm" autoComplete="off" data-testid="input-legacy-user" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Password</Label>
+              <Input type="password" value={legacyPass} onChange={e => setLegacyPass(e.target.value)} className="h-8 text-sm" autoComplete="off" data-testid="input-legacy-pass" />
+            </div>
+          </div>
+          <Button size="sm" onClick={handleLegacySync} disabled={syncing} data-testid="btn-legacy-sync">
+            {syncing ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+            {syncing ? "Syncing…" : "Sync Now"}
+          </Button>
+        </div>
+      )}
+
+      {/* ── Input Mode Tabs ── */}
+      <div className="flex gap-1 border-b border-border pb-0">
+        {(["paste", "file"] as const).map(m => (
+          <button key={m} onClick={() => setInputMode(m)}
+            className={cn("flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-t-md border border-b-0 transition-colors",
+              inputMode === m ? "bg-card border-border text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            )}>
+            {m === "paste" ? <Clipboard className="w-3.5 h-3.5" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+            {m === "paste" ? "Paste CSV" : "Upload File"}
+          </button>
+        ))}
+      </div>
+
+      {inputMode === "paste" ? (
+        <div className="space-y-2">
+          <div className="bg-muted/20 border border-border rounded p-3 text-xs font-mono text-muted-foreground space-y-0.5">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-foreground font-semibold text-xs">Format A — New platform</span>
+              <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded">Name, DialPrefix, CountryCode, OperatorName, Level</span>
+            </div>
+            <div>Pakistan,,PK,,1</div>
+            <div>Pakistan Mobile,,PK,,2</div>
+            <div>Pakistan Jazz,9230,PK,Jazz,3</div>
+            <div className="border-t border-border/50 mt-2 pt-2 text-foreground font-semibold text-xs">Format B — Legacy BitsAuto export</div>
+            <div className="text-[10px] mt-0.5 mb-1">Country, Carrier, Category, Destination, Code, Rate</div>
+            <div>Pakistan,UFONE,MOBILE,,9233,0.02650</div>
+            <div>Pakistan,ZONG,MOBILE,,9231,0.02700</div>
+          </div>
+          <Textarea value={csv} onChange={e => { setCsv(e.target.value); setParsed(false); setFileName(null); }}
+            rows={8} className="font-mono text-xs" placeholder="Paste CSV here…" data-testid="textarea-csv" />
+        </div>
+      ) : (
+        <div
+          onDragOver={e => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={cn(
+            "flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-10 cursor-pointer transition-colors",
+            dragging ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/40 hover:bg-muted/20"
+          )}
+          data-testid="dropzone-file"
+        >
+          <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.txt" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) loadFileContent(f); }} />
+          <FileSpreadsheet className={cn("w-10 h-10", dragging ? "text-primary" : "text-muted-foreground")} />
+          {fileName ? (
+            <div className="text-center">
+              <p className="text-sm font-medium text-foreground">{fileName}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{csv.split("\n").filter(Boolean).length} rows loaded — click to change</p>
+            </div>
+          ) : (
+            <div className="text-center">
+              <p className="text-sm font-medium">Drop your file here or click to browse</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Supports .csv, .xlsx, .xls — both new format and legacy BitsAuto exports</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Options ── */}
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 cursor-pointer select-none text-sm" data-testid="toggle-auto-parent">
+          <div onClick={() => setAutoParent(v => !v)}
+            className={cn("w-8 h-5 rounded-full transition-colors flex items-center px-0.5",
+              autoParent ? "bg-primary" : "bg-muted border border-border"
+            )}>
+            <div className={cn("w-3.5 h-3.5 rounded-full bg-white shadow transition-transform", autoParent ? "translate-x-3.5" : "translate-x-0")} />
+          </div>
+          <span>Auto-create parent hierarchy</span>
+          <span className="text-xs text-muted-foreground">(creates Country → Type nodes automatically)</span>
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer select-none text-sm" data-testid="toggle-auto-approve">
+          <div onClick={() => setAutoApprove(v => !v)}
+            className={cn("w-8 h-5 rounded-full transition-colors flex items-center px-0.5",
+              autoApprove ? "bg-emerald-500" : "bg-muted border border-border"
+            )}>
+            <div className={cn("w-3.5 h-3.5 rounded-full bg-white shadow transition-transform", autoApprove ? "translate-x-3.5" : "translate-x-0")} />
+          </div>
+          <span>Auto-approve on import</span>
+          <span className="text-xs text-muted-foreground">(skip Approvals queue)</span>
+        </label>
+      </div>
+
+      {/* ── Action Buttons ── */}
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="outline" onClick={parse} disabled={!csv.trim()} data-testid="btn-parse-csv">
+          <Eye className="w-3.5 h-3.5 mr-1.5" />Preview
+        </Button>
+        {parsed && newCount > 0 && (
           <Button size="sm" onClick={() => importMut.mutate()} disabled={importMut.isPending} data-testid="btn-import-csv">
-            <Upload className="w-3.5 h-3.5 mr-1.5" />Import {preview.length} destinations
+            {importMut.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 mr-1.5" />}
+            Import {newCount} destination{newCount !== 1 ? "s" : ""}
           </Button>
         )}
+        {parsed && (
+          <div className="flex items-center gap-3 text-xs ml-2">
+            {newCount > 0 && <span className="flex items-center gap-1 text-emerald-400"><CheckCircle2 className="w-3 h-3" />{newCount} new</span>}
+            {existsCount > 0 && <span className="flex items-center gap-1 text-amber-400"><SkipForward className="w-3 h-3" />{existsCount} exists</span>}
+            {invalidCount > 0 && <span className="flex items-center gap-1 text-rose-400"><XCircle className="w-3 h-3" />{invalidCount} invalid</span>}
+            {detectedFormat === "legacy" && <span className="flex items-center gap-1 text-cyan-400"><Link2 className="w-3 h-3" />Legacy format detected</span>}
+          </div>
+        )}
       </div>
+
+      {/* ── Color-coded Preview Table ── */}
       {parsed && preview.length > 0 && (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-border text-xs font-medium text-muted-foreground">
-            Preview — {preview.length} rows
+          <div className="px-4 py-2.5 border-b border-border text-xs font-medium text-muted-foreground flex items-center gap-3">
+            <span>Preview — {preview.length} rows</span>
+            <span className="text-emerald-400">{newCount} new</span>
+            {existsCount > 0 && <span className="text-amber-400">{existsCount} already exist</span>}
+            {invalidCount > 0 && <span className="text-rose-400">{invalidCount} invalid</span>}
           </div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-border bg-muted/20">
-                {["Name", "Prefix", "Country", "Operator", "Level"].map(h => (
-                  <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {preview.map((r, i) => (
-                <tr key={i} className="border-b border-border/50">
-                  <td className="py-1.5 px-3 font-medium">{r.name}</td>
-                  <td className="py-1.5 px-3 font-mono text-muted-foreground">{r.dialPrefix ?? "—"}</td>
-                  <td className="py-1.5 px-3 uppercase text-muted-foreground">{r.countryCode ?? "—"}</td>
-                  <td className="py-1.5 px-3 text-muted-foreground">{r.operatorName ?? "—"}</td>
-                  <td className="py-1.5 px-3"><span className={cn("font-medium", LEVEL_COLORS[r.level ?? 1])}>{LEVEL_LABELS[r.level ?? 1] ?? `L${r.level}`}</span></td>
+          <div className="max-h-80 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-muted/30 backdrop-blur-sm">
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-3 font-medium text-muted-foreground w-5"></th>
+                  {["Name", "Prefix", detectedFormat === "legacy" ? "Country" : "Code", "Operator", "Level"].map(h => (
+                    <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground">{h}</th>
+                  ))}
+                  {detectedFormat === "legacy" && <th className="text-left py-2 px-3 font-medium text-muted-foreground">Rate</th>}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {preview.map((r, i) => (
+                  <tr key={i} className={cn("border-b border-border/40 transition-colors",
+                    r._status === "new"     ? "bg-emerald-500/5 hover:bg-emerald-500/10" :
+                    r._status === "exists"  ? "bg-amber-500/5   hover:bg-amber-500/10"  :
+                                              "bg-rose-500/5    hover:bg-rose-500/10"
+                  )}>
+                    <td className="py-1.5 px-3">
+                      {r._status === "new"    && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                      {r._status === "exists" && <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+                      {r._status === "invalid"&& <div className="w-1.5 h-1.5 rounded-full bg-rose-400" />}
+                    </td>
+                    <td className="py-1.5 px-3 font-medium">{r.name}</td>
+                    <td className="py-1.5 px-3 font-mono text-muted-foreground">{r.dialPrefix ?? "—"}</td>
+                    <td className="py-1.5 px-3 uppercase text-muted-foreground">{detectedFormat === "legacy" ? (r.countryName ?? "—") : (r.countryCode ?? "—")}</td>
+                    <td className="py-1.5 px-3 text-muted-foreground">{r.operatorName ?? "—"}</td>
+                    <td className="py-1.5 px-3">
+                      <span className={cn("font-medium", LEVEL_COLORS[r.level ?? 1])}>{LEVEL_LABELS[r.level ?? 1] ?? `L${r.level}`}</span>
+                    </td>
+                    {detectedFormat === "legacy" && (
+                      <td className="py-1.5 px-3 font-mono text-muted-foreground text-[10px]">
+                        {r.rate != null ? `$${r.rate.toFixed(5)}` : "—"}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

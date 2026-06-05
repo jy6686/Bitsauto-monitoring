@@ -32984,6 +32984,177 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // POST /api/product-registry/destinations/bulk-smart
+  // Batch import with auto-parent creation and duplicate detection
+  app.post('/api/product-registry/destinations/bulk-smart', async (req: any, res) => {
+    try {
+      const { rows, autoApprove, autoParent } = req.body;
+      if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows must be an array' });
+
+      const existing = await db.select().from(globalDestinations);
+      const existingSet = new Set(existing.map((d: any) => `${(d.name ?? '').toLowerCase()}|${d.dialPrefix ?? ''}`));
+      const countryCache = new Map<string, number>();
+      const typeCache = new Map<string, number>();
+      for (const d of existing) {
+        if ((d as any).level === 1 && (d as any).countryCode) countryCache.set((d as any).countryCode, (d as any).id);
+        if ((d as any).level === 2 && (d as any).parentId) {
+          typeCache.set(`${(d as any).parentId}|${((d as any).name ?? '').toLowerCase()}`, (d as any).id);
+        }
+      }
+
+      const status = autoApprove ? 'approved' : 'pending';
+      const results: any[] = [];
+
+      for (const row of rows) {
+        if (!row.name) { results.push({ ...row, _status: 'invalid', _reason: 'Missing name' }); continue; }
+        const key = `${row.name.toLowerCase()}|${row.dialPrefix ?? ''}`;
+        if (existingSet.has(key)) { results.push({ ...row, _status: 'exists' }); continue; }
+
+        let parentId: number | null = row.parentId ?? null;
+
+        if (autoParent && (row.level ?? 3) >= 3 && !parentId) {
+          // Find or create Level 1 country
+          let countryId = countryCache.get(row.countryCode ?? '__');
+          if (!countryId && row.countryName) {
+            const cKey = `${(row.countryName ?? '').toLowerCase()}|`;
+            if (!existingSet.has(cKey)) {
+              const [c] = await db.insert(globalDestinations).values({
+                level: 1, name: row.countryName, countryCode: row.countryCode ?? null,
+                commercialStatus: status, parentId: null, sortOrder: 0,
+              }).returning();
+              countryId = (c as any).id;
+              existingSet.add(cKey);
+            } else {
+              const match = existing.find((d: any) => d.level === 1 && (d.name ?? '').toLowerCase() === (row.countryName ?? '').toLowerCase());
+              countryId = match ? (match as any).id : undefined;
+            }
+            if (countryId && row.countryCode) countryCache.set(row.countryCode, countryId);
+          }
+
+          // Find or create Level 2 type (Mobile/Fixed)
+          if (countryId) {
+            const typeName = row.operatorCategory ?? 'Mobile';
+            const tKey = `${countryId}|${typeName.toLowerCase()}`;
+            let typeId = typeCache.get(tKey);
+            if (!typeId) {
+              const tExistKey = `${typeName.toLowerCase()}|`;
+              const matchType = existing.find((d: any) => d.level === 2 && d.parentId === countryId && (d.name ?? '').toLowerCase() === typeName.toLowerCase());
+              if (matchType) {
+                typeId = (matchType as any).id;
+              } else if (!existingSet.has(tExistKey)) {
+                const [t] = await db.insert(globalDestinations).values({
+                  level: 2, name: typeName, countryCode: row.countryCode ?? null,
+                  commercialStatus: status, parentId: countryId, sortOrder: 0,
+                }).returning();
+                typeId = (t as any).id;
+                existingSet.add(tExistKey);
+              }
+              if (typeId) typeCache.set(tKey, typeId);
+            }
+            parentId = typeId ?? null;
+          }
+        }
+
+        const [created] = await db.insert(globalDestinations).values({
+          parentId, level: row.level ?? 3, name: row.name,
+          countryCode: row.countryCode ?? null, dialPrefix: row.dialPrefix ?? null,
+          operatorName: row.operatorName ?? null, commercialStatus: status, sortOrder: 0,
+        }).returning();
+        existingSet.add(key);
+        results.push({ ...(created as any), _status: 'created' });
+      }
+
+      const created = results.filter(r => r._status === 'created').length;
+      const skipped = results.filter(r => r._status === 'exists').length;
+      const failed  = results.filter(r => r._status === 'invalid').length;
+
+      await db.insert(productHistory).values({
+        eventType: 'destination_bulk_import',
+        description: `Bulk import: ${created} created, ${skipped} skipped, ${failed} invalid`,
+        performedBy: req.user?.claims?.sub ?? 'system',
+      });
+
+      res.json({ created, skipped, failed, results });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/product-registry/destinations/sync-legacy
+  // Scrapes the legacy BitsAuto system for destination data
+  app.post('/api/product-registry/destinations/sync-legacy', async (req: any, res) => {
+    try {
+      const { host, username, password, clientId = '1824' } = req.body;
+      if (!host || !username || !password) return res.status(400).json({ error: 'host, username and password required' });
+      const base = `http://${host}`;
+
+      // Step 1: GET login page for CSRF token
+      const loginPageRes = await fetch(`${base}/accounts/login/`, { redirect: 'follow' });
+      const loginPageHtml = await loginPageRes.text();
+      const setCookieHeader = loginPageRes.headers.get('set-cookie') ?? '';
+      const csrfFromCookie = (setCookieHeader.match(/csrftoken=([^;,\s]+)/) ?? [])[1] ?? '';
+      const csrfFromForm = (loginPageHtml.match(/name=['"]csrfmiddlewaretoken['"][^>]+value=['"]([^'"]+)['"]/) ?? [])[1] ?? csrfFromCookie;
+      const loginCookies = setCookieHeader.split(',').map((c: string) => c.split(';')[0].trim()).filter(Boolean).join('; ');
+
+      // Step 2: POST login
+      const loginRes = await fetch(`${base}/accounts/login/`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Cookie': loginCookies,
+          'Referer': `${base}/accounts/login/`,
+        },
+        body: new URLSearchParams({ username, password, csrfmiddlewaretoken: csrfFromForm, next: '/' }).toString(),
+      });
+      const loginSetCookie = loginRes.headers.get('set-cookie') ?? '';
+      const sessionCookies = loginSetCookie.split(',').map((c: string) => c.split(';')[0].trim()).filter(Boolean).join('; ');
+      const allCookies = [loginCookies, sessionCookies].filter(Boolean).join('; ');
+
+      // Step 3: Fetch the destination filteration page
+      const filterUrl = `${base}/tariffs/client_filteration/?i_tariff__i_client=${clientId}&Submit=`;
+      const filterRes = await fetch(filterUrl, { headers: { 'Cookie': allCookies } });
+      const filterHtml = await filterRes.text();
+
+      if (filterHtml.includes('accounts/login') && !filterHtml.includes('client_filteration')) {
+        return res.status(401).json({ error: 'Login failed — check credentials' });
+      }
+
+      // Step 4: Parse the table rows
+      const rows: any[] = [];
+      const seen = new Set<string>();
+      const trPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+      let trMatch;
+      let headerFound = false;
+      while ((trMatch = trPattern.exec(filterHtml)) !== null) {
+        const tdMatches = (trMatch[1].match(/<td[^>]*>([\s\S]*?)<\/td>/gi) ?? [])
+          .map((td: string) => td.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&nbsp;/g, '').trim());
+        if (tdMatches.length < 5) continue;
+        const [country, carrier, category, destination, code, rate] = tdMatches;
+        if (!code || !country || code.length < 3) continue;
+        if (country.toLowerCase() === 'country') { headerFound = true; continue; }
+        const dedupKey = `${country}|${carrier}|${code}`;
+        if (seen.has(dedupKey)) continue;
+        seen.add(dedupKey);
+        rows.push({
+          countryName: country.trim(),
+          carrier: carrier.trim(),
+          category: category.trim(),
+          destination: destination.trim(),
+          code: code.trim(),
+          rate: rate ? parseFloat(rate) : null,
+          // Mapped fields ready for import
+          name: `${country.trim()} ${carrier.trim() || destination.trim()}`,
+          dialPrefix: code.trim(),
+          countryCode: null,
+          operatorName: carrier.trim() || destination.trim(),
+          operatorCategory: category.trim() || 'Mobile',
+          level: 3,
+        });
+      }
+
+      res.json({ rows, count: rows.length, loginOk: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/product-registry/assignments
   app.get('/api/product-registry/assignments', async (_req, res) => {
     try {
