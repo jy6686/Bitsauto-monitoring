@@ -38,85 +38,130 @@ const activeTimers = new Map<number, NodeJS.Timeout>();
 // ── Eager CDR lookup ───────────────────────────────────────────────────────────
 // Runs 45 s after every cut so the CDR is still at the top of the portal list.
 // Stores result directly on the governed_calls row — billing view reads from DB.
-function scheduleCdrLookup(governedCallId: number): void {
-  setTimeout(async () => {
-    try {
-      const [gc] = await db.select().from(governedCalls).where(eq(governedCalls.id, governedCallId));
-      if (!gc) return;
+// Statuses that indicate a CDR has been successfully matched — never overwrite these.
+const CDR_RESOLVED = new Set(['ok', 'check', 'loss']);
 
-      const settings = await storage.getSettings();
-      if (!settings) return;
+async function runCdrLookup(governedCallId: number, allowOverwrite = false): Promise<void> {
+  const [gc] = await db.select().from(governedCalls).where(eq(governedCalls.id, governedCallId));
+  if (!gc) return;
 
-      const portalUrl  = (settings as any).portalUrl ?? '';
-      const portalUser = settings.portalUsername    ?? '';
-      const portalPass = settings.portalPassword    ?? '';
-      if (!portalUrl || !portalUser || !portalPass) return;
+  // ── LOCK: once CDR is resolved, never overwrite unless caller explicitly allows ──
+  if (!allowOverwrite && CDR_RESOLVED.has(gc.cdrStatus ?? '')) {
+    console.log(`[call-governance] CDR lookup #${governedCallId}: already resolved (${gc.cdrStatus}), skipping`);
+    return;
+  }
 
-      const startMs  = gc.startTime ? new Date(gc.startTime).getTime() : Date.now();
-      const winStart = new Date(startMs - 3 * 60_000);
-      const winEnd   = new Date(startMs + 20 * 60_000);
+  const settings = await storage.getSettings();
+  if (!settings) return;
 
-      let cdrs: any[] = [];
-      try {
-        cdrs = await sippy.scrapePortalCDRsAll(portalUser, portalPass, portalUrl, {
-          startDate: winStart.toISOString(),
-          endDate:   winEnd.toISOString(),
-          maxPages:  3,
-        });
-      } catch { /* leave cdrs empty */ }
+  const portalUrl  = (settings as any).portalUrl ?? '';
+  const portalUser = settings.portalUsername ?? '';
+  const portalPass = settings.portalPassword ?? '';
+  if (!portalUrl || !portalUser || !portalPass) return;
 
-      const destDigits = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
-      const destSuffix = destDigits.slice(-9);
-      const cliSuffix  = (gc.callee || '').replace(/\D/g, '').slice(-7);
+  const apiUser = (settings as any).apiAdminUsername ?? portalUser;
+  const apiPass = (settings as any).apiAdminPassword ?? portalPass;
 
-      const candidates = cdrs.filter((c: any) =>
-        (c.callee || '').replace(/\D/g, '').endsWith(destSuffix)
-      );
+  const startMs  = gc.startTime ? new Date(gc.startTime).getTime() : Date.now();
+  const winStart = new Date(startMs - 3 * 60_000);
+  const winEnd   = new Date(startMs + 20 * 60_000);
 
-      let matched: any = null;
-      if (candidates.length > 0) {
-        const cliMatch = cliSuffix.length >= 6
-          ? candidates.find((c: any) => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
-          : null;
-        matched = cliMatch ?? candidates.reduce((best: any, c: any) => {
-          const a = Math.abs(new Date(c.startTime).getTime() - startMs);
-          const b = Math.abs(new Date(best.startTime).getTime() - startMs);
-          return a < b ? c : best;
-        });
-      }
+  // Destination: strip 2060 routing prefix, use last 9 digits as CLD filter
+  const destDigits = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
+  const destSuffix = destDigits.slice(-9);
+  const cliSuffix  = (gc.callee || '').replace(/\D/g, '').slice(-7);
 
-      const cdrDuration   = matched ? (Number(matched.duration) || null) : null;
-      const cdrCost       = matched ? (Number(matched.cost)     || null) : null;
-      const cdrVendorCost = matched ? (Number((matched as any).vendorCost) || null) : null;
-      const cdrVendorName = matched?.vendorResolved ?? matched?.vendorName ?? null;
-      const cdrCaller     = matched?.caller ?? null;
-      const cdrCallee     = matched?.callee ?? null;
-
-      const govSec = gc.startTime && gc.byeSentAt
-        ? Math.round((new Date(gc.byeSentAt).getTime() - new Date(gc.startTime).getTime()) / 1000)
-        : null;
-      const estimatedBilledSec = govSec !== null ? govSec + 8 : null;
-
-      let cdrStatus = 'no_cdr';
-      if (cdrDuration !== null && estimatedBilledSec !== null) {
-        if (cdrDuration > estimatedBilledSec + 15) {
-          cdrStatus = 'check';
-        } else if (cdrVendorCost !== null && cdrCost !== null && (cdrCost - cdrVendorCost) < 0) {
-          cdrStatus = 'loss';
-        } else {
-          cdrStatus = 'ok';
-        }
-      }
-
-      await db.update(governedCalls)
-        .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
-        .where(eq(governedCalls.id, governedCallId));
-
-      console.log(`[call-governance] CDR lookup #${governedCallId}: status=${cdrStatus} pool=${cdrs.length} duration=${cdrDuration} cost=${cdrCost}`);
-    } catch (err: any) {
-      console.error(`[call-governance] CDR lookup #${governedCallId} failed:`, err?.message);
+  // ── Track 1: XML-RPC getAccountCDRs with cld filter (targeted, fast) ──
+  // Uses billed_duration + cost fields. Blocked by circuit-breaker if auth fails.
+  let cdrs: any[] = [];
+  let source = 'portal';
+  try {
+    const xmlCdrs = await sippy.getSippyCDRs(
+      apiUser, apiPass, 20,
+      {
+        cld:       destDigits,
+        startDate: winStart.toISOString(),
+        endDate:   winEnd.toISOString(),
+        type:      'non_zero',
+      },
+      portalUrl,
+    );
+    if (xmlCdrs.length > 0) {
+      cdrs   = xmlCdrs;
+      source = 'xmlrpc';
+      console.log(`[call-governance] CDR lookup #${governedCallId}: XML-RPC returned ${xmlCdrs.length} CDR(s) for cld=${destDigits}`);
     }
-  }, 45_000);
+  } catch { /* fall through to portal scrape */ }
+
+  // ── Track 2: portal scrape (fallback — always works, returns recent ~250 CDRs) ──
+  if (cdrs.length === 0) {
+    try {
+      cdrs = await sippy.scrapePortalCDRsAll(portalUser, portalPass, portalUrl, {
+        startDate: winStart.toISOString(),
+        endDate:   winEnd.toISOString(),
+        maxPages:  3,
+      });
+    } catch { /* leave cdrs empty */ }
+  }
+
+  // ── Match: last-9-digit CLD suffix, CLI as tiebreaker, then closest by time ──
+  const candidates = cdrs.filter((c: any) =>
+    (c.callee || '').replace(/\D/g, '').endsWith(destSuffix)
+  );
+
+  let matched: any = null;
+  if (candidates.length > 0) {
+    const cliMatch = cliSuffix.length >= 6
+      ? candidates.find((c: any) => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
+      : null;
+    matched = cliMatch ?? candidates.reduce((best: any, c: any) => {
+      const a = Math.abs(new Date(c.startTime).getTime() - startMs);
+      const b = Math.abs(new Date(best.startTime).getTime() - startMs);
+      return a < b ? c : best;
+    });
+  }
+
+  const cdrDuration   = matched ? (Number(matched.duration) || null) : null;
+  const cdrCost       = matched ? (Number(matched.cost)     || null) : null;
+  const cdrVendorCost = matched ? (Number((matched as any).vendorCost) || null) : null;
+  const cdrVendorName = matched?.vendorResolved ?? matched?.vendorName ?? null;
+  const cdrCaller     = matched?.caller ?? null;
+  const cdrCallee     = matched?.callee ?? null;
+
+  const govSec = gc.startTime && gc.byeSentAt
+    ? Math.round((new Date(gc.byeSentAt).getTime() - new Date(gc.startTime).getTime()) / 1000)
+    : null;
+  const estimatedBilledSec = govSec !== null ? govSec + 8 : null;
+
+  let cdrStatus = 'no_cdr';
+  if (cdrDuration !== null && estimatedBilledSec !== null) {
+    if (cdrDuration > estimatedBilledSec + 15) {
+      cdrStatus = 'check';
+    } else if (cdrVendorCost !== null && cdrCost !== null && (cdrCost - cdrVendorCost) < 0) {
+      cdrStatus = 'loss';
+    } else {
+      cdrStatus = 'ok';
+    }
+  }
+
+  // ── LOCK: only write if we have a better result than what's stored ──
+  // Never downgrade a resolved CDR back to no_cdr from a subsequent lookup.
+  if (!allowOverwrite && CDR_RESOLVED.has(gc.cdrStatus ?? '') && cdrStatus === 'no_cdr') {
+    console.log(`[call-governance] CDR lookup #${governedCallId}: not downgrading ${gc.cdrStatus} → no_cdr`);
+    return;
+  }
+
+  await db.update(governedCalls)
+    .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
+    .where(eq(governedCalls.id, governedCallId));
+
+  console.log(`[call-governance] CDR lookup #${governedCallId}: status=${cdrStatus} source=${source} pool=${cdrs.length} duration=${cdrDuration} cost=${cdrCost}`);
+}
+
+function scheduleCdrLookup(governedCallId: number): void {
+  setTimeout(() => runCdrLookup(governedCallId, false).catch((err: any) =>
+    console.error(`[call-governance] CDR lookup #${governedCallId} failed:`, err?.message)
+  ), 45_000);
 }
 
 // ── Governance engine ──────────────────────────────────────────────────────────
@@ -720,22 +765,30 @@ export function registerCallGovernanceRoutes(app: Express) {
 
   // ── Manual CDR backfill ────────────────────────────────────────────────────
   // POST /api/call-governance/billing-backfill
-  // Body: { id?: number }  — if id omitted, retries all null-cdrStatus cuts
+  // Body: { id?: number, force?: boolean }
+  //   id    — specific call to retry; omit for all un-resolved cuts
+  //   force — if true, overwrite even already-resolved CDR data (admin override)
   app.post('/api/call-governance/billing-backfill', requireAuth, async (req: any, res: any) => {
     try {
-      const { id } = req.body ?? {};
+      const { id, force = false } = req.body ?? {};
       let rows: any[];
       if (id) {
         rows = await db.select().from(governedCalls)
           .where(and(eq(governedCalls.id, Number(id)), eq(governedCalls.status, 'cut')));
       } else {
+        // Default: only retry cuts that are still unresolved (null or no_cdr)
         rows = await db.select().from(governedCalls)
-          .where(and(eq(governedCalls.status, 'cut'), sql`cdr_status IS NULL`));
+          .where(and(
+            eq(governedCalls.status, 'cut'),
+            sql`(cdr_status IS NULL OR cdr_status = 'no_cdr')`,
+          ));
       }
       const ids = rows.map(r => r.id);
-      // Fire lookup without the 45s delay — immediate retry
+      // Fire immediately — runCdrLookup respects the lock unless force=true
       for (const gcId of ids) {
-        setTimeout(() => scheduleCdrLookup(gcId), 0);
+        runCdrLookup(gcId, Boolean(force)).catch((err: any) =>
+          console.error(`[call-governance] backfill #${gcId} failed:`, err?.message)
+        );
       }
       res.json({ queued: ids.length, ids });
     } catch (e: any) {
