@@ -23,6 +23,34 @@
 
 import { storage } from '../../storage';
 import type { AiRevenueAlert, InsertAiRevenueAlert, AiScanRun } from '@shared/schema';
+import { matchCdrBatch, type CdrRecord } from '../billing/cdr-match';
+
+// ── CDR pool provider (injected from routes.ts after cache is warm) ───────────
+type CdrPoolFn = () => CdrRecord[];
+let _cdrPoolFn: CdrPoolFn | null = null;
+export function setAssuranceCdrProvider(fn: CdrPoolFn) { _cdrPoolFn = fn; }
+
+function sampleImplicatedCdrs(
+  iAccount: number | null | undefined,
+  windowFrom: string,
+  windowTo: string,
+  topN = 10,
+): string[] {
+  if (!_cdrPoolFn) return [];
+  try {
+    const pool = _cdrPoolFn();
+    const fromMs = new Date(windowFrom).getTime();
+    const toMs   = new Date(windowTo).getTime();
+    const candidates = pool.filter(c => {
+      const ts = c.startTime ? new Date(c.startTime as any).getTime() : null;
+      if (!ts || ts < fromMs || ts > toMs) return false;
+      if (iAccount && (c as any).iAccount && (c as any).iAccount !== iAccount) return false;
+      return true;
+    });
+    candidates.sort((a, b) => Number(b.cost ?? 0) - Number(a.cost ?? 0));
+    return candidates.slice(0, topN).map(c => c.callId ?? '').filter(Boolean);
+  } catch { return []; }
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -122,6 +150,7 @@ export async function detectMarginCollapse(): Promise<DetectorResult> {
           priorWindow:   { from: d14ago, to: d7ago,   revenue: prior.revenue,  cost: prior.cost,   margin_pct: +(priorMargin * 100).toFixed(2) },
           recentWindow:  { from: d7ago,  to: todayStr, revenue: recent.revenue, cost: recent.cost,  margin_pct: +(recentMargin * 100).toFixed(2) },
           reportCount:   { recent: recentReports.length, prior: priorReports.length },
+          implicatedCdrIds: sampleImplicatedCdrs(null, d7ago, todayStr, 10),
         },
         recommendedAction: `Margin compressed ${deviationPct.toFixed(1)}% vs prior window. Investigate: vendor cost spike, rate erosion, or traffic mix shift. Check carrier reconciliation and tariff versions.`,
       });

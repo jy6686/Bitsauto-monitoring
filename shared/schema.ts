@@ -2239,6 +2239,7 @@ export const invoiceJobs = pgTable("invoice_jobs", {
   retryCount:    integer("retry_count").notNull().default(0),
   lastError:     text("last_error"),
   notes:         text("notes"),
+  iTariff:       varchar("i_tariff",       { length: 64  }),  // auto-resolved from companies.sippyITariff
   createdBy:     varchar("created_by",     { length: 128 }),
   createdAt:     timestamp("created_at").defaultNow().notNull(),
 });
@@ -3080,6 +3081,7 @@ export const clientIdentityMap = pgTable("client_identity_map", {
   accountManagerId: varchar("account_manager_id", { length: 255 }), // KAM user ID
   financeOwnerId:   varchar("finance_owner_id",   { length: 255 }), // finance escalation user
   riskTier:         varchar("risk_tier", { length: 20 }).default('standard'), // low | standard | elevated | critical
+  iTariff:          varchar("i_tariff",    { length: 64  }),  // Sippy tariff ID — synced from companies.sippyITariff
   notes:            text("notes"),
   active:           boolean("active").notNull().default(true),
   lastSyncedAt:     timestamp("last_synced_at"),
@@ -3727,6 +3729,50 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
 });
 export type RatePushJob       = typeof ratePushJobs.$inferSelect;
 export type InsertRatePushJob = typeof ratePushJobs.$inferInsert;
+
+// ── Product Rate Repository ───────────────────────────────────────────────────
+// Commercial rate per product × prefix. Distinct from Sippy tariff rates.
+// This is what BitsAuto manages; Sippy tariff rates come from Sippy directly.
+export const productRates = pgTable("product_rates", {
+  id:            serial("id").primaryKey(),
+  productId:     integer("product_id").notNull(),
+  destinationId: integer("destination_id"),
+  prefix:        varchar("prefix",    { length: 32  }),
+  rate:          numeric("rate",      { precision: 12, scale: 6 }).notNull().default("0"),
+  currency:      varchar("currency",  { length: 8   }).notNull().default("USD"),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo:   date("effective_to"),
+  notes:         text("notes"),
+  createdBy:     varchar("created_by", { length: 128 }),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+  updatedAt:     timestamp("updated_at").defaultNow().notNull(),
+});
+export type ProductRate       = typeof productRates.$inferSelect;
+export type InsertProductRate = typeof productRates.$inferInsert;
+export const insertProductRateSchema = createInsertSchema(productRates).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ── Rate Notifications / 7-Day Queue ─────────────────────────────────────────
+// Tracks rate change notifications and 7-day advance notices.
+export const rateNotifications = pgTable("rate_notifications", {
+  id:               serial("id").primaryKey(),
+  tariffId:         varchar("tariff_id",    { length: 64  }),
+  productId:        integer("product_id"),
+  notificationType: varchar("notification_type", { length: 32 }).notNull().default("rate_change"),
+  // rate_change | price_increase | price_decrease | 7_day_notice
+  subject:          varchar("subject",      { length: 512 }),
+  message:          text("message"),
+  affectedAccounts: integer("affected_accounts").array(),
+  affectedCount:    integer("affected_count").default(0),
+  scheduledFor:     timestamp("scheduled_for"),
+  sentAt:           timestamp("sent_at"),
+  status:           varchar("status", { length: 32 }).notNull().default("pending"),
+  // pending | sent | cancelled | failed
+  createdBy:        varchar("created_by", { length: 128 }),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+});
+export type RateNotification       = typeof rateNotifications.$inferSelect;
+export type InsertRateNotification = typeof rateNotifications.$inferInsert;
+export const insertRateNotificationSchema = createInsertSchema(rateNotifications).omit({ id: true, createdAt: true });
 
 // ── Product → Destination Assignments ────────────────────────────────────────
 // Created via drag & drop in Assignments tab.

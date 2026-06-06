@@ -4,6 +4,7 @@ import { registerBhaooRoutes } from './routes-bhaoo';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
+import { registerRateManagerRoutes } from './routes-rate-manager';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { registerAiCopilotRoutes } from './routes-ai-copilot';
 import { registerVendorProbeRoutes, initVendorProbeScheduler } from './routes-vendor-probe';
@@ -24060,6 +24061,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       });
   });
 
+  // Register CDR pool provider for AI Assurance (used to link alerts to CDR rows)
+  const { setAssuranceCdrProvider } = await import('./services/sippy/sippy-ai-assurance.service');
+  setAssuranceCdrProvider(() => [...cdrCache.values()] as any);
+
   // Register CDR provider for the RTP/MOS quality aggregator.
   // Includes VQ fields (i_vq_term_mos, i_vq_orig_mos, jitter, pkt_loss) from Sippy CDRs.
   // Also passes cld (called number) so the aggregator can extract destination prefixes.
@@ -29584,12 +29589,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const results: Array<{ customerName: string; status: 'ok' | 'error'; invoice?: any; error?: string }> = [];
       for (const acct of accounts) {
         const { iAccount, iTariff, periodStart, periodEnd, customerName, notes } = acct;
-        if (!iTariff || !periodStart || !periodEnd || !customerName) {
-          results.push({ customerName: customerName ?? `account-${iAccount}`, status: 'error', error: 'Missing required fields' });
+        if (!periodStart || !periodEnd || !customerName) {
+          results.push({ customerName: customerName ?? `account-${iAccount}`, status: 'error', error: 'Missing periodStart/periodEnd/customerName' });
           continue;
         }
         try {
-          const result = await generateInvoice({ iTariff, periodStart, periodEnd, customerName, notes });
+          const result = await generateInvoice({ iTariff: iTariff || undefined, iAccount: iAccount ? Number(iAccount) : undefined, periodStart, periodEnd, customerName, notes });
           results.push({ customerName, status: 'ok', invoice: result });
         } catch (e: any) {
           results.push({ customerName, status: 'error', error: e.message });
@@ -29817,9 +29822,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   app.post('/api/invoices/generate', async (req: any, res: any) => {
     try {
       const { generateInvoice } = await import('./services/sippy/index');
-      const { iTariff, periodStart, periodEnd, customerName, notes } = req.body ?? {};
-      if (!iTariff || !periodStart || !periodEnd || !customerName) {
-        return res.status(400).json({ error: 'iTariff, periodStart, periodEnd, customerName required' });
+      const { iTariff, iAccount, periodStart, periodEnd, customerName, notes } = req.body ?? {};
+      if (!periodStart || !periodEnd || !customerName) {
+        return res.status(400).json({ error: 'periodStart, periodEnd, customerName required (iTariff auto-resolved if omitted)' });
       }
 
       // ── INVOICE GATE: DMR must be verified for the entire billing period ────
@@ -29847,7 +29852,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
       // ── END INVOICE GATE ────────────────────────────────────────────────────
 
-      const result = await generateInvoice({ iTariff, periodStart, periodEnd, customerName, notes });
+      const result = await generateInvoice({ iTariff: iTariff || undefined, iAccount: iAccount ? Number(iAccount) : undefined, periodStart, periodEnd, customerName, notes });
       res.json(result);
     } catch (err: any) {
       console.error('[invoices] generate error:', err.message);
@@ -32658,6 +32663,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   registerBhaooRoutes(app);
   registerCallGovernanceRoutes(app);
 
+  // ── Rate Manager extended routes (product rates, notifications, per-row recon)
+  registerRateManagerRoutes(app);
+
   // ── AI Route Copilot ──────────────────────────────────────────────────────
   const { setVendorPrefixDataProvider } = await import('./routes-ai-copilot');
   setVendorPrefixDataProvider(() => computeVendorPrefixIntelligence(cdrCache));
@@ -33898,6 +33906,90 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       if (!deal) return res.status(404).json({ error: 'Not found' });
       await db.insert(dealApprovals).values({ dealId: id, action: 'renewed', performedBy: req.user?.claims?.sub ?? 'system', notes: req.body.notes ?? null });
       res.json(deal);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/deals/:id/margin-truth — CDR-backed margin analysis for a deal
+  // Uses the live CDR cache to compute actual revenue vs cost for the deal's customer.
+  app.get('/api/deals/:id/margin-truth', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [deal] = await db.select().from(deals).where(eq(deals.id, id)).limit(1);
+      if (!deal) return res.status(404).json({ error: 'Not found' });
+
+      const dests = await db.select().from(dealDestinations).where(eq(dealDestinations.dealId, id));
+      const cdrs  = [...cdrCache.values()] as any[];
+
+      // Filter CDRs for this customer (iAccount match)
+      const customerCdrs = cdrs.filter(c =>
+        (c.iAccount && String(c.iAccount) === String(deal.iAccount)) ||
+        (c.caller   && String(c.caller)   === String(deal.iAccount))
+      );
+
+      // For each destination, filter CDRs by prefix and compute metrics
+      const destMetrics = dests.map(d => {
+        const prefix = (d.dialPrefix ?? d.destinationName ?? '').replace(/\D/g, '');
+        const matching = prefix
+          ? customerCdrs.filter(c => {
+              const callee = String(c.callee ?? c.cld ?? '').replace(/\D/g, '');
+              return callee.startsWith(prefix);
+            })
+          : [];
+
+        const totalCalls    = matching.length;
+        const answeredCalls = matching.filter(c => (c.duration ?? 0) > 0).length;
+        const totalMinutes  = matching.reduce((s: number, c: any) => s + (Number(c.duration ?? 0) / 60), 0);
+        const totalCost     = matching.reduce((s: number, c: any) => s + Number(c.cost ?? c.actualCost ?? 0), 0);
+
+        // Revenue = deal rate × minutes (premRate or stdRate based on customer segment)
+        const ratePerMin    = Number(d.premRate ?? d.stdRate ?? 0);
+        const totalRevenue  = ratePerMin * totalMinutes;
+        const grossMargin   = totalRevenue - totalCost;
+        const marginPct     = totalRevenue > 0 ? (grossMargin / totalRevenue) * 100 : null;
+
+        return {
+          destinationId:   d.destinationId,
+          destinationName: d.destinationName,
+          dialPrefix:      prefix || null,
+          ratePerMin,
+          totalCalls,
+          answeredCalls,
+          asr:             totalCalls > 0 ? Math.round((answeredCalls / totalCalls) * 100) : null,
+          totalMinutes:    +totalMinutes.toFixed(2),
+          totalRevenue:    +totalRevenue.toFixed(4),
+          totalCost:       +totalCost.toFixed(4),
+          grossMargin:     +grossMargin.toFixed(4),
+          marginPct:       marginPct !== null ? +marginPct.toFixed(2) : null,
+          healthStatus:    marginPct === null ? 'no_data'
+                         : marginPct >= 20    ? 'healthy'
+                         : marginPct >= 10    ? 'warning'
+                                             : 'risk',
+        };
+      });
+
+      // Roll up
+      const totalRevenue   = destMetrics.reduce((s, d) => s + d.totalRevenue, 0);
+      const totalCost      = destMetrics.reduce((s, d) => s + d.totalCost, 0);
+      const totalMargin    = totalRevenue - totalCost;
+      const overallMarginPct = totalRevenue > 0 ? (totalMargin / totalRevenue) * 100 : null;
+
+      res.json({
+        dealId:   deal.id,
+        dealRef:  deal.dealRef,
+        iAccount: deal.iAccount,
+        customerName: deal.customerName,
+        cdrWindowCdrs: customerCdrs.length,
+        totalRevenue:    +totalRevenue.toFixed(4),
+        totalCost:       +totalCost.toFixed(4),
+        totalMargin:     +totalMargin.toFixed(4),
+        overallMarginPct: overallMarginPct !== null ? +overallMarginPct.toFixed(2) : null,
+        overallHealthStatus: overallMarginPct === null ? 'no_data'
+                           : overallMarginPct >= 20   ? 'healthy'
+                           : overallMarginPct >= 10   ? 'warning'
+                                                      : 'risk',
+        destinations: destMetrics,
+        computedAt: new Date().toISOString(),
+      });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

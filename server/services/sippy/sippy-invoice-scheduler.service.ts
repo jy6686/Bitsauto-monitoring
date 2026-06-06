@@ -30,7 +30,7 @@ const MAX_RETRIES = 3;
 export async function createInvoiceJob(
   clientName:    string,
   billingPeriod: string,
-  opts: { clientId?: string; scheduledAt?: Date; createdBy?: string; notes?: string } = {},
+  opts: { clientId?: string; iTariff?: string; scheduledAt?: Date; createdBy?: string; notes?: string } = {},
 ): Promise<InvoiceJob> {
   // Check for duplicate (non-cancelled) job for this client + period
   const existing = await storage.listInvoiceJobs({ clientName, billingPeriod });
@@ -39,17 +39,31 @@ export async function createInvoiceJob(
     throw new Error(`Invoice job already exists for ${clientName} / ${billingPeriod} (status: ${active[0].status})`);
   }
 
+  // Auto-resolve tariff from companies if not provided
+  let iTariff = opts.iTariff;
+  if (!iTariff) {
+    try {
+      const allCompanies = await storage.listCompanies();
+      const match = allCompanies.find(c =>
+        c.name?.toLowerCase() === clientName.toLowerCase() ||
+        (c as any).billingName?.toLowerCase() === clientName.toLowerCase()
+      );
+      if (match?.sippyITariff) iTariff = String(match.sippyITariff);
+    } catch { /* non-fatal */ }
+  }
+
   const job = await storage.createInvoiceJob({
     clientName,
     billingPeriod,
     clientId:    opts.clientId,
+    iTariff:     iTariff ?? null,
     scheduledAt: opts.scheduledAt ?? null,
     createdBy:   opts.createdBy ?? 'operator',
     notes:       opts.notes ?? null,
     status:      'PENDING',
-  });
+  } as any);
 
-  console.log(`[invoice-scheduler] Created job #${job.id} — ${clientName} / ${billingPeriod}`);
+  console.log(`[invoice-scheduler] Created job #${job.id} — ${clientName} / ${billingPeriod}${iTariff ? ` tariff=${iTariff}` : ' (no tariff resolved)'}`);
   return job;
 }
 
@@ -164,13 +178,25 @@ export async function detectBillingCycles(): Promise<DetectResult> {
     try {
       const existing = await storage.listInvoiceJobs({ clientName: client.name, billingPeriod: period });
       if (existing.some(j => j.status !== 'CANCELLED')) { skipped++; continue; }
+      // Auto-resolve tariff from companies
+      let iTariff: string | undefined;
+      try {
+        const allCompanies = await storage.listCompanies();
+        const match = allCompanies.find(c =>
+          c.name?.toLowerCase() === client.name.toLowerCase() ||
+          (c as any).billingName?.toLowerCase() === client.name.toLowerCase()
+        );
+        if (match?.sippyITariff) iTariff = String(match.sippyITariff);
+      } catch { /* non-fatal */ }
+
       await storage.createInvoiceJob({
         clientName:    client.name,
         clientId:      client.id,
         billingPeriod: period,
+        iTariff:       iTariff ?? null,
         status:        'PENDING',
         createdBy:     'auto-detect',
-      });
+      } as any);
       created++;
     } catch { skipped++; }
   }

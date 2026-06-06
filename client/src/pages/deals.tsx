@@ -45,6 +45,7 @@ const TABS = [
   { id: "board",         label: "Deal Board",     icon: LayoutList   },
   { id: "simulator",     label: "Deal Simulator", icon: Sliders      },
   { id: "profitability", label: "Profitability",  icon: TrendingUp   },
+  { id: "margin-truth",  label: "Margin Truth",   icon: Activity     },
   { id: "expiry",        label: "Expiry Center",  icon: Timer        },
   { id: "approvals",     label: "Approvals",      icon: CheckSquare  },
   { id: "history",       label: "History",        icon: History      },
@@ -1428,6 +1429,186 @@ function DealHistoryTab({ deals, products }: { deals: Deal[]; products: Product[
   );
 }
 
+// ── Margin Truth Tab ──────────────────────────────────────────────────────────
+// CDR-backed actual margin vs deal-expected margin.
+// Selects a deal from the list, hits /api/deals/:id/margin-truth, shows per-destination
+// actual revenue/cost/margin computed from live CDR cache.
+function MarginTruthTab({ deals }: { deals: Deal[] }) {
+  const [selectedDealId, setSelectedDealId] = useState<number | null>(null);
+
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/deals/margin-truth", selectedDealId],
+    queryFn: () => selectedDealId
+      ? fetch(`/api/deals/${selectedDealId}/margin-truth`).then(r => r.json())
+      : null,
+    enabled: selectedDealId !== null,
+  });
+
+  const HEALTH_CFG = {
+    healthy: { label: "Healthy",  color: "text-emerald-400", bg: "bg-emerald-500/15", border: "border-emerald-500/30" },
+    warning: { label: "Warning",  color: "text-amber-400",   bg: "bg-amber-500/15",   border: "border-amber-500/30"  },
+    risk:    { label: "At Risk",  color: "text-red-400",     bg: "bg-red-500/15",     border: "border-red-500/30"    },
+    no_data: { label: "No Data",  color: "text-muted-foreground", bg: "bg-muted/20",  border: "border-border/40"     },
+  };
+
+  const activeDrillDeals = deals.filter(d => ["active", "approved", "negotiating"].includes(d.status));
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* Deal selector sidebar */}
+      <div className="w-52 shrink-0 border-r border-border/50 overflow-y-auto py-2">
+        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">Select Deal</div>
+        {activeDrillDeals.length === 0 && (
+          <p className="px-3 py-2 text-xs text-muted-foreground">No active/approved deals</p>
+        )}
+        {activeDrillDeals.map(d => (
+          <button key={d.id} data-testid={`margin-truth-deal-${d.id}`}
+            onClick={() => setSelectedDealId(d.id)}
+            className={cn(
+              "w-full text-left px-3 py-2 text-xs border-l-2 transition-colors",
+              selectedDealId === d.id
+                ? "border-primary bg-muted/30 text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10",
+            )}>
+            <div className="font-mono text-[10px] text-muted-foreground">{d.dealRef}</div>
+            <div className="truncate">{d.customerName}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-4">
+        {!selectedDealId ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+            <Activity className="w-8 h-8 opacity-30" />
+            <p className="text-sm">Select a deal to see CDR-backed margin truth</p>
+          </div>
+        ) : isLoading ? (
+          <div className="flex items-center gap-2 justify-center py-16 text-xs text-muted-foreground">
+            <RefreshCw className="w-4 h-4 animate-spin" /> Computing margin truth from CDR cache…
+          </div>
+        ) : !data || data.error ? (
+          <div className="text-center py-12 text-xs text-muted-foreground">{data?.error ?? "No data available"}</div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {/* Header summary */}
+            <div className={cn(
+              "rounded-md border p-4 flex flex-wrap gap-6 items-start",
+              HEALTH_CFG[data.overallHealthStatus as keyof typeof HEALTH_CFG]?.bg ?? "bg-muted/10",
+              HEALTH_CFG[data.overallHealthStatus as keyof typeof HEALTH_CFG]?.border ?? "border-border/40",
+            )}>
+              <div>
+                <div className="text-[10px] text-muted-foreground mb-0.5">Deal</div>
+                <div className="text-xs font-mono font-medium">{data.dealRef}</div>
+                <div className="text-xs text-muted-foreground">{data.customerName}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground mb-0.5">CDR Window</div>
+                <div className="text-xs tabular-nums">{data.cdrWindowCdrs} CDRs in cache</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground mb-0.5">Total Revenue</div>
+                <div className="text-xs tabular-nums font-mono">${Number(data.totalRevenue).toFixed(4)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground mb-0.5">Total Cost</div>
+                <div className="text-xs tabular-nums font-mono">${Number(data.totalCost).toFixed(4)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground mb-0.5">Gross Margin</div>
+                <div className="text-xs tabular-nums font-mono">${Number(data.totalMargin).toFixed(4)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground mb-0.5">Margin %</div>
+                <div className={cn("text-sm font-bold tabular-nums",
+                  HEALTH_CFG[data.overallHealthStatus as keyof typeof HEALTH_CFG]?.color ?? "text-muted-foreground"
+                )}>
+                  {data.overallMarginPct !== null ? `${data.overallMarginPct.toFixed(1)}%` : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-muted-foreground mb-0.5">Health</div>
+                <span className={cn("text-[10px] font-medium px-2 py-0.5 rounded border",
+                  HEALTH_CFG[data.overallHealthStatus as keyof typeof HEALTH_CFG]?.color,
+                  HEALTH_CFG[data.overallHealthStatus as keyof typeof HEALTH_CFG]?.bg,
+                  HEALTH_CFG[data.overallHealthStatus as keyof typeof HEALTH_CFG]?.border,
+                )}>
+                  {HEALTH_CFG[data.overallHealthStatus as keyof typeof HEALTH_CFG]?.label ?? data.overallHealthStatus}
+                </span>
+              </div>
+              <div className="ml-auto">
+                <button onClick={() => refetch()} data-testid="btn-refresh-margin-truth"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded">
+                  <RefreshCw className="w-3 h-3" /> Refresh
+                </button>
+                {data.computedAt && (
+                  <div className="text-[10px] text-muted-foreground mt-1">
+                    {new Date(data.computedAt).toLocaleTimeString()}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Per-destination table */}
+            <div>
+              <div className="text-xs font-medium mb-2 flex items-center gap-2">
+                <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+                Per-Destination CDR Margin Analysis
+              </div>
+              {!data.destinations?.length ? (
+                <p className="text-xs text-muted-foreground py-4">No destinations on this deal</p>
+              ) : (
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-border/50 bg-muted/20">
+                      {["Destination", "Prefix", "Rate/min", "Calls", "ASR%", "Minutes", "Revenue", "Cost", "Margin", "Margin%", "Health"].map(h => (
+                        <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.destinations.map((d: any, i: number) => {
+                      const hcfg = HEALTH_CFG[d.healthStatus as keyof typeof HEALTH_CFG] ?? HEALTH_CFG.no_data;
+                      return (
+                        <tr key={i} className="border-b border-border/20 hover:bg-muted/10" data-testid={`margin-truth-row-${i}`}>
+                          <td className="py-2 px-3 truncate max-w-[160px]">{d.destinationName ?? "—"}</td>
+                          <td className="py-2 px-3 font-mono text-amber-400">{d.dialPrefix ?? "—"}</td>
+                          <td className="py-2 px-3 font-mono tabular-nums">${Number(d.ratePerMin).toFixed(6)}</td>
+                          <td className="py-2 px-3 tabular-nums">{d.totalCalls}</td>
+                          <td className="py-2 px-3 tabular-nums">{d.asr !== null ? `${d.asr}%` : "—"}</td>
+                          <td className="py-2 px-3 tabular-nums">{d.totalMinutes.toFixed(2)}</td>
+                          <td className="py-2 px-3 font-mono tabular-nums">${d.totalRevenue.toFixed(4)}</td>
+                          <td className="py-2 px-3 font-mono tabular-nums">${d.totalCost.toFixed(4)}</td>
+                          <td className="py-2 px-3 font-mono tabular-nums">${d.grossMargin.toFixed(4)}</td>
+                          <td className={cn("py-2 px-3 tabular-nums font-medium", hcfg.color)}>
+                            {d.marginPct !== null ? `${d.marginPct.toFixed(1)}%` : "—"}
+                          </td>
+                          <td className="py-2 px-3">
+                            <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded border", hcfg.color, hcfg.bg, hcfg.border)}>
+                              {hcfg.label}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {data.cdrWindowCdrs === 0 && (
+              <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded-md px-3 py-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                No CDRs found for this customer in the current cache window. CDR cache covers the last ~24h. Check that iAccount is correctly linked to this deal.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function DealsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -1506,6 +1687,7 @@ export default function DealsPage() {
         {activeTab === "board"         && <div className="h-full overflow-hidden"><DealBoardTab deals={dealList} products={products} onSelect={d => { setSimulatorDeal(d); setActiveTab("simulator"); }} onDelete={id => deleteMut.mutate(id)} /></div>}
         {activeTab === "simulator"     && <div className="h-full overflow-hidden"><DealSimulatorTab products={products} destinations={destinations} customerAssignments={custAssignments} accounts={accounts} existingDeal={simulatorDeal} /></div>}
         {activeTab === "profitability" && <div className="h-full overflow-hidden"><ProfitabilityTab deals={dealList} products={products} /></div>}
+        {activeTab === "margin-truth"  && <div className="h-full overflow-hidden"><MarginTruthTab deals={dealList} /></div>}
         {activeTab === "expiry"        && <div className="h-full overflow-y-auto"><ExpiryCenterTab deals={dealList} products={products} /></div>}
         {activeTab === "approvals"     && <div className="h-full overflow-y-auto"><ApprovalsTab deals={dealList} products={products} /></div>}
         {activeTab === "history"       && <div className="h-full overflow-y-auto"><DealHistoryTab deals={dealList} products={products} /></div>}

@@ -20,6 +20,7 @@
 
 import { storage } from '../../storage';
 import type { CarrierReconciliation, InsertCarrierReconciliation } from '@shared/schema';
+import { matchCdr, type CdrRecord } from '../billing/cdr-match';
 
 // ── Discrepancy classification ─────────────────────────────────────────────────
 
@@ -176,6 +177,72 @@ export async function runReconciliation(opts: {
   };
 
   return { reconciliation, analysis };
+}
+
+// ── Per-row CDR reconciliation (T1·ID matching) ───────────────────────────────
+// Matches each snapshot row against a CDR pool using the 3-tier shared utility.
+// Returns matched/unmatched/disputed rows — far more actionable than totals-only.
+
+export interface RowReconResult {
+  snapshotId:      number;
+  cdrCallId?:      string;
+  tier:            0 | 1 | 2 | 3;
+  matched:         boolean;
+  sippyCost?:      number | null;
+  reproducedCost?: number | null;
+  costDelta?:      number | null;
+  status:          'matched' | 'unmatched' | 'cost_drift' | 'missing_cdr';
+}
+
+export function reconcilePerRow(
+  snapshots: Array<{
+    id: number; cdrId?: string | null; cdrStartTime?: string | null;
+    reproducedCost?: number | null; actualCost?: number | null;
+    callee?: string | null; caller?: string | null;
+  }>,
+  cdrPool: CdrRecord[],
+  opts: { windowMs?: number } = {},
+): RowReconResult[] {
+  const results: RowReconResult[] = [];
+
+  for (const snap of snapshots) {
+    const startMs = snap.cdrStartTime
+      ? new Date(snap.cdrStartTime).getTime()
+      : undefined;
+
+    const { matched, tier } = matchCdr(cdrPool, {
+      callId:  snap.cdrId  ?? undefined,
+      cld:     snap.callee ?? undefined,
+      cli:     snap.caller ?? undefined,
+      startMs,
+      windowMs: opts.windowMs,
+    });
+
+    let status: RowReconResult['status'] = 'unmatched';
+    let costDelta: number | null = null;
+
+    if (matched) {
+      const cdrCost    = Number(matched.cost ?? matched.actualCost ?? 0);
+      const reproduced = snap.reproducedCost ?? 0;
+      costDelta = +(cdrCost - reproduced).toFixed(6);
+      status = Math.abs(costDelta) > 0.0001 ? 'cost_drift' : 'matched';
+    } else if (!snap.cdrId) {
+      status = 'missing_cdr';
+    }
+
+    results.push({
+      snapshotId:      snap.id,
+      cdrCallId:       snap.cdrId ?? undefined,
+      tier:            tier as 0 | 1 | 2 | 3,
+      matched:         !!matched,
+      sippyCost:       snap.actualCost,
+      reproducedCost:  snap.reproducedCost,
+      costDelta,
+      status,
+    });
+  }
+
+  return results;
 }
 
 export async function updateReconciliationStatus(

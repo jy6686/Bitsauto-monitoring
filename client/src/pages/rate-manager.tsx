@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import {
   ChevronDown, Search, X, RefreshCw, Check, AlertTriangle, Send,
   BarChart2, Eye, Clock, ChevronRight, Loader2, CircleCheck, CircleX,
+  Plus, Trash2, Bell, BellRing, TrendingUp, TrendingDown, Lightbulb,
+  PackageCheck, Tag, Calendar,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -1051,9 +1053,423 @@ function JobsTab() {
   );
 }
 
+// ── Product Rates Tab ─────────────────────────────────────────────────────────
+function ProductRatesTab({ products }: { products: Product[] }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ prefix: "", rate: "", currency: "USD", effectiveFrom: new Date().toISOString().slice(0, 10), effectiveTo: "", notes: "" });
+
+  const { data: rates = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/product-rates", selectedProductId],
+    queryFn: () => fetch(`/api/product-rates${selectedProductId ? `?productId=${selectedProductId}` : ""}`).then(r => r.json()),
+    enabled: true,
+  });
+
+  const createMut = useMutation({
+    mutationFn: (body: any) => apiRequest("POST", "/api/product-rates", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/product-rates"] });
+      setShowForm(false);
+      setForm({ prefix: "", rate: "", currency: "USD", effectiveFrom: new Date().toISOString().slice(0, 10), effectiveTo: "", notes: "" });
+      toast({ title: "Rate created" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/product-rates/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-rates"] }); toast({ title: "Rate deleted" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const handleCreate = () => {
+    if (!selectedProductId || !form.rate || !form.effectiveFrom) {
+      toast({ title: "Select a product and fill rate + effective date", variant: "destructive" }); return;
+    }
+    createMut.mutate({ productId: Number(selectedProductId), ...form });
+  };
+
+  return (
+    <div className="flex flex-1 overflow-hidden">
+      {/* Sidebar */}
+      <div className="w-48 shrink-0 border-r border-border/50 flex flex-col gap-0 overflow-y-auto py-2">
+        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">Product</div>
+        {products.map(p => (
+          <button
+            key={p.id}
+            onClick={() => setSelectedProductId(String(p.id))}
+            data-testid={`product-rate-select-${p.id}`}
+            className={cn(
+              "text-left px-3 py-2 text-xs flex items-center gap-2 border-l-2 transition-colors",
+              selectedProductId === String(p.id) ? "border-primary bg-muted/30 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10",
+            )}
+          >
+            <Tag className="w-3 h-3 shrink-0" />
+            <span className="truncate">{p.name}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Main */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border/30 bg-muted/10">
+          <div className="text-xs font-medium flex items-center gap-2">
+            <PackageCheck className="w-3.5 h-3.5 text-blue-400" />
+            Product Rate Repository
+            {selectedProductId && <span className="text-muted-foreground">— {products.find(p => String(p.id) === selectedProductId)?.name}</span>}
+          </div>
+          <button
+            onClick={() => setShowForm(v => !v)}
+            data-testid="btn-add-rate"
+            className="flex items-center gap-1 text-xs bg-primary/10 hover:bg-primary/20 text-primary px-2.5 py-1 rounded transition-colors"
+          >
+            <Plus className="w-3 h-3" /> Add Rate
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="border-b border-border/30 bg-muted/5 px-4 py-3 flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground">Prefix</label>
+              <input data-testid="input-rate-prefix" className="bg-muted border border-border rounded px-2 py-1 text-xs w-32 font-mono" placeholder="e.g. 9230" value={form.prefix} onChange={e => setForm(f => ({ ...f, prefix: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground">Rate (USD/min)</label>
+              <input data-testid="input-rate-value" type="number" step="0.000001" className="bg-muted border border-border rounded px-2 py-1 text-xs w-28 font-mono" placeholder="0.000000" value={form.rate} onChange={e => setForm(f => ({ ...f, rate: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground">Effective From</label>
+              <input data-testid="input-rate-from" type="date" className="bg-muted border border-border rounded px-2 py-1 text-xs w-36" value={form.effectiveFrom} onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground">Effective To (optional)</label>
+              <input data-testid="input-rate-to" type="date" className="bg-muted border border-border rounded px-2 py-1 text-xs w-36" value={form.effectiveTo} onChange={e => setForm(f => ({ ...f, effectiveTo: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground">Notes</label>
+              <input data-testid="input-rate-notes" className="bg-muted border border-border rounded px-2 py-1 text-xs w-48" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+            </div>
+            <button onClick={handleCreate} disabled={createMut.isPending} data-testid="btn-save-rate"
+              className="flex items-center gap-1 text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded transition-colors disabled:opacity-50">
+              {createMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
+            </button>
+            <button onClick={() => setShowForm(false)} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1">Cancel</button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-auto">
+          {isLoading ? (
+            <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+          ) : rates.length === 0 ? (
+            <div className="text-center text-xs text-muted-foreground py-12">
+              {selectedProductId ? "No rates configured for this product yet" : "Select a product to view its rates"}
+            </div>
+          ) : (
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border/50 bg-muted/20 sticky top-0">
+                  {["Prefix", "Rate (USD/min)", "Currency", "Effective From", "Effective To", "Notes", "Created By", ""].map(h => (
+                    <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rates.map((r: any) => (
+                  <tr key={r.id} className="border-b border-border/20 hover:bg-muted/10" data-testid={`row-rate-${r.id}`}>
+                    <td className="py-2 px-3 font-mono text-amber-400">{r.prefix || "—"}</td>
+                    <td className="py-2 px-3 font-mono tabular-nums">{Number(r.rate).toFixed(6)}</td>
+                    <td className="py-2 px-3">{r.currency}</td>
+                    <td className="py-2 px-3 tabular-nums">{r.effectiveFrom}</td>
+                    <td className="py-2 px-3 tabular-nums text-muted-foreground">{r.effectiveTo || "—"}</td>
+                    <td className="py-2 px-3 text-muted-foreground truncate max-w-xs">{r.notes || "—"}</td>
+                    <td className="py-2 px-3 text-muted-foreground">{r.createdBy || "—"}</td>
+                    <td className="py-2 px-3">
+                      <button onClick={() => deleteMut.mutate(r.id)} data-testid={`btn-delete-rate-${r.id}`}
+                        className="text-red-400 hover:text-red-300 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Notifications Tab ─────────────────────────────────────────────────────────
+function NotificationsTab({ products }: { products: Product[] }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({
+    tariffId: "", productId: "", notificationType: "rate_change",
+    subject: "", message: "", scheduledFor: "",
+  });
+
+  const { data: notifications = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/rate-notifications"] });
+
+  const createMut = useMutation({
+    mutationFn: (body: any) => apiRequest("POST", "/api/rate-notifications", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/rate-notifications"] });
+      setShowForm(false);
+      setForm({ tariffId: "", productId: "", notificationType: "rate_change", subject: "", message: "", scheduledFor: "" });
+      toast({ title: "Notification queued" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const statusMut = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiRequest("PATCH", `/api/rate-notifications/${id}`, { status }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/rate-notifications"] }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const NOTIF_LABELS: Record<string, { label: string; color: string }> = {
+    rate_change:     { label: "Rate Change",      color: "text-blue-400"   },
+    price_increase:  { label: "Price Increase",   color: "text-red-400"    },
+    price_decrease:  { label: "Price Decrease",   color: "text-green-400"  },
+    "7_day_notice":  { label: "7-Day Notice",     color: "text-amber-400"  },
+  };
+
+  const STATUS_COLOR: Record<string, string> = {
+    pending:   "text-amber-400",
+    sent:      "text-green-400",
+    cancelled: "text-muted-foreground",
+    failed:    "text-red-400",
+  };
+
+  return (
+    <div className="flex-1 overflow-auto p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-sm font-semibold flex items-center gap-2">
+          <BellRing className="w-4 h-4 text-amber-400" />
+          Rate Notifications &amp; 7-Day Queue
+        </div>
+        <button onClick={() => setShowForm(v => !v)} data-testid="btn-new-notification"
+          className="flex items-center gap-1 text-xs bg-primary/10 hover:bg-primary/20 text-primary px-2.5 py-1 rounded transition-colors">
+          <Plus className="w-3 h-3" /> New Notification
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="border border-border/40 rounded-md bg-muted/10 p-4 mb-4 flex flex-col gap-3">
+          <div className="text-xs font-medium text-muted-foreground mb-1">Create Rate Notification</div>
+          <div className="flex flex-wrap gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground">Type</label>
+              <select data-testid="select-notif-type" className="bg-muted border border-border rounded px-2 py-1 text-xs w-36"
+                value={form.notificationType} onChange={e => setForm(f => ({ ...f, notificationType: e.target.value }))}>
+                <option value="rate_change">Rate Change</option>
+                <option value="price_increase">Price Increase</option>
+                <option value="price_decrease">Price Decrease</option>
+                <option value="7_day_notice">7-Day Notice</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground">Tariff ID</label>
+              <input data-testid="input-notif-tariff" className="bg-muted border border-border rounded px-2 py-1 text-xs w-28 font-mono"
+                placeholder="e.g. 8" value={form.tariffId} onChange={e => setForm(f => ({ ...f, tariffId: e.target.value }))} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground">Product</label>
+              <select data-testid="select-notif-product" className="bg-muted border border-border rounded px-2 py-1 text-xs w-40"
+                value={form.productId} onChange={e => setForm(f => ({ ...f, productId: e.target.value }))}>
+                <option value="">— None —</option>
+                {products.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground">Schedule For (optional)</label>
+              <input data-testid="input-notif-schedule" type="datetime-local" className="bg-muted border border-border rounded px-2 py-1 text-xs w-44"
+                value={form.scheduledFor} onChange={e => setForm(f => ({ ...f, scheduledFor: e.target.value }))} />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] text-muted-foreground">Subject</label>
+            <input data-testid="input-notif-subject" className="bg-muted border border-border rounded px-2 py-1 text-xs w-full max-w-md"
+              placeholder="Rate change notification for Pakistan" value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] text-muted-foreground">Message</label>
+            <textarea data-testid="input-notif-message" rows={3} className="bg-muted border border-border rounded px-2 py-1 text-xs w-full max-w-md resize-none"
+              placeholder="Effective 7 days from today, the following rates will change…" value={form.message}
+              onChange={e => setForm(f => ({ ...f, message: e.target.value }))} />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => createMut.mutate({ ...form, productId: form.productId || undefined })} disabled={createMut.isPending}
+              data-testid="btn-save-notification"
+              className="flex items-center gap-1 text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1 rounded transition-colors disabled:opacity-50">
+              {createMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bell className="w-3 h-3" />} Queue Notification
+            </button>
+            <button onClick={() => setShowForm(false)} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+      ) : notifications.length === 0 ? (
+        <div className="text-center text-xs text-muted-foreground py-12">No notifications queued yet</div>
+      ) : (
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="border-b border-border/50 bg-muted/20">
+              {["Type", "Subject", "Tariff", "Affected", "Scheduled", "Status", "Created", "Actions"].map(h => (
+                <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {notifications.map((n: any) => {
+              const typeInfo = NOTIF_LABELS[n.notificationType] ?? { label: n.notificationType, color: "text-foreground" };
+              return (
+                <tr key={n.id} className="border-b border-border/20 hover:bg-muted/10" data-testid={`row-notif-${n.id}`}>
+                  <td className={cn("py-2 px-3 font-medium", typeInfo.color)}>{typeInfo.label}</td>
+                  <td className="py-2 px-3 truncate max-w-xs">{n.subject}</td>
+                  <td className="py-2 px-3 font-mono text-muted-foreground">{n.tariffId || "—"}</td>
+                  <td className="py-2 px-3 tabular-nums">{n.affectedCount ?? 0} accounts</td>
+                  <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
+                    {n.scheduledFor ? new Date(n.scheduledFor).toLocaleDateString() : "Immediate"}
+                  </td>
+                  <td className={cn("py-2 px-3 font-medium capitalize", STATUS_COLOR[n.status] ?? "text-muted-foreground")}>{n.status}</td>
+                  <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{new Date(n.createdAt).toLocaleDateString()}</td>
+                  <td className="py-2 px-3 flex gap-1">
+                    {n.status === 'pending' && (
+                      <>
+                        <button onClick={() => statusMut.mutate({ id: n.id, status: 'sent' })}
+                          data-testid={`btn-send-notif-${n.id}`}
+                          className="text-green-400 hover:text-green-300 text-[10px] px-1.5 py-0.5 border border-green-400/30 rounded">
+                          Mark Sent
+                        </button>
+                        <button onClick={() => statusMut.mutate({ id: n.id, status: 'cancelled' })}
+                          data-testid={`btn-cancel-notif-${n.id}`}
+                          className="text-muted-foreground hover:text-foreground text-[10px] px-1.5 py-0.5 border border-border/40 rounded">
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ── Pricing Intelligence Tab ──────────────────────────────────────────────────
+function PricingIntelligenceTab({ products }: { products: Product[] }) {
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+
+  const { data, isLoading, refetch } = useQuery<{ recommendations: any[]; generatedAt: string }>({
+    queryKey: ["/api/pricing-intelligence", selectedProductId],
+    queryFn: () => fetch(`/api/pricing-intelligence${selectedProductId ? `?productId=${selectedProductId}` : ""}`).then(r => r.json()),
+  });
+
+  const PRIORITY_CONFIG = {
+    high:   { color: "text-red-400",    bg: "bg-red-400/10",   icon: TrendingUp,   label: "High Priority"   },
+    medium: { color: "text-amber-400",  bg: "bg-amber-400/10", icon: TrendingDown, label: "Medium Priority" },
+    low:    { color: "text-green-400",  bg: "bg-green-400/10", icon: Lightbulb,    label: "Low Priority"    },
+  };
+
+  return (
+    <div className="flex flex-1 overflow-hidden">
+      {/* Sidebar */}
+      <div className="w-48 shrink-0 border-r border-border/50 flex flex-col gap-0 overflow-y-auto py-2">
+        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">Filter Product</div>
+        <button
+          onClick={() => setSelectedProductId("")}
+          className={cn(
+            "text-left px-3 py-2 text-xs border-l-2 transition-colors",
+            !selectedProductId ? "border-primary bg-muted/30 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10",
+          )}
+          data-testid="product-intel-all"
+        >
+          All Products
+        </button>
+        {products.map(p => (
+          <button
+            key={p.id}
+            onClick={() => setSelectedProductId(String(p.id))}
+            data-testid={`product-intel-${p.id}`}
+            className={cn(
+              "text-left px-3 py-2 text-xs flex items-center gap-2 border-l-2 transition-colors",
+              selectedProductId === String(p.id) ? "border-primary bg-muted/30 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10",
+            )}
+          >
+            <span className="truncate">{p.name}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Main */}
+      <div className="flex-1 overflow-auto p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-sm font-semibold flex items-center gap-2">
+            <Lightbulb className="w-4 h-4 text-yellow-400" />
+            Pricing Intelligence
+          </div>
+          <button onClick={() => refetch()} data-testid="btn-refresh-intel"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1">
+            <RefreshCw className="w-3 h-3" />
+          </button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Analysing…</div>
+        ) : !data?.recommendations?.length ? (
+          <div className="text-center text-xs text-muted-foreground py-12">No commercial products found — activate products in the Product Registry first</div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {data.generatedAt && (
+              <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                <Calendar className="w-3 h-3" /> Generated {new Date(data.generatedAt).toLocaleString()}
+              </div>
+            )}
+            {data.recommendations.map((rec: any) => {
+              const cfg = PRIORITY_CONFIG[rec.priority as keyof typeof PRIORITY_CONFIG] ?? PRIORITY_CONFIG.low;
+              const Icon = cfg.icon;
+              return (
+                <div key={rec.productId} data-testid={`intel-card-${rec.productId}`}
+                  className={cn("border border-border/40 rounded-md p-3 flex flex-col gap-2", cfg.bg)}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Icon className={cn("w-3.5 h-3.5 shrink-0", cfg.color)} />
+                      <span className="text-xs font-medium">{rec.productName}</span>
+                      <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded", cfg.color, cfg.bg)}>{cfg.label}</span>
+                    </div>
+                    <div className="flex gap-4 text-[10px] text-muted-foreground shrink-0">
+                      <span>{rec.rateCount} rate{rec.rateCount !== 1 ? 's' : ''}</span>
+                      <span>{rec.customerCount} customer{rec.customerCount !== 1 ? 's' : ''}</span>
+                      {rec.avgRate !== null && (
+                        <span className="font-mono">${Number(rec.avgRate).toFixed(6)}/min avg</span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{rec.recommendation}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function RateManagerPage() {
-  const [activeTab, setActiveTab] = useState<"analysis" | "send" | "jobs">("analysis");
+  const [activeTab, setActiveTab] = useState<"analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence">("analysis");
 
   const { data: products = [], isLoading: prodLoading } = useQuery<Product[]>({
     queryKey: ["/api/rate-manager/products"],
@@ -1078,9 +1494,12 @@ export default function RateManagerPage() {
   const isLoading = prodLoading || acctLoading;
 
   const TABS = [
-    { key: "analysis" as const, label: "Rate Analysis" },
-    { key: "send"    as const, label: "Send Rate"     },
-    { key: "jobs"    as const, label: "Push History"  },
+    { key: "analysis"      as const, label: "Rate Analysis"   },
+    { key: "send"          as const, label: "Send Rate"        },
+    { key: "jobs"          as const, label: "Push History"     },
+    { key: "product-rates" as const, label: "Product Rates"   },
+    { key: "notifications" as const, label: "Notifications"   },
+    { key: "intelligence"  as const, label: "Intelligence"    },
   ];
 
   return (
@@ -1118,13 +1537,12 @@ export default function RateManagerPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "analysis" && (
-        <AnalysisTab products={products} accounts={accounts} allDests={allDests} />
-      )}
-      {activeTab === "send" && (
-        <SendRateTab products={products} accounts={accounts} allDests={allDests} />
-      )}
-      {activeTab === "jobs" && <JobsTab />}
+      {activeTab === "analysis"      && <AnalysisTab products={products} accounts={accounts} allDests={allDests} />}
+      {activeTab === "send"          && <SendRateTab products={products} accounts={accounts} allDests={allDests} />}
+      {activeTab === "jobs"          && <JobsTab />}
+      {activeTab === "product-rates" && <ProductRatesTab products={products} />}
+      {activeTab === "notifications" && <NotificationsTab products={products} />}
+      {activeTab === "intelligence"  && <PricingIntelligenceTab products={products} />}
     </div>
   );
 }

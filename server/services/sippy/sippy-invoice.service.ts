@@ -575,14 +575,43 @@ ${bankingHtml}
  * Sources ONLY from invoice_cdr_snapshots — never live tariffs.
  */
 export async function generateInvoice(opts: {
-  iTariff:      string;
+  iTariff?:     string;          // optional — auto-resolved from companies if absent
+  iAccount?:    number;          // used for tariff auto-lookup
   periodStart:  string;
   periodEnd:    string;
   customerName: string;
   notes?:       string;
 }): Promise<{ invoice: Invoice; lineCount: number }> {
+  // ── Tariff auto-resolution ─────────────────────────────────────────────────
+  // Priority: explicit → iAccount lookup → customerName lookup → error
+  let resolvedTariff = opts.iTariff;
+  if (!resolvedTariff) {
+    try {
+      if (opts.iAccount) {
+        const company = await storage.getCompanyBySippyAccount(opts.iAccount);
+        if (company?.sippyITariff) resolvedTariff = String(company.sippyITariff);
+      }
+      if (!resolvedTariff && opts.customerName) {
+        const allCompanies = await storage.listCompanies();
+        const match = allCompanies.find(c =>
+          c.name?.toLowerCase() === opts.customerName.toLowerCase() ||
+          (c as any).billingName?.toLowerCase() === opts.customerName.toLowerCase() ||
+          (c as any).displayName?.toLowerCase() === opts.customerName.toLowerCase()
+        );
+        if (match?.sippyITariff) resolvedTariff = String(match.sippyITariff);
+      }
+    } catch { /* non-fatal — fall through to error below */ }
+    if (!resolvedTariff) {
+      throw new Error(
+        `No tariff could be resolved for customer "${opts.customerName}". ` +
+        'Ensure the account has a tariff assigned in the Company record (sippyITariff) or pass iTariff explicitly.'
+      );
+    }
+    console.log(`[invoice] Auto-resolved tariff ${resolvedTariff} for customer "${opts.customerName}"`);
+  }
+
   const snapshots = await storage.listInvoiceCdrSnapshots({
-    iTariff: opts.iTariff,
+    iTariff: resolvedTariff,
     limit:   50000,
   });
 
@@ -618,7 +647,7 @@ export async function generateInvoice(opts: {
 
   const invoiceData: InsertInvoice = {
     invoiceNumber,
-    iTariff:         opts.iTariff,
+    iTariff:         resolvedTariff,
     customerName:    opts.customerName,
     periodStart:     opts.periodStart,
     periodEnd:       opts.periodEnd,
