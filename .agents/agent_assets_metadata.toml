@@ -162,3 +162,51 @@ id = "Mjp9tp7_Kq1pb83h-Lxc7"
 uri = "file://BitsAuto_Demo_Deck.pptx"
 type = "slides"
 title = "BitsAuto Demo Deck — 14 Slides (PowerPoint)"
+
+[[outputs]]
+id = "Vf9FbzmM6RCbwVc84vlDT"
+uri = "file://attached_assets/generated_videos/act1_command_center.mp4"
+type = "video"
+title = "Act 1 — The Telecom Command Center"
+
+[[outputs]]
+id = "-os8mz4S1pbA_7Q9scKvT"
+uri = "file://attached_assets/generated_videos/act2_bitseye_evidence.mp4"
+type = "video"
+title = "Act 2 — BitsEye2 The Evidence Layer"
+
+[[outputs]]
+id = "ih5QTI_dPlVJNUTo5Vnxi"
+uri = "file://attached_assets/generated_videos/act3_route_intelligence.mp4"
+type = "video"
+title = "Act 3 — Route Intelligence"
+
+[[outputs]]
+id = "8y5tOAEGogov3ohPeY0aK"
+uri = "file://attached_assets/generated_videos/act4_ai_ops.mp4"
+type = "video"
+title = "Act 4 — AI Ops Center"
+
+[[outputs]]
+id = "S8iQxkglXdrUSEkqRbYBX"
+uri = "file://attached_assets/generated_videos/act5_routing_control_plane.mp4"
+type = "video"
+title = "Act 5 — Routing Control Plane"
+
+[[outputs]]
+id = "9JCTCiRbXWRd10k25PTkB"
+uri = "file://attached_assets/generated_videos/act7_product_registry.mp4"
+type = "video"
+title = "Act 7 — Product Registry"
+
+[[outputs]]
+id = "Skc4EvygNcnuu-sjuycfU"
+uri = "file://attached_assets/generated_videos/act8_deal_workspace.mp4"
+type = "video"
+title = "Act 8 — Deal Workspace"
+
+[[outputs]]
+id = "4KEy2LzRPbnOQEl6mp7ni"
+uri = "file://attached_assets/generated_videos/act_philosophy_closing.mp4"
+type = "video"
+title = "Closing — OBSERVE → UNDERSTAND → DECIDE → CONTROL → AUDIT"
