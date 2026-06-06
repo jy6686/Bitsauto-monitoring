@@ -32876,52 +32876,65 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           //
           // Therefore: match gc.caller (destination EXTEN) vs CDR callee (CLD), last-9 digits.
           //            use gc.callee (source CLI) vs CDR caller (CLI) as tiebreaker.
-          let matchedCdr: any = null;
-          if (startMs && gc.caller) {
-            const windowMs  = 10 * 60 * 1000;
-            // Destination suffix: strip 2060 routing prefix if present, then take last 9 digits
-            const destDigits = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
-            const destSuffix = destDigits.slice(-9);
-            const candidates = allCdrs.filter(c => {
-              const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
-              if (!cdrTs) return false;
-              if (Math.abs(cdrTs - startMs) > windowMs) return false;
-              return (c.callee || '').replace(/\D/g, '').endsWith(destSuffix);
-            });
-            if (candidates.length > 0) {
-              // Tiebreaker: source CLI (gc.callee) vs CDR caller
-              const cliSuffix = (gc.callee || '').replace(/\D/g, '').slice(-7);
-              const cliMatch  = cliSuffix.length >= 6
-                ? candidates.find(c => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
-                : null;
-              matchedCdr = cliMatch ?? candidates.reduce((best, c) => {
-                const cdrTs  = new Date(c.startTime).getTime();
-                const bestTs = new Date(best.startTime).getTime();
-                return Math.abs(cdrTs - startMs!) < Math.abs(bestTs - startMs!) ? c : best;
+          // ── CDR resolution: DB-first (eager lookup), live-match fallback ──
+          // If the eager 45s CDR lookup already ran and stored data on the row, use it.
+          // Otherwise fall back to live cache/supplement matching (works for very recent cuts).
+          let customerBilledSec: number | null;
+          let customerCost: number | null;
+          let vendorCost: number | null;
+          let vendorName: string | null;
+          let marginAmount: number | null;
+          let status: 'ok' | 'check' | 'loss' | 'no_cdr';
+
+          if ((gc as any).cdrStatus != null) {
+            // DB-stored CDR data (populated by scheduleCdrLookup 45s after cut)
+            customerBilledSec = (gc as any).cdrDuration    ?? null;
+            customerCost      = (gc as any).cdrCost        ?? null;
+            vendorCost        = (gc as any).cdrVendorCost  ?? null;
+            vendorName        = (gc as any).cdrVendorName  ?? null;
+            marginAmount      = (customerCost !== null && vendorCost !== null)
+              ? parseFloat((customerCost - vendorCost).toFixed(6)) : null;
+            status = ((gc as any).cdrStatus as any) ?? 'no_cdr';
+          } else {
+            // Live cache matching (works when CDR is within the rolling cache window)
+            let matchedCdr: any = null;
+            if (startMs && gc.caller) {
+              const windowMs   = 10 * 60 * 1000;
+              const destDigits = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
+              const destSuffix = destDigits.slice(-9);
+              const candidates = allCdrs.filter(c => {
+                const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
+                if (!cdrTs) return false;
+                if (Math.abs(cdrTs - startMs) > windowMs) return false;
+                return (c.callee || '').replace(/\D/g, '').endsWith(destSuffix);
               });
+              if (candidates.length > 0) {
+                const cliSuffix = (gc.callee || '').replace(/\D/g, '').slice(-7);
+                const cliMatch  = cliSuffix.length >= 6
+                  ? candidates.find(c => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
+                  : null;
+                matchedCdr = cliMatch ?? candidates.reduce((best, c) => {
+                  const cdrTs  = new Date(c.startTime).getTime();
+                  const bestTs = new Date(best.startTime).getTime();
+                  return Math.abs(cdrTs - startMs!) < Math.abs(bestTs - startMs!) ? c : best;
+                });
+              }
             }
-          }
-
-          const customerBilledSec: number | null = matchedCdr ? (Number(matchedCdr.duration) || null) : null;
-          const customerCost: number | null       = matchedCdr ? (Number(matchedCdr.cost)     || null) : null;
-          const vendorName: string | null         = matchedCdr?.vendorResolved ?? matchedCdr?.vendorName ?? null;
-          const vendorCost: number | null         = matchedCdr ? ((matchedCdr as any).vendorCost ?? null) : null;
-          const marginAmount: number | null       = (customerCost !== null && vendorCost !== null)
-            ? parseFloat((customerCost - vendorCost).toFixed(6)) : null;
-
-          // Status logic — three tiers:
-          //   'no_cdr'  : CDR not found in cache yet
-          //   'loss'    : vendor cost > customer revenue (margin < 0) — financial loss
-          //   'check'   : customer billed significantly more seconds than cut window — review in Sippy
-          //   'ok'      : duration within bounds AND margin ≥ 0 (or no vendor cost available)
-          let status: 'ok' | 'check' | 'loss' | 'no_cdr' = 'no_cdr';
-          if (customerBilledSec !== null && estimatedBilledSec !== null) {
-            if (customerBilledSec > estimatedBilledSec + 15) {
-              status = 'check';   // overbilled on duration
-            } else if (marginAmount !== null && marginAmount < 0) {
-              status = 'loss';    // vendor cost exceeds customer revenue
-            } else {
-              status = 'ok';
+            customerBilledSec = matchedCdr ? (Number(matchedCdr.duration) || null) : null;
+            customerCost      = matchedCdr ? (Number(matchedCdr.cost)     || null) : null;
+            vendorName        = matchedCdr?.vendorResolved ?? matchedCdr?.vendorName ?? null;
+            vendorCost        = matchedCdr ? ((matchedCdr as any).vendorCost ?? null) : null;
+            marginAmount      = (customerCost !== null && vendorCost !== null)
+              ? parseFloat((customerCost - vendorCost).toFixed(6)) : null;
+            status = 'no_cdr';
+            if (customerBilledSec !== null && estimatedBilledSec !== null) {
+              if (customerBilledSec > estimatedBilledSec + 15) {
+                status = 'check';
+              } else if (marginAmount !== null && marginAmount < 0) {
+                status = 'loss';
+              } else {
+                status = 'ok';
+              }
             }
           }
 
@@ -32951,6 +32964,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             marginAmount,
             vendorName,
             status,
+            cdrCheckedAt: (gc as any).cdrCheckedAt ?? null,
+            cdrSource:    (gc as any).cdrStatus != null ? 'db' : 'live',
           };
         });
 

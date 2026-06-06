@@ -3308,6 +3308,14 @@ export const governedCalls = pgTable("governed_calls", {
   recordingPath:     varchar("recording_path", { length: 512 }),
   triggerReason:     varchar("trigger_reason", { length: 64  }),
   status:            varchar("status",         { length: 32  }).notNull().default('active'),
+  cdrStatus:         varchar("cdr_status",     { length: 32  }),
+  cdrCaller:         varchar("cdr_caller",     { length: 64  }),
+  cdrCallee:         varchar("cdr_callee",     { length: 64  }),
+  cdrDuration:       integer("cdr_duration"),
+  cdrCost:           real("cdr_cost"),
+  cdrVendorCost:     real("cdr_vendor_cost"),
+  cdrVendorName:     varchar("cdr_vendor_name", { length: 128 }),
+  cdrCheckedAt:      timestamp("cdr_checked_at"),
 });
 export type GovernedCall = typeof governedCalls.$inferSelect;
 

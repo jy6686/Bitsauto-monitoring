@@ -85,6 +85,8 @@ interface BillingRow {
   marginAmount: number | null;
   vendorName: string | null;
   status: 'ok' | 'check' | 'loss' | 'no_cdr';
+  cdrCheckedAt: string | null;
+  cdrSource: 'db' | 'live' | null;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -442,6 +444,15 @@ export default function CallGovernancePage() {
       const hasPending = (query.state.data as BillingRow[] | undefined)?.some(r => r.status === 'no_cdr');
       return hasPending ? 10_000 : 30_000;
     },
+  });
+
+  const retryCdrMut = useMutation({
+    mutationFn: (id?: number) => apiRequest('POST', '/api/call-governance/billing-backfill', id != null ? { id } : {}),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ['/api/call-governance/billing'] });
+      toast({ title: `CDR lookup queued`, description: `${data?.queued ?? 1} cut(s) queued — results appear in ~5 s` });
+    },
+    onError: (e: any) => toast({ title: 'Retry failed', description: e.message, variant: 'destructive' }),
   });
 
   const addRuleMut = useMutation({
@@ -924,7 +935,20 @@ export default function CallGovernancePage() {
                 <span className="text-sm font-medium text-slate-200 flex items-center gap-2">
                   <TrendingDown className="w-4 h-4 text-emerald-400" /> Billing Reconciliation (last 7 days)
                 </span>
-                <span className="text-xs text-slate-500">{billingQ.data.length} cuts</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500">{billingQ.data.length} cuts</span>
+                  {billingQ.data.some(r => r.status === 'no_cdr') && (
+                    <button
+                      onClick={() => retryCdrMut.mutate(undefined)}
+                      disabled={retryCdrMut.isPending}
+                      data-testid="billing-retry-all"
+                      className="flex items-center gap-1 px-2.5 py-1 rounded text-xs bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={cn('w-3 h-3', retryCdrMut.isPending && 'animate-spin')} />
+                      Retry CDR ({billingQ.data.filter(r => r.status === 'no_cdr').length})
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -940,6 +964,7 @@ export default function CallGovernancePage() {
                       <th className="px-4 py-2.5 text-right font-medium">Vendor Cost</th>
                       <th className="px-4 py-2.5 text-right font-medium">Margin</th>
                       <th className="px-4 py-2.5 text-center font-medium">Status</th>
+                      <th className="px-4 py-2.5 text-center font-medium">CDR</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -998,6 +1023,28 @@ export default function CallGovernancePage() {
                               {statusCfg.label}
                             </span>
                           </td>
+                          <td className="px-4 py-3 text-center">
+                            {row.status === 'no_cdr' ? (
+                              <button
+                                onClick={() => retryCdrMut.mutate(row.id)}
+                                disabled={retryCdrMut.isPending}
+                                title={row.cdrCheckedAt ? `Last tried: ${new Date(row.cdrCheckedAt).toLocaleString()}` : 'Retry CDR lookup'}
+                                data-testid={`billing-retry-${row.id}`}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-amber-500/10 text-slate-500 hover:text-amber-400 border border-slate-700 hover:border-amber-500/30 transition-colors disabled:opacity-40"
+                              >
+                                <RefreshCw className="w-2.5 h-2.5" /> Retry
+                              </button>
+                            ) : row.cdrSource === 'db' ? (
+                              <span
+                                title={row.cdrCheckedAt ? `Stored ${new Date(row.cdrCheckedAt).toLocaleString()}` : 'From DB'}
+                                className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                              >
+                                DB
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-600">live</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -1007,7 +1054,7 @@ export default function CallGovernancePage() {
               {/* Footer note */}
               <div className="px-4 py-2.5 border-t border-slate-800 flex items-center gap-2 text-xs text-slate-600">
                 <Info className="w-3 h-3 flex-shrink-0" />
-                CDR match: destination number (last 9 digits) within ±10 min of bridge time, source CLI as tiebreaker. Costs shown are customer-side (revenue).
+                CDR match: destination number (last 9 digits) within ±10 min of bridge time, CLI as tiebreaker. <span className="text-emerald-700">DB</span> = stored 45s after cut (reliable). Live = real-time cache match (recent cuts only). Use Retry for cuts &gt;2h old.
               </div>
             </div>
           )}

@@ -13,6 +13,7 @@ import { eq, desc, gte, and, sql } from 'drizzle-orm';
 import { amiGovernance } from './services/asterisk/ami-governance';
 import { storage } from './storage';
 import { Client as SshClient } from 'ssh2';
+import * as sippy from './sippy';
 
 // ── Auth helpers ───────────────────────────────────────────────────────────────
 
@@ -33,6 +34,90 @@ async function requireAdmin(req: any, res: any, next: any) {
 // ── Timer registry ─────────────────────────────────────────────────────────────
 // Maps governedCall.id → active setTimeout handle
 const activeTimers = new Map<number, NodeJS.Timeout>();
+
+// ── Eager CDR lookup ───────────────────────────────────────────────────────────
+// Runs 45 s after every cut so the CDR is still at the top of the portal list.
+// Stores result directly on the governed_calls row — billing view reads from DB.
+function scheduleCdrLookup(governedCallId: number): void {
+  setTimeout(async () => {
+    try {
+      const [gc] = await db.select().from(governedCalls).where(eq(governedCalls.id, governedCallId));
+      if (!gc) return;
+
+      const settings = await storage.getSettings();
+      if (!settings) return;
+
+      const portalUrl  = (settings as any).portalUrl ?? '';
+      const portalUser = settings.portalUsername    ?? '';
+      const portalPass = settings.portalPassword    ?? '';
+      if (!portalUrl || !portalUser || !portalPass) return;
+
+      const startMs  = gc.startTime ? new Date(gc.startTime).getTime() : Date.now();
+      const winStart = new Date(startMs - 3 * 60_000);
+      const winEnd   = new Date(startMs + 20 * 60_000);
+
+      let cdrs: any[] = [];
+      try {
+        cdrs = await sippy.scrapePortalCDRsAll(portalUser, portalPass, portalUrl, {
+          startDate: winStart.toISOString(),
+          endDate:   winEnd.toISOString(),
+          maxPages:  3,
+        });
+      } catch { /* leave cdrs empty */ }
+
+      const destDigits = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
+      const destSuffix = destDigits.slice(-9);
+      const cliSuffix  = (gc.callee || '').replace(/\D/g, '').slice(-7);
+
+      const candidates = cdrs.filter((c: any) =>
+        (c.callee || '').replace(/\D/g, '').endsWith(destSuffix)
+      );
+
+      let matched: any = null;
+      if (candidates.length > 0) {
+        const cliMatch = cliSuffix.length >= 6
+          ? candidates.find((c: any) => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
+          : null;
+        matched = cliMatch ?? candidates.reduce((best: any, c: any) => {
+          const a = Math.abs(new Date(c.startTime).getTime() - startMs);
+          const b = Math.abs(new Date(best.startTime).getTime() - startMs);
+          return a < b ? c : best;
+        });
+      }
+
+      const cdrDuration   = matched ? (Number(matched.duration) || null) : null;
+      const cdrCost       = matched ? (Number(matched.cost)     || null) : null;
+      const cdrVendorCost = matched ? (Number((matched as any).vendorCost) || null) : null;
+      const cdrVendorName = matched?.vendorResolved ?? matched?.vendorName ?? null;
+      const cdrCaller     = matched?.caller ?? null;
+      const cdrCallee     = matched?.callee ?? null;
+
+      const govSec = gc.startTime && gc.byeSentAt
+        ? Math.round((new Date(gc.byeSentAt).getTime() - new Date(gc.startTime).getTime()) / 1000)
+        : null;
+      const estimatedBilledSec = govSec !== null ? govSec + 8 : null;
+
+      let cdrStatus = 'no_cdr';
+      if (cdrDuration !== null && estimatedBilledSec !== null) {
+        if (cdrDuration > estimatedBilledSec + 15) {
+          cdrStatus = 'check';
+        } else if (cdrVendorCost !== null && cdrCost !== null && (cdrCost - cdrVendorCost) < 0) {
+          cdrStatus = 'loss';
+        } else {
+          cdrStatus = 'ok';
+        }
+      }
+
+      await db.update(governedCalls)
+        .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
+        .where(eq(governedCalls.id, governedCallId));
+
+      console.log(`[call-governance] CDR lookup #${governedCallId}: status=${cdrStatus} pool=${cdrs.length} duration=${cdrDuration} cost=${cdrCost}`);
+    } catch (err: any) {
+      console.error(`[call-governance] CDR lookup #${governedCallId} failed:`, err?.message);
+    }
+  }, 45_000);
+}
 
 // ── Governance engine ──────────────────────────────────────────────────────────
 
@@ -82,6 +167,8 @@ async function cutVendorLeg(
         .set({ byeSentAt: new Date(), playbackStartedAt: new Date(), triggerReason, status: 'cut' })
         .where(eq(governedCalls.id, governedCallId));
 
+      scheduleCdrLookup(governedCallId);
+
       await db.insert(callGovernanceLogs).values([
         {
           governedCallId,
@@ -104,6 +191,8 @@ async function cutVendorLeg(
       await db.update(governedCalls)
         .set({ byeSentAt: new Date(), triggerReason, status: 'cut' })
         .where(eq(governedCalls.id, governedCallId));
+
+      scheduleCdrLookup(governedCallId);
 
       await db.insert(callGovernanceLogs).values({
         governedCallId,
@@ -627,6 +716,31 @@ export function registerCallGovernanceRoutes(app: Express) {
 
     console.log(`[recording-stream] Connecting to ${host} as ${user} for: ${filePath}`);
     conn.connect({ host, port: 22, username: user, password });
+  });
+
+  // ── Manual CDR backfill ────────────────────────────────────────────────────
+  // POST /api/call-governance/billing-backfill
+  // Body: { id?: number }  — if id omitted, retries all null-cdrStatus cuts
+  app.post('/api/call-governance/billing-backfill', requireAuth, async (req: any, res: any) => {
+    try {
+      const { id } = req.body ?? {};
+      let rows: any[];
+      if (id) {
+        rows = await db.select().from(governedCalls)
+          .where(and(eq(governedCalls.id, Number(id)), eq(governedCalls.status, 'cut')));
+      } else {
+        rows = await db.select().from(governedCalls)
+          .where(and(eq(governedCalls.status, 'cut'), sql`cdr_status IS NULL`));
+      }
+      const ids = rows.map(r => r.id);
+      // Fire lookup without the 45s delay — immediate retry
+      for (const gcId of ids) {
+        setTimeout(() => scheduleCdrLookup(gcId), 0);
+      }
+      res.json({ queued: ids.length, ids });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   console.log('[call-governance] Routes registered');
