@@ -1,0 +1,54 @@
+Genuine gaps — ranked by value/effort
+1. CC_STATE intelligence (high value, near-zero effort)
+You already parse CC_STATE into status but never use it for health signals. Sippy returns:
+
+WaitRoute — call stuck, routing not resolved yet
+ARComplete — ringing, not yet answered
+Connected — confirmed active
+Disconnecting / Dead — cleanup
+What it unlocks: A call that stays WaitRoute >3s means routing is struggling. A spike in ARComplete-to-Connected ratio = low ASR before CDRs close. You could surface this in NOC in real-time.
+
+2. Live vendor capacity panel (high value, low effort)
+You already have vendor per active call. You're not aggregating it. A simple group-by on liveCallsCache.calls gives:
+
+Callntalk: 220 calls (73% of observed load)
+TALK:       12 calls
+asterisk:   80 calls
+
+The Sippy article's "filter by i_vendor" is useful for per-vendor drill-down but you already have all the data in cache — no extra API calls needed.
+
+3. Emergency call termination UI (high value, medium effort)
+disconnectCall(id) is already coded in sippy.ts using the ID field from listActiveCalls. There's just no operator UI. The value: fraud attack → operator sees suspicious ANI pattern in live calls → terminates all matching calls. Fits your existing dual-approval flow for dangerous operations.
+
+4. Live fraud watch — active call gating (very high value, medium effort)
+Your FAS engine detects fraud post-CDR. But liveCallsCache is available right now. A background check every 30 seconds that scans active call CLIs against your blacklist/fraud signatures and flags (or terminates) before the call ends would be a massive upgrade. The CDR-based detection stays as audit; live detection becomes prevention.
+
+5. DELAY field as live PDD alert (medium value, zero effort)
+You parse delay per active call but never alert on it. Sippy's DELAY = post-dial delay in seconds. Calls with DELAY >8s on a specific vendor/connection = routing problem visible while the call is ringing. This is operational gold compared to waiting for NER in CDRs.
+
+6. Live call search (medium value, low effort)
+liveCallsCache.calls is a full in-memory array. A GET /api/sippy/live-calls?search=<ANI> filter would let support staff search a customer's number and instantly see if a call is live, which route, which vendor. No new API calls — pure filter on cache.
+
+7. i_account / i_connection filter for per-client live traffic (medium value, low effort)
+The filter params are already in the listActiveCalls params struct. The account detail page and KAM portal already shows live call count — but it's a total count, not filtered to that account. Wiring i_account filter would give exact live call list per customer.
+
+8. Route drain recommendation from active load (future / AI Ops)
+Your AI Copilot already runs route recommendations from CDR-based ASR. Adding live call count per vendor as a real-time input ("Vendor A is carrying 82% of live load, don't route more there") would make Copilot proactive instead of reactive. This is the biggest architectural leap — probably a dedicated task when you're ready for the Decision Engine phase.
+
+What the article mentions that you already fully cover
+makeCall — already in Test Call Launcher
+Multi-switch live calls — already in Multi-Switch page
+Active call count in NOC — already in NOC WebSocket
+Historical concurrent trends — already in BitsEye2
+Active call heatmap (destination breakdown) — already in BitsEye2 + Network Topology 3D view
+Suggested priority order when you're ready to implement
+#	Feature	Effort	Value
+1	CC_STATE health signals in NOC	XS	High
+2	Live vendor capacity panel	S	High
+3	DELAY → live PDD alert	XS	Medium
+4	Live call search endpoint	S	Medium
+5	Emergency termination UI	M	High
+6	Live fraud watch / active gating	M	Very high
+7	Per-account live filter	S	Medium
+8	Route drain from live load → Copilot	L	Very high
+Items 1–4 are essentially free since all the data is already in liveCallsCache — pure read-and-display work. Items 5–6 are the most impactful new capability.

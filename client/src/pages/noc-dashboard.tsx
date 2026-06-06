@@ -9,6 +9,7 @@ import {
   ArrowRight, RefreshCw, AlertOctagon, GitBranch, Network,
   ChevronRight, Clock, Zap, ChevronDown, ChevronUp, ExternalLink,
   PlayCircle, Loader2, AlertCircle, BarChart2, Sparkles, Wallet, Lock, Gauge,
+  Server, Timer, ShieldBan,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -39,7 +40,16 @@ interface SslStatusResponse {
   checkedAt: string | null;
 }
 
-interface LiveSummary { totalActiveCalls: number; connected?: boolean; }
+interface LiveSummary {
+  totalActiveCalls:  number;
+  connected?:        boolean;
+  stale?:            boolean;
+  ccStateBreakdown?: Record<string, number>;
+  vendorCapacity?:   { vendor: string; count: number; pct: number }[];
+  highPddCalls?:     { callId: string; caller: string; callee: string; vendor?: string; delay: number; ccState?: string }[];
+  waitRouteCount?:   number;
+  routingHealthScore?: number;
+}
 
 interface CarrierScore {
   id: number; carrierId: string; carrierName: string;
@@ -1107,6 +1117,12 @@ export default function NocDashboardPage() {
     refetchInterval: 12_000,
   });
 
+  const { data: fraudWatch } = useQuery<{ alerts: { id: string; type: string; pattern: string; count: number; firstSeen: string; lastSeen: string; calls: string[] }[] }>({
+    queryKey: ["/api/sippy/live-calls/fraud-watch"],
+    refetchInterval: 30_000,
+  });
+  const activeFraudAlerts = fraudWatch?.alerts ?? [];
+
   const { data: scores = [] } = useQuery<CarrierScore[]>({
     queryKey: ["/api/carrier-scores", 24],
     queryFn: () => fetch("/api/carrier-scores?window=24").then(r => r.json()),
@@ -1267,6 +1283,38 @@ export default function NocDashboardPage() {
           pulse={activeCalls > 0 ? "green" : undefined}
           icon={Phone}
         />
+        {/* T005: CC_STATE breakdown — inline chips next to CALLS count */}
+        {liveSummary?.ccStateBreakdown && activeCalls > 0 && (
+          <>
+            <div className="w-px h-4 bg-slate-700/60 mx-0.5" />
+            {(liveSummary.ccStateBreakdown['Connected'] ?? 0) > 0 && (
+              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/20" data-testid="kpi-state-connected">
+                CONN {liveSummary.ccStateBreakdown['Connected']}
+              </span>
+            )}
+            {(liveSummary.ccStateBreakdown['ARComplete'] ?? 0) > 0 && (
+              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border bg-blue-500/10 text-blue-400 border-blue-500/20" data-testid="kpi-state-arcomplete">
+                RING {liveSummary.ccStateBreakdown['ARComplete']}
+              </span>
+            )}
+            {(liveSummary.ccStateBreakdown['WaitRoute'] ?? 0) > 0 && (
+              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse" data-testid="kpi-state-waitroute">
+                WAIT {liveSummary.ccStateBreakdown['WaitRoute']}
+              </span>
+            )}
+            {(liveSummary.ccStateBreakdown['WaitAuth'] ?? 0) > 0 && (
+              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border bg-violet-500/10 text-violet-400 border-violet-500/20" data-testid="kpi-state-waitauth">
+                AUTH {liveSummary.ccStateBreakdown['WaitAuth']}
+              </span>
+            )}
+            {(liveSummary.routingHealthScore != null && liveSummary.routingHealthScore < 85) && (
+              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border bg-red-500/10 text-red-400 border-red-500/20" data-testid="kpi-routing-health">
+                RH {liveSummary.routingHealthScore}%
+              </span>
+            )}
+            <div className="w-px h-4 bg-slate-700/60 mx-0.5" />
+          </>
+        )}
         <KpiChip
           label="ASR"
           value={avgAsr != null ? `${avgAsr.toFixed(1)}%` : "—"}
@@ -1356,6 +1404,76 @@ export default function NocDashboardPage() {
           <Link href="/balance">
             <a className="text-[10px] text-amber-500 hover:text-amber-300 transition-colors flex items-center gap-1 shrink-0">
               Monitor <ChevronRight className="h-3 w-3" />
+            </a>
+          </Link>
+        </div>
+      )}
+
+      {/* ── T005: Vendor Capacity Strip ── */}
+      {(liveSummary?.vendorCapacity?.length ?? 0) > 0 && activeCalls > 0 && (
+        <div className="flex-shrink-0 border-b border-cyan-900/30 bg-[#070b16]/60 px-4 py-1.5 flex items-center gap-3 overflow-x-auto">
+          <Server className="h-3.5 w-3.5 text-cyan-500 shrink-0" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 shrink-0">Vendor Load</span>
+          <div className="flex items-center gap-3 flex-1 overflow-x-auto">
+            {liveSummary!.vendorCapacity!.slice(0, 8).map(v => (
+              <div key={v.vendor} className="flex items-center gap-1.5 shrink-0">
+                <div className="h-1 w-14 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${v.pct >= 80 ? 'bg-red-500' : v.pct >= 60 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${Math.min(v.pct, 100)}%` }}
+                  />
+                </div>
+                <span className="text-[10px] font-mono text-slate-400 max-w-[60px] truncate">{v.vendor}</span>
+                <span className={`text-[10px] font-bold font-mono ${v.pct >= 80 ? 'text-red-400' : v.pct >= 60 ? 'text-amber-400' : 'text-slate-500'}`}>{v.pct}%</span>
+              </div>
+            ))}
+          </div>
+          <Link href="/calls">
+            <a className="text-[10px] text-cyan-600 hover:text-cyan-300 transition-colors flex items-center gap-1 shrink-0">
+              Live <ChevronRight className="h-3 w-3" />
+            </a>
+          </Link>
+        </div>
+      )}
+
+      {/* ── T005: High PDD Alert Strip ── */}
+      {(liveSummary?.highPddCalls?.length ?? 0) > 0 && (
+        <div className="flex-shrink-0 border-b border-orange-900/30 bg-orange-950/20 px-4 py-1.5 flex items-center gap-3 overflow-x-auto">
+          <Timer className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-orange-400 shrink-0">High PDD</span>
+          <div className="flex items-center gap-2 flex-1 overflow-x-auto">
+            {liveSummary!.highPddCalls!.slice(0, 6).map((c, i) => (
+              <span key={i} className="text-[10px] font-mono shrink-0 px-1.5 py-0.5 rounded border bg-orange-500/10 text-orange-300 border-orange-500/20">
+                {c.caller?.slice(-8) || '?'}{c.vendor ? ` → ${c.vendor}` : ''} <span className="text-orange-500">({c.delay.toFixed(1)}s)</span>
+              </span>
+            ))}
+            {liveSummary!.highPddCalls!.length > 6 && (
+              <span className="text-[10px] text-orange-700 font-mono shrink-0">+{liveSummary!.highPddCalls!.length - 6} more</span>
+            )}
+          </div>
+          <Link href="/calls">
+            <a className="text-[10px] text-orange-500 hover:text-orange-300 transition-colors flex items-center gap-1 shrink-0">
+              Details <ChevronRight className="h-3 w-3" />
+            </a>
+          </Link>
+        </div>
+      )}
+
+      {/* ── T005: Live Fraud Watch Alert Strip ── */}
+      {activeFraudAlerts.length > 0 && (
+        <div className="flex-shrink-0 border-b border-red-900/40 bg-red-950/25 px-4 py-1.5 flex items-center gap-3 overflow-x-auto">
+          <ShieldBan className="h-3.5 w-3.5 text-red-400 shrink-0 animate-pulse" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-red-400 shrink-0">Fraud Watch</span>
+          <div className="flex items-center gap-2 flex-1 overflow-x-auto">
+            {activeFraudAlerts.slice(0, 5).map(a => (
+              <span key={a.id} className="text-[10px] font-mono shrink-0 px-1.5 py-0.5 rounded border bg-red-500/15 text-red-300 border-red-500/25">
+                {a.type === 'cli_storm' ? 'CLI Storm' : a.type === 'high_pdd_vendor' ? 'PDD Spike' : a.type}: {a.pattern} <span className="text-red-500">×{a.count}</span>
+              </span>
+            ))}
+          </div>
+          <Link href="/fraud">
+            <a className="text-[10px] text-red-500 hover:text-red-300 transition-colors flex items-center gap-1 shrink-0">
+              Fraud <ChevronRight className="h-3 w-3" />
             </a>
           </Link>
         </div>

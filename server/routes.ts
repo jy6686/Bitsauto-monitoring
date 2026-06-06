@@ -3447,8 +3447,150 @@ export async function registerRoutes(
   // Cache: preserve last known-good call list so the dashboard never flaps to 0
   // when a single poll fails due to an expired session cookie.
   // consecutiveZeros: require 2 consecutive empty polls before accepting "0 calls" as real.
+
+  // ── Live Call Intelligence helpers ──────────────────────────────────────────
+  // Shared by the API endpoint and fraud-watch engine.
+
+  /** Compute CC_STATE breakdown, vendor capacity, and high-PDD alerts from a call list. */
+  function computeLiveAnalytics(calls: any[]) {
+    // CC_STATE breakdown
+    const ccStateBreakdown: Record<string, number> = {};
+    for (const c of calls) {
+      const s = (c.ccState || c.status || 'unknown') as string;
+      ccStateBreakdown[s] = (ccStateBreakdown[s] || 0) + 1;
+    }
+
+    // Vendor capacity: group-by vendor, sorted desc
+    const vendorCounts: Record<string, number> = {};
+    for (const c of calls) {
+      const v = (c.vendor as string) || 'Unknown';
+      vendorCounts[v] = (vendorCounts[v] || 0) + 1;
+    }
+    const vendorCapacity = Object.entries(vendorCounts)
+      .map(([vendor, count]) => ({
+        vendor,
+        count,
+        pct: calls.length > 0 ? Math.round((count / calls.length) * 100) : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    // High-PDD calls: delay > 8s while not yet Connected
+    const highPddCalls = calls
+      .filter(c => (c.delay ?? 0) > 8 && c.ccState !== 'Connected')
+      .map(c => ({
+        callId:     c.callId,
+        caller:     c.caller,
+        callee:     c.callee,
+        vendor:     c.vendor,
+        connection: c.connection,
+        delay:      c.delay,
+        ccState:    c.ccState,
+      }));
+
+    const waitRouteCount  = ccStateBreakdown['WaitRoute']  ?? 0;
+    const arCompleteCount = ccStateBreakdown['ARComplete']  ?? 0;
+    const connectedCount  = ccStateBreakdown['Connected']   ?? 0;
+
+    // Routing health: 100 = all connected; drops when WaitRoute spikes
+    const routingHealthScore = calls.length === 0 ? 100
+      : Math.max(0, 100 - Math.round((waitRouteCount / calls.length) * 100));
+
+    return {
+      ccStateBreakdown,
+      vendorCapacity,
+      highPddCalls,
+      waitRouteCount,
+      arCompleteCount,
+      connectedCount,
+      routingHealthScore,
+    };
+  }
+
+  /** Apply query-string filters to an already-enriched call list. */
+  function filterLiveCalls(calls: any[], query: Record<string, any>): any[] {
+    let out = calls;
+    const search = String(query.search ?? '').toLowerCase().trim();
+    if (search) {
+      out = out.filter(c =>
+        (c.caller  ?? '').toLowerCase().includes(search) ||
+        (c.callee  ?? '').toLowerCase().includes(search) ||
+        (c.callId  ?? '').toLowerCase().includes(search) ||
+        (c.clientName ?? '').toLowerCase().includes(search),
+      );
+    }
+    if (query.vendor) {
+      const v = String(query.vendor).toLowerCase();
+      out = out.filter(c => (c.vendor ?? '').toLowerCase().includes(v));
+    }
+    if (query.state) {
+      const st = String(query.state);
+      out = out.filter(c => (c.ccState ?? c.status ?? '') === st);
+    }
+    if (query.iAccount) {
+      const ia = String(query.iAccount);
+      out = out.filter(c => String(c.accountId ?? '') === ia);
+    }
+    return out;
+  }
+
   let liveCallsCache: { calls: any[]; ts: number } = { calls: [], ts: 0 };
   let consecutiveZeros = 0;
+
+  // ── Live Fraud Watch state ──────────────────────────────────────────────────
+  // Populated by runLiveFraudWatch() after each snapshotActiveCalls() cycle.
+  // Holds calls whose CLI/CLD matches an active blacklist rule (pattern match).
+  interface LiveFraudAlert {
+    callId:    string;
+    caller:    string;
+    callee:    string;
+    vendor?:   string;
+    client?:   string;
+    ruleId:    number;
+    ruleLabel: string;
+    pattern:   string;
+    flaggedAt: string;
+  }
+  let liveCallFraudAlerts: LiveFraudAlert[] = [];
+
+  /** Check active calls against DB blacklist rules; update liveCallFraudAlerts. */
+  async function runLiveFraudWatch(calls: any[]): Promise<void> {
+    if (calls.length === 0) { liveCallFraudAlerts = []; return; }
+    try {
+      const rules = await storage.getBlacklistRules();
+      const active = rules.filter((r: any) => r.active);
+      if (active.length === 0) { liveCallFraudAlerts = []; return; }
+      const now = new Date().toISOString();
+      const alerts: LiveFraudAlert[] = [];
+      for (const call of calls) {
+        const cli = String(call.caller ?? '');
+        const cld = String(call.callee ?? '');
+        for (const rule of active) {
+          const pat = String(rule.pattern ?? rule.prefix ?? rule.number ?? '');
+          if (!pat) continue;
+          const hits = cli.startsWith(pat) || cld.startsWith(pat) || cli === pat || cld === pat;
+          if (hits) {
+            alerts.push({
+              callId:    call.callId ?? call.id ?? '',
+              caller:    cli,
+              callee:    cld,
+              vendor:    call.vendor,
+              client:    call.clientName,
+              ruleId:    rule.id,
+              ruleLabel: rule.label ?? rule.pattern ?? rule.prefix ?? pat,
+              pattern:   pat,
+              flaggedAt: now,
+            });
+          }
+        }
+      }
+      liveCallFraudAlerts = alerts;
+      if (alerts.length > 0) {
+        console.warn(`[live-fraud-watch] ${alerts.length} active call(s) matched blacklist rules`);
+      }
+    } catch (e: any) {
+      console.error('[live-fraud-watch] error:', e.message);
+    }
+  }
 
   // ── Cap Warnings in-memory state ────────────────────────────────────────────
   // Keyed by "${accountId}:${capType}" — contains the current active warning state.
@@ -3468,15 +3610,14 @@ export async function registerRoutes(
   const LIVE_CALLS_CACHE_MAX   = 65_000; // serve from background cache if fresher than 65 s (slightly over 60s job interval)
   const ZERO_CONFIRM_COUNT     = 2;      // require this many consecutive zero polls to accept 0
 
-  app.get('/api/sippy/live-calls', async (_req, res) => {
+  app.get('/api/sippy/live-calls', async (req: any, res) => {
     // ── Fast path: serve from background-job cache if fresh ──────────────────
-    // snapshotActiveCalls() runs every 60s and populates liveCallsCache with
-    // fully-enriched call data. If the cache is < 90s old, skip the Sippy call
-    // entirely — all clients get data instantly with zero Sippy load.
     const cacheAge = Date.now() - liveCallsCache.ts;
     if (liveCallsCache.ts > 0 && cacheAge < LIVE_CALLS_CACHE_MAX) {
       const isStale = cacheAge > LIVE_CALLS_STALE_MS;
-      return res.json({ calls: liveCallsCache.calls, totalActiveCalls: liveCallsCache.calls.length, connected: true, stale: isStale, fromCache: true, lastUpdated: liveCallsCache.ts });
+      const analytics = computeLiveAnalytics(liveCallsCache.calls);
+      const filtered  = filterLiveCalls(liveCallsCache.calls, req.query ?? {});
+      return res.json({ calls: filtered, totalActiveCalls: liveCallsCache.calls.length, filteredCount: filtered.length, connected: true, stale: isStale, fromCache: true, lastUpdated: liveCallsCache.ts, ...analytics });
     }
 
     try {
@@ -3549,12 +3690,16 @@ export async function registerRoutes(
 
       // connected=true tells the frontend that Sippy is reachable regardless of call count
       const isStale = liveCallsCache.calls.length > 0 && calls.length === 0 && consecutiveZeros < ZERO_CONFIRM_COUNT;
-      res.json({ calls: liveCallsCache.calls, totalActiveCalls: liveCallsCache.calls.length, connected: true, stale: isStale, lastUpdated: liveCallsCache.ts });
+      const _analytics = computeLiveAnalytics(liveCallsCache.calls);
+      const _filtered  = filterLiveCalls(liveCallsCache.calls, req.query ?? {});
+      res.json({ calls: _filtered, totalActiveCalls: liveCallsCache.calls.length, filteredCount: _filtered.length, connected: true, stale: isStale, lastUpdated: liveCallsCache.ts, ..._analytics });
     } catch (err: any) {
       // Return cached data (with stale flag) so the dashboard keeps showing the
       // last real count instead of dropping to 0 on a transient scrape failure.
       const stale = Date.now() - liveCallsCache.ts > LIVE_CALLS_STALE_MS;
-      res.json({ calls: liveCallsCache.calls, totalActiveCalls: liveCallsCache.calls.length, connected: liveCallsCache.calls.length > 0, stale, lastUpdated: liveCallsCache.ts, error: err.message });
+      const _errAnalytics = computeLiveAnalytics(liveCallsCache.calls);
+      const _errFiltered  = filterLiveCalls(liveCallsCache.calls, req.query ?? {});
+      res.json({ calls: _errFiltered, totalActiveCalls: liveCallsCache.calls.length, filteredCount: _errFiltered.length, connected: liveCallsCache.calls.length > 0, stale, lastUpdated: liveCallsCache.ts, error: err.message, ..._errAnalytics });
     }
   });
 
@@ -3718,6 +3863,58 @@ export async function registerRoutes(
     const result = await sippy.disconnectSippyCall(req.params.id, username, password);
     res.json(result);
     writeAudit({ category: 'sippy', action: 'CALL_DISCONNECTED', actor: req.user?.claims?.sub ?? 'system', actorType: req.user ? 'user' : 'system', targetType: 'call', targetId: req.params.id, severity: 'warning' });
+  });
+
+  // ── T002: Live fraud watch endpoint ──────────────────────────────────────────
+  // Returns calls currently matching an active blacklist rule.
+  // Refreshed after every snapshotActiveCalls() cycle (~60s).
+  app.get('/api/sippy/live-calls/fraud-watch', (req: any, res, next) => requireRole(['admin','management','noc_operator'], req, res, next), (_req, res) => {
+    res.json({
+      flaggedCalls:  liveCallFraudAlerts,
+      count:         liveCallFraudAlerts.length,
+      asOf:          liveCallsCache.ts ? new Date(liveCallsCache.ts).toISOString() : null,
+    });
+  });
+
+  // ── T002: Terminate calls matching a pattern ──────────────────────────────
+  // Emergency bulk termination: terminate all live calls whose CLI or vendor
+  // matches the given pattern. Requires admin/management. Dual-audit-logged.
+  app.post('/api/sippy/calls/terminate-pattern', (req: any, res, next) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    const { pattern, type, reason } = req.body ?? {};
+    if (!pattern || !type) return res.status(400).json({ error: 'pattern and type required' });
+    const validTypes = ['cli_prefix', 'callee_prefix', 'vendor', 'client'];
+    if (!validTypes.includes(type)) return res.status(400).json({ error: `type must be one of: ${validTypes.join(', ')}` });
+
+    const settings = await storage.getSettings();
+    const { username, password } = sippyXmlCreds(settings);
+    const targetCalls = liveCallsCache.calls.filter((c: any) => {
+      const p = String(pattern).toLowerCase();
+      if (type === 'cli_prefix')    return String(c.caller ?? '').startsWith(pattern);
+      if (type === 'callee_prefix') return String(c.callee ?? '').startsWith(pattern);
+      if (type === 'vendor')        return String(c.vendor ?? '').toLowerCase() === p;
+      if (type === 'client')        return String(c.clientName ?? '').toLowerCase().includes(p);
+      return false;
+    });
+
+    if (targetCalls.length === 0) return res.json({ terminated: 0, message: 'No matching active calls found.' });
+
+    const results: { callId: string; id: string; success: boolean; message: string }[] = [];
+    for (const call of targetCalls) {
+      const id = call.id ?? call.callId;
+      if (!id) { results.push({ callId: call.callId, id: '', success: false, message: 'No ID field — cannot disconnect' }); continue; }
+      const r = await sippy.disconnectSippyCall(id, username, password);
+      results.push({ callId: call.callId, id: String(id), ...r });
+    }
+
+    const terminated = results.filter(r => r.success).length;
+    writeAudit({
+      category: 'sippy', action: 'BULK_CALLS_TERMINATED',
+      actor: req.user?.claims?.sub ?? req.user?.username ?? 'operator', actorType: 'user',
+      targetType: 'call_pattern', targetId: `${type}:${pattern}`,
+      severity: 'critical',
+      meta: { pattern, type, reason, attempted: targetCalls.length, terminated },
+    });
+    res.json({ pattern, type, attempted: targetCalls.length, terminated, results });
   });
 
   // POST /api/sippy/accounts/:iAccount/disconnect — disconnect all calls for an account
@@ -15183,6 +15380,8 @@ export async function registerRoutes(
           liveCallsCache = { calls: [], ts: Date.now() };
         }
       }
+      // T002: Live fraud watch — check current calls against blacklist rules
+      runLiveFraudWatch(liveCallsCache.calls).catch(() => {});
 
       // ── Update per-entity concurrent history + persistent presence registry ──
       // Guard: only update entity state when we trust this poll result.
@@ -32673,8 +32872,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   registerRateManagerRoutes(app);
 
   // ── AI Route Copilot ──────────────────────────────────────────────────────
-  const { setVendorPrefixDataProvider } = await import('./routes-ai-copilot');
+  const { setVendorPrefixDataProvider, setLiveLoadProvider } = await import('./routes-ai-copilot');
   setVendorPrefixDataProvider(() => computeVendorPrefixIntelligence(cdrCache));
+  // T003: Wire live vendor load from liveCallsCache into copilot summary
+  setLiveLoadProvider(() => {
+    const calls = liveCallsCache.calls;
+    const vendorCounts: Record<string, number> = {};
+    for (const call of calls) {
+      const v = (call.vendor as string) || 'Unknown';
+      vendorCounts[v] = (vendorCounts[v] || 0) + 1;
+    }
+    return Object.entries(vendorCounts)
+      .map(([vendor, count]) => ({ vendor, count, pct: calls.length > 0 ? Math.round((count / calls.length) * 100) : 0 }))
+      .sort((a, b) => b.count - a.count);
+  });
   registerAiCopilotRoutes(app, requireRole);
 
   // ── Route Testing Engine ─────────────────────────────────────────────────────

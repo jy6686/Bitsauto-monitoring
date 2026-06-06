@@ -53,6 +53,14 @@ export function setVendorPrefixDataProvider(fn: () => Promise<any>) {
   _getCdrBasedPrefixData = fn;
 }
 
+// T003: Live vendor load injected from routes.ts (from liveCallsCache)
+// Shape: { vendor: string; count: number; pct: number }[]
+type VendorLoad = { vendor: string; count: number; pct: number };
+let _getLiveVendorLoad: (() => VendorLoad[]) | null = null;
+export function setLiveLoadProvider(fn: () => VendorLoad[]) {
+  _getLiveVendorLoad = fn;
+}
+
 // ── Copilot summary in-memory TTL cache (2 min) ─────────────────────────────
 // Eliminates redundant DB queries when multiple NOC operators poll simultaneously.
 const SUMMARY_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
@@ -296,6 +304,10 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           }
         }
 
+        // T003: Include live vendor load so NOC + copilot page can show capacity pressure
+        const liveVendorLoad = _getLiveVendorLoad ? _getLiveVendorLoad() : [];
+        const highLoadVendors = liveVendorLoad.filter(v => v.pct >= 60);
+
         const payload = {
           hasAlerts,
           criticalCount: criticalCarriers.length,
@@ -306,6 +318,8 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           topRecommendation: enrichedTopRecommendation,
           topRecommendations,
           totalCarriers: scores.length,
+          liveVendorLoad,
+          highLoadVendors,
           generatedAt: new Date().toISOString(),
         };
 
