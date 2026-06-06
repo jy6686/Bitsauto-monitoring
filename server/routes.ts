@@ -32964,8 +32964,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             marginAmount,
             vendorName,
             status,
-            cdrCheckedAt: (gc as any).cdrCheckedAt ?? null,
-            cdrSource:    (gc as any).cdrStatus != null ? 'db' : 'live',
+            cdrCheckedAt:  (gc as any).cdrCheckedAt ?? null,
+            cdrSource:     (gc as any).cdrStatus != null ? 'db' : 'live',
+            vendorCallId:  (gc as any).vendorCallId  ?? null,
+            vendorIp:      (gc as any).vendorIp      ?? null,
           };
         });
 

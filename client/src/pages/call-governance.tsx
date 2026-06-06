@@ -87,6 +87,8 @@ interface BillingRow {
   status: 'ok' | 'check' | 'loss' | 'no_cdr';
   cdrCheckedAt: string | null;
   cdrSource: 'db' | 'live' | null;
+  vendorCallId: string | null;
+  vendorIp: string | null;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -1035,12 +1037,36 @@ export default function CallGovernancePage() {
                                 <RefreshCw className="w-2.5 h-2.5" /> Retry
                               </button>
                             ) : row.cdrSource === 'db' ? (
-                              <span
-                                title={row.cdrCheckedAt ? `Stored ${new Date(row.cdrCheckedAt).toLocaleString()}` : 'From DB'}
-                                className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
-                              >
-                                DB
-                              </span>
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span
+                                  title={row.cdrCheckedAt ? `Stored ${new Date(row.cdrCheckedAt).toLocaleString()}` : 'From DB'}
+                                  className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                                >
+                                  DB
+                                </span>
+                                {row.vendorCallId ? (
+                                  <span
+                                    title={`SIP Call-ID: ${row.vendorCallId}`}
+                                    className="px-1 py-px rounded text-[9px] bg-sky-500/10 text-sky-400 border border-sky-500/20 cursor-help"
+                                  >
+                                    T1·ID
+                                  </span>
+                                ) : row.vendorIp ? (
+                                  <span
+                                    title={`Matched via vendor IP: ${row.vendorIp}`}
+                                    className="px-1 py-px rounded text-[9px] bg-violet-500/10 text-violet-400 border border-violet-500/20 cursor-help"
+                                  >
+                                    T2·IP
+                                  </span>
+                                ) : (
+                                  <span
+                                    title="Matched by CLD suffix (fallback)"
+                                    className="px-1 py-px rounded text-[9px] bg-slate-500/10 text-slate-500 border border-slate-700 cursor-help"
+                                  >
+                                    T3·CLD
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-[10px] text-slate-600">live</span>
                             )}
@@ -1054,7 +1080,7 @@ export default function CallGovernancePage() {
               {/* Footer note */}
               <div className="px-4 py-2.5 border-t border-slate-800 flex items-center gap-2 text-xs text-slate-600">
                 <Info className="w-3 h-3 flex-shrink-0" />
-                CDR match: destination number (last 9 digits) within ±10 min of bridge time, CLI as tiebreaker. <span className="text-emerald-700">DB</span> = stored 45s after cut (reliable). Live = real-time cache match (recent cuts only). Use Retry for cuts &gt;2h old.
+                CDR match tiers: <span className="text-sky-600">T1·ID</span> = SIP Call-ID (exact, most reliable) · <span className="text-violet-600">T2·IP</span> = vendor IP + time window · <span className="text-slate-500">T3·CLD</span> = destination suffix fallback. <span className="text-emerald-700">DB</span> = resolved 45s after cut. Use Retry for unmatched cuts.
               </div>
             </div>
           )}

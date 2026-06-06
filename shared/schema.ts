@@ -3316,6 +3316,8 @@ export const governedCalls = pgTable("governed_calls", {
   cdrVendorCost:     real("cdr_vendor_cost"),
   cdrVendorName:     varchar("cdr_vendor_name", { length: 128 }),
   cdrCheckedAt:      timestamp("cdr_checked_at"),
+  vendorCallId:      varchar("vendor_call_id",  { length: 256 }),
+  vendorIp:          varchar("vendor_ip",       { length: 64  }),
 });
 export type GovernedCall = typeof governedCalls.$inferSelect;
 

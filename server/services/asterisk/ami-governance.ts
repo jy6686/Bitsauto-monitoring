@@ -277,6 +277,56 @@ class AmiGovernanceListener extends EventEmitter {
     return true;
   }
 
+  /**
+   * Fetch SIP Call-ID and peer IP for a channel via AMI Getvar.
+   * Returns within 3 s or resolves with empty strings on timeout/error.
+   * Works for both chan_sip (SIP/) and PJSIP/ channels.
+   */
+  getChannelVars(channel: string): Promise<{ sipCallId: string; peerIp: string }> {
+    return new Promise((resolve) => {
+      if (!this.connected || !this.loggedIn || !this.socket) {
+        resolve({ sipCallId: '', peerIp: '' });
+        return;
+      }
+
+      const tag      = `gov-gv-${++this.actionCounter}`;
+      const tagCallId = `${tag}-callid`;
+      const tagPeerIp = `${tag}-peerip`;
+      let sipCallId = '';
+      let peerIp    = '';
+      let received  = 0;
+
+      const done = () => {
+        this.removeRawFrameListener(listener);
+        resolve({ sipCallId, peerIp });
+      };
+
+      const timeout = setTimeout(done, 3_000);
+
+      const listener = (f: Record<string, string>) => {
+        if (f['actionid'] === tagCallId && f['value'] !== undefined) {
+          sipCallId = f['value'] || '';
+          if (++received >= 2) { clearTimeout(timeout); done(); }
+        }
+        if (f['actionid'] === tagPeerIp && f['value'] !== undefined) {
+          peerIp = f['value'] || '';
+          if (++received >= 2) { clearTimeout(timeout); done(); }
+        }
+      };
+
+      this.addRawFrameListener(listener);
+
+      // Try CHANNEL(sip_call_id) first — works for chan_sip and PJSIP
+      this.socket.write(
+        `Action: Getvar\r\nActionID: ${tagCallId}\r\nChannel: ${channel}\r\nVariable: CHANNEL(sip_call_id)\r\n\r\n`
+      );
+      // CHANNEL(peerip) — peer IP of the SIP dialog
+      this.socket.write(
+        `Action: Getvar\r\nActionID: ${tagPeerIp}\r\nChannel: ${channel}\r\nVariable: CHANNEL(peerip)\r\n\r\n`
+      );
+    });
+  }
+
   get isConnected() { return this.connected && this.loggedIn; }
 
   // ── Raw frame listener management (used by fetchActiveBridges) ────────────

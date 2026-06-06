@@ -104,21 +104,66 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
     } catch { /* leave cdrs empty */ }
   }
 
-  // ── Match: last-9-digit CLD suffix, CLI as tiebreaker, then closest by time ──
-  const candidates = cdrs.filter((c: any) =>
-    (c.callee || '').replace(/\D/g, '').endsWith(destSuffix)
-  );
+  // ── Match: 3-tier priority ────────────────────────────────────────────────
+  // Tier 1 — SIP Call-ID exact match (100% deterministic, no ambiguity)
+  // Tier 2 — Vendor IP + time window (IP never rewritten by translation rules)
+  // Tier 3 — CLD last-9-digit suffix + CLI tiebreaker (legacy fallback)
+  const vendorCallId = (gc as any).vendorCallId as string | null;
+  const vendorIp     = (gc as any).vendorIp     as string | null;
+  const windowMs     = 10 * 60 * 1000;
 
   let matched: any = null;
-  if (candidates.length > 0) {
-    const cliMatch = cliSuffix.length >= 6
-      ? candidates.find((c: any) => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
-      : null;
-    matched = cliMatch ?? candidates.reduce((best: any, c: any) => {
-      const a = Math.abs(new Date(c.startTime).getTime() - startMs);
-      const b = Math.abs(new Date(best.startTime).getTime() - startMs);
-      return a < b ? c : best;
+  let matchTier = 0;
+
+  // Tier 1: Call-ID exact match
+  if (vendorCallId) {
+    const callIdNorm = vendorCallId.replace(/^<|>$/g, '').trim();
+    matched = cdrs.find((c: any) => {
+      const cdrCallId = (c.callId || '').replace(/^<|>$/g, '').trim();
+      return cdrCallId && cdrCallId === callIdNorm;
+    }) ?? null;
+    if (matched) matchTier = 1;
+  }
+
+  // Tier 2: Vendor IP + time window (within ±10 min of call start)
+  if (!matched && vendorIp) {
+    const ipCandidates = cdrs.filter((c: any) => {
+      if (!c.remoteIp || c.remoteIp !== vendorIp) return false;
+      const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
+      return cdrTs !== null && Math.abs(cdrTs - startMs) <= windowMs;
     });
+    if (ipCandidates.length === 1) {
+      matched = ipCandidates[0];
+      matchTier = 2;
+    } else if (ipCandidates.length > 1) {
+      // Multiple CDRs from same IP in window — pick closest by time
+      matched = ipCandidates.reduce((best: any, c: any) => {
+        const a = Math.abs(new Date(c.startTime).getTime() - startMs);
+        const b = Math.abs(new Date(best.startTime).getTime() - startMs);
+        return a < b ? c : best;
+      });
+      matchTier = 2;
+    }
+  }
+
+  // Tier 3: CLD suffix + CLI tiebreaker + time window
+  if (!matched) {
+    const candidates = cdrs.filter((c: any) => {
+      const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
+      if (cdrTs === null || Math.abs(cdrTs - startMs) > windowMs) return false;
+      return (c.callee || '').replace(/\D/g, '').endsWith(destSuffix);
+    });
+    if (candidates.length > 0) {
+      const cliMatch = cliSuffix.length >= 6
+        ? candidates.find((c: any) => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
+        : null;
+      matched = cliMatch ?? candidates.reduce((best: any, c: any) => {
+        const a = Math.abs(new Date(c.startTime).getTime() - startMs);
+        const b = Math.abs(new Date(best.startTime).getTime() - startMs);
+        return a < b ? c : best;
+      });
+      if (matched) matchTier = 3;
+    }
   }
 
   const cdrDuration   = matched ? (Number(matched.duration) || null) : null;
@@ -155,7 +200,7 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
     .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
     .where(eq(governedCalls.id, governedCallId));
 
-  console.log(`[call-governance] CDR lookup #${governedCallId}: status=${cdrStatus} source=${source} pool=${cdrs.length} duration=${cdrDuration} cost=${cdrCost}`);
+  console.log(`[call-governance] CDR lookup #${governedCallId}: status=${cdrStatus} tier=${matchTier} source=${source} pool=${cdrs.length} duration=${cdrDuration} cost=${cdrCost}`);
 }
 
 function scheduleCdrLookup(governedCallId: number): void {
@@ -421,6 +466,16 @@ async function reconcileActiveCalls() {
           }).returning();
           gc = inserted;
 
+          // Capture SIP Call-ID + peer IP from vendor leg (reconciled call)
+          amiGovernance.getChannelVars(legB.channel).then(({ sipCallId, peerIp }) => {
+            if (sipCallId || peerIp) {
+              db.update(governedCalls)
+                .set({ vendorCallId: sipCallId || null, vendorIp: peerIp || null } as any)
+                .where(eq(governedCalls.id, inserted.id))
+                .catch(() => {});
+            }
+          }).catch(() => {});
+
           await db.insert(callGovernanceLogs).values({
             governedCallId: gc.id,
             eventType:      'call_bridged',
@@ -516,6 +571,17 @@ export function registerCallGovernanceRoutes(app: Express) {
           status:         'active',
           recordingPath,
         }).returning();
+
+        // Capture SIP Call-ID + peer IP from the vendor leg for precise CDR matching later
+        amiGovernance.getChannelVars(channelB).then(({ sipCallId, peerIp }) => {
+          if (sipCallId || peerIp) {
+            db.update(governedCalls)
+              .set({ vendorCallId: sipCallId || null, vendorIp: peerIp || null } as any)
+              .where(eq(governedCalls.id, gc.id))
+              .catch(() => {});
+            console.log(`[call-governance] #${gc.id} vendor vars: callId=${sipCallId || '—'} ip=${peerIp || '—'}`);
+          }
+        }).catch(() => {});
 
         await db.insert(callGovernanceLogs).values({
           governedCallId: gc.id,
