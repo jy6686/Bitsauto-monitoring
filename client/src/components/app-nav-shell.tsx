@@ -12,6 +12,7 @@ import {
   HeartPulse, Mic, Bot, ClipboardList, ArrowRightLeft, BrainCircuit,
   FileSpreadsheet, Rewind, Upload, Star, Package, Search,
   MessageSquare, Bell, Sun, Moon, LogOut, UserPlus, Briefcase,
+  Telescope, Cpu, AreaChart, ClockIcon, GitCompare, Layers2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -131,16 +132,42 @@ const DOMAINS: Domain[] = [
     ],
   },
 
-  // ── 4. ANALYTICS ─────────────────────────────────────────────────────────────
+  // ── 4. BITSEYE TELEMETRY — Tier 1 Strategic Platform (frozen architecture) ──
+  {
+    id: 'telemetry', label: 'BitsEye', icon: Telescope, color: 'text-cyan-400',
+    groups: [
+      { label: 'Telemetry Platform', desc: 'Concurrent snapshot engine, live traffic and geo-plotted call flows', icon: Cpu, items: [
+        { href: '/bitseye2', label: 'BitsEye 2.0',        desc: 'Concurrent snapshot engine · geo map · arc drill-down · Q-Score · entity intelligence', icon: Telescope },
+        { href: '/bitseye',  label: 'BitsEye Classic',    desc: 'Classic drill-down CDR analytics surface',                                              icon: Eye },
+        { href: '/calls',    label: 'Live Call Stream',   desc: 'Active calls with CLI/CLD, vendor, duration',                                           icon: Phone },
+        { href: '/live-traffic-map', label: 'Traffic Map', desc: 'Geo-plotted live call flows on world map',                                             icon: Globe },
+      ]},
+      { label: 'Historical Warehouse', desc: 'Time-series telemetry: LIVE · DAILY · WEEKLY spans across all KPIs', icon: ClockIcon, items: [
+        { href: '/bitseye2',        label: 'Entity History',     desc: 'Per-entity concurrent/ASR/ACD/Revenue/CPS over LIVE·DAILY·WEEKLY spans', icon: AreaChart },
+        { href: '/graphs',          label: 'Graphs',             desc: 'Freeform performance charts and ad-hoc time-series workspace',             icon: LineChart },
+        { href: '/rtp-analytics',   label: 'RTP / MOS History',  desc: 'Jitter, packet-loss, MOS over time — 60m/240m/1440m windows',             icon: Activity },
+        { href: '/qos-heatmap',     label: 'QoS Heatmap',        desc: 'Hour-of-day × day-of-week quality heatmap per vendor/account',            icon: HeartPulse },
+        { href: '/codec-analytics', label: 'Codec Analytics',    desc: 'Per-codec call distribution and quality correlation over time',            icon: Route },
+      ]},
+      { label: 'Comparative & Intelligence Views', desc: 'Vendor vs vendor, today vs yesterday, Q-Score arc drill-down and RCA foundation', icon: GitCompare, items: [
+        { href: '/bitseye2',               label: 'Comparative Telemetry', desc: 'Today vs yesterday · vendor A vs B · entity drill-down side-by-side', icon: GitCompare },
+        { href: '/vendor-stability-timeline', label: 'Stability Timeline', desc: 'Historical stability scoring with outage overlays per vendor',         icon: Activity },
+        { href: '/vendor-rca',             label: 'Graph-Driven RCA',      desc: 'ASR drop → revenue drop → vendor change — graph-powered root cause',  icon: Search },
+        { href: '/asr-acd',                label: 'ASR / ACD',             desc: 'Sippy-native ASR/ACD/NER aggregation via portal auth chain',           icon: BarChart3 },
+      ]},
+    ],
+  },
+
+  // ── 5. ANALYTICS ─────────────────────────────────────────────────────────────
   {
     id: 'analytics', label: 'Analytics', icon: BarChart2, color: 'text-indigo-400',
     groups: [
-      { label: 'Traffic & Quality', desc: 'Call traffic, ASR/ACD, QoS, RTP and codec analytics', icon: Activity, items: [
-        { href: '/analytics',       label: 'Traffic Analytics', desc: 'Call traffic analytics',    icon: Activity },
-        { href: '/asr-acd',         label: 'ASR / ACD',         desc: 'ASR/ACD call quality KPIs', icon: BarChart3 },
-        { href: '/qos-heatmap',     label: 'QoS Heatmap',       desc: 'Quality of service map',    icon: HeartPulse },
-        { href: '/rtp-analytics',   label: 'RTP Analytics',     desc: 'Media quality & jitter',    icon: Activity },
-        { href: '/codec-analytics', label: 'Codec Analytics',   desc: 'Codec breakdown analysis',  icon: Route },
+      { label: 'Traffic & Quality', desc: 'Call traffic, QoS and codec analytics', icon: Activity, items: [
+        { href: '/analytics',       label: 'Traffic Analytics', desc: 'Call traffic analytics overview',  icon: Activity },
+        { href: '/asr-acd',         label: 'ASR / ACD',         desc: 'ASR/ACD call quality KPIs',        icon: BarChart3 },
+        { href: '/qos-heatmap',     label: 'QoS Heatmap',       desc: 'Quality of service map',           icon: HeartPulse },
+        { href: '/rtp-analytics',   label: 'RTP Analytics',     desc: 'Media quality & jitter',           icon: Activity },
+        { href: '/codec-analytics', label: 'Codec Analytics',   desc: 'Codec breakdown analysis',         icon: Route },
       ]},
       { label: 'Reports & Forecasting', desc: 'Revenue reports, traffic forecasting and executive summaries', icon: TrendingDown, items: [
         { href: '/reports',           label: 'Reports',           desc: 'Standard report centre',    icon: BarChart2 },
@@ -148,11 +175,9 @@ const DOMAINS: Domain[] = [
         { href: '/traffic-forecast',  label: 'Traffic Forecast',  desc: 'Demand forecasting',        icon: TrendingDown },
         { href: '/revenue-heatmap',   label: 'Revenue Heatmap',   desc: 'Revenue visualisation map', icon: MapIcon },
       ]},
-      { label: 'CDRs & Drill-Down', desc: 'Call detail records and BitsEye deep analytics', icon: History, items: [
-        { href: '/cdrs',      label: 'CDR Viewer',   desc: 'Call detail records',            icon: History },
-        { href: '/bitseye2',  label: 'BitsEye 2.0',  desc: 'Advanced drill-down analytics with geo map, entity intelligence charts, CPS and NOC telemetry', icon: BarChart2 },
-        { href: '/bitseye',   label: 'BitsEye',      desc: 'Classic drill-down CDR analytics', icon: Eye },
-        { href: '/cdr-rerate',label: 'CDR Rerate',   desc: 'Re-apply rate cards to historical CDRs', icon: ArrowRightLeft },
+      { label: 'CDR Records', desc: 'Call detail records and rerate engine', icon: History, items: [
+        { href: '/cdrs',       label: 'CDR Viewer',  desc: 'Full call detail record browser',                    icon: History },
+        { href: '/cdr-rerate', label: 'CDR Rerate',  desc: 'Re-apply updated rate cards to historical CDRs',     icon: ArrowRightLeft },
       ]},
     ],
   },
