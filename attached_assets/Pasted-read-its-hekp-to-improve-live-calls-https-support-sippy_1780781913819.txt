@@ -1,0 +1,327 @@
+read its hekp to improve live calls?https://support.sippysoft.com/support/solutions/articles/107462-xml-rpc-api-manage-active-calls
+
+Yes — if the article is the Sippy XML-RPC Manage Active Calls API, then it is actually much more valuable for BitsAuto than most people realize.
+
+Even without seeing the exact support page contents, the "Manage Active Calls" API typically exposes real-time call control and active call visibility from the Sippy switch. Combined with your current architecture, this can significantly improve the Live Calls module, AI Ops Center, and future Decision Engine.
+
+Current Situation
+
+Today most BitsAuto intelligence is based on:
+
+CDRs
+completed calls
+historical statistics
+degradation analysis
+post-call metrics
+
+Meaning:
+
+You detect problems after they happen.
+
+What Active Calls API Changes
+
+Instead of waiting for CDRs:
+
+BitsAuto can see calls that are happening right now.
+
+This enables:
+
+Real-Time Call Intelligence
+
+For each active call:
+
+Client
+Vendor
+Destination
+Duration
+Connected status
+Route
+Call-ID
+Start time
+CPS impact
+
+Now your platform becomes operationally proactive.
+
+New Live Calls Features
+1. Live Call Explorer
+
+Current:
+
+ASR = 42%
+ACD = 2.5 min
+
+Future:
+
+523 Active Calls
+
+Pakistan Mobile      88
+Bangladesh Mobile    71
+UK Mobile            42
+UAE Mobile           39
+
+Click destination:
+
+See every active call.
+
+2. Live Vendor Capacity Monitor
+
+Using active calls:
+
+Display:
+
+Vendor	Active Calls	Capacity	Usage
+Vendor A	220	300	73%
+Vendor B	410	500	82%
+
+Now operators can see saturation before failures occur.
+
+3. Live Route Health
+
+Huge opportunity.
+
+Current:
+
+Route degradation is historical.
+
+Future:
+
+Monitor active calls per route.
+
+Detect:
+
+abnormal disconnects
+mass call drops
+congestion patterns
+route collapse
+
+before ASR reports show it.
+
+AI Ops Center Enhancement
+
+This is where it becomes powerful.
+
+Currently AI Ops sees:
+
+ASR
+ACD
+NER
+FAS
+
+Add:
+
+Active Call Intelligence
+
+Examples:
+
+"Vendor A currently carrying 47% of all traffic"
+
+"Pakistan route approaching capacity limit"
+
+"Active calls dropping unusually fast"
+
+"Bangladesh route showing abnormal disconnect trend"
+
+This is operational gold.
+
+4. Live Call Termination
+
+(Very Valuable)
+
+If Sippy API allows disconnecting active calls:
+
+You can build:
+
+Emergency Controls
+
+Examples:
+
+Fraud Attack
+
+Operator clicks:
+
+"Terminate all calls from suspicious ANI"
+
+Vendor Failure
+
+Operator clicks:
+
+"Terminate active calls on Vendor C"
+
+Route Incident
+
+Operator clicks:
+
+"Drain active calls"
+
+This is enterprise-grade carrier functionality.
+
+5. Live Fraud Mitigation
+
+You already have:
+
+FAS Engine
+Fraud Engine
+
+Add active calls.
+
+Now:
+
+Fraud can be stopped before completion.
+
+Example:
+
+Current model:
+
+Call ends
+CDR generated
+Fraud detected
+
+Future:
+
+Call active
+Fraud detected
+Call terminated
+
+Massive difference.
+
+6. Active Call Heatmap
+
+Amazing AI Ops visualization.
+
+Show:
+
+Live Traffic
+
+By:
+
+Country
+Vendor
+Client
+Route
+
+Real-time.
+
+Operators love this.
+
+7. Live Call Search
+
+Search:
+
+ANI
+CLI
+Client
+Vendor
+Call-ID
+
+See live call instantly.
+
+Useful for support teams.
+
+8. Customer Complaint Resolution
+
+Customer says:
+
+"My call is still connected."
+
+Search number.
+
+Find active call.
+
+Inspect route.
+
+Inspect vendor.
+
+Inspect RTP server.
+
+This saves support time.
+
+9. Route Drain Recommendation
+
+Perfect for your future Decision Engine.
+
+Example:
+
+Current active calls:
+
+Vendor A = 400 calls
+Vendor B = 80 calls
+Vendor C = 40 calls
+
+Quality degradation starts.
+
+BitsAuto recommends:
+
+"Reduce new call allocation to Vendor A until active load falls below 250 calls."
+
+This is exactly the kind of operational intelligence you want.
+
+10. Foundation For Human-Approved Automation
+
+Future workflow:
+
+AI detects issue
+↓
+Checks active calls
+↓
+Creates recommendation
+↓
+Operator approves
+↓
+Route priorities updated
+
+This is your Phase-C Decision Layer from the roadmap.
+
+My Recommendation For BitsAuto
+
+Do NOT create a simple "Active Calls" page.
+
+Instead build:
+
+Live Call Intelligence Center
+Section 1
+
+Active Call Dashboard
+
+Section 2
+
+Live Route Health
+
+Section 3
+
+Vendor Capacity
+
+Section 4
+
+Fraud Watch
+
+Section 5
+
+Emergency Actions
+
+Section 6
+
+AI Recommendations
+
+Priority Rating
+
+For BitsAuto specifically:
+
+Feature	Value
+Invoice Reconciliation	10/10
+AI Routing Recommendations	10/10
+Historical Route Replay	10/10
+Active Call Intelligence	9.5/10
+Traditional Reports	4/10
+
+So yes, the Sippy Active Calls XML-RPC API can absolutely help improve Live Calls, but the biggest value is not merely showing active calls.
+
+The real value is using active-call data as a new telemetry source for:
+
+AI Routing Recommendations
+Route Decision Engine
+Vendor Capacity Intelligence
+Fraud Prevention
+AI Ops Center
+Human-Approved Automation
+
+Those fit directly into the BitsAuto architecture you've been building.
