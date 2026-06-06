@@ -1,5 +1,52 @@
 uploads = []
-generated = []
+
+[[generated]]
+id = "fMyMrEkX_V8N3IysKQyb9"
+uri = "file://screenshots/ui_noc_command.png"
+type = "image"
+title = "NOC command center live calls dashboard"
+
+[[generated]]
+id = "HiN1yBNwXxgnAxtMw_Zn6"
+uri = "file://screenshots/ui_bitseye2.png"
+type = "image"
+title = "BitsEye2 telemetry platform with geo map"
+
+[[generated]]
+id = "g3HSF6NSp33Z9aD_AArpT"
+uri = "file://screenshots/ui_route_intelligence.png"
+type = "image"
+title = "Route intelligence carrier scoring table"
+
+[[generated]]
+id = "It25bhpYyZQ8Hq8BfoIGA"
+uri = "file://screenshots/ui_ai_ops.png"
+type = "image"
+title = "AI ops anomaly detection and recommendations"
+
+[[generated]]
+id = "HoXGlmePLTilfhPf5svmG"
+uri = "file://screenshots/ui_routing_manager.png"
+type = "image"
+title = "Routing control plane manager"
+
+[[generated]]
+id = "NENf8tKuiy5fV8LcWBNIH"
+uri = "file://screenshots/ui_product_registry.png"
+type = "image"
+title = "Product registry commercial lifecycle"
+
+[[generated]]
+id = "Mf6XulXxVjV6LAH2GY5ln"
+uri = "file://screenshots/ui_deal_workspace.png"
+type = "image"
+title = "Deal workspace with margin health indicators"
+
+[[generated]]
+id = "2G8zW7VY-r4BOGWS5UIP2"
+uri = "file://screenshots/ui_finance_cockpit.png"
+type = "image"
+title = "Finance cockpit revenue and billing"
 
 [[outputs]]
 id = "Zeu9soD5hZx1Jn-TFE7OI"
@@ -210,3 +257,9 @@ id = "4KEy2LzRPbnOQEl6mp7ni"
 uri = "file://attached_assets/generated_videos/act_philosophy_closing.mp4"
 type = "video"
 title = "Closing — OBSERVE → UNDERSTAND → DECIDE → CONTROL → AUDIT"
+
+[[outputs]]
+id = "UYZuWuugwm8Arux88p7CS"
+uri = "file://BitsAuto_Platform_Deck.pptx"
+type = "slides"
+title = "BitsAuto Platform Deck — With Real UI Screenshots"

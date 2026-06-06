@@ -30,15 +30,29 @@ type CdrPoolFn = () => CdrRecord[];
 let _cdrPoolFn: CdrPoolFn | null = null;
 export function setAssuranceCdrProvider(fn: CdrPoolFn) { _cdrPoolFn = fn; }
 
-function sampleImplicatedCdrs(
+// T002: Full CDR row evidence — replaces callId-only sampling.
+// Returns the top-N highest-cost CDRs in the window as complete objects
+// so AI alert evidence can link flags to exact CDR rows (not just IDs).
+interface CdrEvidenceRow {
+  callId:     string;
+  callee:     string;
+  caller:     string;
+  startTime:  string;
+  duration:   number | null;
+  cost:       number | null;
+  vendorCost: number | null;
+  vendorName: string | null;
+}
+
+function getImplicatedCdrEvidence(
   iAccount: number | null | undefined,
   windowFrom: string,
   windowTo: string,
   topN = 10,
-): string[] {
-  if (!_cdrPoolFn) return [];
+): { callIds: string[]; rows: CdrEvidenceRow[] } {
+  if (!_cdrPoolFn) return { callIds: [], rows: [] };
   try {
-    const pool = _cdrPoolFn();
+    const pool   = _cdrPoolFn();
     const fromMs = new Date(windowFrom).getTime();
     const toMs   = new Date(windowTo).getTime();
     const candidates = pool.filter(c => {
@@ -48,8 +62,21 @@ function sampleImplicatedCdrs(
       return true;
     });
     candidates.sort((a, b) => Number(b.cost ?? 0) - Number(a.cost ?? 0));
-    return candidates.slice(0, topN).map(c => c.callId ?? '').filter(Boolean);
-  } catch { return []; }
+    const top = candidates.slice(0, topN);
+    return {
+      callIds: top.map(c => c.callId ?? '').filter(Boolean),
+      rows: top.map(c => ({
+        callId:     c.callId ?? '',
+        callee:     c.callee ?? '',
+        caller:     c.caller ?? '',
+        startTime:  c.startTime ? String(c.startTime) : '',
+        duration:   c.duration    != null ? Number(c.duration)              : null,
+        cost:       c.cost        != null ? Number(c.cost)                  : null,
+        vendorCost: (c as any).vendorCost != null ? Number((c as any).vendorCost) : null,
+        vendorName: (c as any).vendorName ?? null,
+      })),
+    };
+  } catch { return { callIds: [], rows: [] }; }
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -150,7 +177,7 @@ export async function detectMarginCollapse(): Promise<DetectorResult> {
           priorWindow:   { from: d14ago, to: d7ago,   revenue: prior.revenue,  cost: prior.cost,   margin_pct: +(priorMargin * 100).toFixed(2) },
           recentWindow:  { from: d7ago,  to: todayStr, revenue: recent.revenue, cost: recent.cost,  margin_pct: +(recentMargin * 100).toFixed(2) },
           reportCount:   { recent: recentReports.length, prior: priorReports.length },
-          implicatedCdrIds: sampleImplicatedCdrs(null, d7ago, todayStr, 10),
+          ...(() => { const ev = getImplicatedCdrEvidence(null, d7ago, todayStr, 10); return { implicatedCdrIds: ev.callIds, implicatedCdrRows: ev.rows }; })(),
         },
         recommendedAction: `Margin compressed ${deviationPct.toFixed(1)}% vs prior window. Investigate: vendor cost spike, rate erosion, or traffic mix shift. Check carrier reconciliation and tariff versions.`,
       });

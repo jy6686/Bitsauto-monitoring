@@ -24065,6 +24065,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   const { setAssuranceCdrProvider } = await import('./services/sippy/sippy-ai-assurance.service');
   setAssuranceCdrProvider(() => [...cdrCache.values()] as any);
 
+  // T006: Wire CDR pool into Rate Manager pricing-intelligence for vendor cost cross-reference
+  const { setRateMgrCdrProvider } = await import('./routes-rate-manager');
+  setRateMgrCdrProvider(() => [...cdrCache.values()] as any);
+
   // Register CDR provider for the RTP/MOS quality aggregator.
   // Includes VQ fields (i_vq_term_mos, i_vq_orig_mos, jitter, pkt_loss) from Sippy CDRs.
   // Also passes cld (called number) so the aggregator can extract destination prefixes.
@@ -31041,13 +31045,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   app.post('/api/invoice-jobs', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
-      const { clientName, billingPeriod, notes } = req.body ?? {};
+      const { clientName, billingPeriod, notes, iTariff, clientId } = req.body ?? {};
       if (!clientName)    return res.status(400).json({ error: 'clientName required' });
       if (!billingPeriod) return res.status(400).json({ error: 'billingPeriod required (YYYY-MM)' });
       const { createInvoiceJob } = await import('./services/sippy/index');
       const job = await createInvoiceJob(clientName, billingPeriod, {
         createdBy: (req as any).user?.username ?? 'operator',
         notes,
+        iTariff:  iTariff  || undefined,
+        clientId: clientId || undefined,
       });
       res.status(201).json(job);
     } catch (err: any) {
@@ -33939,7 +33945,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const totalCalls    = matching.length;
         const answeredCalls = matching.filter(c => (c.duration ?? 0) > 0).length;
         const totalMinutes  = matching.reduce((s: number, c: any) => s + (Number(c.duration ?? 0) / 60), 0);
-        const totalCost     = matching.reduce((s: number, c: any) => s + Number(c.cost ?? c.actualCost ?? 0), 0);
+
+        // T005 — Per-call vendor cost: prefer enriched vendorCost (actual termination cost
+        // from Mera CDR feed / matchCdr cross-ref) over Sippy-reported cost.
+        // This gives true carrier margin, not just the customer billing margin.
+        let vendorCostHits = 0;
+        const totalCost = matching.reduce((s: number, c: any) => {
+          if (c.vendorCost != null) { vendorCostHits++; return s + Number(c.vendorCost); }
+          return s + Number(c.cost ?? c.actualCost ?? 0);
+        }, 0);
+        const costSource = matching.length > 0 && vendorCostHits > matching.length / 2
+          ? 'vendor_cdr_enriched' : 'sippy_cdr';
 
         // Revenue = deal rate × minutes (premRate or stdRate based on customer segment)
         const ratePerMin    = Number(d.premRate ?? d.stdRate ?? 0);
@@ -33960,6 +33976,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           totalCost:       +totalCost.toFixed(4),
           grossMargin:     +grossMargin.toFixed(4),
           marginPct:       marginPct !== null ? +marginPct.toFixed(2) : null,
+          costSource,
+          vendorCostMatchRate: totalCalls > 0 ? Math.round((vendorCostHits / totalCalls) * 100) : null,
           healthStatus:    marginPct === null ? 'no_data'
                          : marginPct >= 20    ? 'healthy'
                          : marginPct >= 10    ? 'warning'
