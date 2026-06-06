@@ -150,3 +150,15 @@ id = "JVo5MU7GQHcsE4reRyQGg"
 uri = "file://BitsAuto_Feature_Stability_Audit.docx"
 type = "word_document"
 title = "BitsAuto Feature Stability Audit — BitsEye2 Elevated to Tier 1"
+
+[[outputs]]
+id = "p7ApgKQ40lcZjQGUyrx7U"
+uri = "file://BitsAuto_Demo_Script.docx"
+type = "word_document"
+title = "BitsAuto Demo Script — 11-Act Narrative (Word)"
+
+[[outputs]]
+id = "Mjp9tp7_Kq1pb83h-Lxc7"
+uri = "file://BitsAuto_Demo_Deck.pptx"
+type = "slides"
+title = "BitsAuto Demo Deck — 14 Slides (PowerPoint)"
