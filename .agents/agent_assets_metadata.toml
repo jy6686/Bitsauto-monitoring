@@ -144,3 +144,9 @@ id = "hrPa3QawCT5rmQmEMy1RD"
 uri = "file://BitsAuto-SMS-API.zip"
 type = "unspecified"
 title = "BitsAuto SMS API Documentation"
+
+[[outputs]]
+id = "JVo5MU7GQHcsE4reRyQGg"
+uri = "file://BitsAuto_Feature_Stability_Audit.docx"
+type = "word_document"
+title = "BitsAuto Feature Stability & Production Readiness Audit"
