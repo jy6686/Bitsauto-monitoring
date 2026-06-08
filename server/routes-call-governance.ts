@@ -15,6 +15,14 @@ import { storage } from './storage';
 import { Client as SshClient } from 'ssh2';
 import * as sippy from './sippy';
 
+// ── CDR cache access via global singleton ──────────────────────────────────────
+// routes.ts sets (global as any).__bitsautoCdrCache = cdrCache after each refresh.
+// Using global (vs. module-level injection) survives TSX hot-reloads of this file,
+// which would otherwise reset a module-level reference back to null.
+function _getGlobalCdrCache(): Map<string, any> | null {
+  return (global as any).__bitsautoCdrCache ?? null;
+}
+
 // ── Auth helpers ───────────────────────────────────────────────────────────────
 
 function requireAuth(req: any, res: any, next: any) {
@@ -66,34 +74,48 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
   const winStart = new Date(startMs - 3 * 60_000);
   const winEnd   = new Date(startMs + 20 * 60_000);
 
-  // ── Destination extraction — global prefix-agnostic ─────────────────────
-  // The caller field contains the full dialled string including any routing/product
-  // class prefix (e.g. "2060" + CC + subscriber).  We cannot hardcode the prefix
-  // length, so we derive the best-effort international number by:
-  //   1. stripping any known SIPPY_TECH_PREFIX (env-configured)
-  //   2. then stripping any remaining leading routing digits so the result is
-  //      ≤12 digits (typical max E.164 subscriber length)
-  //   3. always keeping a 10- and 9-digit suffix for tier-3 fuzzy matching
-  const rawDestDigits = (gc.caller || '').replace(/\D/g, '');
+  // ── Destination extraction ────────────────────────────────────────────────
+  // Field semantics (critical — DO NOT swap):
+  //   gc.callee = B-leg CallerID  = the actual Pakistan/destination number dialed
+  //               (e.g. "923719959675" — what appears as CLD in the Sippy CDR)
+  //   gc.caller = A-leg CallerID  = calling customer's ANI with routing prefix
+  //               (e.g. "20601923419451539" or "2060923419451539" — with prefix)
+  //
+  // The routing prefix on gc.caller (e.g. "20601" or "2060") is NOT the destination;
+  // that prefix is assigned by the Sippy/Asterisk routing layer and should be
+  // stripped. gc.callee already IS the clean destination with no prefix.
+  //
+  // NOTE on "2060 vs 20601" display: the one-digit difference in the routing prefix
+  // is an upstream Asterisk CallerID presentation issue — Sippy/Asterisk is sending
+  // "2060" where it should send "20601". Our code stores exactly what AMI reports.
+  const rawDestDigits = (gc.callee || '').replace(/\D/g, '');  // ← B-leg = destination
   const techPrefix    = (process.env.SIPPY_TECH_PREFIX ?? '').replace(/\D/g, '');
-  // Strip tech prefix if it matches the leading digits
   let stripped = techPrefix && rawDestDigits.startsWith(techPrefix)
     ? rawDestDigits.slice(techPrefix.length)
     : rawDestDigits;
-  // If still >12 digits, strip leading routing class digits until ≤12
-  // (E.164 max subscriber = 12 digits — e.g. "2060923046744407" → "923046744407")
   while (stripped.length > 12) stripped = stripped.slice(1);
-  // destDigits = clean international number (CC + subscriber, no routing prefix)
   const destDigits  = stripped;
-  const destSuffix  = destDigits.slice(-10); // 10-digit suffix for global coverage
-  const destSuffix9 = destDigits.slice(-9);  // 9-digit fallback
-  const cliSuffix   = (gc.callee || '').replace(/\D/g, '').slice(-8);
+  const destSuffix  = destDigits.slice(-10);
+  const destSuffix9 = destDigits.slice(-9);
+  const cliSuffix   = (gc.caller || '').replace(/\D/g, '').slice(-8);  // ← A-leg = CLI
+
+  // ── Track 0: in-memory CDR cache (zero HTTP cost, refreshed every 5 min) ──────
+  // The global cache has 660+ CDRs including all Pakistan/Eritrea connection-level
+  // CDRs. Using it avoids a portal HTTP round-trip for 3-min/8-min retries and
+  // backfill runs. It has 5-min staleness so the 45s lookup may miss very fresh CDRs
+  // — Tracks 2/3 below handle those via live portal scrape.
+  let cdrs: any[] = [];
+  let source = 'portal';
+  const _globalCache = _getGlobalCdrCache();
+  if (_globalCache && _globalCache.size > 0) {
+    cdrs = [..._globalCache.values()];
+    source = 'cache';
+    console.log(`[call-governance] CDR lookup #${governedCallId}: cache T0 — ${_globalCache.size} CDR(s)`);
+  }
 
   // ── Track 1: XML-RPC getAccountCDRs with cld filter (targeted, fast) ──
   // Uses billed_duration + cost fields. Blocked by circuit-breaker if auth fails.
   // No `type: non_zero` — governed cuts can land as 0-duration CDRs in Sippy.
-  let cdrs: any[] = [];
-  let source = 'portal';
   try {
     const xmlCdrs = await sippy.getSippyCDRs(
       apiUser, apiPass, 50,
@@ -111,15 +133,55 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
     }
   } catch { /* fall through to portal scrape */ }
 
-  // ── Track 2: portal scrape (fallback — always works, returns recent ~250 CDRs) ──
+  // ── Track 2: customer portal scrape ──────────────────────────────────────────
+  // Use portal-relative date strings ('2 hours ago'/'now') NOT UTC ISO timestamps.
+  // The Sippy portal interprets date params as server LOCAL time (UTC+5), so passing
+  // UTC ISO strings shifts the search window by 5 h and returns wrong CDRs.
+  // Relative strings are computed by the portal itself in its own timezone → correct.
+  // Time-window filtering happens in JavaScript using UTC startTime fields.
   if (cdrs.length === 0) {
     try {
       cdrs = await sippy.scrapePortalCDRsAll(portalUser, portalPass, portalUrl, {
-        startDate: winStart.toISOString(),
-        endDate:   winEnd.toISOString(),
-        maxPages:  15,
+        startDate: '2 hours ago',
+        endDate:   'now',
+        maxPages:  8,
       });
-    } catch { /* leave cdrs empty */ }
+    } catch { /* fall through to Track 3 */ }
+  }
+
+  // ── Track 3: admin-credential TARGETED portal scrape (destination-filtered) ──
+  // Uses adminWebPassword for ssp-root web login and passes `destination=destDigits`
+  // so the portal returns ONLY CDRs for this specific destination number — not a
+  // generic 200-CDR dump. This is the correct fix for high-traffic systems where
+  // 500+ calls/hour make a page-limited CDR list inadequate for finding a specific call.
+  const adminWebPass = (settings as any).adminWebPassword as string | undefined;
+  if (apiUser && adminWebPass) {
+    try {
+      const adminCdrs = await sippy.scrapePortalCDRsAll(apiUser, adminWebPass, portalUrl, {
+        startDate:   '2 hours ago',
+        endDate:     'now',
+        destination: destDigits,   // Filter by CLD — returns only CDRs for this destination
+        maxPages:    2,             // 2 pages is more than enough for a single destination
+      });
+      if (adminCdrs.length > 0) {
+        // Merge: dedup by startTime:caller:callee fingerprint
+        const seenFp = new Set(cdrs.map((c: any) => `${c.startTime}:${c.caller}:${c.callee}`));
+        let added = 0;
+        for (const c of adminCdrs) {
+          const fp = `${c.startTime}:${c.caller}:${c.callee}`;
+          if (!seenFp.has(fp)) { seenFp.add(fp); cdrs.push(c); added++; }
+        }
+        if (added > 0) source = 'admin-portal';
+        console.log(`[call-governance] CDR lookup #${governedCallId}: admin portal → ${adminCdrs.length} CDR(s), +${added} new (pool now ${cdrs.length})`);
+      }
+    } catch { /* non-critical — matching continues with Track 2 CDRs */ }
+  }
+
+  // ── Diagnostic: log sample CDR callee values when pool is non-empty ──
+  // Helps identify CLD format mismatches without verbose logs.
+  if (cdrs.length > 0) {
+    const sample = cdrs.slice(0, 3).map((c: any) => c.callee ?? c.cld ?? '?').join(', ');
+    console.log(`[call-governance] CDR lookup #${governedCallId}: pool=${cdrs.length} searching destSuffix=${destSuffix} sample_cld=[${sample}]`);
   }
 
   // ── Match: 4-tier priority ────────────────────────────────────────────────

@@ -3213,6 +3213,7 @@ export async function scrapePortalCDRsAll(
     startDate?: string;
     endDate?: string;
     callsSelect?: string;
+    destination?: string;
     fallbackUsername?: string;
     fallbackPassword?: string;
     maxPages?: number;
@@ -3246,7 +3247,7 @@ export async function scrapePortalCDRsAll(
       'n=' + offset, 'action=search', 'from_form=1',
       'startDate=' + encodeURIComponent(startDate),
       'endDate='   + encodeURIComponent(endDate),
-      'source=', 'destination=', 'caller=0_0',
+      'source=', 'destination=' + encodeURIComponent(opts.destination || ''), 'caller=0_0',
       'calls_select=' + callsSel,
       'cdr_currency=USD', 'cli_clause=0', 'cld_clause=0',
       'bt_clause=0', 'bt_pattern=', 'account_class=0',

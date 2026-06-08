@@ -6297,6 +6297,7 @@ export async function registerRoutes(
       cdrTimeIndex.sort((a, b) => a.ts - b.ts);
 
       cdrCacheUpdatedAt = new Date();
+      (global as any).__bitsautoCdrCache = cdrCache; // keep global reference current after each refresh
       // Refresh ACD per vendor for the health engine
       try { refreshVendorAcds([...cdrCache.values()]); } catch { /* non-fatal */ }
       if (added > 0) {
@@ -32867,6 +32868,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // ── BhaooSMS / REVE SMS integration routes ────────────────────────────────
   registerBhaooRoutes(app);
   registerCallGovernanceRoutes(app);
+  (global as any).__bitsautoCdrCache = cdrCache; // expose CDR cache via global for call-governance (survives hot-reload)
 
   // ── Rate Manager extended routes (product rates, notifications, per-row recon)
   registerRateManagerRoutes(app);
