@@ -4,7 +4,8 @@ import {
   Shield, Phone, Scissors, Clock, RefreshCw, Plus, Pencil, Trash2,
   CheckCircle2, XCircle, AlertTriangle, Wifi, WifiOff, FileAudio,
   Activity, Copy, ChevronLeft, ChevronRight, Settings2, ScrollText, Zap, Info,
-  Play, Pause, Volume2, Download, X, BarChart2, TrendingDown,
+  Play, Pause, Volume2, Download, X, BarChart2, TrendingDown, Hash,
+  PauseCircle, Archive, RotateCcw, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +62,38 @@ interface GovernanceLog {
   eventType: string;
   channel: string | null;
   details: string | null;
+  createdAt: string;
+}
+
+interface ProductPrefix {
+  id: number;
+  canonicalId: number;
+  productCode: string;
+  productName: string;
+  fullPrefix: string;
+  status: string;
+  createdAt: string;
+}
+
+interface VendorEntry {
+  id: number;
+  name: string;
+  vendorPrefix: string;
+  description: string | null;
+  status: string;
+  createdBy: string | null;
+  createdAt: string;
+  prefixes: ProductPrefix[];
+}
+
+interface PrefixAuditEntry {
+  id: number;
+  action: string;
+  canonicalId: number | null;
+  vendorName: string | null;
+  fullPrefix: string | null;
+  performedBy: string | null;
+  details: any;
   createdAt: string;
 }
 
@@ -443,11 +476,12 @@ function RuleForm({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'live',      label: 'Live Calls',     icon: Activity  },
-  { id: 'rules',     label: 'Rules',          icon: Settings2 },
-  { id: 'recordings',label: 'Recordings',     icon: FileAudio },
-  { id: 'log',       label: 'Audit Log',      icon: ScrollText },
-  { id: 'billing',   label: 'Billing Check',  icon: BarChart2 },
+  { id: 'live',      label: 'Live Calls',      icon: Activity  },
+  { id: 'rules',     label: 'Rules',           icon: Settings2 },
+  { id: 'recordings',label: 'Recordings',      icon: FileAudio },
+  { id: 'log',       label: 'Audit Log',       icon: ScrollText },
+  { id: 'billing',   label: 'Billing Check',   icon: BarChart2 },
+  { id: 'prefixes',  label: 'Prefix Registry', icon: Hash      },
 ] as const;
 
 type Tab = typeof TABS[number]['id'];
@@ -527,6 +561,58 @@ export default function CallGovernancePage() {
   const cutMut = useMutation({
     mutationFn: (id: number) => apiRequest('POST', `/api/call-governance/calls/${id}/cut`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['/api/call-governance/calls'] }); toast({ title: 'Vendor leg cut', description: 'BYE sent to vendor channel' }); },
+    onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+
+  // ── Prefix Registry state ────────────────────────────────────────────────────
+  const [prefixView, setPrefixView]             = useState<'vendors'|'audit'>('vendors');
+  const [showRegForm, setShowRegForm]           = useState(false);
+  const [newVendorName, setNewVendorName]       = useState('');
+  const [newVendorDesc, setNewVendorDesc]       = useState('');
+  const [expandedVendorId, setExpandedVendorId] = useState<number | null>(null);
+  const [prefixSearch, setPrefixSearch]         = useState('');
+
+  const vendorsQ = useQuery<VendorEntry[]>({
+    queryKey: ['/api/prefix-registry/vendors'],
+    enabled: tab === 'prefixes',
+    refetchInterval: tab === 'prefixes' ? 30_000 : false,
+  });
+
+  const prefixAuditQ = useQuery<PrefixAuditEntry[]>({
+    queryKey: ['/api/prefix-registry/audit'],
+    enabled: tab === 'prefixes' && prefixView === 'audit',
+  });
+
+  const registerVendorMut = useMutation({
+    mutationFn: (body: { name: string; description: string }) =>
+      apiRequest('POST', '/api/prefix-registry/vendors', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/prefix-registry/vendors'] });
+      qc.invalidateQueries({ queryKey: ['/api/prefix-registry/audit'] });
+      setShowRegForm(false); setNewVendorName(''); setNewVendorDesc('');
+      toast({ title: 'Vendor registered', description: 'Prefix block auto-assigned' });
+    },
+    onError: (e: any) => toast({ title: 'Registration failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const vendorStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiRequest('PATCH', `/api/prefix-registry/vendors/${id}/status`, { status }),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['/api/prefix-registry/vendors'] });
+      qc.invalidateQueries({ queryKey: ['/api/prefix-registry/audit'] });
+      toast({ title: `Vendor ${v.status}`, description: 'Status and all prefixes updated' });
+    },
+    onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+  });
+
+  const prefixStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiRequest('PATCH', `/api/prefix-registry/prefixes/${id}/status`, { status }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/prefix-registry/vendors'] });
+      toast({ title: 'Prefix status updated' });
+    },
     onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
   });
 
@@ -1262,6 +1348,331 @@ export default function CallGovernancePage() {
                 })}
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Prefix Registry tab ─────────────────────────────────────────── */}
+      {tab === 'prefixes' && (
+        <div className="space-y-4">
+          {/* Sub-nav + actions */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-1 gap-1">
+              {(['vendors','audit'] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setPrefixView(v)}
+                  data-testid={`prefix-view-${v}`}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                    prefixView === v
+                      ? "bg-violet-600 text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  )}
+                >
+                  {v === 'vendors' ? 'Vendors' : 'Audit Log'}
+                </button>
+              ))}
+            </div>
+            {prefixView === 'vendors' && (
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Search vendor or prefix…"
+                  value={prefixSearch}
+                  onChange={e => setPrefixSearch(e.target.value)}
+                  className="h-8 w-52 bg-slate-900 border-slate-700 text-xs"
+                  data-testid="prefix-search"
+                />
+                <Button
+                  size="sm"
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  onClick={() => setShowRegForm(v => !v)}
+                  data-testid="btn-register-vendor"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" />Register Vendor
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Register form */}
+          {showRegForm && prefixView === 'vendors' && (
+            <div className="bg-slate-900/70 border border-violet-500/30 rounded-xl p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-slate-200">Register New Vendor</h3>
+              <p className="text-xs text-slate-400">A unique 4-digit prefix block will be auto-generated. All four product prefixes (FC×1, BC×2, SB×6, SC×7) are created automatically.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400">Vendor Name *</label>
+                  <Input
+                    value={newVendorName}
+                    onChange={e => setNewVendorName(e.target.value)}
+                    placeholder="e.g. NEWCARRIER"
+                    className="bg-slate-800 border-slate-700 text-sm h-8"
+                    data-testid="input-vendor-name"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400">Description (optional)</label>
+                  <Input
+                    value={newVendorDesc}
+                    onChange={e => setNewVendorDesc(e.target.value)}
+                    placeholder="e.g. Transit carrier — EU"
+                    className="bg-slate-800 border-slate-700 text-sm h-8"
+                    data-testid="input-vendor-desc"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  disabled={!newVendorName.trim() || registerVendorMut.isPending}
+                  onClick={() => registerVendorMut.mutate({ name: newVendorName, description: newVendorDesc })}
+                  data-testid="btn-confirm-register"
+                >
+                  {registerVendorMut.isPending ? 'Registering…' : 'Confirm Registration'}
+                </Button>
+                <Button size="sm" variant="ghost" className="text-slate-400" onClick={() => { setShowRegForm(false); setNewVendorName(''); setNewVendorDesc(''); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Vendors table */}
+          {prefixView === 'vendors' && (
+            vendorsQ.isLoading ? (
+              <div className="space-y-2">{[...Array(6)].map((_,i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}</div>
+            ) : (
+              (() => {
+                const allVendors = vendorsQ.data ?? [];
+                const q = prefixSearch.trim().toLowerCase();
+                const filtered = q
+                  ? allVendors.filter(v =>
+                      v.name.toLowerCase().includes(q) ||
+                      v.vendorPrefix.includes(q) ||
+                      v.prefixes.some(p => p.fullPrefix.includes(q))
+                    )
+                  : allVendors;
+
+                const statusBg: Record<string,string> = {
+                  active:    'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+                  suspended: 'bg-amber-500/10  text-amber-400  border-amber-500/20',
+                  retired:   'bg-rose-500/10   text-rose-400   border-rose-500/20',
+                };
+                const productLabels: Record<string,string> = { '1':'FC','2':'BC','6':'SB','7':'SC' };
+                const productColors: Record<string,string>  = {
+                  '1':'bg-sky-500/10 text-sky-300 border-sky-500/20',
+                  '2':'bg-violet-500/10 text-violet-300 border-violet-500/20',
+                  '6':'bg-teal-500/10 text-teal-300 border-teal-500/20',
+                  '7':'bg-orange-500/10 text-orange-300 border-orange-500/20',
+                };
+
+                return (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                      <span className="text-sm font-medium text-slate-200">
+                        Canonical Vendor Registry
+                      </span>
+                      <span className="text-xs text-slate-500">{filtered.length} of {allVendors.length} vendors</span>
+                    </div>
+                    {filtered.length === 0 ? (
+                      <div className="py-12 text-center text-slate-500 text-sm">No vendors match your search</div>
+                    ) : (
+                      <div className="divide-y divide-slate-800/60">
+                        {filtered.map(vendor => {
+                          const isExpanded = expandedVendorId === vendor.id;
+                          const prefixByCode = Object.fromEntries(vendor.prefixes.map(p => [p.productCode, p]));
+                          return (
+                            <div key={vendor.id} data-testid={`vendor-row-${vendor.id}`}>
+                              {/* Main row */}
+                              <div className="flex items-center gap-3 px-4 py-3 hover:bg-slate-800/20">
+                                <button
+                                  onClick={() => setExpandedVendorId(isExpanded ? null : vendor.id)}
+                                  className="text-slate-500 hover:text-slate-300 flex-shrink-0"
+                                  data-testid={`vendor-expand-${vendor.id}`}
+                                >
+                                  {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                </button>
+
+                                {/* Name + prefix */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-semibold text-slate-100">{vendor.name}</span>
+                                    <span className="font-mono text-xs bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded">{vendor.vendorPrefix}</span>
+                                    <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded border", statusBg[vendor.status] ?? statusBg.active)}>
+                                      {vendor.status}
+                                    </span>
+                                  </div>
+                                  {vendor.description && (
+                                    <p className="text-xs text-slate-500 truncate mt-0.5">{vendor.description}</p>
+                                  )}
+                                </div>
+
+                                {/* Product prefix badges */}
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  {(['1','2','6','7'] as const).map(code => {
+                                    const p = prefixByCode[code];
+                                    if (!p) return null;
+                                    return (
+                                      <span
+                                        key={code}
+                                        className={cn(
+                                          "font-mono text-[10px] px-1.5 py-0.5 rounded border",
+                                          p.status === 'active' ? productColors[code] : 'bg-slate-800/50 text-slate-600 border-slate-700/50 line-through'
+                                        )}
+                                        title={`${productLabels[code]}: ${p.fullPrefix} (${p.status})`}
+                                        data-testid={`prefix-badge-${p.fullPrefix}`}
+                                      >
+                                        {productLabels[code]}·{p.fullPrefix}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Vendor-level actions */}
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  {vendor.status === 'active' && (
+                                    <>
+                                      <Button
+                                        size="sm" variant="ghost"
+                                        className="h-7 px-2 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 text-xs"
+                                        title="Suspend vendor"
+                                        onClick={() => vendorStatusMut.mutate({ id: vendor.id, status: 'suspended' })}
+                                        data-testid={`btn-suspend-vendor-${vendor.id}`}
+                                      >
+                                        <PauseCircle className="w-3.5 h-3.5 mr-1" />Suspend
+                                      </Button>
+                                      <Button
+                                        size="sm" variant="ghost"
+                                        className="h-7 px-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 text-xs"
+                                        title="Retire vendor"
+                                        onClick={() => vendorStatusMut.mutate({ id: vendor.id, status: 'retired' })}
+                                        data-testid={`btn-retire-vendor-${vendor.id}`}
+                                      >
+                                        <Archive className="w-3.5 h-3.5 mr-1" />Retire
+                                      </Button>
+                                    </>
+                                  )}
+                                  {(vendor.status === 'suspended' || vendor.status === 'retired') && (
+                                    <Button
+                                      size="sm" variant="ghost"
+                                      className="h-7 px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 text-xs"
+                                      onClick={() => vendorStatusMut.mutate({ id: vendor.id, status: 'active' })}
+                                      data-testid={`btn-reactivate-vendor-${vendor.id}`}
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5 mr-1" />Reactivate
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Expanded: per-prefix detail */}
+                              {isExpanded && (
+                                <div className="px-12 pb-3 pt-1 bg-slate-950/40 border-t border-slate-800/40">
+                                  <div className="grid grid-cols-4 gap-2">
+                                    {(['1','2','6','7'] as const).map(code => {
+                                      const p = prefixByCode[code];
+                                      if (!p) return null;
+                                      return (
+                                        <div key={code} className={cn(
+                                          "rounded-lg border p-3 space-y-1.5",
+                                          p.status === 'active' ? 'bg-slate-900 border-slate-800' : 'bg-slate-900/40 border-slate-800/40 opacity-60'
+                                        )}>
+                                          <div className="flex items-center justify-between">
+                                            <span className={cn("text-[10px] font-bold uppercase", productColors[code].split(' ')[1])}>
+                                              {productLabels[code]}
+                                            </span>
+                                            <span className={cn("text-[10px] px-1 py-0.5 rounded border", statusBg[p.status] ?? statusBg.active)}>
+                                              {p.status}
+                                            </span>
+                                          </div>
+                                          <div className="font-mono text-lg font-bold text-slate-100">{p.fullPrefix}</div>
+                                          <p className="text-[10px] text-slate-500 leading-tight">{p.productName}</p>
+                                          <div className="flex gap-1 pt-1">
+                                            {p.status === 'active' ? (
+                                              <>
+                                                <button
+                                                  onClick={() => prefixStatusMut.mutate({ id: p.id, status: 'suspended' })}
+                                                  className="text-[10px] text-amber-400 hover:underline"
+                                                  data-testid={`btn-suspend-prefix-${p.id}`}
+                                                >Suspend</button>
+                                                <span className="text-slate-700">·</span>
+                                                <button
+                                                  onClick={() => prefixStatusMut.mutate({ id: p.id, status: 'retired' })}
+                                                  className="text-[10px] text-rose-400 hover:underline"
+                                                  data-testid={`btn-retire-prefix-${p.id}`}
+                                                >Retire</button>
+                                              </>
+                                            ) : (
+                                              <button
+                                                onClick={() => prefixStatusMut.mutate({ id: p.id, status: 'active' })}
+                                                className="text-[10px] text-emerald-400 hover:underline"
+                                                data-testid={`btn-activate-prefix-${p.id}`}
+                                              >Reactivate</button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            )
+          )}
+
+          {/* Audit log view */}
+          {prefixView === 'audit' && (
+            prefixAuditQ.isLoading ? (
+              <div className="space-y-2">{[...Array(5)].map((_,i) => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}</div>
+            ) : (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-200">Prefix Registry Audit Log</span>
+                  <span className="text-xs text-slate-500">{prefixAuditQ.data?.length ?? 0} entries</span>
+                </div>
+                <div className="divide-y divide-slate-800/60">
+                  {(prefixAuditQ.data ?? []).map(entry => {
+                    const actionColor =
+                      entry.action.includes('retired')   ? 'text-rose-400'    :
+                      entry.action.includes('suspended') ? 'text-amber-400'   :
+                      entry.action.includes('active')    ? 'text-emerald-400' :
+                                                           'text-slate-300';
+                    return (
+                      <div key={entry.id} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-800/20" data-testid={`prefix-audit-${entry.id}`}>
+                        <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <Hash className="w-3.5 h-3.5 text-violet-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={cn("text-xs font-medium", actionColor)}>
+                              {entry.action.replace(/_/g, ' ')}
+                            </span>
+                            {entry.vendorName && <span className="text-xs text-slate-400">{entry.vendorName}</span>}
+                            {entry.fullPrefix  && <span className="font-mono text-xs bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded">{entry.fullPrefix}</span>}
+                            {entry.performedBy && <span className="text-xs text-slate-600">by {entry.performedBy}</span>}
+                            <span className="text-xs text-slate-500 ml-auto">{fmtDate(entry.createdAt)}</span>
+                          </div>
+                          {entry.details && (
+                            <p className="text-xs text-slate-500 mt-0.5 font-mono truncate">
+                              {typeof entry.details === 'object' ? JSON.stringify(entry.details) : String(entry.details)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )
           )}
         </div>
       )}

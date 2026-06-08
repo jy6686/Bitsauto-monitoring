@@ -8,6 +8,7 @@ import type { Express } from 'express';
 import { db } from './db';
 import {
   callGovernanceRules, governedCalls, callGovernanceLogs,
+  canonicalVendors, vendorProductPrefixes, prefixAuditLog,
 } from '@shared/schema';
 import { eq, desc, gte, and, sql } from 'drizzle-orm';
 import { amiGovernance } from './services/asterisk/ami-governance';
@@ -1034,6 +1035,174 @@ export function registerCallGovernanceRoutes(app: Express) {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ── Prefix Registry ──────────────────────────────────────────────────────────
+
+  // GET  /api/prefix-registry/vendors — list all canonical vendors + their product prefixes
+  app.get('/api/prefix-registry/vendors', requireAuth, async (_req, res) => {
+    try {
+      const vendors = await db.select().from(canonicalVendors).orderBy(canonicalVendors.name);
+      const prefixes = await db.select().from(vendorProductPrefixes).orderBy(vendorProductPrefixes.productCode);
+      const prefixMap = new Map<number, typeof prefixes>();
+      for (const p of prefixes) {
+        if (!prefixMap.has(p.canonicalId)) prefixMap.set(p.canonicalId, []);
+        prefixMap.get(p.canonicalId)!.push(p);
+      }
+      res.json(vendors.map(v => ({ ...v, prefixes: prefixMap.get(v.id) ?? [] })));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/prefix-registry/vendors — register a new vendor with auto-assigned prefix
+  app.post('/api/prefix-registry/vendors', requireAuth, async (req, res) => {
+    try {
+      const { name, description } = req.body ?? {};
+      if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+
+      // Check name uniqueness
+      const existing = await db.select({ id: canonicalVendors.id })
+        .from(canonicalVendors).where(sql`lower(name) = lower(${name.trim()})`).limit(1);
+      if (existing.length) return res.status(409).json({ error: `Vendor "${name.trim()}" already exists` });
+
+      // Fetch all used prefixes and generate a unique 4-digit one
+      const usedRows = await db.select({ vp: canonicalVendors.vendorPrefix }).from(canonicalVendors);
+      const used = new Set(usedRows.map(r => r.vp));
+      let vendorPrefix = '';
+      let attempts = 0;
+      while (attempts < 200) {
+        const candidate = (Math.floor(Math.random() * 9000) + 1000).toString();
+        if (!used.has(candidate)) { vendorPrefix = candidate; break; }
+        attempts++;
+      }
+      if (!vendorPrefix) return res.status(500).json({ error: 'Prefix pool exhausted' });
+
+      // Conflict check: ensure no existing governance rule destinationPrefix overlaps
+      const govRules = await db.select({ dp: callGovernanceRules.destinationPrefix }).from(callGovernanceRules);
+      for (const rule of govRules) {
+        const dp = (rule.dp ?? '').replace(/\D/g, '');
+        if (!dp) continue;
+        if (vendorPrefix.startsWith(dp) || dp.startsWith(vendorPrefix)) {
+          return res.status(409).json({
+            error: `Generated prefix ${vendorPrefix} conflicts with governance rule prefix "${dp}". Retrying — please try again.`,
+            conflict: true,
+          });
+        }
+      }
+
+      const performedBy = (req as any).user?.claims?.name ?? (req as any).user?.username ?? 'admin';
+
+      const [vendor] = await db.insert(canonicalVendors).values({
+        name: name.trim(), vendorPrefix, description: description?.trim() || null,
+        status: 'active', createdBy: performedBy,
+      }).returning();
+
+      const products = [
+        { productCode: '1', productName: 'FC - First Class'     },
+        { productCode: '2', productName: 'BC - Business Class'  },
+        { productCode: '6', productName: 'SB - Special Bravo'   },
+        { productCode: '7', productName: 'SC - Special Charlie' },
+      ];
+      const insertedPrefixes = await db.insert(vendorProductPrefixes)
+        .values(products.map(p => ({
+          canonicalId: vendor.id, ...p,
+          fullPrefix: vendorPrefix + p.productCode, status: 'active',
+        }))).returning();
+
+      await db.insert(prefixAuditLog).values({
+        action: 'vendor_registered', canonicalId: vendor.id, vendorName: vendor.name,
+        performedBy, details: { vendorPrefix, prefixes: insertedPrefixes.map(p => p.fullPrefix) },
+      });
+
+      res.json({ ...vendor, prefixes: insertedPrefixes });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/prefix-registry/vendors/:id/status — suspend or retire a vendor
+  app.patch('/api/prefix-registry/vendors/:id/status', requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { status } = req.body ?? {};
+      if (!['active', 'suspended', 'retired'].includes(status))
+        return res.status(400).json({ error: 'status must be active | suspended | retired' });
+
+      const [vendor] = await db.update(canonicalVendors)
+        .set({ status, updatedAt: new Date() }).where(eq(canonicalVendors.id, id)).returning();
+      if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+
+      // Cascade status to product prefixes
+      await db.update(vendorProductPrefixes).set({ status }).where(eq(vendorProductPrefixes.canonicalId, id));
+
+      const performedBy = (req as any).user?.claims?.name ?? (req as any).user?.username ?? 'admin';
+      await db.insert(prefixAuditLog).values({
+        action: `vendor_${status}`, canonicalId: id, vendorName: vendor.name,
+        performedBy, details: { previousStatus: vendor.status, newStatus: status },
+      });
+
+      res.json({ ok: true, vendor });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // PATCH /api/prefix-registry/prefixes/:id/status — suspend/retire a single product prefix
+  app.patch('/api/prefix-registry/prefixes/:id/status', requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { status } = req.body ?? {};
+      if (!['active', 'suspended', 'retired'].includes(status))
+        return res.status(400).json({ error: 'status must be active | suspended | retired' });
+
+      const [prefix] = await db.update(vendorProductPrefixes)
+        .set({ status }).where(eq(vendorProductPrefixes.id, id)).returning();
+      if (!prefix) return res.status(404).json({ error: 'Prefix not found' });
+
+      const vendor = await db.select({ name: canonicalVendors.name })
+        .from(canonicalVendors).where(eq(canonicalVendors.id, prefix.canonicalId)).limit(1);
+      const performedBy = (req as any).user?.claims?.name ?? (req as any).user?.username ?? 'admin';
+      await db.insert(prefixAuditLog).values({
+        action: `prefix_${status}`, canonicalId: prefix.canonicalId,
+        vendorName: vendor[0]?.name, fullPrefix: prefix.fullPrefix,
+        performedBy, details: { productCode: prefix.productCode, productName: prefix.productName },
+      });
+
+      res.json({ ok: true, prefix });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/prefix-registry/audit — audit log (most recent 200)
+  app.get('/api/prefix-registry/audit', requireAuth, async (_req, res) => {
+    try {
+      const rows = await db.select().from(prefixAuditLog)
+        .orderBy(desc(prefixAuditLog.createdAt)).limit(200);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/prefix-registry/conflict-check?prefix=XXXX — check a prefix for conflicts
+  app.get('/api/prefix-registry/conflict-check', requireAuth, async (req, res) => {
+    try {
+      const prefix = String(req.query.prefix ?? '').replace(/\D/g, '');
+      if (!prefix) return res.status(400).json({ error: 'prefix param required' });
+
+      const conflicts: string[] = [];
+
+      // Check existing vendor prefixes
+      const vendors = await db.select({ vp: canonicalVendors.vendorPrefix, name: canonicalVendors.name })
+        .from(canonicalVendors);
+      for (const v of vendors) {
+        if (prefix.startsWith(v.vp) || v.vp.startsWith(prefix))
+          conflicts.push(`Overlaps with vendor ${v.name} (prefix ${v.vp})`);
+      }
+
+      // Check existing governance rule prefixes
+      const rules = await db.select({ dp: callGovernanceRules.destinationPrefix, rn: callGovernanceRules.ruleName })
+        .from(callGovernanceRules);
+      for (const r of rules) {
+        const dp = (r.dp ?? '').replace(/\D/g, '');
+        if (dp && (prefix.startsWith(dp) || dp.startsWith(prefix)))
+          conflicts.push(`Overlaps with governance rule "${r.rn ?? dp}" (prefix ${dp})`);
+      }
+
+      res.json({ prefix, conflicts, safe: conflicts.length === 0 });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   console.log('[call-governance] Routes registered');

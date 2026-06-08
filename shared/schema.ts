@@ -3336,6 +3336,43 @@ export const callGovernanceLogs = pgTable("call_governance_log", {
 });
 export type CallGovernanceLog = typeof callGovernanceLogs.$inferSelect;
 
+// ── Prefix Registry — Canonical vendor prefix management ─────────────────────
+
+export const canonicalVendors = pgTable("canonical_vendors", {
+  id:           serial("id").primaryKey(),
+  name:         varchar("name",          { length: 100 }).notNull(),
+  vendorPrefix: varchar("vendor_prefix", { length: 4   }).unique().notNull(),
+  description:  text("description"),
+  status:       varchar("status",        { length: 20  }).notNull().default("active"),
+  createdBy:    varchar("created_by",    { length: 128 }),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  updatedAt:    timestamp("updated_at").defaultNow().notNull(),
+});
+export type CanonicalVendor = typeof canonicalVendors.$inferSelect;
+
+export const vendorProductPrefixes = pgTable("vendor_product_prefixes", {
+  id:          serial("id").primaryKey(),
+  canonicalId: integer("canonical_id").notNull().references(() => canonicalVendors.id),
+  productCode: varchar("product_code", { length: 1  }).notNull(),
+  productName: varchar("product_name", { length: 32 }).notNull(),
+  fullPrefix:  varchar("full_prefix",  { length: 5  }).unique().notNull(),
+  status:      varchar("status",       { length: 20 }).notNull().default("active"),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type VendorProductPrefix = typeof vendorProductPrefixes.$inferSelect;
+
+export const prefixAuditLog = pgTable("prefix_audit_log", {
+  id:          serial("id").primaryKey(),
+  action:      varchar("action",       { length: 64  }).notNull(),
+  canonicalId: integer("canonical_id"),
+  vendorName:  varchar("vendor_name",  { length: 100 }),
+  fullPrefix:  varchar("full_prefix",  { length: 10  }),
+  performedBy: varchar("performed_by", { length: 128 }),
+  details:     jsonb("details"),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type PrefixAuditEntry = typeof prefixAuditLog.$inferSelect;
+
 // ── Copilot result cache (DB-persisted, survives server restarts) ─────────────
 export const copilotResultCache = pgTable("copilot_result_cache", {
   id:          serial("id").primaryKey(),
