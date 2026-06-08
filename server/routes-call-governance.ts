@@ -23,6 +23,36 @@ function _getGlobalCdrCache(): Map<string, any> | null {
   return (global as any).__bitsautoCdrCache ?? null;
 }
 
+// ── Destination-based rule selection ──────────────────────────────────────────
+// Returns the single most-specific matching rule from a list of channel-matched
+// rules.  Specificity = destinationPrefix.length + callerPrefix.length.
+// A rule with no prefix set is a catch-all and wins only if nothing more specific
+// exists.  Returns null if the list is empty.
+function pickBestRule(
+  rules: any[],
+  callee: string,
+  caller: string,
+): any | null {
+  const cleanCallee = callee.replace(/\D/g, '');
+  const cleanCaller = caller.replace(/\D/g, '');
+
+  let best: any | null = null;
+  let bestScore = -1;
+
+  for (const rule of rules) {
+    const destPfx   = (rule.destinationPrefix ?? '').replace(/\D/g, '');
+    const callerPfx = (rule.callerPrefix      ?? '').replace(/\D/g, '');
+
+    if (destPfx   && !cleanCallee.startsWith(destPfx))   continue;
+    if (callerPfx && !cleanCaller.startsWith(callerPfx)) continue;
+
+    const score = destPfx.length + callerPfx.length;
+    if (score > bestScore) { bestScore = score; best = rule; }
+  }
+
+  return best;
+}
+
 // ── Auth helpers ───────────────────────────────────────────────────────────────
 
 function requireAuth(req: any, res: any, next: any) {
@@ -522,29 +552,44 @@ async function reconcileActiveCalls() {
     for (const [, legs] of byBridge) {
       if (legs.length !== 2) continue; // incomplete — skip
 
+      // ── Find channel-matching rules for this bridge ────────────────────────
+      const ch1 = legs[0];
+      const ch2 = legs[1];
+
+      // Collect all channel-pattern-matching rules and their A/B leg assignment
+      const channelMatches: Array<{ rule: any; legA: typeof ch1; legB: typeof ch1 }> = [];
       for (const rule of rules) {
         if (!rule.channelPattern) continue;
         let pattern: RegExp;
         try { pattern = new RegExp(rule.channelPattern, 'i'); } catch { continue; }
 
-        const ch1 = legs[0];
-        const ch2 = legs[1];
         const ch1Match = pattern.test(ch1.channel);
         const ch2Match = pattern.test(ch2.channel);
         if (!ch1Match && !ch2Match) continue;
 
-        // Determine A/B legs using same logic as the bridge handler
         let legB: typeof ch1, legA: typeof ch1;
         if (ch1Match && !ch2Match) {
           legB = ch1; legA = ch2;
         } else if (ch2Match && !ch1Match) {
           legB = ch2; legA = ch1;
         } else {
-          // Both match — SIP (plain) before PJSIP
           const c1Plain = /^SIP\//i.test(ch1.channel) && !/^PJSIP\//i.test(ch1.channel);
           legB = c1Plain ? ch1 : ch2;
           legA = legB === ch1 ? ch2 : ch1;
         }
+        channelMatches.push({ rule, legA, legB });
+      }
+      if (channelMatches.length === 0) continue;
+
+      // ── Pick best rule using destination / caller prefix specificity ────────
+      const callee = channelMatches[0].legA.connectedLineNum ?? '';
+      const caller = channelMatches[0].legA.callerIdNum      ?? '';
+      const best   = pickBestRule(channelMatches.map(m => m.rule), callee, caller);
+      if (!best) continue;
+      const { legA, legB } = channelMatches.find(m => m.rule.id === best.id)!;
+
+      {
+        const rule = best;
 
         // Check DB for existing active record for this vendor channel
         const existing = await db.select().from(governedCalls).where(
@@ -640,78 +685,80 @@ export function registerCallGovernanceRoutes(app: Express) {
 
       console.log(`[call-governance] Enabled rules found: ${rules.length}`);
 
+      // ── Collect all channel-pattern matches for this bridge ────────────────
+      interface BridgeMatch { rule: any; channelA: string; channelB: string; uniqueIdA: string; }
+      const bridgeMatches: BridgeMatch[] = [];
       for (const rule of rules) {
-        if (!rule.channelPattern) { console.log(`[call-governance] Rule ${rule.id} skipped: no channelPattern`); continue; }
+        if (!rule.channelPattern) continue;
         let pattern: RegExp;
-        try { pattern = new RegExp(rule.channelPattern, 'i'); } catch { console.log(`[call-governance] Rule ${rule.id} bad regex: ${rule.channelPattern}`); continue; }
+        try { pattern = new RegExp(rule.channelPattern, 'i'); } catch { continue; }
 
         const ch1Match = pattern.test(event.channel1);
         const ch2Match = pattern.test(event.channel2);
         console.log(`[call-governance] Rule ${rule.id} pattern="${rule.channelPattern}" ch1(${event.channel1})=${ch1Match} ch2(${event.channel2})=${ch2Match}`);
         if (!ch1Match && !ch2Match) continue;
 
-        // Convention: channel matching vendor pattern → B-leg (to cut)
-        // The non-matching channel is A-leg (customer, kept alive).
-        // IMPORTANT: when both channels match (e.g. pattern "SIP/sippy" hits both
-        // SIP/sippy-XXXX AND PJSIP/sippy-endpoint-XXXX), prefer ch1Match-only or
-        // ch2Match-only.  If both match, fall back to ch1 as B-leg (SIP comes before
-        // PJSIP in bridge events from this setup).
-        let channelB: string;
-        let channelA: string;
+        let channelB: string, channelA: string, uniqueIdA: string;
         if (ch1Match && !ch2Match) {
-          channelB = event.channel1; channelA = event.channel2;
+          channelB = event.channel1; channelA = event.channel2; uniqueIdA = event.uniqueId2;
         } else if (ch2Match && !ch1Match) {
-          channelB = event.channel2; channelA = event.channel1;
+          channelB = event.channel2; channelA = event.channel1; uniqueIdA = event.uniqueId1;
         } else {
-          // Both match — use channel type priority: SIP (plain) before PJSIP
-          const c1IsSip  = /^SIP\//i.test(event.channel1) && !/^PJSIP\//i.test(event.channel1);
-          channelB = c1IsSip ? event.channel1 : event.channel2;
-          channelA = channelB === event.channel1 ? event.channel2 : event.channel1;
+          const c1IsSip = /^SIP\//i.test(event.channel1) && !/^PJSIP\//i.test(event.channel1);
+          channelB   = c1IsSip ? event.channel1 : event.channel2;
+          channelA   = channelB === event.channel1 ? event.channel2 : event.channel1;
+          uniqueIdA  = channelA === event.channel1 ? event.uniqueId1 : event.uniqueId2;
         }
-        console.log(`[call-governance] Identified A-leg=${channelA} B-leg=${channelB}`);
-
-        // Apply jitter: capSec + random(0, jitterSec)
-        const capSec = rule.capSec + Math.floor(Math.random() * (rule.jitterSec + 1));
-
-        // Recording path: MixMonitor runs on A-leg (PJSIP) with ${UNIQUEID}.wav.
-        // Must use A-leg's uniqueId — NOT always uniqueId1 (order is non-deterministic).
-        const uniqueIdA = channelA === event.channel1 ? event.uniqueId1 : event.uniqueId2;
-        const recordingPath = `/var/spool/asterisk/monitor/${uniqueIdA}.wav`;
-        console.log(`[call-governance] Recording path: ${recordingPath}`);
-
-        const [gc] = await db.insert(governedCalls).values({
-          uniqueId:       event.uniqueId1,
-          channelA,
-          channelB,
-          caller:         event.callerIdNum1,
-          callee:         event.callerIdNum2,
-          connectionName: rule.connectionName,
-          ruleId:         rule.id,
-          capSec,
-          status:         'active',
-          recordingPath,
-        }).returning();
-
-        // Capture SIP Call-ID + peer IP from the vendor leg for precise CDR matching later
-        amiGovernance.getChannelVars(channelB).then(({ sipCallId, peerIp }) => {
-          if (sipCallId || peerIp) {
-            db.update(governedCalls)
-              .set({ vendorCallId: sipCallId || null, vendorIp: peerIp || null } as any)
-              .where(eq(governedCalls.id, gc.id))
-              .catch(() => {});
-            console.log(`[call-governance] #${gc.id} vendor vars: callId=${sipCallId || '—'} ip=${peerIp || '—'}`);
-          }
-        }).catch(() => {});
-
-        await db.insert(callGovernanceLogs).values({
-          governedCallId: gc.id,
-          eventType:      'call_bridged',
-          channel:        channelB,
-          details:        `Rule: ${rule.connectionName} | cap=${capSec}s | pattern=${rule.channelPattern}`,
-        });
-
-        await scheduleGovernedCallCut(gc, capSec);
+        bridgeMatches.push({ rule, channelA, channelB, uniqueIdA });
       }
+
+      if (bridgeMatches.length === 0) return;
+
+      // ── Pick most-specific rule by destination / caller prefix ──────────────
+      const callee    = event.callerIdNum2 ?? '';
+      const caller    = event.callerIdNum1 ?? '';
+      const bestRule  = pickBestRule(bridgeMatches.map(m => m.rule), callee, caller);
+      if (!bestRule) return;
+      const { channelA, channelB, uniqueIdA } = bridgeMatches.find(m => m.rule.id === bestRule.id)!;
+      const rule = bestRule;
+      console.log(`[call-governance] Best rule id=${rule.id} name="${rule.ruleName ?? rule.connectionName}" dest="${rule.destinationPrefix ?? '*'}" caller="${rule.callerPrefix ?? '*'}" → A-leg=${channelA} B-leg=${channelB}`);
+
+      const capSec = rule.capSec + Math.floor(Math.random() * (rule.jitterSec + 1));
+
+      const recordingPath = `/var/spool/asterisk/monitor/${uniqueIdA}.wav`;
+      console.log(`[call-governance] Recording path: ${recordingPath}`);
+
+      const [gc] = await db.insert(governedCalls).values({
+        uniqueId:       event.uniqueId1,
+        channelA,
+        channelB,
+        caller:         event.callerIdNum1,
+        callee:         event.callerIdNum2,
+        connectionName: rule.connectionName,
+        ruleId:         rule.id,
+        capSec,
+        status:         'active',
+        recordingPath,
+      }).returning();
+
+      amiGovernance.getChannelVars(channelB).then(({ sipCallId, peerIp }) => {
+        if (sipCallId || peerIp) {
+          db.update(governedCalls)
+            .set({ vendorCallId: sipCallId || null, vendorIp: peerIp || null } as any)
+            .where(eq(governedCalls.id, gc.id))
+            .catch(() => {});
+          console.log(`[call-governance] #${gc.id} vendor vars: callId=${sipCallId || '—'} ip=${peerIp || '—'}`);
+        }
+      }).catch(() => {});
+
+      await db.insert(callGovernanceLogs).values({
+        governedCallId: gc.id,
+        eventType:      'call_bridged',
+        channel:        channelB,
+        details:        `Rule: ${rule.ruleName ?? rule.connectionName} | cap=${capSec}s | dest=${rule.destinationPrefix ?? '*'} | pattern=${rule.channelPattern}`,
+      });
+
+      await scheduleGovernedCallCut(gc, capSec);
     } catch (err: any) {
       console.error('[call-governance] bridge handler error:', err?.message);
     }
@@ -765,14 +812,17 @@ export function registerCallGovernanceRoutes(app: Express) {
   app.post('/api/call-governance/rules', requireAdmin, async (req: any, res: any) => {
     try {
       const [rule] = await db.insert(callGovernanceRules).values({
-        connectionName: req.body.connectionName,
-        channelPattern: req.body.channelPattern ?? null,
-        capSec:         Number(req.body.capSec)    || 120,
-        jitterSec:      Number(req.body.jitterSec) || 15,
-        enabled:        Boolean(req.body.enabled),
-        action:         req.body.action   || 'cap_and_replay',
-        scenario:       req.body.scenario || 'time_cap',
-        notes:          req.body.notes    || null,
+        ruleName:          req.body.ruleName          || null,
+        connectionName:    req.body.connectionName,
+        channelPattern:    req.body.channelPattern    ?? null,
+        destinationPrefix: req.body.destinationPrefix || null,
+        callerPrefix:      req.body.callerPrefix      || null,
+        capSec:            Number(req.body.capSec)    || 120,
+        jitterSec:         Number(req.body.jitterSec) || 15,
+        enabled:           Boolean(req.body.enabled),
+        action:            req.body.action   || 'cap_and_replay',
+        scenario:          req.body.scenario || 'time_cap',
+        notes:             req.body.notes    || null,
       }).returning();
       res.json(rule);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -782,14 +832,17 @@ export function registerCallGovernanceRoutes(app: Express) {
     try {
       const id = Number(req.params.id);
       const update: Record<string, any> = { updatedAt: new Date() };
-      if (req.body.connectionName !== undefined) update.connectionName = req.body.connectionName;
-      if (req.body.channelPattern !== undefined) update.channelPattern = req.body.channelPattern;
-      if (req.body.capSec        !== undefined) update.capSec         = Number(req.body.capSec);
-      if (req.body.jitterSec     !== undefined) update.jitterSec      = Number(req.body.jitterSec);
-      if (req.body.enabled       !== undefined) update.enabled        = Boolean(req.body.enabled);
-      if (req.body.action        !== undefined) update.action         = req.body.action;
-      if (req.body.scenario      !== undefined) update.scenario       = req.body.scenario;
-      if (req.body.notes         !== undefined) update.notes          = req.body.notes;
+      if (req.body.ruleName          !== undefined) update.ruleName          = req.body.ruleName || null;
+      if (req.body.connectionName    !== undefined) update.connectionName    = req.body.connectionName;
+      if (req.body.channelPattern    !== undefined) update.channelPattern    = req.body.channelPattern;
+      if (req.body.destinationPrefix !== undefined) update.destinationPrefix = req.body.destinationPrefix || null;
+      if (req.body.callerPrefix      !== undefined) update.callerPrefix      = req.body.callerPrefix      || null;
+      if (req.body.capSec            !== undefined) update.capSec            = Number(req.body.capSec);
+      if (req.body.jitterSec         !== undefined) update.jitterSec         = Number(req.body.jitterSec);
+      if (req.body.enabled           !== undefined) update.enabled           = Boolean(req.body.enabled);
+      if (req.body.action            !== undefined) update.action            = req.body.action;
+      if (req.body.scenario          !== undefined) update.scenario          = req.body.scenario;
+      if (req.body.notes             !== undefined) update.notes             = req.body.notes;
 
       const [rule] = await db.update(callGovernanceRules)
         .set(update)

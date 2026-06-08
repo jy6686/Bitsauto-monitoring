@@ -19,8 +19,11 @@ import { apiRequest } from "@/lib/queryClient";
 
 interface GovernanceRule {
   id: number;
+  ruleName: string | null;
   connectionName: string;
   channelPattern: string | null;
+  destinationPrefix: string | null;
+  callerPrefix: string | null;
   capSec: number;
   jitterSec: number;
   enabled: boolean;
@@ -301,13 +304,16 @@ function RuleForm({
   onCancel: () => void;
 }) {
   const [form, setForm] = useState({
-    connectionName: initial?.connectionName ?? "",
-    channelPattern: initial?.channelPattern ?? "",
-    capSec:         String(initial?.capSec    ?? 120),
-    jitterSec:      String(initial?.jitterSec ?? 15),
-    enabled:        initial?.enabled ?? false,
-    action:         initial?.action  ?? "cap_and_replay",
-    notes:          initial?.notes   ?? "",
+    ruleName:          initial?.ruleName          ?? "",
+    connectionName:    initial?.connectionName    ?? "",
+    channelPattern:    initial?.channelPattern    ?? "",
+    destinationPrefix: initial?.destinationPrefix ?? "",
+    callerPrefix:      initial?.callerPrefix      ?? "",
+    capSec:            String(initial?.capSec    ?? 120),
+    jitterSec:         String(initial?.jitterSec ?? 15),
+    enabled:           initial?.enabled ?? false,
+    action:            initial?.action  ?? "cap_and_replay",
+    notes:             initial?.notes   ?? "",
   });
 
   function set(k: string, v: any) { setForm(p => ({ ...p, [k]: v })); }
@@ -315,13 +321,23 @@ function RuleForm({
   return (
     <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5 space-y-4" data-testid="rule-form">
       <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2 space-y-1">
+        <div className="space-y-1">
+          <label className="text-xs text-slate-400">Rule Name</label>
+          <Input
+            data-testid="input-rule-name"
+            value={form.ruleName}
+            onChange={e => set('ruleName', e.target.value)}
+            placeholder="e.g. Pakistan Charlie OTP"
+            className="bg-slate-900/50 border-slate-700"
+          />
+        </div>
+        <div className="space-y-1">
           <label className="text-xs text-slate-400">Connection Name <span className="text-rose-400">*</span></label>
           <Input
             data-testid="input-connection-name"
             value={form.connectionName}
             onChange={e => set('connectionName', e.target.value)}
-            placeholder="e.g. PTCL-TDM-1"
+            placeholder="e.g. Sippy"
             className="bg-slate-900/50 border-slate-700"
           />
         </div>
@@ -331,16 +347,41 @@ function RuleForm({
             data-testid="input-channel-pattern"
             value={form.channelPattern}
             onChange={e => set('channelPattern', e.target.value)}
-            placeholder="e.g. SIP/sippy-vendor|PJSIP/trunk-ptcl"
+            placeholder="e.g. ^SIP/sippy"
             className="bg-slate-900/50 border-slate-700"
           />
           <p className="text-xs text-slate-500">Regex matched against Asterisk channel name. Matching channel = vendor leg (to cut).</p>
         </div>
+
+        {/* ── Destination-based matching ── */}
+        <div className="space-y-1">
+          <label className="text-xs text-slate-400">Destination Prefix</label>
+          <Input
+            data-testid="input-destination-prefix"
+            value={form.destinationPrefix}
+            onChange={e => set('destinationPrefix', e.target.value)}
+            placeholder="e.g. 291 (Eritrea), 923 (Pakistan)"
+            className="bg-slate-900/50 border-slate-700"
+          />
+          <p className="text-xs text-slate-500">CLD starts-with match. Leave blank = all destinations (catch-all).</p>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-slate-400">Caller Prefix <span className="text-slate-600">(optional)</span></label>
+          <Input
+            data-testid="input-caller-prefix"
+            value={form.callerPrefix}
+            onChange={e => set('callerPrefix', e.target.value)}
+            placeholder="e.g. 206092 (OTP product routing)"
+            className="bg-slate-900/50 border-slate-700"
+          />
+          <p className="text-xs text-slate-500">CLI starts-with match. Use to separate OTP vs CC on same destination.</p>
+        </div>
+
         <div className="space-y-1">
           <label className="text-xs text-slate-400">Cap (seconds)</label>
           <Input
             data-testid="input-cap-sec"
-            type="number" min={10} max={3600}
+            type="number" min={1} max={3600}
             value={form.capSec}
             onChange={e => set('capSec', e.target.value)}
             className="bg-slate-900/50 border-slate-700"
@@ -382,8 +423,11 @@ function RuleForm({
           data-testid="button-save-rule"
           onClick={() => onSave({
             ...form,
-            capSec:    Number(form.capSec),
-            jitterSec: Number(form.jitterSec),
+            destinationPrefix: form.destinationPrefix.trim() || null,
+            callerPrefix:      form.callerPrefix.trim()      || null,
+            ruleName:          form.ruleName.trim()          || null,
+            capSec:            Number(form.capSec),
+            jitterSec:         Number(form.jitterSec),
           })}
           disabled={!form.connectionName.trim()}
           className="bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -676,7 +720,7 @@ export default function CallGovernancePage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-400">
-              One rule per Sippy connection. The timer cap (+ jitter) determines when vendor leg receives BYE.
+              Rules match calls by channel pattern, destination prefix, and caller prefix. The most specific matching rule wins. Catch-all rules (no prefix) apply when no specific rule matches.
             </p>
             {!showForm && !editRule && (
               <Button
@@ -726,7 +770,12 @@ export default function CallGovernancePage() {
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-semibold text-sm text-slate-100">{rule.connectionName}</span>
+                              <span className="font-semibold text-sm text-slate-100">
+                                {rule.ruleName || rule.connectionName}
+                              </span>
+                              {rule.ruleName && (
+                                <span className="text-xs text-slate-500 font-normal">{rule.connectionName}</span>
+                              )}
                               <span className={cn(
                                 "text-xs px-2 py-0.5 rounded-full border font-medium",
                                 rule.enabled
@@ -743,6 +792,23 @@ export default function CallGovernancePage() {
                               <span className="flex items-center gap-1">
                                 <Zap className="w-3 h-3" /> Jitter: <strong className="text-slate-200">±{rule.jitterSec}s</strong>
                               </span>
+                              {rule.destinationPrefix && (
+                                <span className="flex items-center gap-1">
+                                  <ChevronRight className="w-3 h-3" />
+                                  Dest: <code className="text-amber-300 font-mono">{rule.destinationPrefix}*</code>
+                                </span>
+                              )}
+                              {rule.callerPrefix && (
+                                <span className="flex items-center gap-1">
+                                  <ChevronRight className="w-3 h-3" />
+                                  CLI: <code className="text-sky-300 font-mono">{rule.callerPrefix}*</code>
+                                </span>
+                              )}
+                              {!rule.destinationPrefix && !rule.callerPrefix && (
+                                <span className="flex items-center gap-1 text-slate-500">
+                                  <ChevronRight className="w-3 h-3" /> All destinations (catch-all)
+                                </span>
+                              )}
                               {rule.channelPattern && (
                                 <span className="font-mono flex items-center gap-1">
                                   <ChevronRight className="w-3 h-3" /> Pattern: <code className="text-violet-300">{rule.channelPattern}</code>

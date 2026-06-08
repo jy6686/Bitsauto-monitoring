@@ -3276,17 +3276,20 @@ export type VoiceOtpCall = typeof voiceOtpCalls.$inferSelect;
 // ── Call Governance ───────────────────────────────────────────────────────────
 
 export const callGovernanceRules = pgTable("call_governance_rules", {
-  id:             serial("id").primaryKey(),
-  connectionName: varchar("connection_name", { length: 128 }).notNull(),
-  channelPattern: varchar("channel_pattern", { length: 255 }),
-  capSec:         integer("cap_sec").notNull().default(120),
-  jitterSec:      integer("jitter_sec").notNull().default(15),
-  enabled:        boolean("enabled").notNull().default(false),
-  action:         varchar("action",   { length: 32 }).notNull().default('cap_and_replay'),
-  scenario:       varchar("scenario", { length: 32 }).notNull().default('time_cap'),
-  notes:          text("notes"),
-  createdAt:      timestamp("created_at").defaultNow(),
-  updatedAt:      timestamp("updated_at").defaultNow(),
+  id:                serial("id").primaryKey(),
+  ruleName:          varchar("rule_name",          { length: 100 }),
+  connectionName:    varchar("connection_name",    { length: 128 }).notNull(),
+  channelPattern:    varchar("channel_pattern",    { length: 255 }),
+  destinationPrefix: varchar("destination_prefix", { length: 64 }),
+  callerPrefix:      varchar("caller_prefix",      { length: 64 }),
+  capSec:            integer("cap_sec").notNull().default(120),
+  jitterSec:         integer("jitter_sec").notNull().default(15),
+  enabled:           boolean("enabled").notNull().default(false),
+  action:            varchar("action",   { length: 32 }).notNull().default('cap_and_replay'),
+  scenario:          varchar("scenario", { length: 32 }).notNull().default('time_cap'),
+  notes:             text("notes"),
+  createdAt:         timestamp("created_at").defaultNow(),
+  updatedAt:         timestamp("updated_at").defaultNow(),
 });
 export type CallGovernanceRule = typeof callGovernanceRules.$inferSelect;
 export type InsertCallGovernanceRule = typeof callGovernanceRules.$inferInsert;
