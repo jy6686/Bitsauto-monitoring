@@ -717,6 +717,7 @@ export function registerCallGovernanceRoutes(app: Express) {
       // ── Pick most-specific rule by destination / caller prefix ──────────────
       const callee    = event.callerIdNum2 ?? '';
       const caller    = event.callerIdNum1 ?? '';
+      console.log(`[call-governance] Prefix matching: callee="${callee}" caller="${caller}"`);
       const bestRule  = pickBestRule(bridgeMatches.map(m => m.rule), callee, caller);
       if (!bestRule) return;
       const { channelA, channelB, uniqueIdA } = bridgeMatches.find(m => m.rule.id === bestRule.id)!;
