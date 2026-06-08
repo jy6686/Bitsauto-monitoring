@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Shield, Phone, Scissors, Clock, RefreshCw, Plus, Pencil, Trash2,
   CheckCircle2, XCircle, AlertTriangle, Wifi, WifiOff, FileAudio,
-  Activity, Copy, ChevronRight, Settings2, ScrollText, Zap, Info,
+  Activity, Copy, ChevronLeft, ChevronRight, Settings2, ScrollText, Zap, Info,
   Play, Pause, Volume2, Download, X, BarChart2, TrendingDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -412,8 +412,13 @@ export default function CallGovernancePage() {
   const [tab, setTab]         = useState<Tab>('live');
   const [showForm, setShowForm] = useState(false);
   const [editRule, setEditRule] = useState<GovernanceRule | null>(null);
+  const [billingPage, setBillingPage] = useState(1);
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  const BILLING_PAGE_SIZE = 100;
+
+  useEffect(() => { setBillingPage(1); }, [tab]);
 
   const statsQ = useQuery<Stats>({
     queryKey: ['/api/call-governance/stats'],
@@ -938,7 +943,7 @@ export default function CallGovernancePage() {
                   <TrendingDown className="w-4 h-4 text-emerald-400" /> Billing Reconciliation (last 7 days)
                 </span>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-500">{billingQ.data.length} cuts</span>
+                  <span className="text-xs text-slate-500">{billingQ.data.length} cuts · page {billingPage}/{Math.ceil(billingQ.data.length / BILLING_PAGE_SIZE)}</span>
                   {billingQ.data.some(r => r.status === 'no_cdr') && (
                     <button
                       onClick={() => retryCdrMut.mutate(undefined)}
@@ -970,7 +975,7 @@ export default function CallGovernancePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {billingQ.data.map(row => {
+                    {billingQ.data.slice((billingPage - 1) * BILLING_PAGE_SIZE, billingPage * BILLING_PAGE_SIZE).map(row => {
                       const statusCfg = {
                         ok:     { label: 'OK',      cls: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' },
                         loss:   { label: 'Loss',    cls: 'bg-rose-500/10   text-rose-300   border border-rose-500/20'   },
@@ -1077,6 +1082,52 @@ export default function CallGovernancePage() {
                   </tbody>
                 </table>
               </div>
+              {/* Pagination controls */}
+              {billingQ.data.length > BILLING_PAGE_SIZE && (() => {
+                const totalPages = Math.ceil(billingQ.data.length / BILLING_PAGE_SIZE);
+                const startRow   = (billingPage - 1) * BILLING_PAGE_SIZE + 1;
+                const endRow     = Math.min(billingPage * BILLING_PAGE_SIZE, billingQ.data.length);
+                return (
+                  <div className="px-4 py-2.5 border-t border-slate-800 flex items-center justify-between">
+                    <span className="text-xs text-slate-500">
+                      Showing {startRow}–{endRow} of {billingQ.data.length} cuts
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setBillingPage(p => Math.max(1, p - 1))}
+                        disabled={billingPage <= 1}
+                        data-testid="billing-prev-page"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronLeft className="w-3 h-3" /> Prev
+                      </button>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                        <button
+                          key={p}
+                          onClick={() => setBillingPage(p)}
+                          data-testid={`billing-page-${p}`}
+                          className={cn(
+                            'px-2.5 py-1 rounded text-xs border transition-colors',
+                            p === billingPage
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700',
+                          )}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => setBillingPage(p => Math.min(totalPages, p + 1))}
+                        disabled={billingPage >= totalPages}
+                        data-testid="billing-next-page"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
               {/* Footer note */}
               <div className="px-4 py-2.5 border-t border-slate-800 flex items-center gap-2 text-xs text-slate-600">
                 <Info className="w-3 h-3 flex-shrink-0" />

@@ -117,7 +117,7 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
       cdrs = await sippy.scrapePortalCDRsAll(portalUser, portalPass, portalUrl, {
         startDate: winStart.toISOString(),
         endDate:   winEnd.toISOString(),
-        maxPages:  3,
+        maxPages:  15,
       });
     } catch { /* leave cdrs empty */ }
   }
@@ -209,8 +209,10 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
     }
   }
 
-  const cdrDuration   = matched ? (Number(matched.duration) || null) : null;
-  const cdrCost       = matched ? (Number(matched.cost)     || null) : null;
+  // Use 0 (not null) when matched but has zero billed duration — vendor billed 0s.
+  // This correctly resolves as 'ok' rather than staying 'no_cdr'.
+  const cdrDuration   = matched !== null ? (Number(matched.duration) || 0) : null;
+  const cdrCost       = matched !== null ? (Number(matched.cost)     || 0) : null;
   const cdrVendorCost = matched ? (Number((matched as any).vendorCost) || null) : null;
   const cdrVendorName = matched?.vendorResolved ?? matched?.vendorName ?? null;
   const cdrCaller     = matched?.caller ?? null;

@@ -32993,7 +32993,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           .from(gcTable)
           .where(andOp(eqOp(gcTable.status, 'cut'), gteOp(gcTable.startTime, cutoff7d)))
           .orderBy(desc(gcTable.byeSentAt))
-          .limit(100);
+          .limit(500);
 
         // Build all CDR values once for matching
         const allCdrs = [...cdrCache.values()] as any[];
@@ -33145,8 +33145,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                 });
               }
             }
-            customerBilledSec = matchedCdr ? (Number(matchedCdr.duration) || null) : null;
-            customerCost      = matchedCdr ? (Number(matchedCdr.cost)     || null) : null;
+            customerBilledSec = matchedCdr !== null ? (Number(matchedCdr.duration) || 0) : null;
+            customerCost      = matchedCdr !== null ? (Number(matchedCdr.cost)     || 0) : null;
             vendorName        = matchedCdr?.vendorResolved ?? matchedCdr?.vendorName ?? null;
             vendorCost        = matchedCdr ? ((matchedCdr as any).vendorCost ?? null) : null;
             marginAmount      = (customerCost !== null && vendorCost !== null)
