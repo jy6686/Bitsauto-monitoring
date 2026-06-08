@@ -80,8 +80,9 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
   let stripped = techPrefix && rawDestDigits.startsWith(techPrefix)
     ? rawDestDigits.slice(techPrefix.length)
     : rawDestDigits;
-  // If still >13 digits, strip leading routing class digits (up to 8) until ≤13
-  while (stripped.length > 13) stripped = stripped.slice(1);
+  // If still >12 digits, strip leading routing class digits until ≤12
+  // (E.164 max subscriber = 12 digits — e.g. "2060923046744407" → "923046744407")
+  while (stripped.length > 12) stripped = stripped.slice(1);
   // destDigits = clean international number (CC + subscriber, no routing prefix)
   const destDigits  = stripped;
   const destSuffix  = destDigits.slice(-10); // 10-digit suffix for global coverage
@@ -246,9 +247,22 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
 }
 
 function scheduleCdrLookup(governedCallId: number): void {
-  setTimeout(() => runCdrLookup(governedCallId, false).catch((err: any) =>
-    console.error(`[call-governance] CDR lookup #${governedCallId} failed:`, err?.message)
-  ), 45_000);
+  // Sippy can lag 1–3 min writing CDRs after a call ends.
+  // Fire at 45s, 3 min, 8 min — each attempt only overwrites if still no_cdr.
+  const attempts = [45_000, 3 * 60_000, 8 * 60_000];
+  for (const delay of attempts) {
+    setTimeout(async () => {
+      try {
+        const [gc] = await db.select({ cdrStatus: governedCalls.cdrStatus })
+          .from(governedCalls).where(eq(governedCalls.id, governedCallId));
+        // Skip if already resolved by an earlier attempt
+        if (gc && CDR_RESOLVED.has(gc.cdrStatus ?? '')) return;
+        await runCdrLookup(governedCallId, false);
+      } catch (err: any) {
+        console.error(`[call-governance] CDR lookup #${governedCallId} (${delay/1000}s) failed:`, err?.message);
+      }
+    }, delay);
+  }
 }
 
 // ── Governance engine ──────────────────────────────────────────────────────────
