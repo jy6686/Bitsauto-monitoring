@@ -263,3 +263,9 @@ id = "UYZuWuugwm8Arux88p7CS"
 uri = "file://BitsAuto_Platform_Deck.pptx"
 type = "slides"
 title = "BitsAuto Platform Deck — With Real UI Screenshots"
+
+[[outputs]]
+id = "3t2vDupzwfNlC6DCFxsPI"
+uri = "file://exports/ICHIBAAN_Vendors_Governance_Prefixes.xlsx"
+type = "table"
+title = "ICHIBAAN Vendors — All 139 with Governance Prefixes"
