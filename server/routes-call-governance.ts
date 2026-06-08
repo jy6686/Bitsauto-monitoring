@@ -66,23 +66,40 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
   const winStart = new Date(startMs - 3 * 60_000);
   const winEnd   = new Date(startMs + 20 * 60_000);
 
-  // Destination: strip 2060 routing prefix, use last 9 digits as CLD filter
-  const destDigits = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
-  const destSuffix = destDigits.slice(-9);
-  const cliSuffix  = (gc.callee || '').replace(/\D/g, '').slice(-7);
+  // ── Destination extraction — global prefix-agnostic ─────────────────────
+  // The caller field contains the full dialled string including any routing/product
+  // class prefix (e.g. "2060" + CC + subscriber).  We cannot hardcode the prefix
+  // length, so we derive the best-effort international number by:
+  //   1. stripping any known SIPPY_TECH_PREFIX (env-configured)
+  //   2. then stripping any remaining leading routing digits so the result is
+  //      ≤12 digits (typical max E.164 subscriber length)
+  //   3. always keeping a 10- and 9-digit suffix for tier-3 fuzzy matching
+  const rawDestDigits = (gc.caller || '').replace(/\D/g, '');
+  const techPrefix    = (process.env.SIPPY_TECH_PREFIX ?? '').replace(/\D/g, '');
+  // Strip tech prefix if it matches the leading digits
+  let stripped = techPrefix && rawDestDigits.startsWith(techPrefix)
+    ? rawDestDigits.slice(techPrefix.length)
+    : rawDestDigits;
+  // If still >13 digits, strip leading routing class digits (up to 8) until ≤13
+  while (stripped.length > 13) stripped = stripped.slice(1);
+  // destDigits = clean international number (CC + subscriber, no routing prefix)
+  const destDigits  = stripped;
+  const destSuffix  = destDigits.slice(-10); // 10-digit suffix for global coverage
+  const destSuffix9 = destDigits.slice(-9);  // 9-digit fallback
+  const cliSuffix   = (gc.callee || '').replace(/\D/g, '').slice(-8);
 
   // ── Track 1: XML-RPC getAccountCDRs with cld filter (targeted, fast) ──
   // Uses billed_duration + cost fields. Blocked by circuit-breaker if auth fails.
+  // No `type: non_zero` — governed cuts can land as 0-duration CDRs in Sippy.
   let cdrs: any[] = [];
   let source = 'portal';
   try {
     const xmlCdrs = await sippy.getSippyCDRs(
-      apiUser, apiPass, 20,
+      apiUser, apiPass, 50,
       {
         cld:       destDigits,
         startDate: winStart.toISOString(),
         endDate:   winEnd.toISOString(),
-        type:      'non_zero',
       },
       portalUrl,
     );
@@ -104,13 +121,14 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
     } catch { /* leave cdrs empty */ }
   }
 
-  // ── Match: 3-tier priority ────────────────────────────────────────────────
-  // Tier 1 — SIP Call-ID exact match (100% deterministic, no ambiguity)
-  // Tier 2 — Vendor IP + time window (IP never rewritten by translation rules)
-  // Tier 3 — CLD last-9-digit suffix + CLI tiebreaker (legacy fallback)
+  // ── Match: 4-tier priority ────────────────────────────────────────────────
+  // Tier 1 — SIP Call-ID exact match (100% deterministic)
+  // Tier 2 — Vendor IP + time window
+  // Tier 3 — CLD 10-digit suffix + CLI tiebreaker (global destinations)
+  // Tier 4 — CLD 9-digit suffix fallback (shorter national numbers)
   const vendorCallId = (gc as any).vendorCallId as string | null;
   const vendorIp     = (gc as any).vendorIp     as string | null;
-  const windowMs     = 10 * 60 * 1000;
+  const windowMs     = 15 * 60 * 1000;   // widened to 15 min — Sippy CDR write can lag
 
   let matched: any = null;
   let matchTier = 0;
@@ -146,23 +164,47 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
     }
   }
 
-  // Tier 3: CLD suffix + CLI tiebreaker + time window
+  // Tier 3: CLD 10-digit suffix + CLI tiebreaker (global destinations)
   if (!matched) {
-    const candidates = cdrs.filter((c: any) => {
+    const inWindow = (c: any) => {
       const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
-      if (cdrTs === null || Math.abs(cdrTs - startMs) > windowMs) return false;
-      return (c.callee || '').replace(/\D/g, '').endsWith(destSuffix);
-    });
-    if (candidates.length > 0) {
+      return cdrTs !== null && Math.abs(cdrTs - startMs) <= windowMs;
+    };
+    const pickBest = (pool: any[]) => {
       const cliMatch = cliSuffix.length >= 6
-        ? candidates.find((c: any) => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
+        ? pool.find((c: any) => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
         : null;
-      matched = cliMatch ?? candidates.reduce((best: any, c: any) => {
+      return cliMatch ?? pool.reduce((best: any, c: any) => {
         const a = Math.abs(new Date(c.startTime).getTime() - startMs);
         const b = Math.abs(new Date(best.startTime).getTime() - startMs);
         return a < b ? c : best;
       });
-      if (matched) matchTier = 3;
+    };
+    // Try 10-digit suffix first (most precise for international numbers)
+    const tier3 = cdrs.filter((c: any) =>
+      inWindow(c) && (c.callee || '').replace(/\D/g, '').endsWith(destSuffix)
+    );
+    if (tier3.length > 0) { matched = pickBest(tier3); matchTier = 3; }
+  }
+
+  // Tier 4: CLD 9-digit suffix fallback (shorter national numbers / alternate format)
+  if (!matched) {
+    const tier4 = cdrs.filter((c: any) => {
+      const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
+      if (cdrTs === null || Math.abs(cdrTs - startMs) > windowMs) return false;
+      const cdrCallee = (c.callee || '').replace(/\D/g, '');
+      return destSuffix9.length >= 7 && cdrCallee.endsWith(destSuffix9);
+    });
+    if (tier4.length > 0) {
+      const cliMatch = cliSuffix.length >= 6
+        ? tier4.find((c: any) => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
+        : null;
+      matched = cliMatch ?? tier4.reduce((best: any, c: any) => {
+        const a = Math.abs(new Date(c.startTime).getTime() - startMs);
+        const b = Math.abs(new Date(best.startTime).getTime() - startMs);
+        return a < b ? c : best;
+      });
+      if (matched) matchTier = 4;
     }
   }
 
