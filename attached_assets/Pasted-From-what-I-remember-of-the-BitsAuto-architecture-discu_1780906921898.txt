@@ -1,0 +1,200 @@
+From what I remember of the BitsAuto architecture discussions, the Login/Signup page was not intended to be a traditional SaaS self-registration page.
+
+Because BitsAuto is:
+
+Enterprise Telecom Platform
+
+not:
+
+Public SaaS
+Original Direction
+Login Page
+┌─────────────────────────────────────────────┐
+│  Animated Telecom Network / BitsEye2        │
+│                                               │
+│  "The Operating System for Telecom"          │
+│                                               │
+│  Live KPIs                                   │
+│  • Calls                                     │
+│  • ASR                                       │
+│  • Revenue                                   │
+│  • Carrier Health                            │
+└─────────────────────────────────────────────┘
+
+┌────────────────────────────┐
+│         BITSAUTO           │
+│                            │
+│  Email                     │
+│  Password                  │
+│                            │
+│  [ Sign In ]               │
+│                            │
+│  Forgot Password           │
+└────────────────────────────┘
+Signup Page (Not Public)
+
+The plan was:
+
+Option A (Recommended)
+
+Disable public signup entirely.
+
+Only:
+
+Super Admin
+Management
+
+can create users.
+
+Workflow:
+
+Admin
+    ↓
+Create User
+    ↓
+Invite Email
+    ↓
+User Sets Password
+    ↓
+Login
+
+This is how most carrier-grade platforms operate.
+
+User Creation Wizard
+
+Instead of public signup:
+
+Users
+ ├ Create User
+ ├ Assign Role
+ ├ Assign Workspace
+ ├ Assign Permissions
+ └ Send Invite
+
+Example:
+
+Name: Ahmed
+
+Role:
+☑ NOC
+☐ Finance
+☐ KAM
+☐ Routing Admin
+
+Access:
+☑ Live Operations
+☑ BitsEye2
+☑ Route Intelligence
+If You Want a Signup Screen
+
+Then it should be:
+
+Request Access
+
+not:
+
+Create Free Account
+
+Form:
+
+Company
+Name
+Business Email
+Country
+Traffic Type
+Monthly Minutes
+
+Submit:
+
+Request Sent
+
+Management reviews.
+
+Role-Based First Login
+
+After first login:
+
+NOC
+
+Landing:
+
+Live Operations
+Routing Admin
+
+Landing:
+
+Routing Control Plane
+KAM
+
+Landing:
+
+Voice Trading
+Finance
+
+Landing:
+
+Finance Cockpit
+Management
+
+Landing:
+
+Executive Dashboard
+Enterprise Login Experience
+
+The login page should showcase the 5 flagship capabilities:
+
+Left Side Rotating Cards
+BitsEye2
+Historical Telecom Intelligence
+AI Ops
+Evidence-Based Recommendations
+Route Intelligence
+Carrier Quality Monitoring
+Voice Trading
+Commercial Intelligence
+Finance & Revenue Assurance
+What I Would Build Today
+Sign In
+
+✅ Email/Password
+
+✅ SSO Ready (future)
+
+✅ MFA Ready (future)
+
+Sign Up
+
+❌ Public signup
+
+❌ Free trial registration
+
+❌ Self-service account creation
+
+Instead
+Request Access
+
+or
+
+Invite User
+
+This aligns much better with how wholesale telecom companies, carriers, and enterprise operators actually onboard users.
+
+My Recommendation
+
+For BitsAuto:
+
+Login
+Forgot Password
+Request Access
+
+and manage all actual user creation through:
+
+Platform
+   ↓
+Identity & Access
+   ↓
+Users
+   ↓
+Invite User
+
+That keeps the platform secure, auditable, and enterprise-grade.
