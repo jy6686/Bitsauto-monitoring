@@ -838,13 +838,26 @@ export function registerCallGovernanceRoutes(app: Express) {
         recordingPath,
       }).returning();
 
-      // Start governance MixMonitor immediately at bridge time (call answered).
+      // Start governance MixMonitor at bridge time (call answered).
       // Option 'b' ensures recording only proceeds while the bridge is active.
-      // This replaces the pre-answer Sippy recording as the playback source.
-      amiGovernance.startMixMonitor(channelA, govRecordingBase).then((ok) => {
-        if (!ok) console.warn(`[call-governance] #${gc.id} MixMonitor start failed — AMI not connected`);
-        else console.log(`[call-governance] #${gc.id} MixMonitor started (post-answer) on ${channelA}`);
-      }).catch(() => {});
+      // 800ms delay: BridgeEnter fires before Asterisk fully promotes the PJSIP
+      // channel in its internal state — sending MixMonitor immediately returns
+      // "No such channel". A short wait lets the state catch up without losing
+      // meaningful audio (caller hears ringback until here anyway).
+      // If Asterisk still rejects, fall back to the Sippy-created recording so
+      // there is always a playable file.
+      setTimeout(() => amiGovernance.startMixMonitor(channelA, govRecordingBase).then((ok) => {
+        if (!ok) {
+          const sippyFallback = `/var/spool/asterisk/monitor/${uniqueIdA || event.uniqueId1}.wav`;
+          console.warn(`[call-governance] #${gc.id} MixMonitor failed — falling back to Sippy recording: ${sippyFallback}`);
+          db.update(governedCalls)
+            .set({ recordingPath: sippyFallback } as any)
+            .where(eq(governedCalls.id, gc.id))
+            .catch(() => {});
+        } else {
+          console.log(`[call-governance] #${gc.id} MixMonitor confirmed (post-answer) on ${channelA}`);
+        }
+      }).catch(() => {}), 800);
 
       amiGovernance.getChannelVars(channelB).then(({ sipCallId, peerIp }) => {
         if (sipCallId || peerIp) {

@@ -246,10 +246,31 @@ class AmiGovernanceListener extends EventEmitter {
     }
     const actionId = `gov-mm-${++this.actionCounter}`;
     console.log(`[ami-governance] StartMixMonitor → channel=${channel} file=${filename}.wav`);
-    this.socket.write(
-      `Action: MixMonitor\r\nChannel: ${channel}\r\nFile: ${filename}.wav\r\nOptions: b\r\nActionID: ${actionId}\r\n\r\n`
-    );
-    return true;
+    return new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.removeRawFrameListener(listener);
+        console.warn(`[ami-governance] MixMonitor response timeout for ${channel} — assuming failed`);
+        resolve(false);
+      }, 3_000);
+
+      const listener = (f: Record<string, string>) => {
+        if (f['actionid'] !== actionId) return;
+        clearTimeout(timeout);
+        this.removeRawFrameListener(listener);
+        if (f['response'] === 'Success') {
+          console.log(`[ami-governance] MixMonitor confirmed started on ${channel}`);
+          resolve(true);
+        } else {
+          console.error(`[ami-governance] MixMonitor FAILED on ${channel}: ${f['message'] ?? f['response'] ?? 'unknown error'}`);
+          resolve(false);
+        }
+      };
+
+      this.addRawFrameListener(listener);
+      this.socket!.write(
+        `Action: MixMonitor\r\nChannel: ${channel}\r\nFile: ${filename}.wav\r\nOptions: b\r\nActionID: ${actionId}\r\n\r\n`
+      );
+    });
   }
 
   /** Send BYE to a single channel (fallback — only when no A-leg/recording available) */

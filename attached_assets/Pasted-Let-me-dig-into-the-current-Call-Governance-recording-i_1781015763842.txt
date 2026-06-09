@@ -1,0 +1,95 @@
+Let me dig into the current Call Governance recording implementation to understand exactly where and when recording starts.
+
+
+5 actions
+Let me read the cut/playback scheduling logic and the Asterisk dialplan config:
+
+
+3 actions
+Let me also read the schedule cut function and a bit more of the cut logic:
+
+
+2 actions
+Good picture. Now I understand the full issue:
+
+Root cause: The recording file /var/spool/asterisk/monitor/${uniqueIdA}.wav is started by Sippy/the Asterisk dialplan when the channel is created — before the call is answered. The Bridge event (which BitsAuto listens to) fires at answer time, but by then the WAV file already contains ringback audio from the ringing phase. When governance cuts the call and plays it back, the client hears that pre-answer ringback.
+
+Fix plan (matching your preference):
+
+At bridge time, BitsAuto starts its own MixMonitor via AMI on the A-leg with a governance-specific filename — this captures only post-answer conversation audio
+If the call duration was < 3 seconds (cut immediately after answer), play silence instead of the tiny recording
+Silence uses Asterisk's built-in silence/10 sound file — no dialplan changes needed
+Let me read the relevant sections before writing:
+
+
+3 actions
+Now I have everything I need. Here's exactly what I'm implementing:
+
+ami-governance.ts: Add startMixMonitor() — sends Action: MixMonitor with option b (only records while bridged) so governance captures post-answer audio only
+routes-call-governance.ts bridge handler: Use a governance-specific recording filename (no more sharing the Sippy pre-answer recording), start MixMonitor immediately after the governed call is created
+routes-call-governance.ts cutVendorLeg: Check call duration — if < 3 seconds, play silence/10 (Asterisk built-in) instead of the tiny/empty recording file
+
+2 actions
+Now update the bridge handler to use governance-specific recording and start MixMonitor at answer time:
+
+
+2 actions
+Now update cutVendorLeg to add the silence fallback for short calls:
+
+
+2 actions
+Let me verify the cutAndPlayback call still uses playbackFile correctly and check the log entry for playback_started:
+
+
+2 actions
+The logic flows correctly — cutAndPlayback at line 423 already uses playbackFile, which now resolves to either the governance recording or silence/10. The log at line 454 will reflect which one was used. Let me verify the build compiles cleanly:
+
+
+4 actions
+I can see from the logs that calls are still going through the old code path (Recording path: /var/spool/asterisk/monitor/1781008047.183826.wav). The server needs a full restart to pick up the changes to routes-call-governance.ts:
+
+
+4 actions
+The fix is live and confirmed in production logs. Here's what I can see happening in real calls right now:
+
+[call-governance] Governance recording path (post-answer): /var/spool/asterisk/monitor/gov_1781008054.183857.wav
+[ami-governance] StartMixMonitor → channel=PJSIP/sippy-endpoint-000166cf file=/var/spool/asterisk/monitor/gov_1781008054.183857.wav
+[call-governance] #14473 MixMonitor started (post-answer) on PJSIP/sippy-endpoint-000166cf
+[call-governance] Timer set for call 14473: 7s
+...
+[ami-governance] CutAndPlayback → A-leg=PJSIP/sippy-endpoint-000166cf B-leg=SIP/sippy-00016763 file=/var/spool/asterisk/monitor/gov_1781008054.183857
+
+Before: file=/var/spool/asterisk/monitor/1781008054.183857 — Sippy's pre-answer recording, containing ringback
+After: file=/var/spool/asterisk/monitor/gov_1781008054.183857 — governance-started recording, post-answer only
+
+Let me write the commit message:
+
+
+7 actions
+The fix is live and confirmed working in production. Here's a clean summary:
+
+What was changed
+Root cause: The old recording (/var/spool/asterisk/monitor/1781008054.183826.wav) was started by Sippy/Asterisk when the channel was created — before the call was answered. So it always captured the ringback/ringing phase. When governance cut the call after the cap, it replayed that file, and clients heard the ringtone.
+
+Three targeted changes:
+
+1. New startMixMonitor() in ami-governance.ts
+Sends Action: MixMonitor to Asterisk with the b option (record only while bridged). This is called at bridge time — meaning the recording starts exactly when the call is answered, and never earlier.
+
+2. Governance-specific recording file in the bridge handler
+Changed from re-using Sippy's pre-answer file to creating a new governance file:
+
+Before: /var/spool/asterisk/monitor/1781008054.183826.wav (Sippy's, includes ringback)
+After: /var/spool/asterisk/monitor/gov_1781008054.183826.wav (governance-started, post-answer only)
+3. Silence fallback for sub-3s calls in cutVendorLeg
+If a call is cut within 3 seconds of being answered, the WAV file would be near-empty. Rather than play a click or fragment, it now plays Asterisk's built-in silence/10 (10 seconds of silence) followed by a clean hangup.
+
+Confirmed in live logs within minutes of deployment:
+
+[call-governance] Governance recording path (post-answer): /var/spool/asterisk/monitor/gov_1781008054.183857.wav
+[ami-governance] StartMixMonitor → channel=PJSIP/sippy-endpoint-000166cf
+[call-governance] #14473 MixMonitor started (post-answer)
+...
+[ami-governance] CutAndPlayback → file=/var/spool/asterisk/monitor/gov_1781008054.183857
+
+Clients will now hear clean conversation audio (or silence if the call was near-instant) instead of ringback tones.
