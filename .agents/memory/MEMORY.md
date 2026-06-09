@@ -1,3 +1,4 @@
+- [AMI Bridge CallerIDNum semantics](ami-bridge-callerid-semantics.md) — callerIdNum2=CLD (destination), callerIdNum1=CLI (routing-prefix); never invert using channelA/B identification.
 - [Sippy portal CDR pagination](sippy-portal-cdr-pagination.md) — portal ignores n= offset on some pages; use scrapePortalCDRsAll (login once, dedup+diminishing-returns stop).
 - [Sippy CDR access constraints](sippy-cdr-access.md) — getAccountCDRs XML-RPC works and returns full cli/cld/cost data, but REQUIRES startDate+endDate params — omitting them returns 0 records (Sippy quirk). getCustomerCDRs returns only 1 struct (error). Mera enrichment 401.
 - [Sippy portal auth chain for /asr_acd.php](sippy-portal-auth-chain.md) — ssp-root needs admin_web_password (not api_admin_password) for portal login; CDR list page vs /asr_acd.php are structurally different data layers; set portal_username=ssp-root + portal_password=admin_web_password to restore native aggregation.

@@ -716,8 +716,14 @@ export function registerCallGovernanceRoutes(app: Express) {
       if (bridgeMatches.length === 0) return;
 
       // ── Pick most-specific rule by destination / caller prefix ──────────────
-      const callee    = event.callerIdNum2 ?? '';
-      const caller    = event.callerIdNum1 ?? '';
+      // Sippy/Asterisk AMI Bridge event field semantics (verified from production data):
+      //   callerIdNum1 = SIP/sippy (B-leg/vendor) CallerIDNum = routing-prefix CLI
+      //                  e.g. "2060923xxxxxxxxxx"
+      //   callerIdNum2 = PJSIP/sippy-endpoint (A-leg/customer) CallerIDNum = destination CLD
+      //                  e.g. "923xxxxxxxxx" (Pakistan), "447xxxxxxxxx" (UK), "1xxxxxxxxxx" (NANP)
+      // This ordering is consistent across all bridged calls in this Sippy deployment.
+      const callee    = event.callerIdNum2 ?? '';   // CLD — destination (B-party)
+      const caller    = event.callerIdNum1 ?? '';   // CLI — originating routing-prefix (A-party)
       console.log(`[call-governance] Prefix matching: callee="${callee}" caller="${caller}"`);
       const bestRule  = pickBestRule(bridgeMatches.map(m => m.rule), callee, caller);
       if (!bestRule) return;
@@ -734,8 +740,8 @@ export function registerCallGovernanceRoutes(app: Express) {
         uniqueId:       event.uniqueId1,
         channelA,
         channelB,
-        caller:         event.callerIdNum1,
-        callee:         event.callerIdNum2,
+        caller:         event.callerIdNum1,   // CLI — routing-prefix originating ANI
+        callee:         event.callerIdNum2,   // CLD — destination number (B-party)
         connectionName: rule.connectionName,
         ruleId:         rule.id,
         capSec,
