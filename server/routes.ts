@@ -26949,23 +26949,25 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // 1. Portal-path creates account but returns no ID
       // 2. createAccount faults "already exists" (previous attempt), need to find existing account
       if (!iAccount) {
-        console.log(`[Provision] No i_account in response (success=${result?.success}) — looking up account by username: ${step1.userId}`);
+        // Apply same sanitization pushAccountToSippy uses, so we match the actual Sippy username
+        const rawUserId: string = step1.userId ?? '';
+        const sanitizedUserId: string = rawUserId.replace(/[^a-zA-Z0-9._-]/g, '');
+        console.log(`[Provision] No i_account in response (success=${result?.success}) — looking up account by username: raw="${rawUserId}" sanitized="${sanitizedUserId}"`);
+        const matchFn = (a: any) =>
+          a.username?.toLowerCase() === rawUserId.toLowerCase() ||
+          a.username?.toLowerCase() === sanitizedUserId.toLowerCase();
         const lookupResult = await sippy.listSippyAccounts(username, password, {}, portalUrl);
-        const match = lookupResult.accounts.find((a: any) =>
-          a.username?.toLowerCase() === step1.userId?.toLowerCase()
-        );
+        const match = lookupResult.accounts.find(matchFn);
         if (match) {
           iAccount = match.iAccount;
-          console.log(`[Provision] Found account ID via lookup: ${iAccount}`);
+          console.log(`[Provision] Found account ID via lookup (username="${match.username}"): ${iAccount}`);
         } else {
           // Try scoped to iCustomer as a second attempt
           const lookupResult2 = await sippy.listSippyAccounts(username, password, { iCustomer: iCustomer ?? 1 }, portalUrl);
-          const match2 = lookupResult2.accounts.find((a: any) =>
-            a.username?.toLowerCase() === step1.userId?.toLowerCase()
-          );
+          const match2 = lookupResult2.accounts.find(matchFn);
           if (match2) {
             iAccount = match2.iAccount;
-            console.log(`[Provision] Found account ID via scoped lookup (iCustomer=${iCustomer}): ${iAccount}`);
+            console.log(`[Provision] Found account ID via scoped lookup (username="${match2.username}", iCustomer=${iCustomer}): ${iAccount}`);
           }
         }
       }
@@ -28807,6 +28809,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         const draft = JSON.parse((company as any).wizardDraft as string);
         const username: string = draft?.step1?.userId || '';
+        // Same sanitization that pushAccountToSippy applies — must match to avoid false "available"
+        const sanitizedUsername: string = username.replace(/[^a-zA-Z0-9._-]/g, '');
         const trunks: any[] = draft?.trunks ?? [];
         const cldPrefixes: string[] = trunks
           .map((t: any) => t.prefix || (t.cldTranslation?.match(/\^(\d{3,8})/)?.[1] ?? ''))
@@ -28834,9 +28838,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               const { username: su, password: sp } = sippyXmlCreds(settings as any);
               const pUrl = sippyPortalUrl(settings as any);
               const { accounts } = await sippy.listSippyAccounts(su, sp, { iCustomer: 1, limit: 500 }, pUrl);
-              const sippyHit = accounts.find((a: any) => a.username === username);
+              // Check both raw username and sanitized version (pushAccountToSippy strips special chars like @)
+              const sippyHit = accounts.find((a: any) =>
+                a.username === username || a.username === sanitizedUsername
+              );
               if (sippyHit) {
-                checks.push({ type: 'username', status: 'error', message: `"${username}" already exists in Sippy (i_account: ${sippyHit.iAccount}).`, field: 'username' });
+                const shownName = sippyHit.username !== username ? `${sippyHit.username} (sanitized from "${username}")` : username;
+                checks.push({ type: 'username', status: 'error', message: `"${shownName}" already exists in Sippy (i_account: ${sippyHit.iAccount}). Delete or reprovision.`, field: 'username' });
               } else {
                 checks.push({ type: 'username', status: 'ok', message: `Account name "${username}" is available in Sippy.`, field: 'username' });
               }
