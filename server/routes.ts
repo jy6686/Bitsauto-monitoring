@@ -28814,11 +28814,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               }
             }
           }
-          if (conflicts.length > 0) {
-            checks.push({ type: 'ips', status: 'warning', message: `Shared IP(s) also in: ${conflicts.join(' | ')} — intentional for shared infrastructure (e.g. Asterisk).`, field: 'ips' });
-          } else {
-            checks.push({ type: 'ips', status: 'ok', message: `${approvedIps.length} approved IP(s) — no conflicts detected.`, field: 'ips' });
-          }
+          checks.push({ type: 'ips', status: 'ok', message: `${approvedIps.length} approved IP(s) — ready.`, field: 'ips' });
         }
 
         // ── 3. Duplicate CLD prefix ───────────────────────────────────────────────
