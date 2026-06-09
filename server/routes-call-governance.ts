@@ -384,31 +384,10 @@ async function cutVendorLeg(
     // This prevents Asterisk from tearing down the A-leg as a side-effect
     // of hanging up the B-leg while both are in a bridge.
     if (channelA && recordingPath) {
-      // ── Silence fallback for very short calls ────────────────────────────
-      // MixMonitor is started at bridge time (call answered), so the governance
-      // recording is always post-answer audio. However if the call is cut within
-      // the first 3 seconds the WAV file will be near-empty. In that case play
-      // Asterisk's built-in silence/10 (10 s of silence) rather than a tiny file,
-      // which avoids any chance of the client hearing a click or partial tone.
-      const [gcRow] = await db
-        .select({ startTime: governedCalls.startTime })
-        .from(governedCalls)
-        .where(eq(governedCalls.id, governedCallId))
-        .limit(1);
-      const callDurationMs = gcRow?.startTime
-        ? Date.now() - gcRow.startTime.getTime()
-        : 99_999;
-      const usesSilence = callDurationMs < 3_000;
-
-      // Strip .wav — Asterisk Playback() auto-selects format.
-      // For sub-3s calls use Asterisk built-in silence file instead.
-      const playbackFile = usesSilence
-        ? 'silence/10'
-        : recordingPath.replace(/\.wav$/i, '');
-
-      if (usesSilence) {
-        console.log(`[call-governance] #${governedCallId} call duration ${callDurationMs}ms < 3s — playing silence instead of recording`);
-      }
+      // Always play silence on cut — never replay the recording to the caller.
+      // The recording file (set in recordingPath) is preserved for the
+      // Recordings tab but is not used as playback audio.
+      const playbackFile = 'silence/10';
 
       // Atomic redirect:
       //   A-leg → gov-playback  (StopMixMonitor + Wait(1) + Playback + Hangup)
@@ -638,25 +617,14 @@ async function reconcileActiveCalls() {
         const capSec       = rule.capSec + Math.floor(Math.random() * (rule.jitterSec + 1));
         const elapsedSec   = legB.durationSec;
         const remainingSec = Math.max(5, capSec - elapsedSec);
-        // Use same gov_ prefix as the bridge-event path so MixMonitor output
-        // lands at the expected path and the Recordings tab finds it.
-        const govRecBase    = `/var/spool/asterisk/monitor/gov_${legA.uniqueId}`;
-        const recordingPath = `${govRecBase}.wav`;
+        // Sippy-created recording file — always present on the Asterisk server.
+        const recordingPath = `/var/spool/asterisk/monitor/${legA.uniqueId}.wav`;
 
         let gc: { id: number; channelA: string | null; channelB: string | null; recordingPath: string | null };
 
         if (existing.length > 0) {
           // Reuse the existing DB record — just re-arm the timer.
-          // Also patch the recording path in case it was stored with the old
-          // non-gov_ pattern (pre-fix records) so the Recordings tab works.
           gc = existing[0];
-          if (gc.recordingPath && !gc.recordingPath.includes('gov_')) {
-            db.update(governedCalls)
-              .set({ recordingPath } as any)
-              .where(eq(governedCalls.id, gc.id))
-              .catch(() => {});
-            gc = { ...gc, recordingPath };
-          }
           console.log(`[call-governance] Reconcile: re-arming timer for call ${gc.id} (${legB.channel}) elapsed=${elapsedSec}s → cut in ${remainingSec}s`);
         } else {
           // New record — this call was never tracked at all
@@ -692,16 +660,6 @@ async function reconcileActiveCalls() {
           });
 
           console.log(`[call-governance] Reconcile: new record #${gc.id} for ${legB.channel} elapsed=${elapsedSec}s → cut in ${remainingSec}s`);
-        }
-
-        // Start MixMonitor on the A-leg so reconciled calls get recordings too.
-        // Same pattern as the bridge-event handler — only do this if the call
-        // has enough remaining time to be worth recording (>3s).
-        if (legA.channel && remainingSec > 3) {
-          amiGovernance.startMixMonitor(legA.channel, govRecBase).then((ok) => {
-            if (!ok) console.warn(`[call-governance] Reconcile #${gc.id} MixMonitor start failed`);
-            else console.log(`[call-governance] Reconcile #${gc.id} MixMonitor started on ${legA.channel}`);
-          }).catch(() => {});
         }
 
         await scheduleGovernedCallCut(gc, remainingSec);
@@ -816,14 +774,11 @@ export function registerCallGovernanceRoutes(app: Express) {
 
       const capSec = rule.capSec + Math.floor(Math.random() * (rule.jitterSec + 1));
 
-      // Governance-specific recording filename — derived from A-leg uniqueId so it is
-      // determined before the DB insert (no extra update round-trip needed).
-      // This file is started via MixMonitor AFTER the bridge event (i.e. after the
-      // call is answered/connected), so it captures only post-answer conversation
-      // audio. It never contains pre-answer ringback or ringing tone.
-      const govRecordingBase = `/var/spool/asterisk/monitor/gov_${uniqueIdA || event.uniqueId1}`;
-      const recordingPath    = `${govRecordingBase}.wav`;
-      console.log(`[call-governance] Governance recording path (post-answer): ${recordingPath}`);
+      // Sippy creates this file automatically when the channel is set up.
+      // It is always present on the Asterisk server and is used for the
+      // Recordings tab. Playback on cut always uses silence — see cutVendorLeg.
+      const recordingPath = `/var/spool/asterisk/monitor/${uniqueIdA || event.uniqueId1}.wav`;
+      console.log(`[call-governance] Recording path: ${recordingPath}`);
 
       const [gc] = await db.insert(governedCalls).values({
         uniqueId:       event.uniqueId1,
@@ -838,26 +793,6 @@ export function registerCallGovernanceRoutes(app: Express) {
         recordingPath,
       }).returning();
 
-      // Start governance MixMonitor at bridge time (call answered).
-      // Option 'b' ensures recording only proceeds while the bridge is active.
-      // 800ms delay: BridgeEnter fires before Asterisk fully promotes the PJSIP
-      // channel in its internal state — sending MixMonitor immediately returns
-      // "No such channel". A short wait lets the state catch up without losing
-      // meaningful audio (caller hears ringback until here anyway).
-      // If Asterisk still rejects, fall back to the Sippy-created recording so
-      // there is always a playable file.
-      setTimeout(() => amiGovernance.startMixMonitor(channelA, govRecordingBase).then((ok) => {
-        if (!ok) {
-          const sippyFallback = `/var/spool/asterisk/monitor/${uniqueIdA || event.uniqueId1}.wav`;
-          console.warn(`[call-governance] #${gc.id} MixMonitor failed — falling back to Sippy recording: ${sippyFallback}`);
-          db.update(governedCalls)
-            .set({ recordingPath: sippyFallback } as any)
-            .where(eq(governedCalls.id, gc.id))
-            .catch(() => {});
-        } else {
-          console.log(`[call-governance] #${gc.id} MixMonitor confirmed (post-answer) on ${channelA}`);
-        }
-      }).catch(() => {}), 800);
 
       amiGovernance.getChannelVars(channelB).then(({ sipCallId, peerIp }) => {
         if (sipCallId || peerIp) {
