@@ -232,6 +232,26 @@ class AmiGovernanceListener extends EventEmitter {
     }
   }
 
+  /**
+   * Start a MixMonitor recording on a channel.
+   * Called at bridge time (after call is answered) so the recording captures
+   * only post-answer conversation audio — never pre-answer ringback/ringing.
+   * Option 'b' = only record while the bridge is active (extra safety guard).
+   * filename should be the full path WITHOUT extension (e.g. /var/spool/asterisk/monitor/gov_123)
+   */
+  async startMixMonitor(channel: string, filename: string): Promise<boolean> {
+    if (!this.connected || !this.loggedIn || !this.socket) {
+      console.warn('[ami-governance] Cannot start MixMonitor — not connected');
+      return false;
+    }
+    const actionId = `gov-mm-${++this.actionCounter}`;
+    console.log(`[ami-governance] StartMixMonitor → channel=${channel} file=${filename}.wav`);
+    this.socket.write(
+      `Action: MixMonitor\r\nChannel: ${channel}\r\nFile: ${filename}.wav\r\nOptions: b\r\nActionID: ${actionId}\r\n\r\n`
+    );
+    return true;
+  }
+
   /** Send BYE to a single channel (fallback — only when no A-leg/recording available) */
   async hangup(channel: string): Promise<boolean> {
     if (!this.connected || !this.loggedIn || !this.socket) {
