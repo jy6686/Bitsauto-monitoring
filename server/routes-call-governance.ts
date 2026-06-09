@@ -1205,5 +1205,120 @@ export function registerCallGovernanceRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── GET /api/call-governance/analytics ──────────────────────────────────────
+  // Read-only aggregation of governed_calls for the Analytics dashboard.
+  // ?period=daily (24h) | weekly (7d) | monthly (30d)
+  // No schema changes — all fields already exist in governed_calls.
+  app.get('/api/call-governance/analytics', requireAuth, async (req: any, res: any) => {
+    try {
+      const period = String(req.query.period ?? 'daily');
+      const now = new Date();
+      let periodStart: Date;
+      let bucketUnit: string;
+
+      if (period === 'weekly') {
+        periodStart = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+        bucketUnit = 'day';
+      } else if (period === 'monthly') {
+        periodStart = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+        bucketUnit = 'day';
+      } else {
+        periodStart = new Date(now.getTime() - 24 * 3600 * 1000);
+        bucketUnit = 'hour';
+      }
+
+      // 1. Overall KPI totals
+      const kpiResult = await db.execute(sql`
+        SELECT
+          COUNT(*)                                                          AS total_calls,
+          COUNT(bye_sent_at)                                                AS calls_governed,
+          COUNT(CASE WHEN bye_sent_at IS NULL THEN 1 END)                  AS calls_passed,
+          ROUND(COALESCE(SUM(
+            CASE WHEN bye_sent_at IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (bye_sent_at - start_time)) / 60.0
+              ELSE 0 END
+          ), 0)::numeric, 2)                                               AS governance_minutes,
+          ROUND(COALESCE(SUM(cdr_duration) / 60.0, 0)::numeric, 2)        AS vendor_minutes,
+          COUNT(CASE WHEN cdr_duration IS NOT NULL THEN 1 END)             AS cdr_resolved
+        FROM governed_calls
+        WHERE start_time >= ${periodStart}
+      `);
+
+      // 2. Per-rule breakdown
+      const ruleResult = await db.execute(sql`
+        SELECT
+          gc.rule_id,
+          r.rule_name,
+          r.connection_name,
+          r.destination_prefix,
+          r.cap_sec,
+          COUNT(*)                                                          AS calls_matched,
+          COUNT(gc.bye_sent_at)                                             AS calls_cut,
+          COUNT(CASE WHEN gc.bye_sent_at IS NULL THEN 1 END)               AS calls_passed,
+          ROUND(COALESCE(SUM(
+            CASE WHEN gc.bye_sent_at IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (gc.bye_sent_at - gc.start_time)) / 60.0
+              ELSE 0 END
+          ), 0)::numeric, 2)                                               AS gov_minutes,
+          ROUND(COALESCE(AVG(
+            CASE WHEN gc.bye_sent_at IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (gc.bye_sent_at - gc.start_time))
+              ELSE NULL END
+          ), 0)::numeric, 1)                                               AS avg_cut_sec,
+          ROUND(COALESCE(SUM(gc.cdr_duration) / 60.0, 0)::numeric, 2)     AS vendor_minutes,
+          MAX(gc.start_time)                                                AS last_triggered
+        FROM governed_calls gc
+        LEFT JOIN call_governance_rules r ON r.id = gc.rule_id
+        WHERE gc.start_time >= ${periodStart}
+        GROUP BY gc.rule_id, r.rule_name, r.connection_name, r.destination_prefix, r.cap_sec
+        ORDER BY calls_matched DESC
+      `);
+
+      // 3. Time-series trend buckets (hourly for daily period, daily for weekly/monthly)
+      const trendResult = await db.execute(sql`
+        SELECT
+          date_trunc(${bucketUnit}, start_time)   AS bucket,
+          COUNT(*)                                 AS calls,
+          COUNT(bye_sent_at)                       AS governed,
+          ROUND(COALESCE(SUM(
+            CASE WHEN bye_sent_at IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (bye_sent_at - start_time)) / 60.0
+              ELSE 0 END
+          ), 0)::numeric, 2)                       AS gov_minutes
+        FROM governed_calls
+        WHERE start_time >= ${periodStart}
+        GROUP BY 1
+        ORDER BY 1
+      `);
+
+      // 4. Raw governed calls for client-side destination LPM grouping (capped at 5000)
+      const callsResult = await db.execute(sql`
+        SELECT
+          callee,
+          bye_sent_at,
+          start_time,
+          cdr_duration,
+          status,
+          rule_id
+        FROM governed_calls
+        WHERE start_time >= ${periodStart}
+        ORDER BY start_time DESC
+        LIMIT 5000
+      `);
+
+      res.json({
+        period,
+        periodStart: periodStart.toISOString(),
+        kpi:   kpiResult.rows[0]   ?? {},
+        rules: ruleResult.rows     ?? [],
+        trend: trendResult.rows    ?? [],
+        calls: callsResult.rows    ?? [],
+      });
+    } catch (e: any) {
+      console.error('[analytics]', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   console.log('[call-governance] Routes registered');
 }

@@ -1,0 +1,74 @@
+If you are currently running live production traffic, then this should not affect traffic at all, provided the implementation is done as described.
+
+My understanding is:
+
+Normal Production Traffic
+Existing Sippy routing remains unchanged.
+Existing vendor prefixes remain unchanged.
+Existing authentications remain unchanged.
+Existing CLD rules remain unchanged.
+Existing routing groups remain unchanged.
+No live traffic should be forced through the Prefix Registry.
+Call Governance Traffic
+Uses dedicated governance prefixes only.
+Uses governance-specific rules only.
+Triggers actions such as:
+disconnect after X seconds,
+replay recording,
+cap duration,
+monitoring,
+governance reporting.
+Critical Requirement
+
+Before implementing anything, please confirm:
+
+The Prefix Registry is NOT inserted into the live routing path.
+The Prefix Registry is NOT consulted during normal call routing.
+The Prefix Registry is NOT required for authentication matching.
+The Prefix Registry is NOT required for vendor termination selection.
+The Prefix Registry is NOT required for CLD translation.
+
+If any of the above are changed, then there is a risk of impacting live traffic.
+
+Recommended Safe Approach
+
+The governance prefix should act only as:
+
+a label,
+an identifier,
+and a governance-rule reference.
+
+It should not become a routing dependency.
+
+For example:
+
+Vendor: PTCL
+Product: FC
+Governance Prefix: 86171
+
+This prefix should simply identify:
+
+PTCL,
+First Class,
+associated governance rules,
+
+without changing how live calls are routed.
+
+Before Going Live
+
+Please verify:
+
+Calls route successfully when the Prefix Registry service is stopped.
+Calls route successfully when no governance prefix is assigned.
+Calls route successfully when a registry entry is suspended.
+Existing governance rules continue working without registry linkage.
+Existing Sippy routing tables remain untouched.
+
+If all of the above pass, then the implementation is effectively zero-risk to production traffic and only enhances Call Governance management.
+
+For a live telecom environment, I would keep the Prefix Registry completely isolated from the routing engine and use it only for:
+
+governance,
+reporting,
+auditing,
+and rule identification.

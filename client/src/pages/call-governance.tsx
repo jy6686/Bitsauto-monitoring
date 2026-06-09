@@ -6,6 +6,7 @@ import {
   Activity, Copy, ChevronLeft, ChevronRight, Settings2, ScrollText, Zap, Info,
   Play, Pause, Volume2, Download, X, BarChart2, TrendingDown, Hash,
   PauseCircle, Archive, RotateCcw, ChevronDown, ChevronUp,
+  TrendingUp, Globe2, Timer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip as RechartsTooltip, ResponsiveContainer, Legend,
+} from "recharts";
+import { resolveDestination, searchCountries, type CountryEntry } from "@/lib/e164-countries";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -125,6 +131,57 @@ interface BillingRow {
   cdrSource: 'db' | 'live' | null;
   vendorCallId: string | null;
   vendorIp: string | null;
+}
+
+// ── Analytics types ────────────────────────────────────────────────────────────
+
+interface AnalyticsKpi {
+  total_calls: string | number;
+  calls_governed: string | number;
+  calls_passed: string | number;
+  governance_minutes: string | number;
+  vendor_minutes: string | number;
+  cdr_resolved: string | number;
+}
+
+interface AnalyticsRuleRow {
+  rule_id: number | null;
+  rule_name: string | null;
+  connection_name: string | null;
+  destination_prefix: string | null;
+  cap_sec: number | null;
+  calls_matched: string | number;
+  calls_cut: string | number;
+  calls_passed: string | number;
+  gov_minutes: string | number;
+  avg_cut_sec: string | number;
+  vendor_minutes: string | number;
+  last_triggered: string | null;
+}
+
+interface AnalyticsTrendBucket {
+  bucket: string;
+  calls: string | number;
+  governed: string | number;
+  gov_minutes: string | number;
+}
+
+interface AnalyticsCallRow {
+  callee: string | null;
+  bye_sent_at: string | null;
+  start_time: string | null;
+  cdr_duration: number | null;
+  status: string;
+  rule_id: number | null;
+}
+
+interface AnalyticsData {
+  period: string;
+  periodStart: string;
+  kpi: AnalyticsKpi;
+  rules: AnalyticsRuleRow[];
+  trend: AnalyticsTrendBucket[];
+  calls: AnalyticsCallRow[];
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -348,6 +405,8 @@ function RuleForm({
     action:            initial?.action  ?? "cap_and_replay",
     notes:             initial?.notes   ?? "",
   });
+  const [countrySearch, setCountrySearch] = useState("");
+  const [showPicker, setShowPicker]       = useState(false);
 
   function set(k: string, v: any) { setForm(p => ({ ...p, [k]: v })); }
 
@@ -392,10 +451,57 @@ function RuleForm({
           <Input
             data-testid="input-destination-prefix"
             value={form.destinationPrefix}
-            onChange={e => set('destinationPrefix', e.target.value)}
-            placeholder="e.g. 291 (Eritrea), 923 (Pakistan)"
+            onChange={e => { set('destinationPrefix', e.target.value); setCountrySearch(""); }}
+            placeholder="e.g. 92 (Pakistan), 971 (UAE)"
             className="bg-slate-900/50 border-slate-700"
           />
+          {/* Resolved country name badge */}
+          {(() => {
+            const m = form.destinationPrefix ? resolveDestination(form.destinationPrefix) : null;
+            return m ? (
+              <p className="text-xs text-emerald-400 flex items-center gap-1 font-medium">
+                <span>{m.flag}</span> {m.name}
+              </p>
+            ) : form.destinationPrefix ? (
+              <p className="text-xs text-amber-400">Unknown prefix — type country name below to search</p>
+            ) : null;
+          })()}
+          {/* Country picker combobox */}
+          <div className="relative">
+            <Input
+              data-testid="input-country-search"
+              value={countrySearch}
+              onChange={e => setCountrySearch(e.target.value)}
+              onFocus={() => setShowPicker(true)}
+              onBlur={() => setTimeout(() => setShowPicker(false), 160)}
+              placeholder="🔍 Search country name to auto-fill prefix…"
+              className="bg-slate-900/50 border-slate-700/50 text-xs h-7 placeholder:text-slate-600"
+            />
+            {showPicker && (countrySearch || !form.destinationPrefix) && (
+              <div className="absolute z-50 top-8 left-0 right-0 bg-slate-900 border border-slate-700 rounded-lg shadow-xl max-h-52 overflow-y-auto">
+                {searchCountries(countrySearch, 14).map(c => (
+                  <button
+                    key={c.prefix}
+                    type="button"
+                    onMouseDown={() => {
+                      set('destinationPrefix', c.prefix);
+                      setCountrySearch("");
+                      setShowPicker(false);
+                    }}
+                    data-testid={`country-option-${c.prefix}`}
+                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-800 flex items-center gap-2"
+                  >
+                    <span className="text-base leading-none">{c.flag}</span>
+                    <span className="text-slate-200">{c.name}</span>
+                    <code className="ml-auto text-amber-300 font-mono text-[11px]">+{c.prefix}</code>
+                  </button>
+                ))}
+                {searchCountries(countrySearch, 14).length === 0 && (
+                  <p className="px-3 py-2 text-xs text-slate-500">No country matches "{countrySearch}"</p>
+                )}
+              </div>
+            )}
+          </div>
           <p className="text-xs text-slate-500">CLD starts-with match. Leave blank = all destinations (catch-all).</p>
         </div>
         <div className="space-y-1">
@@ -482,6 +588,7 @@ const TABS = [
   { id: 'log',       label: 'Audit Log',       icon: ScrollText },
   { id: 'billing',   label: 'Billing Check',   icon: BarChart2 },
   { id: 'prefixes',  label: 'Prefix Registry', icon: Hash      },
+  { id: 'analytics', label: 'Analytics',       icon: TrendingUp },
 ] as const;
 
 type Tab = typeof TABS[number]['id'];
@@ -529,6 +636,16 @@ export default function CallGovernancePage() {
       const hasPending = (query.state.data as BillingRow[] | undefined)?.some(r => r.status === 'no_cdr');
       return hasPending ? 10_000 : 30_000;
     },
+  });
+
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+
+  const analyticsQ = useQuery<AnalyticsData>({
+    queryKey: ['/api/call-governance/analytics', analyticsPeriod],
+    queryFn: () => fetch(`/api/call-governance/analytics?period=${analyticsPeriod}`, { credentials: 'include' }).then(r => r.json()),
+    enabled: tab === 'analytics',
+    refetchInterval: tab === 'analytics' ? 60_000 : false,
+    staleTime: 30_000,
   });
 
   const retryCdrMut = useMutation({
@@ -878,12 +995,19 @@ export default function CallGovernancePage() {
                               <span className="flex items-center gap-1">
                                 <Zap className="w-3 h-3" /> Jitter: <strong className="text-slate-200">±{rule.jitterSec}s</strong>
                               </span>
-                              {rule.destinationPrefix && (
-                                <span className="flex items-center gap-1">
-                                  <ChevronRight className="w-3 h-3" />
-                                  Dest: <code className="text-amber-300 font-mono">{rule.destinationPrefix}*</code>
-                                </span>
-                              )}
+                              {rule.destinationPrefix && (() => {
+                                const m = resolveDestination(rule.destinationPrefix);
+                                return (
+                                  <span className="flex items-center gap-1">
+                                    <ChevronRight className="w-3 h-3" />
+                                    {m ? <span>{m.flag}</span> : null}
+                                    {m
+                                      ? <span className="text-amber-200">{m.name}</span>
+                                      : <span className="text-slate-400">Dest</span>}
+                                    <code className="text-amber-300 font-mono">{rule.destinationPrefix}*</code>
+                                  </span>
+                                );
+                              })()}
                               {rule.callerPrefix && (
                                 <span className="flex items-center gap-1">
                                   <ChevronRight className="w-3 h-3" />
@@ -938,6 +1062,49 @@ export default function CallGovernancePage() {
               ))}
             </div>
           )}
+
+          {/* Destination Coverage Panel */}
+          {rules.length > 0 && (() => {
+            const destRules = rules.filter(r => r.destinationPrefix);
+            const catchAlls = rules.filter(r => !r.destinationPrefix && !r.callerPrefix);
+            const destMap = new Map<string, { country: ReturnType<typeof resolveDestination>; rules: GovernanceRule[] }>();
+            for (const r of destRules) {
+              const m = resolveDestination(r.destinationPrefix!);
+              const key = m?.prefix ?? r.destinationPrefix!;
+              if (!destMap.has(key)) destMap.set(key, { country: m, rules: [] });
+              destMap.get(key)!.rules.push(r);
+            }
+            const entries = [...destMap.entries()].sort((a, b) => (a[1].country?.name ?? a[0]).localeCompare(b[1].country?.name ?? b[0]));
+            return (
+              <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Globe2 className="w-4 h-4 text-violet-400" />
+                  <span className="text-sm font-medium text-slate-200">Destination Coverage</span>
+                  <span className="text-xs text-slate-500 ml-auto">{entries.length} destination{entries.length !== 1 ? 's' : ''} · {catchAlls.length > 0 ? `${catchAlls.length} catch-all` : 'no catch-all'}</span>
+                </div>
+                {entries.length === 0 && catchAlls.length === 0 ? (
+                  <p className="text-xs text-slate-500">No destination-specific rules configured.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {entries.map(([key, { country, rules: rs }]) => (
+                      <div key={key} data-testid={`coverage-dest-${key}`} className="flex items-center gap-1.5 bg-slate-800/70 border border-slate-700/50 rounded-lg px-2.5 py-1.5">
+                        {country && <span className="text-sm leading-none">{country.flag}</span>}
+                        <span className="text-xs text-slate-200">{country?.name ?? key}</span>
+                        <code className="text-[11px] text-amber-300 font-mono">{key}*</code>
+                        <span className="text-[10px] text-slate-500">{rs.length} rule{rs.length !== 1 ? 's' : ''}</span>
+                      </div>
+                    ))}
+                    {catchAlls.map(r => (
+                      <div key={r.id} className="flex items-center gap-1.5 bg-slate-800/40 border border-slate-700/30 rounded-lg px-2.5 py-1.5">
+                        <span className="text-xs text-slate-400">Catch-all:</span>
+                        <span className="text-xs text-slate-300">{r.ruleName ?? r.connectionName}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Info card */}
           <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 flex gap-3">
@@ -1634,6 +1801,7 @@ export default function CallGovernancePage() {
             prefixAuditQ.isLoading ? (
               <div className="space-y-2">{[...Array(5)].map((_,i) => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}</div>
             ) : (
+
               <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
                   <span className="text-sm font-medium text-slate-200">Prefix Registry Audit Log</span>
@@ -1676,6 +1844,356 @@ export default function CallGovernancePage() {
           )}
         </div>
       )}
+
+      {/* ── Tab: Analytics ─────────────────────────────────────────────────── */}
+      {tab === 'analytics' && (() => {
+        const ad = analyticsQ.data;
+        const kpi = ad?.kpi ?? {} as AnalyticsKpi;
+
+        const n = (v: string | number | undefined) => Number(v ?? 0);
+        const totalCalls      = n(kpi.total_calls);
+        const callsGoverned   = n(kpi.calls_governed);
+        const callsPassed     = n(kpi.calls_passed);
+        const govMin          = n(kpi.governance_minutes);
+        const vendorMin       = n(kpi.vendor_minutes);
+        const cdrResolved     = n(kpi.cdr_resolved);
+        const savedMin        = Math.max(0, vendorMin - govMin);
+        const impactPct       = totalCalls > 0 ? ((callsGoverned / totalCalls) * 100).toFixed(1) : '0.0';
+        const cdrCovPct       = callsGoverned > 0 ? Math.round((cdrResolved / callsGoverned) * 100) : 0;
+
+        // Client-side destination grouping via LPM
+        type DestGroup = {
+          country: CountryEntry | null;
+          prefix: string;
+          totalCalls: number; govCalls: number;
+          govMin: number; vendorMin: number; cdrCount: number;
+        };
+        const destMap = new Map<string, DestGroup>();
+        for (const c of (ad?.calls ?? [])) {
+          const digits = (c.callee ?? '').replace(/\D/g, '');
+          const country = resolveDestination(digits);
+          const key = country?.prefix ?? (digits.slice(0, 3) || 'unknown');
+          if (!destMap.has(key)) {
+            destMap.set(key, { country, prefix: country?.prefix ?? key, totalCalls: 0, govCalls: 0, govMin: 0, vendorMin: 0, cdrCount: 0 });
+          }
+          const eg = destMap.get(key)!;
+          eg.totalCalls++;
+          if (c.bye_sent_at && c.start_time) {
+            eg.govCalls++;
+            const sec = (new Date(c.bye_sent_at).getTime() - new Date(c.start_time).getTime()) / 1000;
+            eg.govMin += sec / 60;
+          }
+          if (c.cdr_duration != null) { eg.vendorMin += c.cdr_duration / 60; eg.cdrCount++; }
+        }
+        const destGroups = [...destMap.values()].sort((a, b) => b.totalCalls - a.totalCalls);
+
+        // Trend chart data
+        const trendData = (ad?.trend ?? []).map((t) => ({
+          label: (() => {
+            const d = new Date(t.bucket);
+            return analyticsPeriod === 'daily'
+              ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          })(),
+          Calls:    n(t.calls),
+          Governed: n(t.governed),
+          GovMin:   parseFloat(String(t.gov_minutes)),
+        }));
+
+        const KPIS = [
+          { label: 'Total Calls',      value: totalCalls,            icon: Phone,     color: 'text-slate-200',  sub: analyticsPeriod },
+          { label: 'Calls Governed',   value: callsGoverned,         icon: Scissors,  color: 'text-violet-400', sub: `${impactPct}% impact` },
+          { label: 'Calls Passed',     value: callsPassed,           icon: CheckCircle2, color: 'text-emerald-400', sub: 'reached vendor' },
+          { label: 'Vendor Minutes',   value: vendorMin.toFixed(1),  icon: Timer,     color: 'text-amber-400',  sub: `${cdrCovPct}% CDR coverage` },
+          { label: 'Gov. Minutes',     value: govMin.toFixed(1),     icon: Clock,     color: 'text-sky-400',    sub: 'time until cut' },
+          { label: 'Saved Minutes',    value: savedMin.toFixed(1),   icon: TrendingDown, color: 'text-rose-400', sub: 'vendor − gov (CDR)' },
+        ];
+
+        return (
+          <div className="space-y-6" data-testid="analytics-tab">
+            {/* Period selector + refresh */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-1 bg-slate-900/60 border border-slate-800 rounded-lg p-1">
+                {(['daily', 'weekly', 'monthly'] as const).map(p => (
+                  <button
+                    key={p}
+                    data-testid={`period-${p}`}
+                    onClick={() => setAnalyticsPeriod(p)}
+                    className={cn(
+                      "px-3 py-1 text-xs rounded-md font-medium transition-colors capitalize",
+                      analyticsPeriod === p
+                        ? "bg-violet-600 text-white"
+                        : "text-slate-400 hover:text-slate-200",
+                    )}
+                  >{p}</button>
+                ))}
+              </div>
+              <Button
+                data-testid="button-refresh-analytics"
+                variant="ghost" size="sm"
+                onClick={() => analyticsQ.refetch()}
+                disabled={analyticsQ.isFetching}
+                className="text-slate-400 hover:text-slate-200 gap-1.5"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5", analyticsQ.isFetching && "animate-spin")} />
+                {analyticsQ.isFetching ? 'Loading…' : 'Refresh'}
+              </Button>
+            </div>
+
+            {analyticsQ.isLoading ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+              </div>
+            ) : analyticsQ.isError ? (
+              <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 text-rose-400 text-sm">
+                Failed to load analytics data. Check server logs.
+              </div>
+            ) : (
+              <>
+                {/* KPI strip */}
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                  {KPIS.map(({ label, value, icon: Icon, color, sub }) => (
+                    <div key={label} data-testid={`kpi-${label.replace(/\s+/g,'-').toLowerCase()}`}
+                      className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500">{label}</span>
+                        <Icon className={cn("w-3.5 h-3.5", color)} />
+                      </div>
+                      <div className={cn("text-2xl font-bold tabular-nums", color)}>{value}</div>
+                      <div className="text-[10px] text-slate-600 capitalize">{sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* CDR coverage notice */}
+                {cdrCovPct < 80 && callsGoverned > 0 && (
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2 flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                    <span className="text-xs text-amber-300">
+                      <strong>{cdrCovPct}%</strong> CDR coverage — Vendor Minutes and Saved Minutes are based on CDR-resolved calls only.
+                      Unresolved calls typically appear within 5 minutes of the cut.
+                    </span>
+                  </div>
+                )}
+
+                {/* Governance Impact Summary */}
+                <div className="bg-gradient-to-r from-violet-500/5 to-slate-900/0 border border-violet-500/20 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <TrendingUp className="w-4 h-4 text-violet-400" />
+                    <span className="text-sm font-semibold text-slate-200">Governance Impact Summary</span>
+                    <span className="text-xs text-slate-500 ml-auto capitalize">{analyticsPeriod} view</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                    <div>
+                      <div className="text-xl font-bold text-violet-400 tabular-nums">{impactPct}%</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Governance Impact</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold text-amber-400 tabular-nums">{vendorMin.toFixed(1)}<span className="text-sm font-normal ml-0.5">min</span></div>
+                      <div className="text-xs text-slate-500 mt-0.5">Vendor Minutes (CDR)</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold text-sky-400 tabular-nums">{govMin.toFixed(1)}<span className="text-sm font-normal ml-0.5">min</span></div>
+                      <div className="text-xs text-slate-500 mt-0.5">Governance Minutes</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold text-rose-400 tabular-nums">{savedMin.toFixed(1)}<span className="text-sm font-normal ml-0.5">min</span></div>
+                      <div className="text-xs text-slate-500 mt-0.5">Minutes Saved</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Trend chart */}
+                {trendData.length > 0 && (
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-4">
+                      <BarChart2 className="w-4 h-4 text-violet-400" />
+                      <span className="text-sm font-medium text-slate-200">
+                        {analyticsPeriod === 'daily' ? 'Hourly' : analyticsPeriod === 'weekly' ? 'Daily (7d)' : 'Daily (30d)'} Governance Activity
+                      </span>
+                    </div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={trendData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false} width={32} />
+                        <RechartsTooltip
+                          contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }}
+                          labelStyle={{ color: '#94a3b8' }}
+                          itemStyle={{ color: '#e2e8f0' }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: 11, color: '#64748b', paddingTop: 8 }} />
+                        <Bar dataKey="Calls"    fill="#6d28d9" radius={[2,2,0,0]} name="Total Calls" />
+                        <Bar dataKey="Governed" fill="#a855f7" radius={[2,2,0,0]} name="Governed" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    {trendData.length > 0 && (
+                      <div className="mt-3">
+                        <div className="text-xs text-slate-500 mb-2">Governance Minutes / bucket</div>
+                        <ResponsiveContainer width="100%" height={100}>
+                          <AreaChart data={trendData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                            <defs>
+                              <linearGradient id="govMinGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%"  stopColor="#38bdf8" stopOpacity={0.3} />
+                                <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.02} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                            <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                            <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false} width={32} />
+                            <RechartsTooltip
+                              contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }}
+                              labelStyle={{ color: '#94a3b8' }}
+                              itemStyle={{ color: '#e2e8f0' }}
+                            />
+                            <Area dataKey="GovMin" stroke="#38bdf8" fill="url(#govMinGrad)" strokeWidth={2} name="Gov. Minutes" dot={false} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Rule Performance table */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Settings2 className="w-4 h-4 text-violet-400" />
+                      <span className="text-sm font-medium text-slate-200">Rule Performance</span>
+                    </div>
+                    <span className="text-xs text-slate-500">{(ad?.rules ?? []).length} rule{(ad?.rules ?? []).length !== 1 ? 's' : ''}</span>
+                  </div>
+                  {(ad?.rules ?? []).length === 0 ? (
+                    <div className="px-4 py-8 text-center text-sm text-slate-500">No governed calls in this period.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs" data-testid="table-rule-performance">
+                        <thead className="bg-slate-900/40 border-b border-slate-800 text-slate-500">
+                          <tr>
+                            <th className="px-4 py-2.5 text-left font-medium">Rule</th>
+                            <th className="px-4 py-2.5 text-left font-medium">Destination</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Matched</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Cut</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Passed</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Avg Cut (s)</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Gov. Min</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Vendor Min</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Last Triggered</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {(ad?.rules ?? []).map((r, i) => {
+                            const dest = r.destination_prefix ? resolveDestination(r.destination_prefix) : null;
+                            return (
+                              <tr key={r.rule_id ?? i} data-testid={`row-rule-${r.rule_id ?? i}`} className="hover:bg-slate-800/30">
+                                <td className="px-4 py-2.5">
+                                  <div className="font-medium text-slate-200 truncate max-w-[150px]">{r.rule_name ?? r.connection_name ?? '—'}</div>
+                                  {r.rule_name && <div className="text-slate-600 truncate">{r.connection_name}</div>}
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  {dest ? (
+                                    <span className="flex items-center gap-1">
+                                      <span>{dest.flag}</span>
+                                      <span className="text-slate-300">{dest.name}</span>
+                                      <code className="text-amber-300 font-mono text-[10px]">{r.destination_prefix}*</code>
+                                    </span>
+                                  ) : r.destination_prefix ? (
+                                    <code className="text-amber-300 font-mono">{r.destination_prefix}*</code>
+                                  ) : (
+                                    <span className="text-slate-600">All destinations</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono text-slate-200">{n(r.calls_matched)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-rose-400">{n(r.calls_cut)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-emerald-400">{n(r.calls_passed)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-sky-300">{n(r.avg_cut_sec).toFixed(0)}s</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-sky-400">{n(r.gov_minutes).toFixed(1)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-amber-400">{n(r.vendor_minutes).toFixed(1)}</td>
+                                <td className="px-3 py-2.5 text-right text-slate-500">{r.last_triggered ? fmtDate(r.last_triggered) : '—'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Destination Impact table */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Globe2 className="w-4 h-4 text-violet-400" />
+                      <span className="text-sm font-medium text-slate-200">Destination Impact Analysis</span>
+                    </div>
+                    <span className="text-xs text-slate-500">{destGroups.length} destination{destGroups.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  {destGroups.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-sm text-slate-500">No governed calls in this period.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs" data-testid="table-destination-impact">
+                        <thead className="bg-slate-900/40 border-b border-slate-800 text-slate-500">
+                          <tr>
+                            <th className="px-4 py-2.5 text-left font-medium">Destination</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Calls</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Governed</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Vendor Min</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Gov. Min</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Difference</th>
+                            <th className="px-3 py-2.5 text-right font-medium">CDR Cov.</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {destGroups.map((g) => {
+                            const diff = g.vendorMin - g.govMin;
+                            const cov = g.govCalls > 0 ? Math.round((g.cdrCount / g.govCalls) * 100) : 0;
+                            return (
+                              <tr key={g.prefix} data-testid={`row-dest-${g.prefix}`} className="hover:bg-slate-800/30">
+                                <td className="px-4 py-2.5">
+                                  <span className="flex items-center gap-1.5">
+                                    {g.country && <span className="text-sm leading-none">{g.country.flag}</span>}
+                                    <span className="text-slate-200">{g.country?.name ?? g.prefix}</span>
+                                    <code className="text-amber-300 font-mono text-[10px]">+{g.prefix}</code>
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono text-slate-200">{g.totalCalls}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-violet-400">{g.govCalls}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-amber-400">{g.vendorMin.toFixed(1)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-sky-400">{g.govMin.toFixed(1)}</td>
+                                <td className={cn("px-3 py-2.5 text-right font-mono", diff >= 0 ? "text-rose-400" : "text-emerald-400")}>
+                                  {diff >= 0 ? '+' : ''}{diff.toFixed(1)}
+                                </td>
+                                <td className="px-3 py-2.5 text-right">
+                                  <span className={cn(
+                                    "inline-block px-1.5 py-0.5 rounded text-[10px] font-medium",
+                                    cov >= 80 ? "bg-emerald-500/15 text-emerald-400" :
+                                    cov >= 40 ? "bg-amber-500/15 text-amber-400"    :
+                                                "bg-rose-500/15 text-rose-400",
+                                  )}>{cov}%</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Empty state */}
+                {totalCalls === 0 && !analyticsQ.isLoading && (
+                  <EmptyState
+                    icon={TrendingUp}
+                    title="No governed calls in this period"
+                    desc="Analytics will populate here once calls are processed through the governance engine. Switch period or check back after traffic flows through."
+                  />
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

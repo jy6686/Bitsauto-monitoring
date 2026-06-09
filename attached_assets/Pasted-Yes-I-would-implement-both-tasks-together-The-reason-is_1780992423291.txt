@@ -1,0 +1,90 @@
+Yes, I would implement both tasks together.
+
+The reason is that they complement each other and share the same destination intelligence layer:
+
+Task #320 – Destination Governance UX
+Country/Destination picker
+Auto-fill E.164 prefixes
+Display country names on rule cards
+Destination Coverage panel
+Longest Prefix Match visibility
+Task #321 – Call Governance Analytics
+Analytics tab
+KPI dashboard
+Rule performance metrics
+Destination impact analysis
+Daily/Weekly/Monthly trends
+Governance vs Vendor minutes reporting
+Why implement together?
+
+Because both require:
+
+destination resolution,
+country mapping,
+prefix intelligence,
+governance rule categorization.
+
+Building them separately means doing the destination logic twice.
+
+What I would add before implementation
+Governance Impact Summary
+
+A dedicated KPI section:
+
+Total Vendor Minutes
+Total Governance Minutes
+Minutes Terminated by Governance
+Minutes Saved
+Governance Impact %
+Top Governed Destination
+Top Triggered Rule
+Pakistan Example
+
+If Pakistan Rule = 10 seconds
+
+Show:
+
+Total Pakistan Calls
+Total Pakistan Minutes
+Pakistan Governance Minutes
+Pakistan Vendor Minutes
+Pakistan Terminated Calls
+Pakistan Impact %
+
+This is usually what management asks first.
+
+Rule Effectiveness
+
+For every rule:
+
+Calls Matched
+Calls Cut
+Calls Completed
+Average Duration Before Cut
+Estimated Minutes Prevented
+Last Triggered
+
+This quickly identifies whether a rule is useful or unused.
+
+Important Condition
+
+Before implementation, make sure:
+
+No changes to pickBestRule()
+No changes to Sippy routing
+No changes to authentication
+No changes to CLD processing
+No changes to vendor termination logic
+No schema changes unless absolutely necessary
+Analytics remains read-only
+Priority Order
+Analytics Dashboard (#321)
+Destination Coverage Panel
+Country Picker
+Rule Card Enhancements
+
+The analytics dashboard will deliver the most operational value immediately because it answers the daily question:
+
+"How many actual vendor minutes did we have today, and how many minutes were impacted by Call Governance?"
+
+That visibility is currently missing and will be far more valuable than UI improvements alone.
