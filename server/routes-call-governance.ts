@@ -638,13 +638,25 @@ async function reconcileActiveCalls() {
         const capSec       = rule.capSec + Math.floor(Math.random() * (rule.jitterSec + 1));
         const elapsedSec   = legB.durationSec;
         const remainingSec = Math.max(5, capSec - elapsedSec);
-        const recordingPath = `/var/spool/asterisk/monitor/${legA.uniqueId}.wav`;
+        // Use same gov_ prefix as the bridge-event path so MixMonitor output
+        // lands at the expected path and the Recordings tab finds it.
+        const govRecBase    = `/var/spool/asterisk/monitor/gov_${legA.uniqueId}`;
+        const recordingPath = `${govRecBase}.wav`;
 
         let gc: { id: number; channelA: string | null; channelB: string | null; recordingPath: string | null };
 
         if (existing.length > 0) {
-          // Reuse the existing DB record — just re-arm the timer
+          // Reuse the existing DB record — just re-arm the timer.
+          // Also patch the recording path in case it was stored with the old
+          // non-gov_ pattern (pre-fix records) so the Recordings tab works.
           gc = existing[0];
+          if (gc.recordingPath && !gc.recordingPath.includes('gov_')) {
+            db.update(governedCalls)
+              .set({ recordingPath } as any)
+              .where(eq(governedCalls.id, gc.id))
+              .catch(() => {});
+            gc = { ...gc, recordingPath };
+          }
           console.log(`[call-governance] Reconcile: re-arming timer for call ${gc.id} (${legB.channel}) elapsed=${elapsedSec}s → cut in ${remainingSec}s`);
         } else {
           // New record — this call was never tracked at all
@@ -680,6 +692,16 @@ async function reconcileActiveCalls() {
           });
 
           console.log(`[call-governance] Reconcile: new record #${gc.id} for ${legB.channel} elapsed=${elapsedSec}s → cut in ${remainingSec}s`);
+        }
+
+        // Start MixMonitor on the A-leg so reconciled calls get recordings too.
+        // Same pattern as the bridge-event handler — only do this if the call
+        // has enough remaining time to be worth recording (>3s).
+        if (legA.channel && remainingSec > 3) {
+          amiGovernance.startMixMonitor(legA.channel, govRecBase).then((ok) => {
+            if (!ok) console.warn(`[call-governance] Reconcile #${gc.id} MixMonitor start failed`);
+            else console.log(`[call-governance] Reconcile #${gc.id} MixMonitor started on ${legA.channel}`);
+          }).catch(() => {});
         }
 
         await scheduleGovernedCallCut(gc, remainingSec);
