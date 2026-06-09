@@ -275,3 +275,9 @@ id = "reB4LLKdf8nW3nl0T3Fiy"
 uri = "file://client/public/downloads/vendor_prefix_assignments.xlsx"
 type = "table"
 title = "Vendor Prefix Assignments — 41 Vendors"
+
+[[outputs]]
+id = "sU8CQeuJWqUFTgayl_yGM"
+uri = "file://exports/global_destinations.xlsx"
+type = "table"
+title = "Global Destination Set"
