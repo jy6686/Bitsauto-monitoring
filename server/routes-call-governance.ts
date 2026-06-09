@@ -1239,7 +1239,20 @@ export function registerCallGovernanceRoutes(app: Express) {
               ELSE 0 END
           ), 0)::numeric, 2)                                               AS governance_minutes,
           ROUND(COALESCE(SUM(cdr_duration) / 60.0, 0)::numeric, 2)        AS vendor_minutes,
-          COUNT(CASE WHEN cdr_duration IS NOT NULL THEN 1 END)             AS cdr_resolved
+          COUNT(CASE WHEN cdr_duration IS NOT NULL THEN 1 END)             AS cdr_resolved,
+          -- Saved Minutes: cap_sec minus actual cut duration per governed call.
+          -- Represents vendor minutes PREVENTED (e.g. cap=120s cut at 10s → saved=110s).
+          ROUND(COALESCE(SUM(
+            CASE WHEN bye_sent_at IS NOT NULL AND cap_sec IS NOT NULL
+              THEN GREATEST(0, cap_sec - EXTRACT(EPOCH FROM (bye_sent_at - start_time))) / 60.0
+              ELSE 0 END
+          ), 0)::numeric, 2)                                               AS saved_minutes,
+          -- Potential Minutes: sum of cap_sec for all governed (cut) calls.
+          -- Denominator for Governance Efficiency %.
+          ROUND(COALESCE(SUM(
+            CASE WHEN bye_sent_at IS NOT NULL AND cap_sec IS NOT NULL
+              THEN cap_sec / 60.0 ELSE 0 END
+          ), 0)::numeric, 2)                                               AS potential_minutes
         FROM governed_calls
         WHERE start_time >= ${periodStart}
       `);
@@ -1298,6 +1311,7 @@ export function registerCallGovernanceRoutes(app: Express) {
           bye_sent_at,
           start_time,
           cdr_duration,
+          cap_sec,
           status,
           rule_id
         FROM governed_calls

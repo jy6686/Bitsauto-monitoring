@@ -142,6 +142,10 @@ interface AnalyticsKpi {
   governance_minutes: string | number;
   vendor_minutes: string | number;
   cdr_resolved: string | number;
+  /** cap_sec − actual_cut_sec for every governed call / 60 — minutes of vendor billing prevented */
+  saved_minutes: string | number;
+  /** sum of cap_sec for all cut calls / 60 — denominator for Governance Efficiency % */
+  potential_minutes: string | number;
 }
 
 interface AnalyticsRuleRow {
@@ -171,6 +175,7 @@ interface AnalyticsCallRow {
   bye_sent_at: string | null;
   start_time: string | null;
   cdr_duration: number | null;
+  cap_sec: number | null;
   status: string;
   rule_id: number | null;
 }
@@ -1851,22 +1856,31 @@ export default function CallGovernancePage() {
         const kpi = ad?.kpi ?? {} as AnalyticsKpi;
 
         const n = (v: string | number | undefined) => Number(v ?? 0);
-        const totalCalls      = n(kpi.total_calls);
-        const callsGoverned   = n(kpi.calls_governed);
-        const callsPassed     = n(kpi.calls_passed);
-        const govMin          = n(kpi.governance_minutes);
-        const vendorMin       = n(kpi.vendor_minutes);
-        const cdrResolved     = n(kpi.cdr_resolved);
-        const savedMin        = Math.max(0, vendorMin - govMin);
-        const impactPct       = totalCalls > 0 ? ((callsGoverned / totalCalls) * 100).toFixed(1) : '0.0';
-        const cdrCovPct       = callsGoverned > 0 ? Math.round((cdrResolved / callsGoverned) * 100) : 0;
+        const totalCalls       = n(kpi.total_calls);
+        const callsGoverned    = n(kpi.calls_governed);
+        const callsPassed      = n(kpi.calls_passed);
+        const govMin           = n(kpi.governance_minutes);
+        const vendorMin        = n(kpi.vendor_minutes);
+        const cdrResolved      = n(kpi.cdr_resolved);
+        // savedMin = SUM(cap_sec − actual_cut_sec) / 60 per governed call.
+        // Example: cap=120s, cut at 10s → 110s saved per call.  Comes from server.
+        const savedMin         = n(kpi.saved_minutes);
+        const potentialMin     = n(kpi.potential_minutes);
+        // Governance Efficiency % = saved ÷ potential × 100
+        // "Of the maximum vendor minutes governance was configured to allow, how much did we prevent?"
+        const efficiencyPct    = potentialMin > 0 ? ((savedMin / potentialMin) * 100).toFixed(1) : '0.0';
+        const impactPct        = totalCalls > 0 ? ((callsGoverned / totalCalls) * 100).toFixed(1) : '0.0';
+        const cdrCovPct        = callsGoverned > 0 ? Math.round((cdrResolved / callsGoverned) * 100) : 0;
 
         // Client-side destination grouping via LPM
+        // Also tracks per-destination: savedMin (cap−cut), mostTriggeredRuleId
         type DestGroup = {
           country: CountryEntry | null;
           prefix: string;
           totalCalls: number; govCalls: number;
           govMin: number; vendorMin: number; cdrCount: number;
+          savedMin: number;
+          ruleCounts: Map<number, number>;   // ruleId → count
         };
         const destMap = new Map<string, DestGroup>();
         for (const c of (ad?.calls ?? [])) {
@@ -1874,18 +1888,41 @@ export default function CallGovernancePage() {
           const country = resolveDestination(digits);
           const key = country?.prefix ?? (digits.slice(0, 3) || 'unknown');
           if (!destMap.has(key)) {
-            destMap.set(key, { country, prefix: country?.prefix ?? key, totalCalls: 0, govCalls: 0, govMin: 0, vendorMin: 0, cdrCount: 0 });
+            destMap.set(key, { country, prefix: country?.prefix ?? key, totalCalls: 0, govCalls: 0, govMin: 0, vendorMin: 0, cdrCount: 0, savedMin: 0, ruleCounts: new Map() });
           }
           const eg = destMap.get(key)!;
           eg.totalCalls++;
+          if (c.rule_id != null) {
+            eg.ruleCounts.set(c.rule_id, (eg.ruleCounts.get(c.rule_id) ?? 0) + 1);
+          }
           if (c.bye_sent_at && c.start_time) {
             eg.govCalls++;
-            const sec = (new Date(c.bye_sent_at).getTime() - new Date(c.start_time).getTime()) / 1000;
-            eg.govMin += sec / 60;
+            const cutSec = (new Date(c.bye_sent_at).getTime() - new Date(c.start_time).getTime()) / 1000;
+            eg.govMin += cutSec / 60;
+            if (c.cap_sec != null) {
+              eg.savedMin += Math.max(0, c.cap_sec - cutSec) / 60;
+            }
           }
           if (c.cdr_duration != null) { eg.vendorMin += c.cdr_duration / 60; eg.cdrCount++; }
         }
         const destGroups = [...destMap.values()].sort((a, b) => b.totalCalls - a.totalCalls);
+
+        // Top 4 named destinations + Others rollup for the highlight panel
+        const topDests    = destGroups.slice(0, 4);
+        const otherDests  = destGroups.slice(4);
+        const othersTotal = otherDests.reduce((s, g) => s + g.totalCalls, 0);
+        const maxDestCalls = destGroups[0]?.totalCalls ?? 1;
+
+        // Top 5 rules by calls_cut for the top-rules panel
+        const topRules = [...(ad?.rules ?? [])]
+          .sort((a, b) => n(b.calls_cut) - n(a.calls_cut))
+          .slice(0, 5);
+
+        // Build rule name lookup (ruleId → ruleName) from per-rule data
+        const ruleNameMap = new Map<number, string>();
+        for (const r of (ad?.rules ?? [])) {
+          if (r.rule_id != null) ruleNameMap.set(r.rule_id, r.rule_name ?? r.connection_name ?? `Rule ${r.rule_id}`);
+        }
 
         // Trend chart data
         const trendData = (ad?.trend ?? []).map((t) => ({
@@ -1901,12 +1938,12 @@ export default function CallGovernancePage() {
         }));
 
         const KPIS = [
-          { label: 'Total Calls',      value: totalCalls,            icon: Phone,     color: 'text-slate-200',  sub: analyticsPeriod },
-          { label: 'Calls Governed',   value: callsGoverned,         icon: Scissors,  color: 'text-violet-400', sub: `${impactPct}% impact` },
-          { label: 'Calls Passed',     value: callsPassed,           icon: CheckCircle2, color: 'text-emerald-400', sub: 'reached vendor' },
-          { label: 'Vendor Minutes',   value: vendorMin.toFixed(1),  icon: Timer,     color: 'text-amber-400',  sub: `${cdrCovPct}% CDR coverage` },
-          { label: 'Gov. Minutes',     value: govMin.toFixed(1),     icon: Clock,     color: 'text-sky-400',    sub: 'time until cut' },
-          { label: 'Saved Minutes',    value: savedMin.toFixed(1),   icon: TrendingDown, color: 'text-rose-400', sub: 'vendor − gov (CDR)' },
+          { label: 'Total Calls',          value: totalCalls,              icon: Phone,        color: 'text-slate-200',   sub: analyticsPeriod },
+          { label: 'Calls Governed',       value: callsGoverned,           icon: Scissors,     color: 'text-violet-400',  sub: `${impactPct}% of total` },
+          { label: 'Calls Passed',         value: callsPassed,             icon: CheckCircle2, color: 'text-emerald-400', sub: 'reached vendor' },
+          { label: 'Vendor Minutes (CDR)', value: vendorMin.toFixed(1),    icon: Timer,        color: 'text-amber-400',   sub: `${cdrCovPct}% CDR coverage` },
+          { label: 'Saved Minutes',        value: savedMin.toFixed(1),     icon: TrendingDown, color: 'text-rose-400',    sub: `cap − cut per governed call` },
+          { label: 'Gov. Efficiency',      value: `${efficiencyPct}%`,     icon: TrendingUp,   color: 'text-emerald-300', sub: `saved ÷ potential` },
         ];
 
         return (
@@ -1983,10 +2020,10 @@ export default function CallGovernancePage() {
                     <span className="text-sm font-semibold text-slate-200">Governance Impact Summary</span>
                     <span className="text-xs text-slate-500 ml-auto capitalize">{analyticsPeriod} view</span>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
                     <div>
                       <div className="text-xl font-bold text-violet-400 tabular-nums">{impactPct}%</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Governance Impact</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Impact Rate</div>
                     </div>
                     <div>
                       <div className="text-xl font-bold text-amber-400 tabular-nums">{vendorMin.toFixed(1)}<span className="text-sm font-normal ml-0.5">min</span></div>
@@ -1998,10 +2035,115 @@ export default function CallGovernancePage() {
                     </div>
                     <div>
                       <div className="text-xl font-bold text-rose-400 tabular-nums">{savedMin.toFixed(1)}<span className="text-sm font-normal ml-0.5">min</span></div>
-                      <div className="text-xs text-slate-500 mt-0.5">Minutes Saved</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Saved Minutes</div>
+                      <div className="text-[10px] text-slate-600 mt-0.5">cap − cut per call</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold text-emerald-400 tabular-nums">{efficiencyPct}%</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Gov. Efficiency</div>
+                      <div className="text-[10px] text-slate-600 mt-0.5">saved ÷ potential</div>
                     </div>
                   </div>
                 </div>
+
+                {/* Top Governed Destinations + Top Triggered Rules — side by side */}
+                {(destGroups.length > 0 || topRules.length > 0) && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                    {/* Top Governed Destinations */}
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Globe2 className="w-4 h-4 text-violet-400" />
+                        <span className="text-sm font-medium text-slate-200">Top Governed Destinations</span>
+                      </div>
+                      <div className="space-y-2.5">
+                        {topDests.map(g => {
+                          const pct = Math.round((g.totalCalls / maxDestCalls) * 100);
+                          const mostRuleId = g.ruleCounts.size > 0
+                            ? [...g.ruleCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+                            : null;
+                          const mostRuleName = mostRuleId != null ? (ruleNameMap.get(mostRuleId) ?? `Rule ${mostRuleId}`) : null;
+                          return (
+                            <div key={g.prefix} data-testid={`top-dest-${g.prefix}`}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-base leading-none w-5 flex-shrink-0">{g.country?.flag ?? '🌐'}</span>
+                                <span className="text-xs font-medium text-slate-200 min-w-0 truncate flex-1">
+                                  {g.country?.name ?? g.prefix}
+                                </span>
+                                <code className="text-[10px] text-amber-300 font-mono flex-shrink-0">+{g.prefix}</code>
+                                <span className="text-xs font-mono text-slate-300 flex-shrink-0 w-8 text-right">{g.totalCalls}</span>
+                              </div>
+                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-violet-500/70 rounded-full" style={{ width: `${pct}%` }} />
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-600">
+                                <span>{g.govCalls} cut</span>
+                                <span>{g.govMin.toFixed(1)} gov min</span>
+                                <span>{g.savedMin.toFixed(1)} saved min</span>
+                                {mostRuleName && <span className="ml-auto truncate max-w-[100px]" title={mostRuleName}>→ {mostRuleName}</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {othersTotal > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-base leading-none w-5 flex-shrink-0">🌐</span>
+                              <span className="text-xs font-medium text-slate-400 flex-1">Others</span>
+                              <span className="text-xs font-mono text-slate-400 w-8 text-right">{othersTotal}</span>
+                            </div>
+                            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div className="h-full bg-slate-600/50 rounded-full" style={{ width: `${Math.round((othersTotal / maxDestCalls) * 100)}%` }} />
+                            </div>
+                            <div className="text-[10px] text-slate-600 mt-1">{otherDests.length} more destinations</div>
+                          </div>
+                        )}
+                        {destGroups.length === 0 && (
+                          <p className="text-xs text-slate-500 text-center py-4">No data for this period</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Top Triggered Rules */}
+                    <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Settings2 className="w-4 h-4 text-violet-400" />
+                        <span className="text-sm font-medium text-slate-200">Top Triggered Rules</span>
+                      </div>
+                      {topRules.length === 0 ? (
+                        <p className="text-xs text-slate-500 text-center py-4">No data for this period</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {topRules.map((r, i) => {
+                            const dest = r.destination_prefix ? resolveDestination(r.destination_prefix) : null;
+                            const maxCut = n(topRules[0]?.calls_cut ?? 1);
+                            const pct = maxCut > 0 ? Math.round((n(r.calls_cut) / maxCut) * 100) : 0;
+                            return (
+                              <div key={r.rule_id ?? i} data-testid={`top-rule-${r.rule_id ?? i}`}>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-[10px] font-bold text-slate-600 w-3 flex-shrink-0">#{i + 1}</span>
+                                  <span className="text-xs font-medium text-slate-200 flex-1 min-w-0 truncate">
+                                    {r.rule_name ?? r.connection_name ?? `Rule ${r.rule_id}`}
+                                  </span>
+                                  <span className="text-xs font-mono text-rose-400 flex-shrink-0">{n(r.calls_cut)} cuts</span>
+                                </div>
+                                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-full bg-rose-500/60 rounded-full" style={{ width: `${pct}%` }} />
+                                </div>
+                                <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-600">
+                                  {dest && <span>{dest.flag} {dest.name}</span>}
+                                  <span>{n(r.gov_minutes).toFixed(1)} gov min</span>
+                                  <span className="text-amber-600">{n(r.vendor_minutes).toFixed(1)} vendor min</span>
+                                  <span className="ml-auto">{r.last_triggered ? fmtDate(r.last_triggered) : '—'}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Trend chart */}
                 {trendData.length > 0 && (
@@ -2136,18 +2278,25 @@ export default function CallGovernancePage() {
                         <thead className="bg-slate-900/40 border-b border-slate-800 text-slate-500">
                           <tr>
                             <th className="px-4 py-2.5 text-left font-medium">Destination</th>
-                            <th className="px-3 py-2.5 text-right font-medium">Calls</th>
-                            <th className="px-3 py-2.5 text-right font-medium">Governed</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Total Calls</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Cut</th>
                             <th className="px-3 py-2.5 text-right font-medium">Vendor Min</th>
                             <th className="px-3 py-2.5 text-right font-medium">Gov. Min</th>
-                            <th className="px-3 py-2.5 text-right font-medium">Difference</th>
-                            <th className="px-3 py-2.5 text-right font-medium">CDR Cov.</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Saved Min</th>
+                            <th className="px-3 py-2.5 text-right font-medium">Avg Cut</th>
+                            <th className="px-4 py-2.5 text-left font-medium">Most Triggered Rule</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/60">
                           {destGroups.map((g) => {
-                            const diff = g.vendorMin - g.govMin;
-                            const cov = g.govCalls > 0 ? Math.round((g.cdrCount / g.govCalls) * 100) : 0;
+                            const avgCutSec = g.govCalls > 0 ? Math.round((g.govMin * 60) / g.govCalls) : 0;
+                            const mostRuleId = g.ruleCounts.size > 0
+                              ? [...g.ruleCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+                              : null;
+                            const mostRuleName = mostRuleId != null
+                              ? (ruleNameMap.get(mostRuleId) ?? `Rule ${mostRuleId}`)
+                              : null;
+                            const mostRuleCount = mostRuleId != null ? g.ruleCounts.get(mostRuleId) ?? 0 : 0;
                             return (
                               <tr key={g.prefix} data-testid={`row-dest-${g.prefix}`} className="hover:bg-slate-800/30">
                                 <td className="px-4 py-2.5">
@@ -2161,16 +2310,19 @@ export default function CallGovernancePage() {
                                 <td className="px-3 py-2.5 text-right font-mono text-violet-400">{g.govCalls}</td>
                                 <td className="px-3 py-2.5 text-right font-mono text-amber-400">{g.vendorMin.toFixed(1)}</td>
                                 <td className="px-3 py-2.5 text-right font-mono text-sky-400">{g.govMin.toFixed(1)}</td>
-                                <td className={cn("px-3 py-2.5 text-right font-mono", diff >= 0 ? "text-rose-400" : "text-emerald-400")}>
-                                  {diff >= 0 ? '+' : ''}{diff.toFixed(1)}
+                                <td className="px-3 py-2.5 text-right font-mono text-rose-400">{g.savedMin.toFixed(1)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-slate-400">
+                                  {avgCutSec > 0 ? `${avgCutSec}s` : '—'}
                                 </td>
-                                <td className="px-3 py-2.5 text-right">
-                                  <span className={cn(
-                                    "inline-block px-1.5 py-0.5 rounded text-[10px] font-medium",
-                                    cov >= 80 ? "bg-emerald-500/15 text-emerald-400" :
-                                    cov >= 40 ? "bg-amber-500/15 text-amber-400"    :
-                                                "bg-rose-500/15 text-rose-400",
-                                  )}>{cov}%</span>
+                                <td className="px-4 py-2.5">
+                                  {mostRuleName ? (
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="text-slate-300 truncate max-w-[160px]" title={mostRuleName}>{mostRuleName}</span>
+                                      <span className="text-[10px] text-slate-600 flex-shrink-0">×{mostRuleCount}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-600">—</span>
+                                  )}
                                 </td>
                               </tr>
                             );
