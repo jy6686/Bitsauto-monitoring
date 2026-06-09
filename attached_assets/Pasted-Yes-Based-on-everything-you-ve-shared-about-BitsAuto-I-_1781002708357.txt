@@ -1,0 +1,222 @@
+Yes. Based on everything you've shared about BitsAuto, I would formally lock the roadmap exactly as you've written it.
+
+The biggest mistake now would be starting a new large workspace while the financial truth layer is not yet verified.
+
+Current Status
+Priority 0.1  CDR Reconciliation      ← In Progress
+Priority 0.2  Vendor Cost Resolution  ← Next
+Priority 0.3  Billing Verification    ← After Vendor Cost
+Priority 0.5  Governance Verification ← Then
+
+Everything else depends on those four.
+
+Vendor Cost Resolution (Next Concrete Task)
+
+This is where I would focus immediately.
+
+We need to answer 5 questions:
+
+1. Does Sippy itself show Vendor Cost?
+
+Open:
+
+Sippy
+→ Vendors
+→ Vendor CDRs
+
+For a governed Pakistan or Eritrea call verify:
+
+Duration
+Cost
+Vendor
+Destination
+
+Result A:
+
+Cost = 0.000000
+
+Then problem is:
+
+Sippy Configuration
+Destination Set
+Vendor Rating
+
+Result B:
+
+Cost > 0
+
+Then problem is:
+
+BitsAuto Import Layer
+Mera Parsing
+CDR Enrichment
+
+This single test will eliminate 50% of the unknowns.
+
+2. Which CDR Source Has Cost?
+
+Document:
+
+Customer CDR Export
+Vendor CDR Export
+Mera Export
+XML-RPC Export
+
+For each source:
+
+Revenue
+Cost
+Duration
+Vendor
+
+Determine which source is authoritative.
+
+3. Governed Call Trace
+
+Take one call:
+
+Call #9028
+
+Trace:
+
+Audit Log
+↓
+Governed Call
+↓
+Customer CDR
+↓
+Vendor CDR
+↓
+Margin
+
+Manually.
+
+If manual trace works:
+
+Platform Logic Problem
+
+If manual trace fails:
+
+Source Data Problem
+4. Destination Set Validation
+
+You previously mentioned:
+
+Vendor uses Destination Set
+Not Tariff
+
+Verify:
+
+Vendor
+↓
+Connection
+↓
+Destination Set
+↓
+Pakistan
+↓
+Rate Exists?
+
+If destination not rated:
+
+Vendor Cost = 0
+
+can happen legitimately.
+
+5. Governance Calls Only
+
+Separate:
+
+Natural Calls
+
+from
+
+Governed Calls
+
+during testing.
+
+Otherwise:
+
+CDR Match
+Vendor Cost
+Margin
+
+gets mixed.
+
+After Vendor Cost Is Fixed
+
+Then:
+
+Billing Verification
+
+Call Governance becomes:
+
+Revenue
+Cost
+Margin
+Margin %
+
+per governed call.
+
+Only then can you answer:
+
+Did we make money or lose money on this call?
+
+with confidence.
+
+Then Governance Analytics Verification
+
+Run:
+
+5–7 Days
+
+of live traffic.
+
+Validate:
+
+Match Rate
+Margin Accuracy
+Cut Accuracy
+Destination Analytics
+
+Only after that should Revenue Protection consume the data.
+
+One Additional Recommendation
+
+Before building Trust Center Phase 1, add a KPI to Call Governance:
+
+Billing Confidence Score
+
+Example:
+
+98% Calls Matched
+96% Vendor Cost Available
+97% Margin Calculated
+
+Confidence: 97%
+
+This becomes the gate for moving from Priority 0.5 into Priority 1.
+
+Final Recommendation
+
+Yes, start with Vendor Cost Resolution next.
+
+Not Trust Center.
+
+Not Revenue Protection.
+
+Not BitsEye2.
+
+The immediate objective should be:
+
+Governed Call
+↓
+Customer Revenue
+↓
+Vendor Cost
+↓
+Margin
+↓
+Verified
+
+Once that chain is proven, the rest of the roadmap becomes much safer and easier to build.
