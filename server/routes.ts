@@ -26687,6 +26687,60 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Bulk IP Add — add the same IP to multiple companies at once (admin only) ──
+  app.post('/api/client-ip-requests/bulk', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const { ipAddress, trunk, companyIds } = req.body ?? {};
+      if (!ipAddress?.trim()) return res.status(400).json({ message: 'ipAddress required' });
+      if (!Array.isArray(companyIds) || companyIds.length === 0) return res.status(400).json({ message: 'companyIds array required' });
+      const reviewer = (req as any).user?.claims?.sub || 'admin';
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings);
+      const results: { companyId: number; status: string; message?: string }[] = [];
+      for (const rawId of companyIds) {
+        const companyId = parseInt(rawId, 10);
+        if (isNaN(companyId)) { results.push({ companyId: rawId, status: 'error', message: 'Invalid companyId' }); continue; }
+        try {
+          const company = await storage.getCompany(companyId);
+          if (!company) { results.push({ companyId, status: 'error', message: 'Company not found' }); continue; }
+          // Check for existing approved IP to avoid duplicates
+          const existing = await storage.getClientIpRequests(companyId);
+          if (existing.some((r: any) => r.ipAddress === ipAddress.trim() && r.status === 'approved')) {
+            results.push({ companyId, status: 'skipped', message: 'IP already approved for this account' }); continue;
+          }
+          // Create pre-approved record
+          const row = await storage.createClientIpRequest({
+            clientName: company.name,
+            companyId,
+            ipAddress: ipAddress.trim(),
+            trunk: trunk?.trim() || null,
+            description: 'Bulk added by admin',
+            status: 'approved',
+            submittedBy: reviewer,
+            reviewedBy: reviewer,
+            rejectionReason: null,
+            reviewedAt: new Date(),
+          });
+          // If already provisioned, push auth rule to Sippy immediately
+          if (company.provisioningStatus === 'provisioned' && (company as any).sippyIAccount) {
+            try {
+              await sippy.addSippyAuthRule(username, password, { iAccount: (company as any).sippyIAccount, iProtocol: 1, remoteIp: ipAddress.trim() }, portalUrl);
+              results.push({ companyId, status: 'pushed', message: `Auth rule added to Sippy for ${company.name}` });
+            } catch (sErr: any) {
+              results.push({ companyId, status: 'approved_only', message: `IP approved but Sippy push failed: ${sErr.message}` });
+            }
+          } else {
+            results.push({ companyId, status: 'approved', message: `IP approved for ${company.name} (will push on next provision)` });
+          }
+        } catch (err: any) {
+          results.push({ companyId, status: 'error', message: err.message });
+        }
+      }
+      res.json({ results });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // ── Account Management — Client Wizard Submit ─────────────────────────────────
 
   app.post('/api/client-wizard/submit', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
@@ -28761,7 +28815,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             }
           }
           if (conflicts.length > 0) {
-            checks.push({ type: 'ips', status: 'error', message: `Duplicate IP conflict(s): ${conflicts.join(' | ')}`, field: 'ips' });
+            checks.push({ type: 'ips', status: 'warning', message: `Shared IP(s) also in: ${conflicts.join(' | ')} — intentional for shared infrastructure (e.g. Asterisk).`, field: 'ips' });
           } else {
             checks.push({ type: 'ips', status: 'ok', message: `${approvedIps.length} approved IP(s) — no conflicts detected.`, field: 'ips' });
           }

@@ -1365,6 +1365,167 @@ function ReAddAuthButton({ company }: { company: Company }) {
   );
 }
 
+// ── Bulk IP Add Dialog ────────────────────────────────────────────────────────
+function BulkAddIpDialog({ open, onClose, companies }: {
+  open: boolean;
+  onClose: () => void;
+  companies: Company[];
+}) {
+  const { toast } = useToast();
+  const [ip, setIp] = useState("");
+  const [trunk, setTrunk] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [search, setSearch] = useState("");
+
+  const filtered = companies.filter(c =>
+    !search || c.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggleAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map(c => c.id)));
+    }
+  };
+
+  const toggle = (id: number) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const bulkMutation = useMutation({
+    mutationFn: (payload: any) => apiRequest("POST", "/api/client-ip-requests/bulk", payload),
+    onSuccess: async (res: any) => {
+      let data: any = {};
+      try { data = typeof res?.json === 'function' ? await res.json() : res; } catch {}
+      const results: any[] = data?.results ?? [];
+      const pushed   = results.filter(r => r.status === 'pushed').length;
+      const approved = results.filter(r => r.status === 'approved').length;
+      const skipped  = results.filter(r => r.status === 'skipped').length;
+      const errors   = results.filter(r => r.status === 'error');
+      queryClient.invalidateQueries({ queryKey: ["/api/client-ip-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      const parts = [];
+      if (pushed)   parts.push(`${pushed} pushed to Sippy`);
+      if (approved) parts.push(`${approved} approved (pending provision)`);
+      if (skipped)  parts.push(`${skipped} already had IP`);
+      toast({
+        title: `Bulk IP add complete`,
+        description: parts.join(' · ') + (errors.length ? ` · ${errors.length} failed` : ''),
+        variant: errors.length && !pushed && !approved ? "destructive" : "default",
+      });
+      onClose();
+      setIp(""); setTrunk(""); setSelected(new Set()); setSearch("");
+    },
+    onError: (e: any) => toast({ title: "Bulk add failed", description: e.message, variant: "destructive" }),
+  });
+
+  const handleSubmit = () => {
+    if (!ip.trim() || selected.size === 0) return;
+    bulkMutation.mutate({ ipAddress: ip.trim(), trunk: trunk.trim() || undefined, companyIds: Array.from(selected) });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) { onClose(); setIp(""); setTrunk(""); setSelected(new Set()); setSearch(""); } }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShieldPlus className="h-4 w-4 text-emerald-400" />
+            Add IP to Multiple Accounts
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">IP Address</label>
+            <Input
+              data-testid="input-bulk-ip"
+              placeholder="e.g. 104.245.246.110"
+              value={ip}
+              onChange={e => setIp(e.target.value)}
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Trunk / Label <span className="text-muted-foreground font-normal">(optional)</span></label>
+            <Input
+              data-testid="input-bulk-trunk"
+              placeholder="e.g. First Class"
+              value={trunk}
+              onChange={e => setTrunk(e.target.value)}
+              className="text-sm"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Select Accounts</label>
+              <button onClick={toggleAll} className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors">
+                {selected.size === filtered.length && filtered.length > 0 ? "Deselect all" : "Select all"}
+              </button>
+            </div>
+            <Input
+              placeholder="Search companies…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="h-7 text-xs"
+            />
+            <div className="border rounded-md divide-y divide-border max-h-52 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <p className="text-xs text-muted-foreground p-3 text-center">No companies found</p>
+              ) : filtered.map(c => (
+                <label
+                  key={c.id}
+                  data-testid={`checkbox-bulk-company-${c.id}`}
+                  className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted/30 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(c.id)}
+                    onChange={() => toggle(c.id)}
+                    className="accent-emerald-500"
+                  />
+                  <span className="flex-1 text-sm truncate">{c.name}</span>
+                  {(c as any).provisioningStatus === 'provisioned' && (
+                    <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded px-1">live</span>
+                  )}
+                </label>
+              ))}
+            </div>
+            {selected.size > 0 && (
+              <p className="text-[10px] text-muted-foreground">
+                {selected.size} account{selected.size !== 1 ? 's' : ''} selected
+                {Array.from(selected).some(id => (companies.find(c => c.id === id) as any)?.provisioningStatus === 'provisioned')
+                  ? ' · live accounts will have auth rule pushed to Sippy immediately'
+                  : ''}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <Button
+              data-testid="btn-bulk-ip-submit"
+              className="flex-1 gap-1.5"
+              disabled={!ip.trim() || selected.size === 0 || bulkMutation.isPending}
+              onClick={handleSubmit}
+            >
+              {bulkMutation.isPending
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Adding…</>
+                : <><ShieldPlus className="h-3.5 w-3.5" /> Add to {selected.size || '…'} account{selected.size !== 1 ? 's' : ''}</>
+              }
+            </Button>
+            <Button variant="outline" onClick={onClose} disabled={bulkMutation.isPending}>Cancel</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function CompanyListPage() {
   const { toast } = useToast();
@@ -1372,6 +1533,7 @@ export default function CompanyListPage() {
   const [kamFilter, setKamFilter] = useState("");
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [bulkIpOpen, setBulkIpOpen] = useState(false);
 
   const { data, isLoading } = useQuery<{ companies: Company[] }>({
     queryKey: ["/api/companies"],
@@ -1425,6 +1587,15 @@ export default function CompanyListPage() {
             onClick={() => setSyncOpen(true)}
           >
             <RefreshCw className="h-4 w-4" /> Sync
+          </Button>
+          <Button
+            data-testid="btn-bulk-add-ip"
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+            onClick={() => setBulkIpOpen(true)}
+          >
+            <ShieldPlus className="h-4 w-4" /> Add IP to Accounts
           </Button>
           <Link href="/client-wizard">
             <Button data-testid="btn-client-wizard" size="sm" variant="outline" className="gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
@@ -1649,6 +1820,13 @@ export default function CompanyListPage() {
 
       {/* Sync Dialog */}
       <SyncDialog open={syncOpen} onClose={() => setSyncOpen(false)} />
+
+      {/* Bulk IP Add Dialog */}
+      <BulkAddIpDialog
+        open={bulkIpOpen}
+        onClose={() => setBulkIpOpen(false)}
+        companies={allCompanies}
+      />
     </div>
   );
 }
