@@ -408,7 +408,8 @@ class AmiGovernanceListener extends EventEmitter {
       }, 5_000);
 
       const listener = (f: Record<string, string>) => {
-        if (f['event'] === 'coreshowchannel') {
+        const evt = (f['event'] ?? '').toLowerCase();
+        if (evt === 'coreshowchannel') {
           const bridgeId = f['bridgeid'] ?? '';
           if (!bridgeId) return; // not currently bridged — skip
 
@@ -430,7 +431,7 @@ class AmiGovernanceListener extends EventEmitter {
           });
         }
 
-        if (f['event'] === 'coreshowchannelscomplete') {
+        if (evt === 'coreshowchannelscomplete') {
           clearTimeout(timeout);
           this.removeRawFrameListener(listener);
           resolve(channels);
