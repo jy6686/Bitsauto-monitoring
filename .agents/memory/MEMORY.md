@@ -24,3 +24,4 @@
 - [Billing CDR matching](billing-cdr-matching.md) — callee=CLD, caller=CLI in governed_calls; live-match fallback + periodic 30-min backfill.
 - [Vendor Cost Extraction — Sippy P&L](vendor-cost-extraction.md) — NEVER estimate vendor cost; Sippy profit_loss_report.php already has Revenue/Cost/Margin per call. Priority 0.2 = extract it, not invent it.
 - [P&L CSV cache architecture](pnl-csv-cache.md) — downloadPnlCsv() in sippy.ts probes multiple output= params; pnlCache in routes.ts refreshes every 10 min; probe via GET /api/sippy/pnl/probe.
+- [Trust Center auth ownership model](trust-center-auth-ownership.md) — LOCKED: managed_by (bitsauto/legacy/manual) + last_change_source (bitsauto/sippy/import/system) on every protected object; baseline seed REQUIRED before drift detection starts.
