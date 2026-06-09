@@ -23,3 +23,4 @@
 - [Rate Manager trunk prefix encoding](rate-manager-trunk-prefix.md) — product_registry.trunk_prefix: FC=1, BC=2, SB=6, SC=7; full Sippy prefix = trunkPrefix+dialPrefix (e.g. "1"+"92300"="192300"); rate_push_jobs table for audit; use GET /api/sippy/accounts/:id/info→iTariff then GET /api/sippy/tariffs/:id/rates for rate analysis.
 - [Billing CDR matching](billing-cdr-matching.md) — callee=CLD, caller=CLI in governed_calls; live-match fallback + periodic 30-min backfill.
 - [Vendor Cost Extraction — Sippy P&L](vendor-cost-extraction.md) — NEVER estimate vendor cost; Sippy profit_loss_report.php already has Revenue/Cost/Margin per call. Priority 0.2 = extract it, not invent it.
+- [P&L CSV cache architecture](pnl-csv-cache.md) — downloadPnlCsv() in sippy.ts probes multiple output= params; pnlCache in routes.ts refreshes every 10 min; probe via GET /api/sippy/pnl/probe.

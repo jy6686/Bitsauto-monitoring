@@ -6113,6 +6113,14 @@ export async function registerRoutes(
   const cdrCache = new Map<string, Awaited<ReturnType<typeof sippy.getSippyCDRs>>[0]>();
   let cdrCacheUpdatedAt: Date | null = null;
 
+  // ── Per-call P&L CSV cache ────────────────────────────────────────────────
+  // Populated every 10 min by refreshPnlCache() (portal CSV download).
+  // Key: `${cli}:${cld}:${startTime}` — same dedup pattern as cdrCache.
+  const pnlCache = new Map<string, sippy.PnlCsvRow>();
+  let pnlCacheUpdatedAt: Date | null = null;
+  let pnlCacheLastProbe: sippy.PnlCsvReport['probe'] = [];
+  let _pnlCacheRunning = false;
+
   // ── B: Time-sorted secondary index — O(log N + window) window queries ────────
   // Rebuilt from scratch after each cache refresh (~5 k entries, <1 ms sort).
   // Binary search replaces the O(N_total) scan on every dashboard POST.
@@ -6485,6 +6493,56 @@ export async function registerRoutes(
     }
   }
 
+  // ── P&L CSV Cache refresh ────────────────────────────────────────────────
+  // Downloads the per-call CSV from profit_loss_report.php every 10 minutes
+  // and merges rows into pnlCache (dedup by cli:cld:startTime).
+  // Covers the last 24 hours of calls — enough for Billing Check enrichment.
+  async function refreshPnlCache(): Promise<void> {
+    if (_pnlCacheRunning) return;
+    _pnlCacheRunning = true;
+    const t0 = Date.now();
+    try {
+      const settings = await storage.getSettings();
+      if (!settings) return;
+      const pUser  = (settings as any).apiAdminUsername || (settings as any).portalUsername || '';
+      const pPass  = (settings as any).apiAdminPassword || (settings as any).portalPassword || '';
+      const fbUser = (settings as any).portalUsername   || (settings as any).apiAdminUsername || '';
+      const fbPass = (settings as any).portalPassword   || (settings as any).apiAdminPassword || '';
+      const portalUrl = sippyPortalUrl(settings);
+
+      const fromDate = new Date(Date.now() - 24 * 60 * 60_000);
+      const toDate   = new Date();
+
+      const report = await sippy.downloadPnlCsv(pUser, pPass, fbUser, fbPass, fromDate, toDate, portalUrl ?? undefined);
+      pnlCacheLastProbe = report.probe;
+
+      if (!report.ok || report.rows.length === 0) {
+        console.warn(`[pnl-cache] refresh failed: ${report.error ?? 'no rows'}`);
+        return;
+      }
+
+      let added = 0;
+      for (const row of report.rows) {
+        const key = `${row.cli}:${row.cld}:${row.startTime}`;
+        if (!pnlCache.has(key)) { pnlCache.set(key, row); added++; }
+      }
+
+      // Evict entries older than 48 h to cap memory usage
+      const cutoff = Date.now() - 48 * 60 * 60_000;
+      for (const [k, r] of pnlCache.entries()) {
+        const ts = sippy.parseSippyDate(r.startTime)?.getTime() ?? 0;
+        if (ts > 0 && ts < cutoff) pnlCache.delete(k);
+      }
+
+      pnlCacheUpdatedAt = new Date();
+      console.log(`[pnl-cache] refresh OK — ${added} new rows added, cache=${pnlCache.size} (${Date.now() - t0}ms)`);
+    } catch (e: any) {
+      console.warn('[pnl-cache] refresh error:', e.message);
+    } finally {
+      _pnlCacheRunning = false;
+    }
+  }
+
   // ── Live Traffic Snapshot Engine ─────────────────────────────────────────────
   // Computes rolling ASR/ACD per account (origination) and per connection
   // (termination) from the in-memory CDR cache for 1m/5m/15m/1h windows.
@@ -6612,6 +6670,10 @@ export async function registerRoutes(
   // established first. Early XML-RPC bursts (at 5s) were triggering ECONNRESET.
   setTimeout(() => refreshCdrCache(), 60 * 1000);
   setInterval(() => refreshCdrCache(), 5 * 60 * 1000);
+
+  // P&L CSV cache — first run at T+90s (after CDR warmup), then every 10 min.
+  setTimeout(() => refreshPnlCache(), 90 * 1000);
+  setInterval(() => refreshPnlCache(), 10 * 60 * 1000);
 
   // Lightweight snapshot recompute every 30s from the already-resident CDR cache.
   // Does NOT call Sippy — only re-aggregates existing in-memory data.
@@ -20745,6 +20807,110 @@ export async function registerRoutes(
       });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── P&L CSV Cache endpoints ──────────────────────────────────────────────
+  //
+  // GET /api/sippy/pnl
+  //   Returns per-call P&L rows from the in-memory pnlCache.
+  //   Supports ?cli=, ?cld=, ?connection=, ?hours= filters.
+  //   Same cache pattern as /api/sippy/live-calls (cache-first, no Sippy call).
+  //
+  // GET /api/sippy/pnl/probe
+  //   Forces a fresh download attempt and returns the probe log + first 5 rows.
+  //   Use this to verify the CSV export works on a live Sippy instance.
+
+  app.get('/api/sippy/pnl/probe', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      if (!settings) return res.status(503).json({ message: 'Sippy not configured.' });
+
+      const pUser  = (settings as any).apiAdminUsername || (settings as any).portalUsername || '';
+      const pPass  = (settings as any).apiAdminPassword || (settings as any).portalPassword || '';
+      const fbUser = (settings as any).portalUsername   || (settings as any).apiAdminUsername || '';
+      const fbPass = (settings as any).portalPassword   || (settings as any).apiAdminPassword || '';
+      const portalUrl = sippyPortalUrl(settings);
+
+      // Default: last 1 hour for a quick probe
+      const hours = Math.min(parseInt(req.query.hours as string || '1') || 1, 48);
+      const fromDate = new Date(Date.now() - hours * 60 * 60_000);
+      const toDate   = new Date();
+
+      const report = await sippy.downloadPnlCsv(pUser, pPass, fbUser, fbPass, fromDate, toDate, portalUrl ?? undefined);
+
+      res.json({
+        ok:         report.ok,
+        period:     report.period,
+        fetchedAt:  report.fetchedAt,
+        rowCount:   report.rows.length,
+        // Return first 5 rows so we can verify column mapping without blasting the response
+        sampleRows: report.rows.slice(0, 5),
+        // Header columns discovered — key diagnostic for mapping correctness
+        headerKeys: report.rows.length > 0 ? Object.keys(report.rows[0]).filter(k => k !== 'extra') : [],
+        probe:      report.probe,
+        error:      report.error,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get('/api/sippy/pnl', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req, res) => {
+    try {
+      const hours      = Math.min(Number(req.query.hours) || 24, 72);
+      const cliFilter  = (req.query.cli       as string || '').toLowerCase();
+      const cldFilter  = (req.query.cld       as string || '').toLowerCase();
+      const connFilter = (req.query.connection as string || '').toLowerCase();
+      const cutoff     = Date.now() - hours * 60 * 60_000;
+
+      let rows = Array.from(pnlCache.values());
+
+      // Time window filter
+      if (hours < 72) {
+        rows = rows.filter(r => {
+          const ts = sippy.parseSippyDate(r.startTime)?.getTime() ?? 0;
+          return ts === 0 || ts >= cutoff;
+        });
+      }
+
+      // Field filters
+      if (cliFilter)  rows = rows.filter(r => r.cli.toLowerCase().includes(cliFilter));
+      if (cldFilter)  rows = rows.filter(r => r.cld.toLowerCase().includes(cldFilter));
+      if (connFilter) rows = rows.filter(r => r.connection.toLowerCase().includes(connFilter));
+
+      // Sort newest first (start time desc)
+      rows.sort((a, b) => {
+        const ta = sippy.parseSippyDate(a.startTime)?.getTime() ?? 0;
+        const tb = sippy.parseSippyDate(b.startTime)?.getTime() ?? 0;
+        return tb - ta;
+      });
+
+      // Aggregate totals
+      const totals = rows.reduce(
+        (acc, r) => {
+          acc.revenue += r.revenue;
+          acc.cost    += r.cost;
+          acc.profit  += r.profit;
+          acc.calls   += 1;
+          return acc;
+        },
+        { revenue: 0, cost: 0, profit: 0, calls: 0 },
+      );
+      totals.revenue = parseFloat(totals.revenue.toFixed(4));
+      totals.cost    = parseFloat(totals.cost.toFixed(4));
+      totals.profit  = parseFloat(totals.profit.toFixed(4));
+
+      res.json({
+        ok:           true,
+        cacheSize:    pnlCache.size,
+        updatedAt:    pnlCacheUpdatedAt?.toISOString() ?? null,
+        rowCount:     rows.length,
+        totals,
+        rows,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
     }
   });
 

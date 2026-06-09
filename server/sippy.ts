@@ -1540,6 +1540,282 @@ export async function scrapeProfitLossReport(
   };
 }
 
+// ── Per-call P&L CSV export ────────────────────────────────────────────────
+//
+// profit_loss_report.php with output=csv returns a per-call CSV (confirmed
+// 16 columns: Connection, Account, CLI, CLD, Start Time, Setup Time,
+// Duration, Buy Duration, Revenue, Cost, Profit, Margin, Result, PDD …).
+// This is the financial truth layer — Sippy computes Revenue/Cost/Margin
+// correctly, so we consume it rather than re-deriving it.
+
+export interface PnlCsvRow {
+  // Call identity
+  cli:          string;
+  cld:          string;
+  startTime:    string;       // ISO or Sippy portal date string
+  // Timing
+  setupTimeSec: number;       // seconds until answer
+  durationSec:  number;       // billed sell duration
+  buyDurationSec: number;     // billed buy duration
+  // Financials
+  revenue:      number;       // USD — charged to customer
+  cost:         number;       // USD — paid to vendor
+  profit:       number;       // revenue − cost
+  margin:       number;       // profit / revenue × 100  (%)
+  // Context
+  connection:   string;       // vendor connection name
+  account:      string;       // customer account / name
+  result:       string;       // disconnect reason / ANSWERED etc.
+  pdd:          number;       // post-dial delay seconds
+  // Raw catch-all for unknown extra columns
+  extra:        Record<string, string>;
+}
+
+export interface PnlCsvReport {
+  ok:           boolean;
+  period:       string;
+  fetchedAt:    string;
+  rows:         PnlCsvRow[];
+  probe:        { attempt: string; statusCode: number; bodyLen: number; contentType: string }[];
+  error?:       string;
+}
+
+/** Proper CSV line parser that handles double-quoted fields with embedded commas. */
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQuote = !inQuote;
+    } else if ((ch === ',' || ch === '\t') && !inQuote) {
+      result.push(cur.trim());
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur.trim());
+  return result;
+}
+
+/**
+ * Download the per-call P&L CSV from Sippy's profit_loss_report.php.
+ *
+ * Tries multiple POST param combinations in order. The first that returns
+ * text/csv (or a body that looks like CSV with the right headers) wins.
+ *
+ * @param fromDate  Start of range (default: 1 day ago)
+ * @param toDate    End of range   (default: now)
+ */
+export async function downloadPnlCsv(
+  portalUsername: string,
+  portalPassword: string,
+  fallbackUsername?: string,
+  fallbackPassword?: string,
+  fromDate?: Date,
+  toDate?: Date,
+  portalUrl?: string,
+): Promise<PnlCsvReport> {
+  const now   = toDate   ?? new Date();
+  const start = fromDate ?? new Date(now.getTime() - 1 * 24 * 60 * 60_000);
+  const FAIL  = (error: string, probe: PnlCsvReport['probe'] = []): PnlCsvReport => ({
+    ok: false, period: '', fetchedAt: new Date().toISOString(), rows: [], probe, error,
+  });
+
+  const base = portalUrl ?? activeSession?.portalUrl;
+  if (!base) return FAIL('Not connected to Sippy.');
+
+  // Authenticate — admin session preferred for full data
+  let cookies = await getAdminPortalSession(
+    base,
+    fallbackUsername ?? '', fallbackPassword ?? '',
+    portalUsername, portalPassword,
+  );
+  if (!cookies) {
+    cookies = await getAnyPortalSession(base, [portalUsername, portalPassword]);
+    if (!cookies) return FAIL('Portal login failed for P&L CSV download.');
+  }
+
+  const startStr = formatSippyPortalDate(start);
+  const endStr   = formatSippyPortalDate(now);
+
+  // Attempt matrix — ordered by most-likely to work.
+  // Each entry is a label + the POST body params to try.
+  const attempts: Array<{ label: string; params: Record<string, string> }> = [
+    {
+      label: 'output=csv period=cdr',
+      params: { startDate: startStr, endDate: endStr, from_form: '1', action: 'update', cdr_currency: 'USD', period: 'cdr', output: 'csv' },
+    },
+    {
+      label: 'output=csv period=call',
+      params: { startDate: startStr, endDate: endStr, from_form: '1', action: 'update', cdr_currency: 'USD', period: 'call', output: 'csv' },
+    },
+    {
+      label: 'output=csv (no period)',
+      params: { startDate: startStr, endDate: endStr, from_form: '1', action: 'update', cdr_currency: 'USD', output: 'csv' },
+    },
+    {
+      label: 'output=csv period=day',
+      params: { startDate: startStr, endDate: endStr, from_form: '1', action: 'update', cdr_currency: 'USD', period: 'day', output: 'csv' },
+    },
+    {
+      label: 'action=export period=cdr',
+      params: { startDate: startStr, endDate: endStr, from_form: '1', action: 'export', cdr_currency: 'USD', period: 'cdr' },
+    },
+    {
+      label: 'action=export (no period)',
+      params: { startDate: startStr, endDate: endStr, from_form: '1', action: 'export', cdr_currency: 'USD' },
+    },
+  ];
+
+  const paths       = ['/profit_loss_report.php', '/c1/profit_loss_report.php'];
+  const probeLog: PnlCsvReport['probe'] = [];
+  let csvBody = '';
+  let winLabel = '';
+
+  outer:
+  for (const attempt of attempts) {
+    for (const path of paths) {
+      let statusCode = 0;
+      let body       = '';
+      let contentType = '';
+      try {
+        const resp = await rawRequest(
+          'POST',
+          `${base}${path}`,
+          encodeForm(attempt.params),
+          { 'Content-Type': 'application/x-www-form-urlencoded' },
+          cookies,
+        );
+        statusCode  = resp.statusCode;
+        body        = typeof resp.body === 'string' ? resp.body : resp.body?.toString() ?? '';
+        contentType = (resp as any).headers?.['content-type'] ?? '';
+      } catch (e: any) {
+        probeLog.push({ attempt: `${attempt.label} @ ${path}`, statusCode: 0, bodyLen: 0, contentType: '' });
+        console.warn(`[pnl-csv] ${attempt.label} @ ${path} — exception: ${e.message}`);
+        continue;
+      }
+
+      const looksLikeCsv =
+        contentType.includes('text/csv') ||
+        contentType.includes('application/csv') ||
+        contentType.includes('octet-stream') ||
+        (body.length > 100 && !body.trimStart().startsWith('<') && body.includes(','));
+
+      probeLog.push({ attempt: `${attempt.label} @ ${path}`, statusCode, bodyLen: body.length, contentType });
+      console.log(`[pnl-csv] ${attempt.label} @ ${path} → HTTP ${statusCode} contentType="${contentType}" bodyLen=${body.length} looksLikeCsv=${looksLikeCsv}`);
+
+      if (statusCode === 200 && looksLikeCsv && body.length > 50) {
+        csvBody  = body;
+        winLabel = `${attempt.label} @ ${path}`;
+        break outer;
+      }
+    }
+  }
+
+  if (!csvBody) {
+    console.warn('[pnl-csv] all attempts failed — no CSV body found');
+    return FAIL('All download attempts failed — no CSV data returned by Sippy portal.', probeLog);
+  }
+
+  console.log(`[pnl-csv] won with: ${winLabel} (${csvBody.length} bytes)`);
+
+  // ── Parse the CSV ─────────────────────────────────────────────────────────
+  const lines = csvBody.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) {
+    return FAIL(`CSV too short (${lines.length} line(s)) — no data rows.`, probeLog);
+  }
+
+  // Build header index
+  const headerLine = parseCsvLine(lines[0]);
+  const idx = (keywords: string[]): number => {
+    for (const kw of keywords) {
+      const i = headerLine.findIndex(h => h.toLowerCase().includes(kw.toLowerCase()));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  const iCli       = idx(['cli', 'caller', 'from']);
+  const iCld       = idx(['cld', 'callee', 'to', 'destination', 'dialed']);
+  const iStart     = idx(['start', 'date', 'time']);
+  const iSetup     = idx(['setup']);
+  const iDuration  = idx(['duration', 'sell dur', 'billed dur', 'dur']);
+  const iBuyDur    = idx(['buy dur', 'cost dur', 'vendor dur', 'buying']);
+  const iRevenue   = idx(['revenue', 'sell', 'charge']);
+  const iCost      = idx(['cost', 'buy', 'vendor amount', 'wholesale']);
+  const iProfit    = idx(['profit', 'net', 'margin amount']);
+  const iMarginPct = idx(['margin', '%']);
+  const iConn      = idx(['connection', 'vendor', 'carrier', 'route']);
+  const iAccount   = idx(['account', 'customer', 'client']);
+  const iResult    = idx(['result', 'disconnect', 'cause', 'status']);
+  const iPdd       = idx(['pdd', 'post dial', 'ring']);
+
+  console.log(`[pnl-csv] header columns (${headerLine.length}):`, headerLine.join(' | '));
+  console.log(`[pnl-csv] mapped: cli=${iCli} cld=${iCld} start=${iStart} setup=${iSetup} dur=${iDuration} buyDur=${iBuyDur} rev=${iRevenue} cost=${iCost} profit=${iProfit} margin=${iMarginPct} conn=${iConn} acct=${iAccount} result=${iResult} pdd=${iPdd}`);
+
+  const rows: PnlCsvRow[] = [];
+  for (let li = 1; li < lines.length; li++) {
+    const cols = parseCsvLine(lines[li]);
+    if (cols.length < 3) continue;
+
+    const str  = (i: number) => (i >= 0 && i < cols.length ? cols[i] : '');
+    const num  = (i: number) => parseFloat(str(i).replace(/[$,%]/g, '')) || 0;
+    const dur  = (i: number): number => {
+      const s = str(i);
+      if (!s) return 0;
+      const parts = s.split(':').map(Number);
+      if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+      if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
+      return parseFloat(s) || 0;
+    };
+
+    // Build extra columns map for future use
+    const extra: Record<string, string> = {};
+    cols.forEach((v, i) => {
+      if (![iCli, iCld, iStart, iSetup, iDuration, iBuyDur, iRevenue, iCost, iProfit, iMarginPct, iConn, iAccount, iResult, iPdd].includes(i)) {
+        extra[headerLine[i] || `col${i}`] = v;
+      }
+    });
+
+    const revenue = num(iRevenue);
+    const cost    = num(iCost);
+    const profit  = iProfit >= 0 ? num(iProfit) : parseFloat((revenue - cost).toFixed(6));
+    const margin  = iMarginPct >= 0 ? num(iMarginPct) : (revenue > 0 ? parseFloat(((profit / revenue) * 100).toFixed(2)) : 0);
+
+    rows.push({
+      cli:            str(iCli),
+      cld:            str(iCld),
+      startTime:      str(iStart),
+      setupTimeSec:   iSetup >= 0 ? dur(iSetup) : 0,
+      durationSec:    dur(iDuration),
+      buyDurationSec: iBuyDur >= 0 ? dur(iBuyDur) : 0,
+      revenue,
+      cost,
+      profit,
+      margin,
+      connection:     str(iConn),
+      account:        str(iAccount),
+      result:         str(iResult),
+      pdd:            num(iPdd),
+      extra,
+    });
+  }
+
+  console.log(`[pnl-csv] parsed ${rows.length} per-call rows via "${winLabel}"`);
+
+  return {
+    ok:        true,
+    period:    `${start.toISOString().slice(0, 10)} → ${now.toISOString().slice(0, 10)}`,
+    fetchedAt: new Date().toISOString(),
+    rows,
+    probe:     probeLog,
+  };
+}
+
 export async function getPortalSubcustomers(cookies: CookieJar, base: string): Promise<Array<{ name: string; status: string; description: string; balance: string; creditLimit: string; tariff: string }>> {
   const { html } = await portalGet('/c2/subcustomers.php', cookies, base);
   if (!html) return [];
