@@ -1592,6 +1592,7 @@ export default function CallGovernancePage() {
                       <th className="px-4 py-2.5 text-right font-medium">Gov Cut</th>
                       <th className="px-4 py-2.5 text-right font-medium">Cut Window</th>
                       <th className="px-4 py-2.5 text-right font-medium">Customer Billed</th>
+                      <th className="px-4 py-2.5 text-right font-medium" title="Customer Billed − Gov Cut (positive = overbilled beyond cut window)">Δ Overage</th>
                       <th className="px-4 py-2.5 text-right font-medium">Cust. Cost</th>
                       <th className="px-4 py-2.5 text-right font-medium">Vendor Cost</th>
                       <th className="px-4 py-2.5 text-right font-medium">Margin</th>
@@ -1635,6 +1636,20 @@ export default function CallGovernancePage() {
                                 {row.customerBilledSec}s
                               </span>
                             ) : <span className="text-slate-600">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono text-xs">
+                            {row.customerBilledSec != null && row.govSec != null ? (() => {
+                              const delta = row.customerBilledSec - row.govSec;
+                              return (
+                                <span className={cn(
+                                  delta > 15  ? 'text-amber-400' :
+                                  delta > 0   ? 'text-slate-300' :
+                                               'text-emerald-400'
+                                )} title={`Sippy billed ${row.customerBilledSec}s, cut at ${row.govSec}s → ${delta > 0 ? '+' : ''}${delta}s`}>
+                                  {delta > 0 ? '+' : ''}{delta}s
+                                </span>
+                              );
+                            })() : <span className="text-slate-700">—</span>}
                           </td>
                           <td className="px-4 py-3 text-right text-xs text-slate-400 font-mono">
                             {row.customerCost != null ? `$${row.customerCost.toFixed(4)}` : '—'}

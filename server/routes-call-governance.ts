@@ -682,6 +682,35 @@ export function registerCallGovernanceRoutes(app: Express) {
   // ── Periodic watchdog: every 60s catch any remaining missed bridges ────────
   setInterval(reconcileActiveCalls, 60_000);
 
+  // ── Periodic CDR backfill: every 30 min retry no_cdr cuts (last 7 days) ───
+  // Covers cases where the 45s/3min/8min lookups all fired during a Sippy outage.
+  // Runs in small batches with 1.5s spacing to avoid hammering Sippy.
+  async function runPeriodicCdrBackfill() {
+    try {
+      const cutoff = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+      const pending = await db
+        .select({ id: governedCalls.id })
+        .from(governedCalls)
+        .where(and(
+          eq(governedCalls.status, 'cut'),
+          sql`(cdr_status IS NULL OR cdr_status = 'no_cdr')`,
+          gte(governedCalls.startTime, cutoff),
+        ))
+        .limit(50);
+      if (pending.length === 0) return;
+      console.log(`[call-governance] Periodic CDR backfill: ${pending.length} no_cdr record(s) queued`);
+      for (const { id } of pending) {
+        runCdrLookup(id, false).catch(() => {});
+        await new Promise(r => setTimeout(r, 1_500));
+      }
+    } catch (err: any) {
+      console.error('[call-governance] Periodic CDR backfill error:', err?.message);
+    }
+  }
+  setInterval(runPeriodicCdrBackfill, 30 * 60 * 1000);
+  // Run once 5 min after startup to catch stale no_cdr records from the previous session
+  setTimeout(runPeriodicCdrBackfill, 5 * 60 * 1000);
+
   // ── Bridge event → check governance rules ──────────────────────────────────
   amiGovernance.on('bridge', async (event) => {
     try {

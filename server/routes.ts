@@ -33125,9 +33125,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           } else {
             // Live cache matching (works when CDR is within the rolling cache window)
             let matchedCdr: any = null;
-            if (startMs && gc.caller) {
+            if (startMs && gc.callee) {
               const windowMs   = 10 * 60 * 1000;
-              const destDigits = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
+              const destDigits = (gc.callee || '').replace(/\D/g, '').replace(/^2060/, '');
               const destSuffix = destDigits.slice(-9);
               const candidates = allCdrs.filter(c => {
                 const cdrTs = c.startTime ? new Date(c.startTime).getTime() : null;
@@ -33136,7 +33136,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                 return (c.callee || '').replace(/\D/g, '').endsWith(destSuffix);
               });
               if (candidates.length > 0) {
-                const cliSuffix = (gc.callee || '').replace(/\D/g, '').slice(-7);
+                const cliSuffix = (gc.caller || '').replace(/\D/g, '').slice(-7);
                 const cliMatch  = cliSuffix.length >= 6
                   ? candidates.find(c => (c.caller || '').replace(/\D/g, '').endsWith(cliSuffix))
                   : null;
@@ -33166,11 +33166,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           }
 
           // Decode real CLI/CLD for display:
-          //   displayCli = gc.callee = PJSIP CallerID = original calling party
-          //   displayCld = gc.caller stripped of 2060 routing prefix = real destination
-          const displayCli = gc.callee ?? gc.caller ?? null;
-          const rawDest    = (gc.caller || '').replace(/\D/g, '').replace(/^2060/, '');
-          const displayCld = rawDest || gc.caller || null;
+          //   displayCli = gc.caller = PJSIP A-leg CallerID = original calling party CLI
+          //   displayCld = gc.callee stripped of 2060 routing prefix = real destination
+          const displayCli = gc.caller ?? null;
+          const rawDest    = (gc.callee || '').replace(/\D/g, '').replace(/^2060/, '');
+          const displayCld = rawDest || gc.callee || null;
 
           return {
             id:                  gc.id,
