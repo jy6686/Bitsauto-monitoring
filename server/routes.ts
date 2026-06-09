@@ -26687,6 +26687,51 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // ── Duplicate IP Sharing Approvals (security review workflow) ────────────────
+  // GET  /api/ip-sharing-approvals          — list all (admin/provisioning)
+  // POST /api/ip-sharing-approvals/:id/approve — approve shared-IP usage
+  // POST /api/ip-sharing-approvals/:id/reject  — reject shared-IP usage
+
+  app.get('/api/ip-sharing-approvals',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'provisioning', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const status = req.query.status as string | undefined;
+        const rows = await storage.getIpSharingApprovals(status);
+        res.json({ approvals: rows });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  app.post('/api/ip-sharing-approvals/:id/approve',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'provisioning'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        const { reason } = req.body ?? {};
+        const userId   = (req as any).user?.claims?.sub    ?? 'admin';
+        const userName = (req as any).user?.claims?.name   ?? (req as any).user?.claims?.email ?? userId;
+        const updated = await storage.reviewIpSharingApproval(id, 'approved', userId, userName, reason);
+        res.json({ approval: updated });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
+  app.post('/api/ip-sharing-approvals/:id/reject',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'provisioning'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        const { reason } = req.body ?? {};
+        if (!reason?.trim()) return res.status(400).json({ message: 'Reason is required to reject a shared IP.' });
+        const userId   = (req as any).user?.claims?.sub    ?? 'admin';
+        const userName = (req as any).user?.claims?.name   ?? (req as any).user?.claims?.email ?? userId;
+        const updated = await storage.reviewIpSharingApproval(id, 'rejected', userId, userName, reason);
+        res.json({ approval: updated });
+      } catch (e: any) { res.status(500).json({ message: e.message }); }
+    }
+  );
+
   // ── Bulk IP Add — add the same IP to multiple companies at once (admin only) ──
   app.post('/api/client-ip-requests/bulk', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
@@ -28814,7 +28859,35 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               }
             }
           }
-          checks.push({ type: 'ips', status: 'ok', message: `${approvedIps.length} approved IP(s) — ready.`, field: 'ips' });
+          if (conflicts.length > 0) {
+            const conflictingIps = [...new Set(conflicts.map(c => c.split(' → ')[0]))];
+            for (const cip of conflictingIps) {
+              const existing = await storage.getIpSharingApprovalByIp(cip);
+              if (!existing) {
+                // Build full company list for this IP
+                const sharingCompanies = [{ id: companyId, name: (await storage.getCompany(companyId))?.name ?? String(companyId) }];
+                const otherCompaniesForIp = others.filter((c: any) => c.provisioningStatus === 'provisioned');
+                for (const oc of otherCompaniesForIp) {
+                  const ocIps = await storage.getClientIpRequests(oc.id);
+                  if (ocIps.some((r: any) => r.status === 'approved' && r.ipAddress === cip)) {
+                    sharingCompanies.push({ id: oc.id, name: oc.name });
+                  }
+                }
+                await storage.upsertIpSharingApproval(cip, JSON.stringify(sharingCompanies));
+              } else if (existing.status === 'approved') {
+                const reviewer = existing.reviewedByName ?? existing.reviewedById ?? 'Admin';
+                const reviewedDate = existing.reviewedAt ? new Date(existing.reviewedAt).toLocaleDateString() : 'N/A';
+                checks.push({ type: 'ips', status: 'ok', message: `${approvedIps.length} IP(s) — shared use of ${cip} approved by ${reviewer} on ${reviewedDate}.`, field: 'ips' });
+                continue;
+              } else if (existing.status === 'rejected') {
+                checks.push({ type: 'ips', status: 'error', message: `Shared IP ${cip} was rejected by admin — remove this IP from this account before provisioning.`, field: 'ips' });
+                continue;
+              }
+              checks.push({ type: 'ips', status: 'warning', message: `Duplicate IP detected: ${cip} is also used by another provisioned account. Pending admin/provisioning approval — see IP Review panel.`, field: 'ips' });
+            }
+          } else {
+            checks.push({ type: 'ips', status: 'ok', message: `${approvedIps.length} approved IP(s) — no conflicts detected.`, field: 'ips' });
+          }
         }
 
         // ── 3. Duplicate CLD prefix ───────────────────────────────────────────────

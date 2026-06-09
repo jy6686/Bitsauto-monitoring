@@ -1470,6 +1470,23 @@ export type ClientIpRequest = typeof clientIpRequests.$inferSelect;
 export type InsertClientIpRequest = typeof clientIpRequests.$inferInsert;
 export const insertClientIpRequestSchema = createInsertSchema(clientIpRequests).omit({ id: true, submittedAt: true });
 
+// ── Duplicate IP sharing approvals (security audit trail) ─────────────────────
+// One row per IP address. Created automatically by the pre-provision check when
+// the same IP is detected on two or more companies. Must be explicitly approved
+// or rejected by an Admin or Provisioning user before provisioning can proceed.
+export const ipSharingApprovals = pgTable("ip_sharing_approvals", {
+  id:             serial("id").primaryKey(),
+  ipAddress:      varchar("ip_address",      { length: 64  }).notNull().unique(),
+  companyData:    text("company_data").notNull().default('[]'), // JSON [{id,name}]
+  status:         varchar("status",          { length: 20  }).notNull().default('pending'), // pending|approved|rejected
+  flaggedAt:      timestamp("flagged_at").defaultNow().notNull(),
+  reviewedById:   varchar("reviewed_by_id",  { length: 255 }),
+  reviewedByName: varchar("reviewed_by_name",{ length: 255 }),
+  reviewedAt:     timestamp("reviewed_at"),
+  reviewReason:   text("review_reason"),
+});
+export type IpSharingApproval = typeof ipSharingApprovals.$inferSelect;
+
 // ── Per-account local config (email, rate sheet, rules, email format) ──────────
 export const accountConfigs = pgTable("account_configs", {
   iAccount:   integer("i_account").primaryKey(),

@@ -144,6 +144,7 @@ import {
   type WorkspaceTabWithItems, type WorkspaceWithTabs,
   reconciliationReportSchedules,
   type ReconciliationReportSchedule, type InsertReconciliationReportSchedule,
+  ipSharingApprovals, type IpSharingApproval,
 } from "@shared/schema";
 import { users, type User } from "@shared/models/auth";
 import { db, pool } from "./db";
@@ -714,6 +715,12 @@ export interface IStorage {
   // ── Reconciliation Email Audit Log ─────────────────────────────────────────
   logReconciliationEmail(data: InsertReconciliationEmailLog): Promise<ReconciliationEmailLog>;
   listReconciliationEmailLogs(limit?: number): Promise<ReconciliationEmailLog[]>;
+
+  // ── Duplicate IP Sharing Approvals ─────────────────────────────────────────
+  getIpSharingApprovals(status?: string): Promise<IpSharingApproval[]>;
+  getIpSharingApprovalByIp(ipAddress: string): Promise<IpSharingApproval | undefined>;
+  upsertIpSharingApproval(ipAddress: string, companyData: string): Promise<IpSharingApproval>;
+  reviewIpSharingApproval(id: number, status: 'approved' | 'rejected', reviewedById: string, reviewedByName: string, reason?: string): Promise<IpSharingApproval>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3781,6 +3788,42 @@ function computeNextDueAt(frequency: string, cronHour?: number): Date {
       next.setHours(cronHour ?? 8, 0, 0, 0);
       return next;
     }
+  }
+  }
+
+  // ── Duplicate IP Sharing Approvals ───────────────────────────────────────────
+  async getIpSharingApprovals(status?: string): Promise<IpSharingApproval[]> {
+    const rows = await db.select().from(ipSharingApprovals).orderBy(desc(ipSharingApprovals.flaggedAt));
+    return status ? rows.filter(r => r.status === status) : rows;
+  }
+
+  async getIpSharingApprovalByIp(ipAddress: string): Promise<IpSharingApproval | undefined> {
+    if (!ipAddress) return undefined;
+    const rows = await db.select().from(ipSharingApprovals).where(eq(ipSharingApprovals.ipAddress, ipAddress)).limit(1);
+    return rows[0];
+  }
+
+  async upsertIpSharingApproval(ipAddress: string, companyData: string): Promise<IpSharingApproval> {
+    const existing = await this.getIpSharingApprovalByIp(ipAddress);
+    if (existing) {
+      const [updated] = await db.update(ipSharingApprovals)
+        .set({ companyData })
+        .where(eq(ipSharingApprovals.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(ipSharingApprovals)
+      .values({ ipAddress, companyData, status: 'pending' })
+      .returning();
+    return created;
+  }
+
+  async reviewIpSharingApproval(id: number, status: 'approved' | 'rejected', reviewedById: string, reviewedByName: string, reason?: string): Promise<IpSharingApproval> {
+    const [updated] = await db.update(ipSharingApprovals)
+      .set({ status, reviewedById, reviewedByName, reviewedAt: new Date(), reviewReason: reason ?? null })
+      .where(eq(ipSharingApprovals.id, id))
+      .returning();
+    return updated;
   }
 }
 

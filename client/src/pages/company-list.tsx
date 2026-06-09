@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -13,8 +14,9 @@ import {
   Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard,
   Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle,
   PlusCircle, ShieldPlus, Tag, Package, MapPin, DollarSign, Cpu, ExternalLink,
-  RefreshCw, Play, AlertCircle, Server, Upload, List, Trash,
+  RefreshCw, Play, AlertCircle, Server, Upload, List, Trash, ShieldAlert,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { Company } from "@shared/schema";
@@ -1365,6 +1367,185 @@ function ReAddAuthButton({ company }: { company: Company }) {
   );
 }
 
+// ── IP Sharing Approval Review Modal (Admin / Provisioning only) ──────────────
+type IpApproval = {
+  id: number;
+  ipAddress: string;
+  companyData: string;
+  status: string;
+  flaggedAt: string;
+  reviewedById: string | null;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  reviewReason: string | null;
+};
+
+function IpApprovalReviewModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [reasons, setReasons] = useState<Record<number, string>>({});
+
+  const { data, isLoading, refetch } = useQuery<{ approvals: IpApproval[] }>({
+    queryKey: ["/api/ip-sharing-approvals"],
+    enabled: open,
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+      apiRequest("POST", `/api/ip-sharing-approvals/${id}/approve`, { reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ip-sharing-approvals"] });
+      toast({ title: "IP sharing approved", description: "Decision recorded in audit log." });
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Approval failed", description: e.message, variant: "destructive" }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      apiRequest("POST", `/api/ip-sharing-approvals/${id}/reject`, { reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ip-sharing-approvals"] });
+      toast({ title: "IP sharing rejected", description: "Decision recorded in audit log." });
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Rejection failed", description: e.message, variant: "destructive" }),
+  });
+
+  const approvals = data?.approvals ?? [];
+  const pending   = approvals.filter(a => a.status === 'pending');
+  const reviewed  = approvals.filter(a => a.status !== 'pending');
+
+  const statusBadge = (a: IpApproval) => {
+    if (a.status === 'approved') return <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-medium">APPROVED</span>;
+    if (a.status === 'rejected') return <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/25 font-medium">REJECTED</span>;
+    return <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/25 font-medium">PENDING</span>;
+  };
+
+  const parseCompanies = (raw: string): { id?: number; name: string }[] => {
+    try { return JSON.parse(raw); } catch { return []; }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-amber-400" />
+            Duplicate IP Sharing — Security Review
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            These IPs are shared across multiple accounts. Each must be explicitly approved or rejected
+            before provisioning can proceed. All decisions are recorded in the audit log.
+          </p>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : approvals.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
+            <ShieldCheck className="h-8 w-8 text-emerald-400" />
+            <p className="text-sm">No shared IPs detected — all clear.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {pending.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Pending Review ({pending.length})
+                </p>
+                {pending.map(a => {
+                  const companies = parseCompanies(a.companyData);
+                  return (
+                    <div key={a.id} className="border border-amber-500/25 rounded-lg p-3.5 bg-amber-500/5 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-mono text-sm font-semibold text-amber-300">{a.ipAddress}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            Flagged {new Date(a.flaggedAt).toLocaleString()} · Shared by{' '}
+                            <span className="text-foreground font-medium">{companies.map(c => c.name).join(', ')}</span>
+                          </p>
+                        </div>
+                        {statusBadge(a)}
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <Textarea
+                            data-testid={`textarea-ip-reason-${a.id}`}
+                            placeholder="Add a note or reason (optional for approval, required for rejection)…"
+                            value={reasons[a.id] ?? ''}
+                            onChange={e => setReasons(prev => ({ ...prev, [a.id]: e.target.value }))}
+                            className="h-16 text-xs resize-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <Button
+                            data-testid={`btn-ip-approve-${a.id}`}
+                            size="sm"
+                            className="gap-1 bg-emerald-600 hover:bg-emerald-500 text-white"
+                            disabled={approveMutation.isPending || rejectMutation.isPending}
+                            onClick={() => approveMutation.mutate({ id: a.id, reason: reasons[a.id] || undefined })}
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                          </Button>
+                          <Button
+                            data-testid={`btn-ip-reject-${a.id}`}
+                            size="sm"
+                            variant="destructive"
+                            className="gap-1"
+                            disabled={approveMutation.isPending || rejectMutation.isPending || !reasons[a.id]?.trim()}
+                            onClick={() => rejectMutation.mutate({ id: a.id, reason: reasons[a.id] })}
+                          >
+                            <XCircle className="h-3.5 w-3.5" /> Reject
+                          </Button>
+                        </div>
+                      </div>
+                      {!reasons[a.id]?.trim() && (
+                        <p className="text-[10px] text-muted-foreground">Enter a reason above to enable rejection.</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {reviewed.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Audit History ({reviewed.length})
+                </p>
+                {reviewed.map(a => {
+                  const companies = parseCompanies(a.companyData);
+                  return (
+                    <div key={a.id} className={`border rounded-lg p-3 space-y-1 ${a.status === 'approved' ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-sm font-medium">{a.ipAddress}</span>
+                        {statusBadge(a)}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Shared by <span className="text-foreground">{companies.map(c => c.name).join(', ')}</span>
+                      </p>
+                      {a.reviewedAt && (
+                        <p className="text-[11px] text-muted-foreground">
+                          {a.status === 'approved' ? 'Approved' : 'Rejected'} by{' '}
+                          <span className="text-foreground font-medium">{a.reviewedByName ?? a.reviewedById}</span>
+                          {' '}on {new Date(a.reviewedAt).toLocaleString()}
+                          {a.reviewReason && <> — "<em>{a.reviewReason}</em>"</>}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Bulk IP Add Dialog ────────────────────────────────────────────────────────
 function BulkAddIpDialog({ open, onClose, companies }: {
   open: boolean;
@@ -1534,6 +1715,9 @@ export default function CompanyListPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
   const [syncOpen, setSyncOpen] = useState(false);
   const [bulkIpOpen, setBulkIpOpen] = useState(false);
+  const [ipReviewOpen, setIpReviewOpen] = useState(false);
+  const { role } = useAuth();
+  const canReviewIps = ['admin', 'super_admin', 'provisioning', 'management'].includes(role as string);
 
   const { data, isLoading } = useQuery<{ companies: Company[] }>({
     queryKey: ["/api/companies"],
@@ -1543,6 +1727,13 @@ export default function CompanyListPage() {
     queryKey: ["/api/kam"],
     retry: false,
   });
+
+  const { data: ipApprovalsData } = useQuery<{ approvals: IpApproval[] }>({
+    queryKey: ["/api/ip-sharing-approvals"],
+    enabled: canReviewIps,
+    refetchInterval: 30_000,
+  });
+  const pendingIpCount = (ipApprovalsData?.approvals ?? []).filter(a => a.status === 'pending').length;
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/companies/${id}`),
@@ -1597,6 +1788,22 @@ export default function CompanyListPage() {
           >
             <ShieldPlus className="h-4 w-4" /> Add IP to Accounts
           </Button>
+          {canReviewIps && (
+            <Button
+              data-testid="btn-ip-review"
+              size="sm"
+              variant="outline"
+              className={`gap-1.5 relative ${pendingIpCount > 0 ? 'border-amber-500/40 text-amber-400 hover:bg-amber-500/10' : 'border-border text-muted-foreground hover:bg-muted/30'}`}
+              onClick={() => setIpReviewOpen(true)}
+            >
+              <ShieldAlert className="h-4 w-4" /> IP Review
+              {pendingIpCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-amber-500 text-[9px] text-white flex items-center justify-center font-bold">
+                  {pendingIpCount}
+                </span>
+              )}
+            </Button>
+          )}
           <Link href="/client-wizard">
             <Button data-testid="btn-client-wizard" size="sm" variant="outline" className="gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
               <Zap className="h-4 w-4" /> Client Wizard
@@ -1827,6 +2034,14 @@ export default function CompanyListPage() {
         onClose={() => setBulkIpOpen(false)}
         companies={allCompanies}
       />
+
+      {/* IP Sharing Approval Review — Admin / Provisioning only */}
+      {canReviewIps && (
+        <IpApprovalReviewModal
+          open={ipReviewOpen}
+          onClose={() => setIpReviewOpen(false)}
+        />
+      )}
     </div>
   );
 }
