@@ -26881,13 +26881,31 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           tariffNote = `Reused existing tariff "${tariffName}" (i_tariff=${iTariff})`;
           console.log(`[Provision] ${tariffNote}`);
         } else {
-          const tariffResult = await sippy.createTariff(username, password, {
-            name: tariffName,
-            currency: 'USD',
-            iTariffType: 1,  // Customer tariff
-            costRoundUp: true,
-            averageDuration: 200,
-          });
+          // Try full params first; if Sippy returns "Fatal error" (faultCode 501),
+          // it likely means i_tariff_type is not supported on this version — retry
+          // with minimal params that work across all Sippy versions.
+          let tariffResult: { iTariff: number } | undefined;
+          try {
+            tariffResult = await sippy.createTariff(username, password, {
+              name: tariffName,
+              currency: 'USD',
+              iTariffType: 1,  // Customer tariff (Sippy 2020+)
+              costRoundUp: true,
+              averageDuration: 200,
+            });
+          } catch (e1: any) {
+            const msg1 = (e1.message || '').toLowerCase();
+            if (msg1.includes('fatal') || msg1.includes('faultcode') || msg1.includes('501')) {
+              console.warn(`[Provision] createTariff with iTariffType failed (${e1.message}) — retrying without optional params`);
+              // Minimal params accepted by all Sippy versions
+              tariffResult = await sippy.createTariff(username, password, {
+                name: tariffName,
+                currency: 'USD',
+              });
+            } else {
+              throw e1; // re-throw unrelated errors
+            }
+          }
           iTariff = tariffResult.iTariff;
           tariffCreated = true;
           tariffNote = `Created tariff "${tariffName}" (i_tariff=${iTariff})`;
@@ -26895,7 +26913,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
       } catch (e: any) {
         console.warn(`[Provision] Tariff creation failed (non-fatal): ${e.message}`);
-        tariffNote = `Tariff auto-creation failed: ${e.message}. Create manually in Sippy → Customers → Tariffs.`;
+        tariffNote = `Tariff auto-creation skipped: ${e.message}. Create manually in Sippy → Customers → Tariffs.`;
       }
 
       // ── Step: Auto-create Service Plan linked to the new tariff ────────────

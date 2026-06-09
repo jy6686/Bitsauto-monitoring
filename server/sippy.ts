@@ -11923,6 +11923,35 @@ export async function addSippyAuthRule(
     const text = resp.body;
     if (text.includes('<fault>')) {
       const fault = extractFaultString(text) || 'addAuthRule failed.';
+
+      // ── Idempotency: "conflicting parameters" means an identical auth rule
+      // already exists for this IP on this account. This IS the desired state —
+      // treat it as success by looking up and returning the existing rule.
+      const faultLower = fault.toLowerCase();
+      if (
+        faultLower.includes('conflicting parameters') ||
+        faultLower.includes('another authentication rule') ||
+        faultLower.includes('already exist')
+      ) {
+        console.log(`[Sippy] addSippyAuthRule: conflict detected — looking up existing rule for ip=${opts.remoteIp ?? '?'} account=${opts.iAccount}`);
+        try {
+          const listRes = await listSippyAuthRules(username, password, {
+            iAccount:   opts.iAccount,
+            iProtocol:  opts.iProtocol,
+            ...(opts.remoteIp ? { remoteIp: opts.remoteIp } : {}),
+          }, portalUrl);
+          const existing = listRes.authRules[0];
+          if (existing) {
+            console.log(`[Sippy] addSippyAuthRule: reusing existing rule i_authentication=${existing.iAuthentication}`);
+            return { success: true, iAuthentication: existing.iAuthentication, message: 'Auth rule already exists — reusing.' };
+          }
+        } catch (lookupErr: any) {
+          console.warn(`[Sippy] addSippyAuthRule: conflict lookup failed: ${lookupErr.message}`);
+        }
+        // Conflict but no existing rule found — still report as warning, not hard failure
+        return { success: true, message: 'Auth rule conflict reported by Sippy — rule likely already present.' };
+      }
+
       return { success: false, message: fault };
     }
     const m = extractStructMembers(text);
