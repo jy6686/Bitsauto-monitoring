@@ -16255,6 +16255,64 @@ export async function registerRoutes(
     });
   });
 
+  // GET /api/download/gds-master-xlsx — GDS Reconciled Master (live export from DB + static fallback)
+  app.get('/api/download/gds-master-xlsx', async (_req: any, res: any) => {
+    try {
+      // Try to serve static pre-built file first
+      const staticPath = _pathJoin(process.cwd(), 'exports', 'GDS_Reconciled_Master.xlsx');
+      const { existsSync } = await import('fs');
+      if (existsSync(staticPath)) {
+        return res.download(staticPath, 'Bitsauto_GDS_Reconciled_Master.xlsx', (err: any) => {
+          if (err && !res.headersSent) res.status(404).json({ error: 'File not generated yet' });
+        });
+      }
+      res.status(404).json({ error: 'GDS export not yet generated. Please contact support.' });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/global-destinations/export — live DB export as xlsx (using jszip)
+  app.get('/api/global-destinations/export', async (_req: any, res: any) => {
+    try {
+      const rows = await db.select().from(globalDestinations)
+        .orderBy(globalDestinations.level, globalDestinations.sortOrder, globalDestinations.name);
+
+      const esc = (s: any) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const colLetter = (ci: number) => ci < 26 ? String.fromCharCode(65+ci) : String.fromCharCode(64+Math.floor(ci/26)) + String.fromCharCode(65+(ci%26));
+
+      const headers = ['ID','Level','Parent ID','Name','Country Code','Dial Prefix','Operator Name','Status','Notes'];
+      const dataRows = rows.map(r => [r.id, r.level, r.parentId ?? '', r.name, r.countryCode ?? '', r.dialPrefix ?? '', r.operatorName ?? '', r.commercialStatus, (r as any).notes ?? '']);
+
+      let wsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`;
+      wsXml += `<row r="1">${headers.map((h,ci) => `<c r="${colLetter(ci)}1" t="inlineStr"><is><t>${esc(h)}</t></is></c>`).join('')}</row>`;
+      for (let ri = 0; ri < dataRows.length; ri++) {
+        wsXml += `<row r="${ri+2}">${dataRows[ri].map((v,ci) => {
+          const cr = `${colLetter(ci)}${ri+2}`;
+          return typeof v === 'number' ? `<c r="${cr}"><v>${v}</v></c>` : `<c r="${cr}" t="inlineStr"><is><t>${esc(v)}</t></is></c>`;
+        }).join('')}</row>`;
+      }
+      wsXml += `</sheetData></worksheet>`;
+
+      const ct  = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`;
+      const wb  = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Global Destinations" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+      const rRl = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+      const wRl = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`;
+
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      zip.file('[Content_Types].xml', ct);
+      zip.file('_rels/.rels', rRl);
+      zip.file('xl/workbook.xml', wb);
+      zip.file('xl/_rels/workbook.xml.rels', wRl);
+      zip.file('xl/worksheets/sheet1.xml', wsXml);
+
+      const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="Bitsauto_Global_Destinations_${new Date().toISOString().slice(0,10)}.xlsx"`);
+      res.setHeader('Content-Length', buf.length);
+      res.send(buf);
+    } catch (e: any) { if (!res.headersSent) res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/download/platform-features — serve the Full Feature Reference (PLATFORM_FEATURES.md)
   app.get('/api/download/platform-features', (_req: any, res: any) => {
     const filePath = _pathJoin(process.cwd(), 'PLATFORM_FEATURES.md');
