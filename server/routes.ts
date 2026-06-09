@@ -5,6 +5,7 @@ import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
 import { registerRateManagerRoutes } from './routes-rate-manager';
+import { registerProductTemplatesRoutes } from './routes-product-templates';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { registerAiCopilotRoutes } from './routes-ai-copilot';
 import { registerVendorProbeRoutes, initVendorProbeScheduler } from './routes-vendor-probe';
@@ -33187,6 +33188,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── Rate Manager extended routes (product rates, notifications, per-row recon)
   registerRateManagerRoutes(app);
+  registerProductTemplatesRoutes(app);
 
   // ── AI Route Copilot ──────────────────────────────────────────────────────
   const { setVendorPrefixDataProvider, setLiveLoadProvider } = await import('./routes-ai-copilot');

@@ -1,0 +1,224 @@
+Based on your current BitsAuto roadmap and the fact that you're trying to reduce operational workload while improving routing, billing, and automation, I would prioritize the remaining Product Registry and Rate Manager work as follows:
+
+Priority 1 — Routing & Pricing Templates (Must Complete)
+
+This is the biggest missing piece.
+
+Current Flow
+Product
+↓
+Destination
+↓
+Rate Upload
+↓
+Manual Routing Decisions
+Desired Flow
+Product
+↓
+Routing Template
+↓
+Pricing Template
+↓
+Client Assignment
+↓
+Automatic Sippy Provisioning
+↓
+Automatic Rate Push
+Example
+
+Pakistan FC Product
+
+Routing Template:
+
+Vendor A (Priority 1)
+Vendor B (Priority 2)
+Vendor C (Backup)
+
+Pricing Template:
+
+Buy Rate: $0.045
+Margin: 20%
+Sell Rate: $0.054
+
+When creating a new client:
+
+Select Product:
+Pakistan FC
+
+System automatically:
+
+assigns routing template
+assigns pricing template
+creates tariff
+creates authentication
+creates routing group
+pushes to Sippy
+
+No manual setup.
+
+This should be your next major implementation.
+
+Priority 2 — Financial Truth Layer
+
+This is more important than Auto Margin Fix.
+
+Today:
+
+Vendor uploaded rate
+↓
+Rate pushed to Sippy
+↓
+Calls routed
+↓
+Invoices generated
+
+But nobody verifies:
+
+Pushed Rate
+=
+Actual Rate Used
+=
+Actual Customer Billing
+What should happen
+
+For every destination:
+
+Vendor Cost
+↓
+Sippy Tariff
+↓
+CDR Billing
+↓
+Invoice
+
+Compare all four.
+
+Alert if:
+
+Vendor Cost: $0.050
+Sippy Tariff: $0.055
+Customer Billed: $0.040
+
+This identifies:
+
+margin leakage
+wrong tariff assignments
+stale rates
+billing disputes
+
+This is extremely valuable for finance.
+
+Priority 3 — Auto Margin Fix
+
+Once Financial Truth exists.
+
+Example
+
+Current Margin:
+
+Buy: 0.050
+Sell: 0.055
+Margin: 10%
+
+Vendor changes:
+
+Buy: 0.053
+
+Margin becomes:
+
+3.7%
+
+Pricing Intelligence raises alert:
+
+Margin Squeeze
+
+Operator clicks:
+
+Fix
+
+System:
+
+Recalculate
+↓
+Push Updated Tariff
+↓
+Notify KAM
+↓
+Audit Log
+
+This is powerful, but only after Financial Truth is in place.
+
+Priority 4 — Notification Delivery
+
+Useful but not critical.
+
+You already have:
+
+Rate Notifications table
+Schedules
+Tracking
+
+Just need:
+
+Email delivery
+WhatsApp delivery
+SMS delivery
+
+This can come later.
+
+Priority 5 — Autonomous Rate Push
+
+I would not fully automate this yet.
+
+Instead:
+
+Semi-Automatic
+Vendor Rate Upload
+↓
+Analyze Impact
+↓
+Show Diff
+↓
+Approve
+↓
+Push to Sippy
+
+Much safer.
+
+Fully automatic pushes can accidentally:
+
+destroy margins
+overwrite client pricing
+create billing disputes
+
+Especially in wholesale voice.
+
+Recommended Build Order
+Phase A (Immediate)
+Routing Templates
+Pricing Templates
+Product → Client Auto Provisioning
+Phase B (Finance)
+Financial Truth Layer
+Margin Leakage Detection
+Phase C (Automation)
+Auto Margin Fix
+Approval Workflow
+Rate Push Automation
+Phase D (Notifications)
+Email Alerts
+WhatsApp Alerts
+SMS Alerts
+If I could choose only one feature to build next:
+
+Routing & Pricing Templates with automatic client provisioning.
+
+Because it eliminates a huge amount of manual work in:
+
+Account Creation
+Product Assignment
+Routing Group Creation
+Tariff Assignment
+Sippy Provisioning
+
+and becomes the foundation for everything else in Product Registry and Rate Manager.

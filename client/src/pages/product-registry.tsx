@@ -40,6 +40,12 @@ interface HistoryEntry {
   eventType: string; description: string; performedBy?: string; createdAt: string;
 }
 interface SippyAccount { i_account: number; id?: string; username?: string; }
+interface RtVendor { id: number; templateId: number; vendorName: string; iConnection?: number | null; iDestinationSet?: number | null; priority: number; weight: number; active?: boolean | null; note?: string | null; }
+interface RoutingTemplate { id: number; name: string; productId: number; description?: string | null; isDefault?: boolean | null; createdAt: string; vendors: RtVendor[]; }
+interface PtRate { id: number; templateId: number; dialPrefix: string; countryName?: string | null; operatorName?: string | null; buyRate: string; marginPct: string; sellRate: string; notes?: string | null; }
+interface PricingTemplate { id: number; name: string; productId: number; description?: string | null; isDefault?: boolean | null; createdAt: string; rates: PtRate[]; }
+interface ProvisionStep { step: string; status: 'ok' | 'error' | 'skipped'; detail?: string; }
+interface ProvisionJob { id: number; iAccount: number; productId: number; status: string; steps: ProvisionStep[]; iTariff?: number | null; iRoutingGroup?: number | null; createdBy?: string | null; createdAt: string; }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const TABS = [
@@ -49,9 +55,10 @@ const TABS = [
   { id: "assignments",  label: "Assignments",          icon: Layers     },
   { id: "customers",    label: "Customer Assignments", icon: Users      },
   { id: "performance",  label: "Performance",          icon: TrendingUp },
-  { id: "routing",      label: "Routing Templates",    icon: Network    },
-  { id: "pricing",      label: "Pricing Templates",    icon: BookOpen   },
-  { id: "history",      label: "History",              icon: History    },
+  { id: "routing",       label: "Routing Templates",    icon: Network    },
+  { id: "pricing",       label: "Pricing Templates",    icon: BookOpen   },
+  { id: "provisioning",  label: "Provisioning",         icon: ArrowRight },
+  { id: "history",       label: "History",              icon: History    },
 ] as const;
 type TabId = typeof TABS[number]["id"];
 
@@ -1074,48 +1081,140 @@ function CustomerAssignmentsTab({ products, customerAssignments }: {
 // ── Routing Templates Tab ─────────────────────────────────────────────────────
 function RoutingTemplatesTab({ products }: { products: Product[] }) {
   const qc = useQueryClient(); const { toast } = useToast();
-  const [editing, setEditing] = useState<number | null>(null);
-  const [form, setForm] = useState<Partial<Product>>({});
-  const updateMut = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => apiRequest("PUT", `/api/product-registry/products/${id}`, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/products"] }); setEditing(null); setForm({}); toast({ title: "Saved" }); },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
+  const [expandedProduct, setExpandedProduct] = useState<number | null>(products[0]?.id ?? null);
+  const [expandedTemplate, setExpandedTemplate] = useState<number | null>(null);
+  const [newTplForm, setNewTplForm] = useState<{ productId: number; name: string; isDefault: boolean } | null>(null);
+  const [editTpl, setEditTpl] = useState<{ id: number; name: string; isDefault: boolean } | null>(null);
+  const [newVendorForm, setNewVendorForm] = useState<{ templateId: number; vendorName: string; iConnection: string; iDestinationSet: string; priority: string; weight: string } | null>(null);
+  const [editVendor, setEditVendor] = useState<RtVendor | null>(null);
+
+  const { data: templates = [] } = useQuery<RoutingTemplate[]>({ queryKey: ["/api/product-registry/routing-templates"] });
+  const createTpl = useMutation({ mutationFn: (d: any) => apiRequest("POST", "/api/product-registry/routing-templates", d), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/routing-templates"] }); setNewTplForm(null); toast({ title: "Template created" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const updateTpl = useMutation({ mutationFn: ({ id, d }: any) => apiRequest("PUT", `/api/product-registry/routing-templates/${id}`, d), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/routing-templates"] }); setEditTpl(null); toast({ title: "Saved" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const deleteTpl = useMutation({ mutationFn: (id: number) => apiRequest("DELETE", `/api/product-registry/routing-templates/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/routing-templates"] }); toast({ title: "Deleted" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const addVendor = useMutation({ mutationFn: ({ tid, d }: any) => apiRequest("POST", `/api/product-registry/routing-templates/${tid}/vendors`, d), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/routing-templates"] }); setNewVendorForm(null); toast({ title: "Vendor added" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const updateVendor = useMutation({ mutationFn: ({ tid, vid, d }: any) => apiRequest("PUT", `/api/product-registry/routing-templates/${tid}/vendors/${vid}`, d), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/routing-templates"] }); setEditVendor(null); toast({ title: "Saved" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const deleteVendor = useMutation({ mutationFn: ({ tid, vid }: any) => apiRequest("DELETE", `/api/product-registry/routing-templates/${tid}/vendors/${vid}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/routing-templates"] }); toast({ title: "Removed" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+
+  const moveVendor = (t: RoutingTemplate, v: RtVendor, dir: -1 | 1) => {
+    const sorted = [...t.vendors].sort((a, b) => a.priority - b.priority);
+    const idx = sorted.findIndex(x => x.id === v.id);
+    const swap = sorted[idx + dir];
+    if (!swap) return;
+    updateVendor.mutate({ tid: t.id, vid: v.id, d: { ...v, priority: swap.priority } });
+    updateVendor.mutate({ tid: t.id, vid: swap.id, d: { ...swap, priority: v.priority } });
+  };
+
   return (
-    <div className="p-6 space-y-4 max-w-3xl">
-      <div><h2 className="font-semibold">Routing Templates</h2><p className="text-sm text-muted-foreground">Default and backup routing templates per product — baseline when provisioning new routes.</p></div>
-      <div className="bg-card border border-border rounded-lg divide-y divide-border">
-        {products.map(p => (
-          <div key={p.id} className="px-4 py-3">
-            {editing === p.id ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2"><div className={cn("w-8 h-8 rounded flex items-center justify-center text-xs font-bold border", PRODUCT_COLORS[p.color ?? "violet"])}>{p.code}</div><span className="font-medium">{p.name}</span></div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label className="text-xs text-muted-foreground mb-1 block">Default Routing Template</Label><Input value={form.defaultRoutingTemplate ?? p.defaultRoutingTemplate ?? ""} onChange={e => setForm(f => ({ ...f, defaultRoutingTemplate: e.target.value }))} placeholder="e.g. PK-FC-RTP" data-testid={`input-rt-default-${p.id}`} /></div>
-                  <div><Label className="text-xs text-muted-foreground mb-1 block">Backup Routing Template</Label><Input value={form.backupRoutingTemplate ?? p.backupRoutingTemplate ?? ""} onChange={e => setForm(f => ({ ...f, backupRoutingTemplate: e.target.value }))} placeholder="e.g. PK-FC-Backup" data-testid={`input-rt-backup-${p.id}`} /></div>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => updateMut.mutate({ id: p.id, data: form })} disabled={updateMut.isPending} data-testid={`btn-save-rt-${p.id}`}><Check className="w-3.5 h-3.5 mr-1" />Save</Button>
-                  <Button size="sm" variant="ghost" onClick={() => { setEditing(null); setForm({}); }} data-testid={`btn-cancel-rt-${p.id}`}>Cancel</Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-4">
-                <div className={cn("w-8 h-8 rounded flex items-center justify-center text-xs font-bold border shrink-0", PRODUCT_COLORS[p.color ?? "violet"])}>{p.code}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2"><span className="font-medium text-sm">{p.name}</span>{lifecycleBadge(p.status)}</div>
-                  <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
-                    <span>Default: <span className="font-mono text-foreground">{p.defaultRoutingTemplate || "—"}</span></span>
-                    <span>Backup: <span className="font-mono text-foreground">{p.backupRoutingTemplate || "—"}</span></span>
+    <div className="p-6 space-y-2 max-w-4xl">
+      <div className="mb-4"><h2 className="font-semibold">Routing Templates</h2><p className="text-sm text-muted-foreground">Define vendor priority order per product. Used when auto-provisioning new accounts.</p></div>
+      {products.map(p => {
+        const pts = templates.filter(t => t.productId === p.id);
+        const isOpen = expandedProduct === p.id;
+        return (
+          <div key={p.id} className="bg-card border border-border rounded-lg overflow-hidden">
+            <button onClick={() => setExpandedProduct(isOpen ? null : p.id)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors" data-testid={`btn-rt-product-${p.id}`}>
+              <div className={cn("w-7 h-7 rounded flex items-center justify-center text-xs font-bold border shrink-0", PRODUCT_COLORS[p.color ?? "violet"])}>{p.code}</div>
+              <span className="font-medium text-sm flex-1 text-left">{p.name}</span>
+              <span className="text-xs text-muted-foreground">{pts.length} template{pts.length !== 1 ? "s" : ""}</span>
+              {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+            </button>
+            {isOpen && (
+              <div className="border-t border-border divide-y divide-border/50">
+                {pts.length === 0 && <div className="px-4 py-4 text-sm text-muted-foreground">No templates yet — add one below.</div>}
+                {pts.map(t => {
+                  const isTplOpen = expandedTemplate === t.id;
+                  return (
+                    <div key={t.id}>
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/20">
+                        <button onClick={() => setExpandedTemplate(isTplOpen ? null : t.id)} className="flex items-center gap-2 flex-1 min-w-0 text-left" data-testid={`btn-rt-tpl-${t.id}`}>
+                          {isTplOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                          {editTpl?.id === t.id ? (
+                            <div className="flex items-center gap-2 flex-1" onClick={e => e.stopPropagation()}>
+                              <Input value={editTpl.name} onChange={e => setEditTpl(v => v && ({ ...v, name: e.target.value }))} className="h-7 text-sm w-48" data-testid={`input-rt-tpl-name-${t.id}`} />
+                              <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer"><input type="checkbox" checked={editTpl.isDefault} onChange={e => setEditTpl(v => v && ({ ...v, isDefault: e.target.checked }))} /><span>Default</span></label>
+                              <Button size="sm" className="h-7 px-2" onClick={() => updateTpl.mutate({ id: t.id, d: { name: editTpl.name, isDefault: editTpl.isDefault } })} disabled={updateTpl.isPending} data-testid={`btn-rt-tpl-save-${t.id}`}><Check className="w-3 h-3" /></Button>
+                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditTpl(null)}><X className="w-3 h-3" /></Button>
+                            </div>
+                          ) : (
+                            <span className="text-sm font-medium truncate">{t.name}{t.isDefault && <Badge variant="outline" className="ml-2 text-[10px] py-0 h-4 border-violet-500/40 text-violet-400">default</Badge>}</span>
+                          )}
+                        </button>
+                        {editTpl?.id !== t.id && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-xs text-muted-foreground mr-2">{t.vendors.length} vendor{t.vendors.length !== 1 ? "s" : ""}</span>
+                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setEditTpl({ id: t.id, name: t.name, isDefault: t.isDefault ?? false })} data-testid={`btn-rt-tpl-edit-${t.id}`}><Edit2 className="w-3 h-3" /></Button>
+                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-destructive hover:text-destructive" onClick={() => deleteTpl.mutate(t.id)} data-testid={`btn-rt-tpl-del-${t.id}`}><Trash2 className="w-3 h-3" /></Button>
+                          </div>
+                        )}
+                      </div>
+                      {isTplOpen && (
+                        <div className="px-4 py-3 space-y-2 bg-background/40">
+                          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Vendor Priority (top = highest)</div>
+                          {[...t.vendors].sort((a, b) => a.priority - b.priority).map((v, vi, arr) => (
+                            <div key={v.id} className="flex items-center gap-2 p-2 bg-card border border-border rounded-md">
+                              <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground shrink-0">{vi + 1}</div>
+                              {editVendor?.id === v.id ? (
+                                <div className="flex items-center gap-2 flex-1 flex-wrap">
+                                  <Input value={editVendor.vendorName} onChange={e => setEditVendor(x => x && ({ ...x, vendorName: e.target.value }))} placeholder="Vendor name" className="h-7 text-xs w-36" data-testid={`input-rt-vendor-name-${v.id}`} />
+                                  <Input value={editVendor.iConnection ?? ""} onChange={e => setEditVendor(x => x && ({ ...x, iConnection: e.target.value as any }))} placeholder="i_connection" className="h-7 text-xs w-28" data-testid={`input-rt-vendor-conn-${v.id}`} />
+                                  <Input value={editVendor.iDestinationSet ?? ""} onChange={e => setEditVendor(x => x && ({ ...x, iDestinationSet: e.target.value as any }))} placeholder="i_dest_set" className="h-7 text-xs w-28" data-testid={`input-rt-vendor-ds-${v.id}`} />
+                                  <Input type="number" value={editVendor.weight} onChange={e => setEditVendor(x => x && ({ ...x, weight: parseInt(e.target.value) || 1 }))} placeholder="weight" className="h-7 text-xs w-16" data-testid={`input-rt-vendor-wt-${v.id}`} />
+                                  <Button size="sm" className="h-7 px-2" onClick={() => updateVendor.mutate({ tid: t.id, vid: v.id, d: editVendor })} disabled={updateVendor.isPending}><Check className="w-3 h-3" /></Button>
+                                  <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditVendor(null)}><X className="w-3 h-3" /></Button>
+                                </div>
+                              ) : (
+                                <>
+                                  <GripVertical className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+                                  <span className="font-medium text-sm flex-1">{v.vendorName}</span>
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    {v.iConnection && <span className="font-mono">conn:{v.iConnection}</span>}
+                                    {v.iDestinationSet && <span className="font-mono">ds:{v.iDestinationSet}</span>}
+                                    <span>wt:{v.weight}</span>
+                                    {(!v.iConnection || !v.iDestinationSet) && <span className="text-amber-400/80">⚠ incomplete</span>}
+                                  </div>
+                                  <div className="flex items-center gap-0.5 shrink-0">
+                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => moveVendor(t, v, -1)} disabled={vi === 0}><span className="text-xs">↑</span></Button>
+                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => moveVendor(t, v, 1)} disabled={vi === arr.length - 1}><span className="text-xs">↓</span></Button>
+                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setEditVendor(v)} data-testid={`btn-rt-vendor-edit-${v.id}`}><Edit2 className="w-3 h-3" /></Button>
+                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-destructive" onClick={() => deleteVendor.mutate({ tid: t.id, vid: v.id })} data-testid={`btn-rt-vendor-del-${v.id}`}><Trash2 className="w-3 h-3" /></Button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          ))}
+                          {newVendorForm?.templateId === t.id ? (
+                            <div className="flex items-center gap-2 p-2 bg-card border border-dashed border-primary/40 rounded-md flex-wrap">
+                              <Input value={newVendorForm.vendorName} onChange={e => setNewVendorForm(f => f && ({ ...f, vendorName: e.target.value }))} placeholder="Vendor name*" className="h-7 text-xs w-36" data-testid={`input-rt-newvendor-name-${t.id}`} />
+                              <Input value={newVendorForm.iConnection} onChange={e => setNewVendorForm(f => f && ({ ...f, iConnection: e.target.value }))} placeholder="i_connection" className="h-7 text-xs w-28" data-testid={`input-rt-newvendor-conn-${t.id}`} />
+                              <Input value={newVendorForm.iDestinationSet} onChange={e => setNewVendorForm(f => f && ({ ...f, iDestinationSet: e.target.value }))} placeholder="i_dest_set" className="h-7 text-xs w-28" data-testid={`input-rt-newvendor-ds-${t.id}`} />
+                              <Input type="number" value={newVendorForm.weight} onChange={e => setNewVendorForm(f => f && ({ ...f, weight: e.target.value }))} placeholder="weight" className="h-7 text-xs w-16" data-testid={`input-rt-newvendor-wt-${t.id}`} />
+                              <Button size="sm" className="h-7 px-2" onClick={() => addVendor.mutate({ tid: t.id, d: { ...newVendorForm, priority: t.vendors.length } })} disabled={!newVendorForm.vendorName || addVendor.isPending}><Check className="w-3 h-3 mr-1" />Add</Button>
+                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setNewVendorForm(null)}><X className="w-3 h-3" /></Button>
+                            </div>
+                          ) : (
+                            <Button size="sm" variant="outline" className="h-7 text-xs w-full border-dashed" onClick={() => setNewVendorForm({ templateId: t.id, vendorName: "", iConnection: "", iDestinationSet: "", priority: String(t.vendors.length), weight: "1" })} data-testid={`btn-rt-add-vendor-${t.id}`}><Plus className="w-3 h-3 mr-1" />Add Vendor</Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {newTplForm?.productId === p.id ? (
+                  <div className="flex items-center gap-2 px-4 py-3">
+                    <Input value={newTplForm.name} onChange={e => setNewTplForm(f => f && ({ ...f, name: e.target.value }))} placeholder="Template name" className="h-8 text-sm flex-1" data-testid={`input-rt-newtpl-name-${p.id}`} autoFocus />
+                    <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer whitespace-nowrap"><input type="checkbox" checked={newTplForm.isDefault} onChange={e => setNewTplForm(f => f && ({ ...f, isDefault: e.target.checked }))} /><span>Set as default</span></label>
+                    <Button size="sm" className="h-8" onClick={() => createTpl.mutate({ ...newTplForm })} disabled={!newTplForm.name || createTpl.isPending} data-testid={`btn-rt-create-tpl-${p.id}`}><Check className="w-3.5 h-3.5 mr-1" />Create</Button>
+                    <Button size="sm" variant="ghost" className="h-8" onClick={() => setNewTplForm(null)}><X className="w-3.5 h-3.5" /></Button>
                   </div>
-                </div>
-                <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditing(p.id); setForm({}); }} data-testid={`btn-edit-rt-${p.id}`}><Edit2 className="w-3.5 h-3.5" /></Button>
+                ) : (
+                  <button onClick={() => setNewTplForm({ productId: p.id, name: "", isDefault: pts.length === 0 })} className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors" data-testid={`btn-rt-add-tpl-${p.id}`}><Plus className="w-3.5 h-3.5" />Add Routing Template</button>
+                )}
               </div>
             )}
           </div>
-        ))}
-        {products.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">No products</div>}
-      </div>
+        );
+      })}
     </div>
   );
 }
@@ -1123,62 +1222,292 @@ function RoutingTemplatesTab({ products }: { products: Product[] }) {
 // ── Pricing Templates Tab ─────────────────────────────────────────────────────
 function PricingTemplatesTab({ products }: { products: Product[] }) {
   const qc = useQueryClient(); const { toast } = useToast();
-  const [editing, setEditing] = useState<number | null>(null);
-  const [form, setForm] = useState<Partial<Product>>({});
-  const updateMut = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => apiRequest("PUT", `/api/product-registry/products/${id}`, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/products"] }); setEditing(null); setForm({}); toast({ title: "Saved" }); },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
-  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => <div className="space-y-1"><Label className="text-xs text-muted-foreground">{label}</Label>{children}</div>;
+  const [expandedProduct, setExpandedProduct] = useState<number | null>(products[0]?.id ?? null);
+  const [expandedTemplate, setExpandedTemplate] = useState<number | null>(null);
+  const [newTplForm, setNewTplForm] = useState<{ productId: number; name: string; isDefault: boolean } | null>(null);
+  const [editTpl, setEditTpl] = useState<{ id: number; name: string; isDefault: boolean } | null>(null);
+  const [newRateForm, setNewRateForm] = useState<{ templateId: number; dialPrefix: string; countryName: string; operatorName: string; buyRate: string; marginPct: string } | null>(null);
+  const [editRate, setEditRate] = useState<PtRate | null>(null);
+
+  const { data: templates = [] } = useQuery<PricingTemplate[]>({ queryKey: ["/api/product-registry/pricing-templates"] });
+  const createTpl  = useMutation({ mutationFn: (d: any) => apiRequest("POST", "/api/product-registry/pricing-templates", d), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/pricing-templates"] }); setNewTplForm(null); toast({ title: "Template created" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const updateTpl  = useMutation({ mutationFn: ({ id, d }: any) => apiRequest("PUT", `/api/product-registry/pricing-templates/${id}`, d), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/pricing-templates"] }); setEditTpl(null); toast({ title: "Saved" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const deleteTpl  = useMutation({ mutationFn: (id: number) => apiRequest("DELETE", `/api/product-registry/pricing-templates/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/pricing-templates"] }); toast({ title: "Deleted" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const addRate    = useMutation({ mutationFn: ({ tid, d }: any) => apiRequest("POST", `/api/product-registry/pricing-templates/${tid}/rates`, d), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/pricing-templates"] }); setNewRateForm(null); toast({ title: "Rate added" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const updateRate = useMutation({ mutationFn: ({ tid, rid, d }: any) => apiRequest("PUT", `/api/product-registry/pricing-templates/${tid}/rates/${rid}`, d), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/pricing-templates"] }); setEditRate(null); toast({ title: "Saved" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+  const deleteRate = useMutation({ mutationFn: ({ tid, rid }: any) => apiRequest("DELETE", `/api/product-registry/pricing-templates/${tid}/rates/${rid}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-registry/pricing-templates"] }); toast({ title: "Removed" }); }, onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
+
+  const previewSell = (buyRate: string, marginPct: string) => {
+    const b = parseFloat(buyRate), m = parseFloat(marginPct);
+    return (!isNaN(b) && !isNaN(m)) ? (b * (1 + m / 100)).toFixed(6) : "—";
+  };
+
   return (
-    <div className="p-6 space-y-4 max-w-3xl">
-      <div><h2 className="font-semibold">Pricing Templates</h2><p className="text-sm text-muted-foreground">Margin rules and KAM offer windows. KAMs only see the offer window — never vendor cost.</p></div>
-      <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2.5 flex items-start gap-2.5"><Shield className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" /><p className="text-xs text-amber-300">Management access only. KAMs are shown Min/Target/Premium offer window — never vendor cost or true margin.</p></div>
-      <div className="bg-card border border-border rounded-lg divide-y divide-border">
-        {products.map(p => {
-          const ef = { ...p, ...form };
-          return (
-            <div key={p.id} className="px-4 py-4">
-              {editing === p.id ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2"><div className={cn("w-8 h-8 rounded flex items-center justify-center text-xs font-bold border", PRODUCT_COLORS[p.color ?? "violet"])}>{p.code}</div><span className="font-medium">{p.name}</span></div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <Field label="Min Margin %"><Input type="number" value={ef.minMarginPct ?? 0} onChange={e => setForm(f => ({ ...f, minMarginPct: parseFloat(e.target.value) }))} data-testid={`input-pt-margin-${p.id}`} /></Field>
-                    <Field label="Discount Min %"><Input type="number" value={ef.discountRangeMin ?? ""} onChange={e => setForm(f => ({ ...f, discountRangeMin: parseFloat(e.target.value) }))} data-testid={`input-pt-disc-min-${p.id}`} /></Field>
-                    <Field label="Discount Max %"><Input type="number" value={ef.discountRangeMax ?? ""} onChange={e => setForm(f => ({ ...f, discountRangeMax: parseFloat(e.target.value) }))} data-testid={`input-pt-disc-max-${p.id}`} /></Field>
-                    <Field label="Offer Min"><Input type="number" step="0.0001" value={ef.offerWindowMin ?? ""} onChange={e => setForm(f => ({ ...f, offerWindowMin: parseFloat(e.target.value) }))} data-testid={`input-pt-offer-min-${p.id}`} /></Field>
-                    <Field label="Offer Target"><Input type="number" step="0.0001" value={ef.offerWindowTarget ?? ""} onChange={e => setForm(f => ({ ...f, offerWindowTarget: parseFloat(e.target.value) }))} data-testid={`input-pt-offer-target-${p.id}`} /></Field>
-                    <Field label="Offer Premium"><Input type="number" step="0.0001" value={ef.offerWindowPremium ?? ""} onChange={e => setForm(f => ({ ...f, offerWindowPremium: parseFloat(e.target.value) }))} data-testid={`input-pt-offer-premium-${p.id}`} /></Field>
-                    <Field label="Notice (days)"><Input type="number" value={ef.noticePeriodDays ?? 7} onChange={e => setForm(f => ({ ...f, noticePeriodDays: parseInt(e.target.value) }))} data-testid={`input-pt-notice-${p.id}`} /></Field>
-                    <Field label="Pricing Template"><Input value={ef.defaultPricingTemplate ?? ""} onChange={e => setForm(f => ({ ...f, defaultPricingTemplate: e.target.value }))} placeholder="e.g. Wholesale+15%" data-testid={`input-pt-template-${p.id}`} /></Field>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => updateMut.mutate({ id: p.id, data: form })} disabled={updateMut.isPending} data-testid={`btn-save-pt-${p.id}`}><Check className="w-3.5 h-3.5 mr-1" />Save</Button>
-                    <Button size="sm" variant="ghost" onClick={() => { setEditing(null); setForm({}); }} data-testid={`btn-cancel-pt-${p.id}`}>Cancel</Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-start gap-4">
-                  <div className={cn("w-8 h-8 rounded flex items-center justify-center text-xs font-bold border shrink-0 mt-0.5", PRODUCT_COLORS[p.color ?? "violet"])}>{p.code}</div>
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="flex items-center gap-2"><span className="font-medium text-sm">{p.name}</span>{lifecycleBadge(p.status)}</div>
-                    <div className="grid grid-cols-3 gap-x-6 text-xs">
-                      <span className="text-muted-foreground">Min Margin: <strong className="text-foreground">{p.minMarginPct ?? 0}%</strong></span>
-                      <span className="text-muted-foreground">Discount: <strong className="text-foreground">{p.discountRangeMin ?? "—"}–{p.discountRangeMax ?? "—"}%</strong></span>
-                      <span className="text-muted-foreground">Notice: <strong className="text-foreground">{p.noticePeriodDays ?? 7}d</strong></span>
-                      <span className="text-muted-foreground">Offer: <strong className="text-foreground">{p.offerWindowMin ?? "—"} / {p.offerWindowTarget ?? "—"} / {p.offerWindowPremium ?? "—"}</strong></span>
+    <div className="p-6 space-y-2 max-w-4xl">
+      <div className="mb-3"><h2 className="font-semibold">Pricing Templates</h2><p className="text-sm text-muted-foreground">Define buy rates and margin per destination. Used when auto-provisioning Sippy tariffs.</p></div>
+      <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-2 mb-4"><Shield className="w-3.5 h-3.5 text-amber-400 shrink-0" /><p className="text-xs text-amber-300">Management only — sell rates and margins are never exposed to KAMs.</p></div>
+      {products.map(p => {
+        const pts = templates.filter(t => t.productId === p.id);
+        const isOpen = expandedProduct === p.id;
+        return (
+          <div key={p.id} className="bg-card border border-border rounded-lg overflow-hidden">
+            <button onClick={() => setExpandedProduct(isOpen ? null : p.id)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors" data-testid={`btn-pt-product-${p.id}`}>
+              <div className={cn("w-7 h-7 rounded flex items-center justify-center text-xs font-bold border shrink-0", PRODUCT_COLORS[p.color ?? "violet"])}>{p.code}</div>
+              <span className="font-medium text-sm flex-1 text-left">{p.name}</span>
+              <span className="text-xs text-muted-foreground">{pts.length} template{pts.length !== 1 ? "s" : ""}</span>
+              {isOpen ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+            </button>
+            {isOpen && (
+              <div className="border-t border-border divide-y divide-border/50">
+                {pts.length === 0 && <div className="px-4 py-4 text-sm text-muted-foreground">No templates yet — add one below.</div>}
+                {pts.map(t => {
+                  const isTplOpen = expandedTemplate === t.id;
+                  return (
+                    <div key={t.id}>
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/20">
+                        <button onClick={() => setExpandedTemplate(isTplOpen ? null : t.id)} className="flex items-center gap-2 flex-1 min-w-0 text-left" data-testid={`btn-pt-tpl-${t.id}`}>
+                          {isTplOpen ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+                          {editTpl?.id === t.id ? (
+                            <div className="flex items-center gap-2 flex-1" onClick={e => e.stopPropagation()}>
+                              <Input value={editTpl.name} onChange={e => setEditTpl(v => v && ({ ...v, name: e.target.value }))} className="h-7 text-sm w-48" data-testid={`input-pt-tpl-name-${t.id}`} />
+                              <label className="flex items-center gap-1 text-xs cursor-pointer"><input type="checkbox" checked={editTpl.isDefault} onChange={e => setEditTpl(v => v && ({ ...v, isDefault: e.target.checked }))} /><span className="text-muted-foreground">Default</span></label>
+                              <Button size="sm" className="h-7 px-2" onClick={() => updateTpl.mutate({ id: t.id, d: { name: editTpl.name, isDefault: editTpl.isDefault } })} disabled={updateTpl.isPending}><Check className="w-3 h-3" /></Button>
+                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditTpl(null)}><X className="w-3 h-3" /></Button>
+                            </div>
+                          ) : (
+                            <span className="text-sm font-medium truncate">{t.name}{t.isDefault && <Badge variant="outline" className="ml-2 text-[10px] py-0 h-4 border-violet-500/40 text-violet-400">default</Badge>}</span>
+                          )}
+                        </button>
+                        {editTpl?.id !== t.id && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-xs text-muted-foreground mr-2">{t.rates.length} rate{t.rates.length !== 1 ? "s" : ""}</span>
+                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setEditTpl({ id: t.id, name: t.name, isDefault: t.isDefault ?? false })} data-testid={`btn-pt-tpl-edit-${t.id}`}><Edit2 className="w-3 h-3" /></Button>
+                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-destructive" onClick={() => deleteTpl.mutate(t.id)} data-testid={`btn-pt-tpl-del-${t.id}`}><Trash2 className="w-3 h-3" /></Button>
+                          </div>
+                        )}
+                      </div>
+                      {isTplOpen && (
+                        <div className="px-4 py-3 space-y-2">
+                          {t.rates.length > 0 && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead><tr className="text-muted-foreground border-b border-border"><th className="text-left pb-1.5 pr-3 font-medium">Prefix</th><th className="text-left pb-1.5 pr-3 font-medium">Country</th><th className="text-left pb-1.5 pr-3 font-medium">Operator</th><th className="text-right pb-1.5 pr-3 font-medium">Buy</th><th className="text-right pb-1.5 pr-3 font-medium">Margin%</th><th className="text-right pb-1.5 pr-3 font-medium">Sell</th><th className="pb-1.5 w-16"></th></tr></thead>
+                                <tbody className="divide-y divide-border/30">
+                                  {t.rates.map(r => (
+                                    <tr key={r.id}>
+                                      {editRate?.id === r.id ? (
+                                        <td colSpan={7} className="py-1.5">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <Input value={editRate.dialPrefix} onChange={e => setEditRate(x => x && ({ ...x, dialPrefix: e.target.value }))} placeholder="Prefix" className="h-7 text-xs w-24" data-testid={`input-pt-rate-prefix-${r.id}`} />
+                                            <Input value={editRate.countryName ?? ""} onChange={e => setEditRate(x => x && ({ ...x, countryName: e.target.value }))} placeholder="Country" className="h-7 text-xs w-28" data-testid={`input-pt-rate-country-${r.id}`} />
+                                            <Input value={editRate.operatorName ?? ""} onChange={e => setEditRate(x => x && ({ ...x, operatorName: e.target.value }))} placeholder="Operator" className="h-7 text-xs w-28" data-testid={`input-pt-rate-operator-${r.id}`} />
+                                            <Input type="number" step="0.000001" value={editRate.buyRate} onChange={e => setEditRate(x => x && ({ ...x, buyRate: e.target.value }))} placeholder="Buy" className="h-7 text-xs w-24" data-testid={`input-pt-rate-buy-${r.id}`} />
+                                            <Input type="number" step="0.01" value={editRate.marginPct} onChange={e => setEditRate(x => x && ({ ...x, marginPct: e.target.value }))} placeholder="Margin%" className="h-7 text-xs w-20" data-testid={`input-pt-rate-margin-${r.id}`} />
+                                            <span className="text-xs text-emerald-400 font-mono">→ {previewSell(editRate.buyRate, editRate.marginPct)}</span>
+                                            <Button size="sm" className="h-7 px-2" onClick={() => updateRate.mutate({ tid: t.id, rid: r.id, d: editRate })} disabled={updateRate.isPending}><Check className="w-3 h-3" /></Button>
+                                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditRate(null)}><X className="w-3 h-3" /></Button>
+                                          </div>
+                                        </td>
+                                      ) : (
+                                        <>
+                                          <td className="py-1.5 pr-3 font-mono">{r.dialPrefix}</td>
+                                          <td className="py-1.5 pr-3 text-muted-foreground">{r.countryName || "—"}</td>
+                                          <td className="py-1.5 pr-3 text-muted-foreground">{r.operatorName || "—"}</td>
+                                          <td className="py-1.5 pr-3 text-right font-mono">{parseFloat(r.buyRate).toFixed(4)}</td>
+                                          <td className="py-1.5 pr-3 text-right">{parseFloat(r.marginPct).toFixed(2)}%</td>
+                                          <td className="py-1.5 pr-3 text-right font-mono text-emerald-400">{parseFloat(r.sellRate).toFixed(4)}</td>
+                                          <td className="py-1.5 text-right">
+                                            <div className="flex items-center justify-end gap-0.5">
+                                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => setEditRate(r)} data-testid={`btn-pt-rate-edit-${r.id}`}><Edit2 className="w-3 h-3" /></Button>
+                                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-destructive" onClick={() => deleteRate.mutate({ tid: t.id, rid: r.id })} data-testid={`btn-pt-rate-del-${r.id}`}><Trash2 className="w-3 h-3" /></Button>
+                                            </div>
+                                          </td>
+                                        </>
+                                      )}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                          {newRateForm?.templateId === t.id ? (
+                            <div className="flex items-center gap-2 flex-wrap p-2 bg-card border border-dashed border-primary/40 rounded-md">
+                              <Input value={newRateForm.dialPrefix} onChange={e => setNewRateForm(f => f && ({ ...f, dialPrefix: e.target.value }))} placeholder="Prefix*" className="h-7 text-xs w-24" data-testid={`input-pt-newrate-prefix-${t.id}`} />
+                              <Input value={newRateForm.countryName} onChange={e => setNewRateForm(f => f && ({ ...f, countryName: e.target.value }))} placeholder="Country" className="h-7 text-xs w-28" data-testid={`input-pt-newrate-country-${t.id}`} />
+                              <Input value={newRateForm.operatorName} onChange={e => setNewRateForm(f => f && ({ ...f, operatorName: e.target.value }))} placeholder="Operator" className="h-7 text-xs w-28" data-testid={`input-pt-newrate-operator-${t.id}`} />
+                              <Input type="number" step="0.000001" value={newRateForm.buyRate} onChange={e => setNewRateForm(f => f && ({ ...f, buyRate: e.target.value }))} placeholder="Buy rate*" className="h-7 text-xs w-24" data-testid={`input-pt-newrate-buy-${t.id}`} />
+                              <Input type="number" step="0.01" value={newRateForm.marginPct} onChange={e => setNewRateForm(f => f && ({ ...f, marginPct: e.target.value }))} placeholder="Margin %*" className="h-7 text-xs w-20" data-testid={`input-pt-newrate-margin-${t.id}`} />
+                              <span className="text-xs text-emerald-400 font-mono">→ {previewSell(newRateForm.buyRate, newRateForm.marginPct)}</span>
+                              <Button size="sm" className="h-7 px-2" onClick={() => addRate.mutate({ tid: t.id, d: newRateForm })} disabled={!newRateForm.dialPrefix || !newRateForm.buyRate || !newRateForm.marginPct || addRate.isPending}><Check className="w-3 h-3 mr-1" />Add</Button>
+                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setNewRateForm(null)}><X className="w-3 h-3" /></Button>
+                            </div>
+                          ) : (
+                            <Button size="sm" variant="outline" className="h-7 text-xs w-full border-dashed" onClick={() => setNewRateForm({ templateId: t.id, dialPrefix: "", countryName: "", operatorName: "", buyRate: "", marginPct: "" })} data-testid={`btn-pt-add-rate-${t.id}`}><Plus className="w-3 h-3 mr-1" />Add Rate</Button>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {p.defaultPricingTemplate && <div className="text-xs text-muted-foreground">Template: <span className="font-mono text-foreground">{p.defaultPricingTemplate}</span></div>}
+                  );
+                })}
+                {newTplForm?.productId === p.id ? (
+                  <div className="flex items-center gap-2 px-4 py-3">
+                    <Input value={newTplForm.name} onChange={e => setNewTplForm(f => f && ({ ...f, name: e.target.value }))} placeholder="Template name" className="h-8 text-sm flex-1" data-testid={`input-pt-newtpl-name-${p.id}`} autoFocus />
+                    <label className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer whitespace-nowrap"><input type="checkbox" checked={newTplForm.isDefault} onChange={e => setNewTplForm(f => f && ({ ...f, isDefault: e.target.checked }))} /><span>Set as default</span></label>
+                    <Button size="sm" className="h-8" onClick={() => createTpl.mutate({ ...newTplForm })} disabled={!newTplForm.name || createTpl.isPending} data-testid={`btn-pt-create-tpl-${p.id}`}><Check className="w-3.5 h-3.5 mr-1" />Create</Button>
+                    <Button size="sm" variant="ghost" className="h-8" onClick={() => setNewTplForm(null)}><X className="w-3.5 h-3.5" /></Button>
                   </div>
-                  <Button size="sm" variant="ghost" className="h-7 shrink-0" onClick={() => { setEditing(p.id); setForm({}); }} data-testid={`btn-edit-pt-${p.id}`}><Edit2 className="w-3.5 h-3.5" /></Button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {products.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">No products</div>}
+                ) : (
+                  <button onClick={() => setNewTplForm({ productId: p.id, name: "", isDefault: pts.length === 0 })} className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors" data-testid={`btn-pt-add-tpl-${p.id}`}><Plus className="w-3.5 h-3.5" />Add Pricing Template</button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Provisioning Tab ───────────────────────────────────────────────────────────
+function ProvisioningTab({ products }: { products: Product[] }) {
+  const { toast } = useToast();
+  const [iAccount, setIAccount] = useState("");
+  const [productId, setProductId] = useState("");
+  const [preview, setPreview] = useState<any | null>(null);
+  const [result, setResult] = useState<any | null>(null);
+
+  const { data: accounts = [] } = useQuery<SippyAccount[]>({ queryKey: ["/api/sippy/accounts"] });
+  const { data: jobs = [] } = useQuery<ProvisionJob[]>({ queryKey: ["/api/product-registry/provision/jobs"] });
+  const qc = useQueryClient();
+
+  const previewMut = useMutation({
+    mutationFn: (d: any) => apiRequest("POST", "/api/product-registry/provision/preview", d),
+    onSuccess: (data: any) => { setPreview(data); setResult(null); },
+    onError: (e: any) => toast({ title: "Preview failed", description: e.message, variant: "destructive" }),
+  });
+  const executeMut = useMutation({
+    mutationFn: (d: any) => apiRequest("POST", "/api/product-registry/provision/execute", d),
+    onSuccess: (data: any) => { setResult(data); qc.invalidateQueries({ queryKey: ["/api/product-registry/provision/jobs"] }); },
+    onError: (e: any) => toast({ title: "Provisioning failed", description: e.message, variant: "destructive" }),
+  });
+
+  const stepIcon = (status?: string) => {
+    if (status === 'ok')      return <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />;
+    if (status === 'error')   return <XCircle className="w-4 h-4 text-destructive shrink-0" />;
+    if (status === 'skipped') return <div className="w-4 h-4 rounded-full border border-muted-foreground/40 shrink-0" />;
+    return <div className="w-4 h-4 rounded-full border border-border shrink-0" />;
+  };
+
+  return (
+    <div className="p-6 space-y-6 max-w-3xl">
+      <div><h2 className="font-semibold">Auto-Provisioning</h2><p className="text-sm text-muted-foreground">Select an account and product — the system will create the tariff, push rates, create a routing group, and assign everything to the account automatically.</p></div>
+
+      {/* Step 1 — Select */}
+      <div className="bg-card border border-border rounded-lg p-5 space-y-4">
+        <div className="text-sm font-medium flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold">1</span>Select Account & Product</div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Sippy Account</Label>
+            <select value={iAccount} onChange={e => { setIAccount(e.target.value); setPreview(null); setResult(null); }} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm" data-testid="select-prov-account">
+              <option value="">Select account…</option>
+              {accounts.map(a => <option key={a.i_account} value={a.i_account}>{a.username || a.id || `Account #${a.i_account}`} (#{a.i_account})</option>)}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Product</Label>
+            <select value={productId} onChange={e => { setProductId(e.target.value); setPreview(null); setResult(null); }} className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm" data-testid="select-prov-product">
+              <option value="">Select product…</option>
+              {products.filter(p => p.status === 'commercial').map(p => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+            </select>
+          </div>
+        </div>
+        <Button className="h-9" onClick={() => previewMut.mutate({ iAccount: parseInt(iAccount), productId: parseInt(productId) })} disabled={!iAccount || !productId || previewMut.isPending} data-testid="btn-prov-preview">
+          {previewMut.isPending ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <ArrowRight className="w-4 h-4 mr-2" />}
+          Preview Plan
+        </Button>
       </div>
+
+      {/* Step 2 — Preview */}
+      {preview && !result && (
+        <div className="bg-card border border-border rounded-lg p-5 space-y-4">
+          <div className="text-sm font-medium flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold">2</span>Review Plan</div>
+          <div className="grid grid-cols-2 gap-4 text-xs">
+            <div className="space-y-1">
+              <div className="text-muted-foreground font-medium">Product</div>
+              <div className="font-medium">{preview.product?.name} <span className="text-muted-foreground">({preview.product?.code})</span></div>
+              {preview.product?.trunkPrefix && <div className="text-muted-foreground font-mono">Trunk prefix: {preview.product.trunkPrefix}</div>}
+            </div>
+            <div className="space-y-1">
+              <div className="text-muted-foreground font-medium">Templates</div>
+              <div>{preview.routingTemplate ? <span className="text-foreground">{preview.routingTemplate.name} <span className="text-muted-foreground">({preview.routingTemplate.vendors?.length ?? 0} vendors)</span></span> : <span className="text-muted-foreground">No routing template</span>}</div>
+              <div>{preview.pricingTemplate ? <span className="text-foreground">{preview.pricingTemplate.name} <span className="text-muted-foreground">({preview.pricingTemplate.rates?.length ?? 0} rates)</span></span> : <span className="text-muted-foreground">No pricing template</span>}</div>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {(preview.steps ?? []).map((s: any, i: number) => (
+              <div key={i} className={cn("flex items-start gap-3 p-3 rounded-md text-sm", s.warning ? "bg-amber-500/10 border border-amber-500/20" : "bg-muted/30")}>
+                {stepIcon(undefined)}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium">{s.description}</div>
+                  {s.warning && <div className="text-xs text-amber-400 mt-0.5">{s.warning}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button className="h-9" onClick={() => executeMut.mutate({ iAccount: parseInt(iAccount), productId: parseInt(productId) })} disabled={executeMut.isPending} data-testid="btn-prov-execute">
+              {executeMut.isPending ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+              Execute Provisioning
+            </Button>
+            <Button variant="outline" className="h-9" onClick={() => setPreview(null)} data-testid="btn-prov-cancel">Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3 — Results */}
+      {result && (
+        <div className={cn("border rounded-lg p-5 space-y-3", result.status === 'completed' ? "bg-emerald-500/10 border-emerald-500/30" : "bg-amber-500/10 border-amber-500/30")}>
+          <div className="flex items-center gap-2">
+            {result.status === 'completed' ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <XCircle className="w-5 h-5 text-amber-400" />}
+            <span className="font-medium">{result.status === 'completed' ? "Provisioning complete" : "Provisioning finished with errors"}</span>
+          </div>
+          {(result.steps ?? []).map((s: ProvisionStep, i: number) => (
+            <div key={i} className="flex items-start gap-3 text-sm">
+              {stepIcon(s.status)}
+              <span className={cn(s.status === 'error' ? "text-destructive" : s.status === 'skipped' ? "text-muted-foreground" : "text-foreground")}>{s.detail || s.step}</span>
+            </div>
+          ))}
+          {(result.iTariff || result.iRoutingGroup) && (
+            <div className="flex gap-4 text-xs font-mono text-muted-foreground pt-1">
+              {result.iTariff      && <span>Tariff ID: <strong className="text-foreground">{result.iTariff}</strong></span>}
+              {result.iRoutingGroup && <span>Routing Group ID: <strong className="text-foreground">{result.iRoutingGroup}</strong></span>}
+            </div>
+          )}
+          <Button variant="outline" size="sm" className="h-7" onClick={() => { setPreview(null); setResult(null); setIAccount(""); setProductId(""); }} data-testid="btn-prov-reset">Provision Another</Button>
+        </div>
+      )}
+
+      {/* Job History */}
+      {jobs.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-sm font-medium text-muted-foreground">Provisioning History</div>
+          <div className="bg-card border border-border rounded-lg divide-y divide-border">
+            {[...jobs].reverse().slice(0, 10).map(j => {
+              const prod = products.find(p => p.id === j.productId);
+              return (
+                <div key={j.id} className="flex items-center gap-4 px-4 py-2.5 text-sm">
+                  <div className={cn("w-2 h-2 rounded-full shrink-0", j.status === 'completed' ? "bg-emerald-400" : j.status === 'partial' ? "bg-amber-400" : "bg-muted-foreground")} />
+                  <span className="font-medium">Account #{j.iAccount}</span>
+                  <span className="text-muted-foreground">{prod?.name ?? `Product #${j.productId}`}</span>
+                  {j.iTariff && <span className="text-xs font-mono text-muted-foreground">Tariff:{j.iTariff}</span>}
+                  {j.iRoutingGroup && <span className="text-xs font-mono text-muted-foreground">RG:{j.iRoutingGroup}</span>}
+                  <span className="ml-auto text-xs text-muted-foreground">{new Date(j.createdAt).toLocaleString()}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1428,9 +1757,10 @@ export default function ProductRegistryPage() {
         {activeTab === "assignments"  && <div className="h-full overflow-hidden"><AssignmentsTab products={products} destinations={destinations} assignments={assignments} /></div>}
         {activeTab === "customers"    && <div className="h-full overflow-hidden"><CustomerAssignmentsTab products={products} customerAssignments={customerAssignments} /></div>}
         {activeTab === "performance"  && <div className="h-full overflow-y-auto"><PerformanceTab products={products} customerAssignments={customerAssignments} /></div>}
-        {activeTab === "routing"      && <div className="h-full overflow-y-auto"><RoutingTemplatesTab products={products} /></div>}
-        {activeTab === "pricing"      && <div className="h-full overflow-y-auto"><PricingTemplatesTab products={products} /></div>}
-        {activeTab === "history"      && <div className="h-full overflow-y-auto"><HistoryTab history={history} /></div>}
+        {activeTab === "routing"       && <div className="h-full overflow-y-auto"><RoutingTemplatesTab products={products} /></div>}
+        {activeTab === "pricing"       && <div className="h-full overflow-y-auto"><PricingTemplatesTab products={products} /></div>}
+        {activeTab === "provisioning"  && <div className="h-full overflow-y-auto"><ProvisioningTab products={products} /></div>}
+        {activeTab === "history"       && <div className="h-full overflow-y-auto"><HistoryTab history={history} /></div>}
       </div>
     </div>
   );

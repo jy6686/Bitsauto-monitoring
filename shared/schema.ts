@@ -3766,6 +3766,76 @@ export const productRegistry = pgTable("product_registry", {
 export type ProductRegistryItem       = typeof productRegistry.$inferSelect;
 export type InsertProductRegistryItem = typeof productRegistry.$inferInsert;
 
+// ── Routing Templates ─────────────────────────────────────────────────────────
+export const routingTemplates = pgTable("routing_templates", {
+  id:          serial("id").primaryKey(),
+  name:        varchar("name", { length: 128 }).notNull(),
+  productId:   integer("product_id").notNull(),
+  description: text("description"),
+  isDefault:   boolean("is_default").default(false),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type RoutingTemplate       = typeof routingTemplates.$inferSelect;
+export type InsertRoutingTemplate = typeof routingTemplates.$inferInsert;
+
+export const routingTemplateVendors = pgTable("routing_template_vendors", {
+  id:              serial("id").primaryKey(),
+  templateId:      integer("template_id").notNull(),
+  vendorName:      varchar("vendor_name", { length: 128 }).notNull(),
+  iConnection:     integer("i_connection"),
+  iDestinationSet: integer("i_destination_set"),
+  priority:        integer("priority").notNull().default(0),
+  weight:          integer("weight").notNull().default(1),
+  active:          boolean("active").default(true),
+  note:            text("note"),
+});
+export type RoutingTemplateVendor       = typeof routingTemplateVendors.$inferSelect;
+export type InsertRoutingTemplateVendor = typeof routingTemplateVendors.$inferInsert;
+
+// ── Pricing Templates ─────────────────────────────────────────────────────────
+export const pricingTemplates = pgTable("pricing_templates", {
+  id:          serial("id").primaryKey(),
+  name:        varchar("name", { length: 128 }).notNull(),
+  productId:   integer("product_id").notNull(),
+  description: text("description"),
+  isDefault:   boolean("is_default").default(false),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type PricingTemplate       = typeof pricingTemplates.$inferSelect;
+export type InsertPricingTemplate = typeof pricingTemplates.$inferInsert;
+
+export const pricingTemplateRates = pgTable("pricing_template_rates", {
+  id:           serial("id").primaryKey(),
+  templateId:   integer("template_id").notNull(),
+  dialPrefix:   varchar("dial_prefix", { length: 32 }).notNull(),
+  countryName:  varchar("country_name", { length: 128 }),
+  operatorName: varchar("operator_name", { length: 128 }),
+  buyRate:      numeric("buy_rate",  { precision: 10, scale: 6 }).notNull(),
+  marginPct:    numeric("margin_pct",{ precision: 8,  scale: 4 }).notNull(),
+  sellRate:     numeric("sell_rate", { precision: 10, scale: 6 }).notNull(),
+  notes:        text("notes"),
+});
+export type PricingTemplateRate       = typeof pricingTemplateRates.$inferSelect;
+export type InsertPricingTemplateRate = typeof pricingTemplateRates.$inferInsert;
+
+// ── Provisioning Jobs ──────────────────────────────────────────────────────────
+export const provisioningJobs = pgTable("provisioning_jobs", {
+  id:                serial("id").primaryKey(),
+  iAccount:          integer("i_account").notNull(),
+  productId:         integer("product_id").notNull(),
+  routingTemplateId: integer("routing_template_id"),
+  pricingTemplateId: integer("pricing_template_id"),
+  status:            varchar("status", { length: 32 }).default("pending"),
+  steps:             text("steps"),
+  iTariff:           integer("i_tariff"),
+  iRoutingGroup:     integer("i_routing_group"),
+  createdBy:         varchar("created_by", { length: 128 }),
+  createdAt:         timestamp("created_at").defaultNow().notNull(),
+  completedAt:       timestamp("completed_at"),
+});
+export type ProvisioningJob       = typeof provisioningJobs.$inferSelect;
+export type InsertProvisioningJob = typeof provisioningJobs.$inferInsert;
+
 // ── Rate Push Jobs ────────────────────────────────────────────────────────────
 export const ratePushJobs = pgTable("rate_push_jobs", {
   id:             serial("id").primaryKey(),
