@@ -34,8 +34,15 @@ function pickBestRule(
   callee: string,
   caller: string,
 ): any | null {
-  const cleanCallee = callee.replace(/\D/g, '');
+  const rawCallee = callee.replace(/\D/g, '');
   const cleanCaller = caller.replace(/\D/g, '');
+
+  // Strip routing prefix "2060" before destination-prefix matching.
+  // callee is stored as callerIdNum1 which contains "2060" + actual E.164 destination
+  // e.g. "2060923xxxxxxxx" → strip → "923xxxxxxxx" = Pakistan, for rule dest="923" to match.
+  const cleanCallee = (rawCallee.startsWith('2060') && rawCallee.length >= 14)
+    ? rawCallee.slice(4)
+    : rawCallee;
 
   let best: any | null = null;
   let bestScore = -1;
@@ -716,15 +723,17 @@ export function registerCallGovernanceRoutes(app: Express) {
       if (bridgeMatches.length === 0) return;
 
       // ── Pick most-specific rule by destination / caller prefix ──────────────
-      // Sippy/Asterisk AMI Bridge event field semantics (verified from production data):
-      //   callerIdNum1 = SIP/sippy (B-leg/vendor) CallerIDNum = routing-prefix CLI
-      //                  e.g. "2060923xxxxxxxxxx"
-      //   callerIdNum2 = PJSIP/sippy-endpoint (A-leg/customer) CallerIDNum = destination CLD
-      //                  e.g. "923xxxxxxxxx" (Pakistan), "447xxxxxxxxx" (UK), "1xxxxxxxxxx" (NANP)
-      // This ordering is consistent across all bridged calls in this Sippy deployment.
-      const callee    = event.callerIdNum2 ?? '';   // CLD — destination (B-party)
-      const caller    = event.callerIdNum1 ?? '';   // CLI — originating routing-prefix (A-party)
-      console.log(`[call-governance] Prefix matching: callee="${callee}" caller="${caller}"`);
+      // Sippy/Asterisk AMI Bridge event field semantics (CONFIRMED from production DB):
+      //   callerIdNum1 = SIP/sippy (B-leg/vendor) CallerIDNum = CLD with routing prefix
+      //                  e.g. "2060923xxxxxxxxxx" (routing prefix 2060 + Pakistan 923...)
+      //                       "20602917xxxxxxxx"  (routing prefix 2060 + Eritrea 291...)
+      //   callerIdNum2 = PJSIP/sippy-endpoint (A-leg/customer) CallerIDNum = originating CLI
+      //                  e.g. "17246702541" (North America originating caller)
+      // WARNING: do NOT invert based on channel A/B identification — the CallerIDNum
+      // assignment is Sippy-specific. callerIdNum1 ALWAYS contains the routed destination.
+      const callee    = event.callerIdNum1 ?? '';   // CLD — routed destination (with routing prefix)
+      const caller    = event.callerIdNum2 ?? '';   // CLI — originating ANI
+      console.log(`[call-governance] Bridge callee(CLD)="${callee}" caller(CLI)="${caller}"`);
       const bestRule  = pickBestRule(bridgeMatches.map(m => m.rule), callee, caller);
       if (!bestRule) return;
       const { channelA, channelB, uniqueIdA } = bridgeMatches.find(m => m.rule.id === bestRule.id)!;
@@ -740,8 +749,8 @@ export function registerCallGovernanceRoutes(app: Express) {
         uniqueId:       event.uniqueId1,
         channelA,
         channelB,
-        caller:         event.callerIdNum1,   // CLI — routing-prefix originating ANI
-        callee:         event.callerIdNum2,   // CLD — destination number (B-party)
+        caller:         event.callerIdNum2,   // CLI — originating ANI (A-party)
+        callee:         event.callerIdNum1,   // CLD — routed destination with routing prefix (B-party)
         connectionName: rule.connectionName,
         ruleId:         rule.id,
         capSec,
@@ -1290,14 +1299,16 @@ export function registerCallGovernanceRoutes(app: Express) {
       // 5. Raw today calls for client-side LPM destination grouping (most recent first, capped)
       const callsTodayResult = await db.execute(sql`
         SELECT
-          callee,
-          rule_id,
+          gc.callee,
+          gc.rule_id,
+          COALESCE(r.rule_name, r.connection_name, 'Rule ' || gc.rule_id::text) AS rule_name,
           bye_sent_at IS NOT NULL                                               AS is_cut,
           CASE WHEN bye_sent_at IS NOT NULL
             THEN EXTRACT(EPOCH FROM (bye_sent_at - start_time)) ELSE NULL END  AS gov_sec
-        FROM governed_calls
-        WHERE start_time >= date_trunc('day', NOW())
-        ORDER BY start_time DESC
+        FROM governed_calls gc
+        LEFT JOIN call_governance_rules r ON r.id = gc.rule_id
+        WHERE gc.start_time >= date_trunc('day', NOW())
+        ORDER BY gc.start_time DESC
         LIMIT 2000
       `);
 

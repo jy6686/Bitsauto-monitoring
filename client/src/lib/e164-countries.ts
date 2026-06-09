@@ -168,16 +168,26 @@ export const E164_COUNTRIES: CountryEntry[] = [
 const _LPM_SORTED = [...E164_COUNTRIES].sort((a, b) => b.prefix.length - a.prefix.length);
 
 /**
- * Longest-prefix-match: given a destination string (e.g. "923", "92", "971"),
- * return the matching CountryEntry or null.
+ * Longest-prefix-match: given a destination string, return the matching CountryEntry or null.
  *
- * "923"  → Pakistan  (prefix "92")
- * "971"  → UAE       (prefix "971")
- * "8801" → Bangladesh (prefix "880")
+ * Handles raw E.164 ("923...", "447...") AND numbers prefixed with the platform's
+ * routing prefix "2060" (e.g. "2060923..." → strip → "923..." → Pakistan).
+ * Stripping only applies when the number starts with "2060" AND has 14+ digits,
+ * which guarantees it is a routing-prefix-encoded destination, not a coincidental match.
+ *
+ * "923072431474"     → Pakistan  (direct LPM, prefix "92")
+ * "2060923072431474" → Pakistan  (strip 2060 → "923072431474" → prefix "92")
+ * "20602917123378"   → Eritrea   (strip 2060 → "2917123378" → prefix "291")
+ * "971501234567"     → UAE       (direct LPM, prefix "971")
  */
 export function resolveDestination(prefix: string): CountryEntry | null {
-  const digits = prefix.replace(/\D/g, '');
-  if (!digits) return null;
+  const raw = prefix.replace(/\D/g, '');
+  if (!raw) return null;
+
+  // Strip routing prefix "2060" when present on long numbers (≥14 digits)
+  // "2060" + 12-digit international = 16 digits; "2060" + 10-digit = 14 digits
+  const digits = (raw.startsWith('2060') && raw.length >= 14) ? raw.slice(4) : raw;
+
   for (const c of _LPM_SORTED) {
     if (digits.startsWith(c.prefix)) return c;
   }

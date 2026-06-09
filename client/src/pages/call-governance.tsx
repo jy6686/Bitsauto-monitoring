@@ -925,18 +925,20 @@ export default function CallGovernancePage() {
             }));
 
             // Today's destination breakdown via LPM
-            type TodayDest = { country: CountryEntry | null; prefix: string; total: number; cut: number; govMin: number; };
+            type TodayDest = { country: CountryEntry | null; prefix: string; total: number; cut: number; govMin: number; rules: Map<string, number>; };
             const destTodayMap = new Map<string, TodayDest>();
             for (const c of calls) {
               const digits = (c.callee ?? '').replace(/\D/g, '');
               const country = resolveDestination(digits);
               const key = country?.prefix ?? (digits.slice(0, 3) || 'unknown');
-              if (!destTodayMap.has(key)) destTodayMap.set(key, { country, prefix: key, total: 0, cut: 0, govMin: 0 });
+              if (!destTodayMap.has(key)) destTodayMap.set(key, { country, prefix: key, total: 0, cut: 0, govMin: 0, rules: new Map() });
               const eg = destTodayMap.get(key)!;
               eg.total++;
               if (c.is_cut) { eg.cut++; eg.govMin += (n(c.gov_sec)) / 60; }
+              const rn: string = (c as any).rule_name ?? 'Unknown';
+              eg.rules.set(rn, (eg.rules.get(rn) ?? 0) + 1);
             }
-            const destToday = [...destTodayMap.values()].sort((a, b) => b.govMin - a.govMin).slice(0, 8);
+            const destToday = [...destTodayMap.values()].sort((a, b) => b.total - a.total).slice(0, 8);
             const maxDestGovMin = destToday[0]?.govMin ?? 1;
 
             return (
@@ -1041,8 +1043,12 @@ export default function CallGovernancePage() {
                     ) : (
                       <div className="space-y-2.5">
                         {destToday.map(d => {
-                          const pct = maxDestGovMin > 0 ? Math.round((d.govMin / maxDestGovMin) * 100) : 0;
+                          const maxGovMin = destToday[0]?.govMin ?? 1;
+                          const pct = maxGovMin > 0 ? Math.round((d.govMin / maxGovMin) * 100) : 0;
                           const cutRate = d.total > 0 ? Math.round((d.cut / d.total) * 100) : 0;
+                          // Primary rule = highest call count for this destination
+                          const primaryRule = [...d.rules.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
+                          const multiRule = d.rules.size > 1;
                           return (
                             <div key={d.prefix} data-testid={`live-dest-${d.prefix}`}>
                               <div className="flex items-center gap-2 mb-1">
@@ -1053,13 +1059,16 @@ export default function CallGovernancePage() {
                                 <code className="text-[10px] text-amber-300 font-mono flex-shrink-0">+{d.prefix}</code>
                                 <span className="text-[10px] font-mono text-rose-400 flex-shrink-0 w-12 text-right">{d.govMin.toFixed(1)} min</span>
                               </div>
-                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden mb-1">
                                 <div className="h-full bg-violet-500/70 rounded-full" style={{ width: `${pct}%` }} />
                               </div>
-                              <div className="flex items-center gap-3 mt-0.5 text-[10px] text-slate-600">
-                                <span>{d.total} calls</span>
-                                <span className="text-rose-600">{d.cut} cut ({cutRate}%)</span>
-                                <span>{(d.total - d.cut)} passed</span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] text-slate-600">{d.total} calls</span>
+                                <span className="text-[10px] text-rose-600">{d.cut} cut ({cutRate}%)</span>
+                                <span className="text-[10px] text-slate-600">{(d.total - d.cut)} passed</span>
+                                <span className="ml-auto flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-400 font-mono truncate max-w-[140px]" title={primaryRule}>
+                                  {primaryRule}{multiRule ? ` +${d.rules.size - 1}` : ''}
+                                </span>
                               </div>
                             </div>
                           );
