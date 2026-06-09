@@ -1205,6 +1205,110 @@ export function registerCallGovernanceRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── GET /api/call-governance/live-monitor ───────────────────────────────────
+  // Real-time governance dashboard: active calls, today's KPIs, recent cut
+  // windows, hourly chart, and raw calls today for client-side LPM grouping.
+  // All data is read-only — no writes performed.
+  app.get('/api/call-governance/live-monitor', requireAuth, async (req: any, res: any) => {
+    try {
+      // 1. In-flight calls (status = 'active', timer pending)
+      const activeResult = await db.execute(sql`
+        SELECT
+          gc.id,
+          gc.callee,
+          gc.caller,
+          gc.start_time,
+          gc.cap_sec,
+          gc.channel_b,
+          r.rule_name,
+          r.connection_name,
+          EXTRACT(EPOCH FROM (NOW() - gc.start_time))::int AS elapsed_sec
+        FROM governed_calls gc
+        LEFT JOIN call_governance_rules r ON r.id = gc.rule_id
+        WHERE gc.status = 'active'
+        ORDER BY gc.start_time ASC
+      `);
+
+      // 2. Recent cut windows (5 / 15 / 30 min)
+      const recentResult = await db.execute(sql`
+        SELECT
+          COUNT(CASE WHEN bye_sent_at >= NOW() - INTERVAL  '5 minutes' THEN 1 END)  AS cuts_5min,
+          COUNT(CASE WHEN bye_sent_at >= NOW() - INTERVAL '15 minutes' THEN 1 END)  AS cuts_15min,
+          COUNT(CASE WHEN bye_sent_at >= NOW() - INTERVAL '30 minutes' THEN 1 END)  AS cuts_30min,
+          ROUND(COALESCE(SUM(
+            CASE WHEN bye_sent_at >= NOW() - INTERVAL '30 minutes'
+              THEN EXTRACT(EPOCH FROM (bye_sent_at - start_time)) / 60.0 ELSE 0 END
+          ), 0)::numeric, 2)                                                         AS gov_min_30min,
+          ROUND(COALESCE(SUM(
+            CASE WHEN bye_sent_at >= NOW() - INTERVAL  '5 minutes'
+              THEN EXTRACT(EPOCH FROM (bye_sent_at - start_time)) / 60.0 ELSE 0 END
+          ), 0)::numeric, 2)                                                         AS gov_min_5min
+        FROM governed_calls
+        WHERE bye_sent_at >= NOW() - INTERVAL '30 minutes'
+      `);
+
+      // 3. Today's KPIs (from midnight UTC)
+      const todayResult = await db.execute(sql`
+        SELECT
+          COUNT(*)                                                              AS total_today,
+          COUNT(bye_sent_at)                                                    AS cut_today,
+          COUNT(CASE WHEN bye_sent_at IS NULL THEN 1 END)                      AS passed_today,
+          ROUND(COALESCE(SUM(
+            CASE WHEN bye_sent_at IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (bye_sent_at - start_time)) / 60.0 ELSE 0 END
+          ), 0)::numeric, 2)                                                   AS gov_min_today,
+          ROUND(COALESCE(AVG(
+            CASE WHEN bye_sent_at IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (bye_sent_at - start_time)) ELSE NULL END
+          ), 0)::numeric, 1)                                                   AS avg_cut_sec_today,
+          COUNT(CASE WHEN start_time >= NOW() - INTERVAL '1 hour' THEN 1 END)  AS total_1h,
+          COUNT(CASE WHEN bye_sent_at >= NOW() - INTERVAL '1 hour' THEN 1 END) AS cut_1h
+        FROM governed_calls
+        WHERE start_time >= date_trunc('day', NOW())
+      `);
+
+      // 4. Hourly cut buckets for today's activity chart
+      const hourlyResult = await db.execute(sql`
+        SELECT
+          EXTRACT(HOUR FROM bye_sent_at)::int              AS hour,
+          COUNT(*)                                          AS cuts,
+          ROUND(SUM(
+            EXTRACT(EPOCH FROM (bye_sent_at - start_time)) / 60.0
+          )::numeric, 2)                                   AS gov_min
+        FROM governed_calls
+        WHERE bye_sent_at >= date_trunc('day', NOW())
+        GROUP BY 1
+        ORDER BY 1
+      `);
+
+      // 5. Raw today calls for client-side LPM destination grouping (most recent first, capped)
+      const callsTodayResult = await db.execute(sql`
+        SELECT
+          callee,
+          rule_id,
+          bye_sent_at IS NOT NULL                                               AS is_cut,
+          CASE WHEN bye_sent_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (bye_sent_at - start_time)) ELSE NULL END  AS gov_sec
+        FROM governed_calls
+        WHERE start_time >= date_trunc('day', NOW())
+        ORDER BY start_time DESC
+        LIMIT 2000
+      `);
+
+      res.json({
+        activeNow:  activeResult.rows,
+        recent:     recentResult.rows[0]  ?? {},
+        todayKpi:   todayResult.rows[0]   ?? {},
+        hourly:     hourlyResult.rows,
+        calls:      callsTodayResult.rows,
+        fetchedAt:  new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error('[call-governance] live-monitor error:', err?.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── GET /api/call-governance/analytics ──────────────────────────────────────
   // Read-only aggregation of governed_calls for the Analytics dashboard.
   // ?period=daily (24h) | weekly (7d) | monthly (30d)

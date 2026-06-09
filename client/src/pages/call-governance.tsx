@@ -189,6 +189,51 @@ interface AnalyticsData {
   calls: AnalyticsCallRow[];
 }
 
+// ── Live Monitor types ─────────────────────────────────────────────────────────
+
+interface LiveActiveCall {
+  id: number;
+  callee: string | null;
+  caller: string | null;
+  start_time: string | null;
+  cap_sec: number | null;
+  channel_b: string | null;
+  rule_name: string | null;
+  connection_name: string | null;
+  elapsed_sec: number;
+}
+interface LiveMonitorRecent {
+  cuts_5min: string | number;
+  cuts_15min: string | number;
+  cuts_30min: string | number;
+  gov_min_30min: string | number;
+  gov_min_5min: string | number;
+}
+interface LiveMonitorKpi {
+  total_today: string | number;
+  cut_today: string | number;
+  passed_today: string | number;
+  gov_min_today: string | number;
+  avg_cut_sec_today: string | number;
+  total_1h: string | number;
+  cut_1h: string | number;
+}
+interface LiveMonitorHour { hour: number; cuts: number; gov_min: number; }
+interface LiveMonitorCallRow {
+  callee: string | null;
+  rule_id: number | null;
+  is_cut: boolean;
+  gov_sec: number | null;
+}
+interface LiveMonitorData {
+  activeNow: LiveActiveCall[];
+  recent: LiveMonitorRecent;
+  todayKpi: LiveMonitorKpi;
+  hourly: LiveMonitorHour[];
+  calls: LiveMonitorCallRow[];
+  fetchedAt: string;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function fmtSec(s: number | null) {
@@ -694,6 +739,24 @@ export default function CallGovernancePage() {
   const [expandedVendorId, setExpandedVendorId] = useState<number | null>(null);
   const [prefixSearch, setPrefixSearch]         = useState('');
 
+  // Live Monitor — auto-refreshes every 15s while on the live tab
+  const [liveRefreshCountdown, setLiveRefreshCountdown] = useState(15);
+  const liveMonitorQ = useQuery<LiveMonitorData>({
+    queryKey: ['/api/call-governance/live-monitor'],
+    enabled: tab === 'live',
+    refetchInterval: tab === 'live' ? 15_000 : false,
+    staleTime: 10_000,
+  });
+  // Countdown ticker — resets to 15 on every successful fetch
+  useEffect(() => {
+    if (tab !== 'live') return;
+    setLiveRefreshCountdown(15);
+    const interval = setInterval(() => {
+      setLiveRefreshCountdown(c => (c <= 1 ? 15 : c - 1));
+    }, 1_000);
+    return () => clearInterval(interval);
+  }, [tab, liveMonitorQ.dataUpdatedAt]);
+
   const vendorsQ = useQuery<VendorEntry[]>({
     queryKey: ['/api/prefix-registry/vendors'],
     enabled: tab === 'prefixes',
@@ -825,6 +888,235 @@ export default function CallGovernancePage() {
       {/* ── Tab: Live ─────────────────────────────────────────────────────── */}
       {tab === 'live' && (
         <div className="space-y-5">
+
+          {/* ── Live Governance Monitor ───────────────────────────────────── */}
+          {(() => {
+            const lm = liveMonitorQ.data;
+            const n  = (v: string | number | undefined) => Number(v ?? 0);
+
+            const todayKpi  = lm?.todayKpi   ?? {} as LiveMonitorKpi;
+            const recent    = lm?.recent      ?? {} as LiveMonitorRecent;
+            const activeNow = lm?.activeNow   ?? [];
+            const hourly    = lm?.hourly      ?? [];
+            const calls     = lm?.calls       ?? [];
+
+            const totalToday    = n(todayKpi.total_today);
+            const cutToday      = n(todayKpi.cut_today);
+            const passedToday   = n(todayKpi.passed_today);
+            const govMinToday   = n(todayKpi.gov_min_today);
+            const avgCutSec     = n(todayKpi.avg_cut_sec_today);
+            const total1h       = n(todayKpi.total_1h);
+            const cut1h         = n(todayKpi.cut_1h);
+            const cutRateToday  = totalToday > 0 ? ((cutToday / totalToday) * 100).toFixed(1) : '0.0';
+            const cutRate1h     = total1h    > 0 ? ((cut1h    / total1h)    * 100).toFixed(1) : '0.0';
+
+            const cuts5m  = n(recent.cuts_5min);
+            const cuts15m = n(recent.cuts_15min);
+            const cuts30m = n(recent.cuts_30min);
+            const govMin5m = n(recent.gov_min_5min);
+
+            // Hourly chart — fill all 24 hours
+            const hourMap = new Map(hourly.map(h => [h.hour, { cuts: n(h.cuts), gov_min: n(h.gov_min) }]));
+            const currentHour = new Date().getHours();
+            const hourData = Array.from({ length: currentHour + 1 }, (_, i) => ({
+              label: `${String(i).padStart(2,'0')}:00`,
+              cuts:    hourMap.get(i)?.cuts    ?? 0,
+              gov_min: hourMap.get(i)?.gov_min ?? 0,
+            }));
+
+            // Today's destination breakdown via LPM
+            type TodayDest = { country: CountryEntry | null; prefix: string; total: number; cut: number; govMin: number; };
+            const destTodayMap = new Map<string, TodayDest>();
+            for (const c of calls) {
+              const digits = (c.callee ?? '').replace(/\D/g, '');
+              const country = resolveDestination(digits);
+              const key = country?.prefix ?? (digits.slice(0, 3) || 'unknown');
+              if (!destTodayMap.has(key)) destTodayMap.set(key, { country, prefix: key, total: 0, cut: 0, govMin: 0 });
+              const eg = destTodayMap.get(key)!;
+              eg.total++;
+              if (c.is_cut) { eg.cut++; eg.govMin += (n(c.gov_sec)) / 60; }
+            }
+            const destToday = [...destTodayMap.values()].sort((a, b) => b.govMin - a.govMin).slice(0, 8);
+            const maxDestGovMin = destToday[0]?.govMin ?? 1;
+
+            return (
+              <>
+                {/* Header bar: monitor title + last fetch + countdown */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-sm font-semibold text-slate-200">Live Governance Monitor</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    {lm?.fetchedAt && (
+                      <span className="text-[10px] text-slate-600">
+                        Updated {new Date(lm.fetchedAt).toLocaleTimeString()}
+                      </span>
+                    )}
+                    <span className={cn(
+                      "text-[10px] font-mono px-1.5 py-0.5 rounded border",
+                      liveRefreshCountdown <= 3
+                        ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
+                        : "border-slate-700 text-slate-500 bg-slate-900/40"
+                    )}>
+                      {liveMonitorQ.isFetching ? '⟳' : `↻ ${liveRefreshCountdown}s`}
+                    </span>
+                    <button
+                      data-testid="button-refresh-live-monitor"
+                      onClick={() => liveMonitorQ.refetch()}
+                      className="text-[10px] px-2 py-0.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600"
+                    >Refresh</button>
+                  </div>
+                </div>
+
+                {/* Today's KPI strip */}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                  {[
+                    { label: 'Total Today',       value: totalToday,          color: 'text-slate-200',   icon: Phone,        sub: `${total1h} last hour` },
+                    { label: 'Cut Today',          value: cutToday,            color: 'text-rose-400',    icon: Scissors,     sub: `${cutRateToday}% cut rate` },
+                    { label: 'Passed Today',       value: passedToday,         color: 'text-emerald-400', icon: CheckCircle2, sub: 'reached vendor' },
+                    { label: 'Gov. Min Today',     value: govMinToday.toFixed(1), color: 'text-sky-400',  icon: Clock,        sub: 'vendor time capped' },
+                    { label: 'Avg Cap Duration',   value: `${avgCutSec}s`,     color: 'text-amber-400',   icon: Timer,        sub: 'per cut call' },
+                    { label: 'Cuts (Last 5 min)',  value: cuts5m,              color: 'text-violet-400',  icon: Zap,          sub: `${govMin5m.toFixed(1)} gov min` },
+                    { label: 'Cut Rate (1h)',      value: `${cutRate1h}%`,     color: 'text-emerald-300', icon: TrendingUp,   sub: `${cut1h} of ${total1h}` },
+                  ].map((k) => (
+                    <div key={k.label} className="bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <k.icon className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                        <span className="text-[10px] text-slate-500 font-medium leading-tight">{k.label}</span>
+                      </div>
+                      <div className={cn("text-lg font-bold tabular-nums", k.color)}>{k.value}</div>
+                      <div className="text-[10px] text-slate-600 mt-0.5">{k.sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Recent windows + Destination breakdown — side by side */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                  {/* Recent cut windows */}
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Zap className="w-4 h-4 text-violet-400" />
+                      <span className="text-sm font-medium text-slate-200">Recent Governance Activity</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-center mb-4">
+                      {[
+                        { label: 'Last 5 min',  value: cuts5m  },
+                        { label: 'Last 15 min', value: cuts15m },
+                        { label: 'Last 30 min', value: cuts30m },
+                      ].map(w => (
+                        <div key={w.label} className="bg-slate-800/40 rounded-lg p-3">
+                          <div className="text-xl font-bold text-rose-400 tabular-nums">{w.value}</div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">{w.label}</div>
+                          <div className="text-[10px] text-slate-600">cuts</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Hourly bar chart */}
+                    {hourData.length > 0 && (
+                      <div>
+                        <div className="text-[10px] text-slate-600 mb-1">Cuts per hour — today</div>
+                        <BarChart width={320} height={80} data={hourData} margin={{ top: 0, right: 0, left: -30, bottom: 0 }}>
+                          <XAxis dataKey="label" tick={{ fontSize: 8, fill: '#475569' }} interval={Math.max(0, Math.floor(hourData.length / 5) - 1)} />
+                          <YAxis tick={{ fontSize: 8, fill: '#475569' }} />
+                          <Bar dataKey="cuts" fill="#7c3aed" radius={[2,2,0,0]} />
+                        </BarChart>
+                      </div>
+                    )}
+                    {hourData.length === 0 && !liveMonitorQ.isLoading && (
+                      <p className="text-xs text-slate-600 text-center py-3">No cuts recorded today yet</p>
+                    )}
+                  </div>
+
+                  {/* Destination breakdown today — sorted by gov minutes */}
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Globe2 className="w-4 h-4 text-violet-400" />
+                      <span className="text-sm font-medium text-slate-200">Destination Activity — Today</span>
+                      <span className="text-xs text-slate-600 ml-auto">{calls.length} calls</span>
+                    </div>
+                    {destToday.length === 0 && !liveMonitorQ.isLoading ? (
+                      <p className="text-xs text-slate-500 text-center py-6">No traffic yet today</p>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {destToday.map(d => {
+                          const pct = maxDestGovMin > 0 ? Math.round((d.govMin / maxDestGovMin) * 100) : 0;
+                          const cutRate = d.total > 0 ? Math.round((d.cut / d.total) * 100) : 0;
+                          return (
+                            <div key={d.prefix} data-testid={`live-dest-${d.prefix}`}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm leading-none w-5 flex-shrink-0">{d.country?.flag ?? '🌐'}</span>
+                                <span className="text-xs font-medium text-slate-200 flex-1 truncate">
+                                  {d.country?.name ?? d.prefix}
+                                </span>
+                                <code className="text-[10px] text-amber-300 font-mono flex-shrink-0">+{d.prefix}</code>
+                                <span className="text-[10px] font-mono text-rose-400 flex-shrink-0 w-12 text-right">{d.govMin.toFixed(1)} min</span>
+                              </div>
+                              <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-violet-500/70 rounded-full" style={{ width: `${pct}%` }} />
+                              </div>
+                              <div className="flex items-center gap-3 mt-0.5 text-[10px] text-slate-600">
+                                <span>{d.total} calls</span>
+                                <span className="text-rose-600">{d.cut} cut ({cutRate}%)</span>
+                                <span>{(d.total - d.cut)} passed</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Active in-flight calls panel — from live-monitor endpoint */}
+                {activeNow.length > 0 && (
+                  <div className="bg-slate-900/60 border border-emerald-500/20 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-emerald-500/20 flex items-center gap-2 bg-emerald-500/5">
+                      <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-sm font-medium text-emerald-300">In-Flight Governed Calls</span>
+                      <span className="text-xs text-emerald-600 ml-auto">{activeNow.length} pending cut</span>
+                    </div>
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-900/40 border-b border-slate-800 text-slate-500">
+                        <tr>
+                          {['Callee','Connection / Rule','Elapsed','Remaining'].map(h => (
+                            <th key={h} className="px-4 py-2 text-left font-medium">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {activeNow.map(c => {
+                          const remainSec = c.cap_sec != null ? Math.max(0, c.cap_sec - c.elapsed_sec) : null;
+                          return (
+                            <tr key={c.id} data-testid={`row-inflight-${c.id}`} className="hover:bg-slate-800/20">
+                              <td className="px-4 py-2.5 font-mono text-slate-200">{c.callee ?? '?'}</td>
+                              <td className="px-4 py-2.5 text-slate-400">
+                                <span>{c.connection_name ?? c.rule_name ?? '—'}</span>
+                              </td>
+                              <td className="px-4 py-2.5 font-mono text-amber-400">{c.elapsed_sec}s</td>
+                              <td className="px-4 py-2.5">
+                                {remainSec != null ? (
+                                  <span className={cn(
+                                    "font-mono font-bold",
+                                    remainSec <= 3 ? "text-rose-400 animate-pulse" :
+                                    remainSec <= 10 ? "text-amber-400" : "text-sky-400"
+                                  )}>{remainSec}s</span>
+                                ) : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
+          {/* ─────────────────────────────────────────────────────────────── */}
+          {/* Existing: Active calls from real-time call engine (callsQ)     */}
           {/* Active calls */}
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-2">
