@@ -1,0 +1,110 @@
+please read and suggest do not implement
+
+what need to implement and what we improved in implemented features
+https://www.sippysoft.com/versions
+
+7 days ago
+
+Show less
+
+17 actions
+Here's a comprehensive analysis cross-referencing Sippy 2024/2023 release notes against what's already built in the platform.
+
+🔧 Improvements to Existing Features
+1. Mera CDR Enrichment → Add Vendor Cost (SS-5639)
+What changed: ExportVendorCDRs_Mera() now returns i_call and cost fields.
+What we have: We already call ExportVendorCDRs_Mera for vendor name resolution but only use dstIp/confId for matching.
+Improvement: Pull cost per CDR from Mera → feed directly into our Margin Intelligence and Billing Check tab for real vendor-cost-vs-customer-billed P&L per call. Currently we estimate margin; this makes it exact.
+
+2. Live Call Monitor → Show PDD from setup_time (SS-4639, backported 2023)
+What changed: listActiveCalls() now returns setup_time.
+What we have: Live Call Monitor shows duration but not PDD for active calls.
+Improvement: Add a PDD column to the active calls table — now - setup_time = live PDD. This turns our live monitor into a real-time quality alert surface.
+
+3. Routing Manager → Full Destination Set CRUD (SS-663, SS-2037)
+What changed: New XMLAPI methods: getDestinationSetInfo, updateDestinationSet, delete.
+What we have: Routing Manager has create + list for destination sets but no edit/delete.
+Improvement: Add inline edit and delete for destination sets — making the Routing Manager fully self-contained without needing the Sippy web UI.
+
+4. Vendor Connections → One-Click Disable (SS-6387)
+What changed: New XMLAPI method disableTrunkConnection.
+What we have: Vendor management shows connection status but has no kill switch.
+Improvement: Add a Disable button to each trunk connection in the Vendor module — routed through the Approval Engine for confirmation before executing. Critical for rapid incident response.
+
+5. CDR Analytics → Filter by Result/Error Code (SS-2542)
+What changed: Sippy now supports filtering origination CDRs by SIP result/error code.
+What we have: CDR analytics filter by account/date/destination but not by disposition code.
+Improvement: Add a SIP result code filter (e.g. show only 486, 503, 404 failures) to the CDR analytics page — useful for troubleshooting specific failure campaigns.
+
+6. CDR Detail View → Auth Info (SS-2577)
+What changed: Call authentication information now available in CDR details.
+What we have: CDR records show cost/duration/route but no SIP auth metadata.
+Improvement: Extend CDR detail drawer to show auth_username, auth_domain, and STIR/SHAKEN attestation level — useful for fraud investigation.
+
+7. Approval Engine → Rate Purge Operation (SS-6100)
+What changed: New XMLAPI to purge all rates/routes (purgeRates, purgeRoutes).
+What we have: Approval Engine handles rate updates/account creation.
+Improvement: Add a Purge Rates operation type to the Approval Engine — high-risk, so it should require 2-step confirmation + audit log. A dangerous but legitimate operation carriers need occasionally.
+
+8. Sub-customer Call Stats (SS-6216)
+What changed: New getAccountCallStatsCustomer() method returns per-authenticated-customer stats.
+What we have: Account analytics aggregates by account but not by sub-customer authentication identity.
+Improvement: Add a sub-customer drill-down to the account analytics page — useful for resellers managing multiple customers under one account.
+
+🆕 New Features to Implement
+1. STIR/SHAKEN Monitor (High value)
+Sippy 2024/2023 has extensive STIR/SHAKEN support: per-routing-group config, web UI, AS connector customization, RFC-4474 compliance, 428 responses.
+Proposed feature: A dedicated STIR/SHAKEN tab (could live under Fraud or Routing) showing:
+
+Attestation level breakdown (A/B/C) across CDRs
+% of calls failing identity verification
+CDRs where 428 was returned (unsigned calls rejected)
+Per-route STIR/SHAKEN policy status (Required / Supported / Disabled)
+This is increasingly a regulatory requirement for US carriers.
+
+2. DID Management (Medium-high value)
+Sippy 2023 introduced DID Ranges — manage large DID pools with start/end, subdivide and assign to accounts.
+Proposed feature: A DID Manager page:
+
+List/search DIDs by number, description, customer assignment
+Create/edit DID ranges with range subdivision
+Assign DID sub-ranges to accounts
+Show DID usage (active vs. unassigned)
+This is a significant operational gap — currently DID work requires going directly to Sippy web UI.
+
+3. HEP Capture Controls (SS-6020)
+Sippy 2024 adds web UI for HEP export (packet capture for tools like Homer/SIPTrace).
+Proposed feature: A SIP Capture panel in the Network/SIP monitoring section:
+
+Toggle HEP capture on/off per environment
+Set HEP target IP/port
+Show capture status
+Link to our existing SIP Trace Viewer for captured traces
+This closes the loop between live capture config and our SIP ladder visualizer.
+
+4. Extended Routing View (SS-6066)
+New listExtendedRouting() XMLAPI method exposes the Tariff-Routing Group configuration layer.
+Proposed feature: Add an Extended Routing tab inside the Routing Manager — shows per-account and per-tariff routing overrides that currently aren't visible anywhere in our platform.
+
+5. Batch Tag P&L Filter (SS-6476)
+Sippy 2024 adds Batch Tag filtering to the Customer P&L report.
+Proposed feature: Expose Batch Tag as a filter dimension in our Margin Intelligence module — lets the finance team slice P&L by campaign, reseller group, or traffic batch without writing SQL.
+
+📊 Priority Summary
+Item	Value	Effort	Priority
+Mera cost → real margin per call	High	Low	P1
+Live call PDD from setup_time	Medium	Low	P1
+Vendor trunk one-click disable	High	Low	P1
+Destination set edit/delete	Medium	Low	P2
+CDR SIP error code filter	Medium	Low	P2
+STIR/SHAKEN monitor	High	Medium	P2
+DID Management	High	High	P3
+HEP capture controls	Medium	Medium	P3
+CDR auth info in detail drawer	Low	Low	P3
+Extended Routing view	Medium	Medium	P3
+Sub-customer call stats	Low	Medium	P4
+Batch Tag P&L filter	Low	Low	P4
+Rate Purge via Approval Engine	Low	Low	P4
+The P1 items (Mera cost field, live PDD, trunk disable) are all low-effort upgrades that directly improve features you use daily. STIR/SHAKEN and DID Management are the most strategically significant new capabilities from Sippy's 2024/2023 releases.
+
+
