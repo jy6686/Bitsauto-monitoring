@@ -1816,6 +1816,283 @@ export async function downloadPnlCsv(
   };
 }
 
+// ── Per-call P&L HTML scraper ─────────────────────────────────────────────
+//
+// profit_loss_report.php with period=call returns HTML (not CSV) on this Sippy
+// version. This function fetches that HTML and parses the per-call table, returning
+// rows as SippyCDR objects so they can be used in CDR matching.
+//
+// Known column order from Sippy's CSV export (same columns appear in HTML):
+//   Connection | Account | CLI | CLD | Start Time | Setup Time | Duration |
+//   Buy Duration | Revenue | Cost | Profit | Margin | Result | PDD
+//
+// Column detection is flexible — we look for header keywords so we survive
+// any Sippy version that reorders or adds/removes columns.
+export async function scrapePnlCallRows(
+  portalUsername: string,
+  portalPassword: string,
+  opts: {
+    fromMins?:    number;   // default 120 — used when startDate/endDate not provided
+    maxRows?:     number;   // default 600 — max rows to parse from HTML
+    portalUrl?:   string;   // if absent, uses activeSession
+    fallbackUser?: string;
+    fallbackPass?: string;
+    startDate?:   Date;     // explicit start date (overrides fromMins)
+    endDate?:     Date;     // explicit end date (overrides "now")
+    offset?:      number;   // row offset for pagination (n= param, 0-based, step 50)
+    _cookies?:    any;      // reuse existing portal cookies (skips re-login)
+  } = {},
+): Promise<SippyCDR[]> {
+  const fromMins = opts.fromMins ?? 120;
+  const maxRows  = opts.maxRows  ?? 600;
+  const base     = opts.portalUrl ?? activeSession?.portalUrl;
+  if (!base) {
+    console.warn('[scrapePnlCallRows] no portal URL');
+    return [];
+  }
+
+  // ── Auth ─────────────────────────────────────────────────────────────────
+  let cookies = opts._cookies ?? null;
+  if (!cookies) {
+    cookies = await getAdminPortalSession(
+      base,
+      opts.fallbackUser ?? '', opts.fallbackPass ?? '',
+      portalUsername, portalPassword,
+    );
+    if (!cookies) {
+      cookies = await getAnyPortalSession(base, [portalUsername, portalPassword]);
+      if (!cookies) {
+        console.warn('[scrapePnlCallRows] portal login failed');
+        return [];
+      }
+    }
+  }
+
+  // ── Fetch ────────────────────────────────────────────────────────────────
+  const now  = opts.endDate   ?? new Date();
+  const from = opts.startDate ?? new Date(now.getTime() - fromMins * 60_000);
+  const formParams: Record<string,string> = {
+    startDate:    formatSippyPortalDate(from),
+    endDate:      formatSippyPortalDate(now),
+    from_form:    '1',
+    action:       'update',
+    cdr_currency: 'USD',
+    period:       'call',
+  };
+  if (opts.offset && opts.offset > 0) formParams.n = String(opts.offset);
+  const body = encodeForm(formParams);
+
+  let html = '';
+  for (const path of ['/profit_loss_report.php', '/c1/profit_loss_report.php']) {
+    try {
+      const resp = await rawRequest(
+        'POST', `${base}${path}`, body,
+        { 'Content-Type': 'application/x-www-form-urlencoded' },
+        cookies,
+      );
+      const text = typeof resp.body === 'string' ? resp.body : resp.body?.toString() ?? '';
+      if (resp.statusCode === 200 && text.length > 500) {
+        html = text;
+        break;
+      }
+    } catch { /* try next path */ }
+  }
+
+  if (!html) {
+    console.warn('[scrapePnlCallRows] empty response from profit_loss_report.php');
+    return [];
+  }
+
+  // ── Parse HTML table ─────────────────────────────────────────────────────
+  // Use the same regex pattern as the per-day scraper.
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m: RegExpExecArray | null;
+
+  let iCli = -1, iCld = -1, iTime = -1, iSetup = -1, iDur = -1, iBuyDur = -1;
+  let iRev = -1, iCost = -1, iConn = -1, iAcct = -1, iResult = -1;
+  let headerFound = false;
+  const cdrs: SippyCDR[] = [];
+  let rowIdx = 0;
+
+  const MONTHS: Record<string, string> = {
+    Jan:'01', Feb:'02', Mar:'03', Apr:'04', May:'05', Jun:'06',
+    Jul:'07', Aug:'08', Sep:'09', Oct:'10', Nov:'11', Dec:'12',
+  };
+
+  while ((m = trRe.exec(html)) !== null && rowIdx < maxRows) {
+    const rowHtml = m[1];
+    const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+    const cells: string[] = [];
+    let td: RegExpExecArray | null;
+    while ((td = tdRe.exec(rowHtml)) !== null) {
+      cells.push(td[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim());
+    }
+    if (cells.length < 4) continue;
+
+    const joined = cells.join('|').toLowerCase();
+
+    // ── Detect header row ─────────────────────────────────────────────────
+    if (!headerFound && (joined.includes('cli') || joined.includes('cld') || joined.includes('caller'))) {
+      headerFound = true;
+      cells.forEach((c, i) => {
+        const lc = c.toLowerCase().replace(/\s+/g, ' ').trim();
+        if      (/^cli$|^caller$|^from$/.test(lc))                            iCli    = i;
+        else if (/^cld$|^callee$|^to$|^destination$|^called/.test(lc))       iCld    = i;
+        else if (/start.?time|connect.?time/.test(lc) || lc === 'date')       iTime   = i;
+        else if (/setup.?time|setup.?dur/.test(lc))                           iSetup  = i;
+        else if (/sell.?dur|billed.?dur|^duration$/.test(lc))                 iDur    = i;
+        else if (/buy.?dur|cost.?dur|vendor.?dur/.test(lc))                   iBuyDur = i;
+        else if (/^revenue$|^sell.?amount$/.test(lc))                         iRev    = i;
+        else if (/^cost$|^buy.?amount$|^vendor.?amount$/.test(lc))            iCost   = i;
+        else if (/connection|vendor.?name|carrier/.test(lc))                  iConn   = i;
+        else if (/^account$|^customer$|^client$/.test(lc))                    iAcct   = i;
+        else if (/^result$|disconnect|cause/.test(lc))                        iResult = i;
+      });
+      // Broader fallback for tricky column labels
+      if (iCli   < 0) iCli   = cells.findIndex(c => /\bcli\b/i.test(c));
+      if (iCld   < 0) iCld   = cells.findIndex(c => /\bcld\b/i.test(c));
+      if (iTime  < 0) iTime  = cells.findIndex(c => /start|time/i.test(c));
+      if (iDur   < 0) iDur   = cells.findIndex(c => /\bdur/i.test(c));
+      if (iCost  < 0) iCost  = cells.findIndex(c => /cost/i.test(c));
+      if (iRev   < 0) iRev   = cells.findIndex(c => /rev/i.test(c));
+      // If still no CLI/CLD, assume known column order:
+      // Connection(0) | Account(1) | CLI(2) | CLD(3) | Start Time(4) | Setup(5) | Dur(6) | BuyDur(7) | Rev(8) | Cost(9)
+      if (iCli < 0 && cells.length >= 10) iCli    = 2;
+      if (iCld < 0 && cells.length >= 10) iCld    = 3;
+      if (iTime < 0 && cells.length >= 10) iTime  = 4;
+      if (iSetup < 0 && cells.length >= 10) iSetup = 5;
+      if (iDur < 0 && cells.length >= 10)  iDur   = 6;
+      if (iBuyDur < 0 && cells.length >= 10) iBuyDur = 7;
+      if (iRev < 0 && cells.length >= 10)  iRev   = 8;
+      if (iCost < 0 && cells.length >= 10) iCost  = 9;
+      if (iConn < 0 && cells.length >= 10) iConn  = 0;
+      if (iAcct < 0 && cells.length >= 10) iAcct  = 1;
+      console.log(`[scrapePnlCallRows] header detected: cli=${iCli} cld=${iCld} time=${iTime} dur=${iDur} cost=${iCost} rev=${iRev} | cols=[${cells.slice(0,12).join('|')}]`);
+      continue;
+    }
+
+    if (!headerFound) continue;
+
+    // Skip totals/summary rows
+    if (/^total|^grand|^subtotal/i.test(joined)) continue;
+
+    const cell    = (i: number) => (i >= 0 && i < cells.length ? cells[i] : '');
+    const numCell = (i: number) => parseFloat(cell(i).replace(/[$,%\s]/g, '')) || 0;
+
+    const cli = cell(iCli).replace(/\s/g, '');
+    const cld = cell(iCld).replace(/\s/g, '');
+    if (!cli && !cld) continue;
+
+    // Parse timestamp — handle: "MM/DD/YYYY HH:MM:SS", "DD Mon YYYY HH:MM:SS", ISO
+    const timeStr = cell(iTime);
+    let startTime = timeStr;
+    const dtSlash = timeStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+    const dtMon   = timeStr.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}:\d{2}:\d{2})/);
+    const dtIso   = timeStr.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2}:\d{2})/);
+    if (dtSlash)      startTime = `${dtSlash[3]}-${dtSlash[1].padStart(2,'0')}-${dtSlash[2].padStart(2,'0')}T${dtSlash[4]}Z`;
+    else if (dtMon)   startTime = `${dtMon[3]}-${MONTHS[dtMon[2]] ?? '01'}-${dtMon[1].padStart(2,'0')}T${dtMon[4]}Z`;
+    else if (dtIso)   startTime = `${dtIso[1]}-${dtIso[2]}-${dtIso[3]}T${dtIso[4]}Z`;
+
+    cdrs.push({
+      callId:        `pnl-html-${rowIdx}`,
+      caller:        cli.replace(/\D/g, ''),
+      callee:        cld.replace(/\D/g, ''),
+      startTime,
+      duration:      parsePnlDuration(cell(iDur)),
+      totalDuration: parsePnlDuration(cell(iDur)),
+      cost:          numCell(iCost),
+      revenue:       numCell(iRev),
+      vendorName:    cell(iConn) || undefined,
+      description:   cell(iAcct) || undefined,
+    } as any);
+
+    rowIdx++;
+  }
+
+  console.log(`[scrapePnlCallRows] parsed ${cdrs.length} per-call rows from P&L HTML (headerFound=${headerFound} cli=${iCli} cld=${iCld})`);
+  return cdrs;
+}
+
+// ── Targeted per-call P&L CDR lookup ──────────────────────────────────────────
+//
+// Finds the Sippy CDR for a specific governed call using the P&L report.
+// Uses a narrow date window (callStart → callStart+windowMin) so each fetch
+// only covers a short time period, and paginates until the CLD suffix is found.
+//
+// Called from Track 2b in routes-call-governance.ts ONLY on retries (call >= 3 min
+// old) to allow Sippy's CDR write delay before querying the P&L.
+export async function scrapePnlCdrForCall(
+  portalUsername: string,
+  portalPassword: string,
+  callStartMs:    number,   // governed call start time (ms)
+  destSuffix10:   string,   // last 10 digits of destination number
+  portalUrl:      string,
+  opts: {
+    maxPages?:      number; // max pages to paginate (default 12)
+    windowMinutes?: number; // date window after callStart (default 10)
+  } = {},
+): Promise<SippyCDR[]> {
+  const maxPages     = opts.maxPages      ?? 12;
+  const windowMin    = opts.windowMinutes ?? 10;
+
+  // Login once and reuse cookies across pages
+  const base = portalUrl;
+  let cookies = await getAdminPortalSession(base, '', '', portalUsername, portalPassword);
+  if (!cookies) cookies = await getAnyPortalSession(base, [portalUsername, portalPassword]);
+  if (!cookies) {
+    console.warn('[scrapePnlCdrForCall] portal login failed');
+    return [];
+  }
+
+  const startDate = new Date(callStartMs - 90_000);                      // 90s before call
+  const endDate   = new Date(callStartMs + windowMin * 60_000);
+
+  const allCdrs: SippyCDR[] = [];
+  let totalFetched = 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    const offset = page * 50;
+    const rows = await scrapePnlCallRows(portalUsername, portalPassword, {
+      startDate,
+      endDate,
+      offset,
+      maxRows: 60,
+      portalUrl: base,
+      _cookies: cookies,
+    });
+
+    if (rows.length === 0) {
+      console.log(`[scrapePnlCdrForCall] page ${page}: 0 rows — end of pages`);
+      break;
+    }
+
+    totalFetched += rows.length;
+    allCdrs.push(...rows);
+
+    // Early exit: found a CLD suffix match
+    const match = rows.find(c => (c.callee || '').replace(/\D/g,'').endsWith(destSuffix10));
+    if (match) {
+      console.log(`[scrapePnlCdrForCall] destSuffix=${destSuffix10} FOUND on page ${page}: CLD=${match.callee} t=${match.startTime} cost=${match.cost}`);
+      break;
+    }
+
+    // Early exit: all rows in this page are from BEFORE the call's start window
+    const allPast = rows.every(c => {
+      if (!c.startTime) return false;
+      return new Date(c.startTime).getTime() < callStartMs - 5 * 60_000;
+    });
+    if (allPast) {
+      console.log(`[scrapePnlCdrForCall] page ${page}: all rows before call window, stopping`);
+      break;
+    }
+
+    console.log(`[scrapePnlCdrForCall] page ${page}: ${rows.length} rows, no suffix match yet (total=${totalFetched})`);
+  }
+
+  console.log(`[scrapePnlCdrForCall] done: ${allCdrs.length} rows across pages, suffix=${destSuffix10}`);
+  return allCdrs;
+}
+
 export async function getPortalSubcustomers(cookies: CookieJar, base: string): Promise<Array<{ name: string; status: string; description: string; balance: string; creditLimit: string; tariff: string }>> {
   const { html } = await portalGet('/c2/subcustomers.php', cookies, base);
   if (!html) return [];

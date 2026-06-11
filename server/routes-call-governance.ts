@@ -24,6 +24,19 @@ function _getGlobalCdrCache(): Map<string, any> | null {
   return (global as any).__bitsautoCdrCache ?? null;
 }
 
+// ── Live portal scrape throttle ───────────────────────────────────────────────
+// Prevents concurrent Track-2 portal scrapes from hammering Sippy.
+// Only one live scrape at a time; callers that arrive while locked use cache only.
+// Also limits Track-2 to calls within the 2h portal visibility window — older calls
+// can never be found via live scrape (CDRs age out of portal view).
+let _portalScrapeLock = false;
+const PORTAL_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+// ── Track 2b: P&L targeted lookup concurrency guard ──────────────────────────
+// Prevents multiple concurrent P&L scrapes for different calls from hammering
+// the portal simultaneously. One scrape at a time; others wait for next retry.
+let _pnlFetching = false;
+
 // ── Destination-based rule selection ──────────────────────────────────────────
 // Returns the single most-specific matching rule from a list of channel-matched
 // rules.  Specificity = destinationPrefix.length + callerPrefix.length.
@@ -138,12 +151,11 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
   const cliSuffix   = (gc.caller || '').replace(/\D/g, '').slice(-8);  // ← A-leg = CLI
 
   // ── Track 0: in-memory CDR cache (zero HTTP cost, refreshed every 5 min) ──────
-  // The global cache has 660+ CDRs including all Pakistan/Eritrea connection-level
-  // CDRs. Using it avoids a portal HTTP round-trip for 3-min/8-min retries and
-  // backfill runs. It has 5-min staleness so the 45s lookup may miss very fresh CDRs
-  // — Tracks 2/3 below handle those via live portal scrape.
+  // Historical CDRs — good for backfill retries once the cache has caught up.
+  // NOTE: Cache has 5-min staleness. CDRs for calls cut in the last 5 min may not
+  // be present yet. Track 2 always runs live to supplement the cache.
   let cdrs: any[] = [];
-  let source = 'portal';
+  let source = 'none';
   const _globalCache = _getGlobalCdrCache();
   if (_globalCache && _globalCache.size > 0) {
     cdrs = [..._globalCache.values()];
@@ -169,51 +181,121 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
       source = 'xmlrpc';
       console.log(`[call-governance] CDR lookup #${governedCallId}: XML-RPC returned ${xmlCdrs.length} CDR(s) for cld=${destDigits}`);
     }
-  } catch { /* fall through to portal scrape */ }
+  } catch { /* fall through */ }
 
-  // ── Track 2: customer portal scrape ──────────────────────────────────────────
-  // Use portal-relative date strings ('2 hours ago'/'now') NOT UTC ISO timestamps.
-  // The Sippy portal interprets date params as server LOCAL time (UTC+5), so passing
-  // UTC ISO strings shifts the search window by 5 h and returns wrong CDRs.
-  // Relative strings are computed by the portal itself in its own timezone → correct.
-  // Time-window filtering happens in JavaScript using UTC startTime fields.
-  if (cdrs.length === 0) {
-    try {
-      cdrs = await sippy.scrapePortalCDRsAll(portalUser, portalPass, portalUrl, {
-        startDate: '2 hours ago',
-        endDate:   'now',
-        maxPages:  8,
-      });
-    } catch { /* fall through to Track 3 */ }
+  // ── Track 1b: SIPPY_PROV XML-RPC — provisioning credentials with root wholesaler scope ──
+  // The Asterisk SIP trunk authenticates to Sippy as a different account than ssp-root,
+  // so ssp-root's customer portal CDRs never include governed calls. SIPPY_PROV credentials
+  // are expected to have admin/provisioning-level XML-RPC access (i_wholesaler=1 = all accts).
+  // This track runs ONLY if Track 1 returned 0 CDRs (auth failure or empty result).
+  if (cdrs.length === 0 || source !== 'xmlrpc') {
+    const provUser = (process.env.SIPPY_PROV_USERNAME ?? '').trim();
+    const provPass = (process.env.SIPPY_PROV_PASSWORD ?? '').trim();
+    if (provUser && provUser !== apiUser) {
+      try {
+        const provCdrs = await sippy.getSippyCDRs(
+          provUser, provPass, 50,
+          {
+            cld:       destDigits,
+            startDate: winStart.toISOString(),
+            endDate:   winEnd.toISOString(),
+          },
+          portalUrl,
+        );
+        if (provCdrs.length > 0) {
+          cdrs   = provCdrs;
+          source = 'xmlrpc-prov';
+          console.log(`[call-governance] CDR lookup #${governedCallId}: XML-RPC prov → ${provCdrs.length} CDR(s) for cld=${destDigits}`);
+        } else {
+          console.log(`[call-governance] CDR lookup #${governedCallId}: XML-RPC prov → 0 CDR(s) for cld=${destDigits}`);
+        }
+      } catch (e: any) {
+        console.log(`[call-governance] CDR lookup #${governedCallId}: XML-RPC prov error: ${e?.message}`);
+      }
+    }
   }
 
-  // ── Track 3: admin-credential TARGETED portal scrape (destination-filtered) ──
-  // Uses adminWebPassword for ssp-root web login and passes `destination=destDigits`
-  // so the portal returns ONLY CDRs for this specific destination number — not a
-  // generic 200-CDR dump. This is the correct fix for high-traffic systems where
-  // 500+ calls/hour make a page-limited CDR list inadequate for finding a specific call.
-  const adminWebPass = (settings as any).adminWebPassword as string | undefined;
-  if (apiUser && adminWebPass) {
+  // ── Track 2: LIVE portal scrape — runs when call is fresh & no concurrent scrape ──
+  // CRITICAL FIX: Previously gated on cdrs.length===0 which meant it NEVER ran (cache
+  // always non-empty). Now runs for fresh calls (within portal visibility window) with
+  // a global lock to prevent concurrent scrapes from hammering Sippy.
+  //
+  // Portal date strings MUST be relative, NOT UTC ISO — Sippy portal interprets them
+  // in server local time (UTC+5); ISO strings shift the window by 5h.
+  const callIsRecent = (Date.now() - startMs) < PORTAL_WINDOW_MS;
+  if (callIsRecent && !_portalScrapeLock) {
+    _portalScrapeLock = true;
     try {
-      const adminCdrs = await sippy.scrapePortalCDRsAll(apiUser, adminWebPass, portalUrl, {
-        startDate:   '2 hours ago',
-        endDate:     'now',
-        destination: destDigits,   // Filter by CLD — returns only CDRs for this destination
-        maxPages:    2,             // 2 pages is more than enough for a single destination
+      const liveCdrs = await sippy.scrapePortalCDRsAll(portalUser, portalPass, portalUrl, {
+        startDate: '90 minutes ago',
+        endDate:   'now',
+        maxPages:  6,   // 300 CDRs — covers ~30 min of traffic at 500 cuts/hr
       });
-      if (adminCdrs.length > 0) {
-        // Merge: dedup by startTime:caller:callee fingerprint
+      if (liveCdrs.length > 0) {
         const seenFp = new Set(cdrs.map((c: any) => `${c.startTime}:${c.caller}:${c.callee}`));
         let added = 0;
-        for (const c of adminCdrs) {
+        for (const c of liveCdrs) {
           const fp = `${c.startTime}:${c.caller}:${c.callee}`;
           if (!seenFp.has(fp)) { seenFp.add(fp); cdrs.push(c); added++; }
         }
-        if (added > 0) source = 'admin-portal';
-        console.log(`[call-governance] CDR lookup #${governedCallId}: admin portal → ${adminCdrs.length} CDR(s), +${added} new (pool now ${cdrs.length})`);
+        if (added > 0) source = cdrs.length > liveCdrs.length ? 'cache+portal' : 'portal';
+        console.log(`[call-governance] CDR lookup #${governedCallId}: Track2 live → ${liveCdrs.length} CDR(s), +${added} new (pool=${cdrs.length})`);
       }
-    } catch { /* non-critical — matching continues with Track 2 CDRs */ }
+    } catch { /* non-critical — matching continues with cache only */ }
+    finally { _portalScrapeLock = false; }
+  } else if (!callIsRecent) {
+    console.log(`[call-governance] CDR lookup #${governedCallId}: Track2 skipped (call >2h old, outside portal window)`);
+  } else {
+    console.log(`[call-governance] CDR lookup #${governedCallId}: Track2 skipped (concurrent scrape in progress)`);
   }
+
+  // ── Track 2b: Targeted P&L CDR lookup ────────────────────────────────────
+  // The Asterisk SIP trunk is a VENDOR in Sippy — its CDRs NEVER appear in
+  // cdrs_customer.php. The admin P&L report covers all call types.
+  //
+  // We use a narrow date window (callStart ± window) and paginate through pages
+  // stopping as soon as the destination CLD suffix is found (early exit).
+  // Only runs when the call is ≥3 min old (Sippy CDR write delay) and either
+  // Track 2 found nothing or the pool has no matching CDR yet.
+  //
+  // Rate-limited: at most one concurrent P&L lookup per session via _pnlFetching.
+  const callAgeMs    = Date.now() - startMs;
+  const callOldEnough = callAgeMs >= 3 * 60_000;   // Sippy CDR write delay
+  if (callOldEnough && !_pnlFetching && destSuffix.length >= 8) {
+    _pnlFetching = true;
+    try {
+      const pnlCdrs = await sippy.scrapePnlCdrForCall(
+        portalUser, portalPass,
+        startMs,
+        destSuffix,
+        portalUrl,
+        { maxPages: 15, windowMinutes: 12 },
+      );
+      if (pnlCdrs.length > 0) {
+        const seenFp = new Set(cdrs.map((c: any) => `${c.startTime}:${c.caller}:${c.callee}`));
+        let pnlAdded = 0;
+        for (const c of pnlCdrs) {
+          const fp = `${c.startTime}:${c.caller}:${c.callee}`;
+          if (!seenFp.has(fp)) { seenFp.add(fp); cdrs.push(c); pnlAdded++; }
+        }
+        if (pnlAdded > 0) {
+          if (!source.includes('pnl')) source += source ? '+pnl' : 'pnl';
+          console.log(`[call-governance] CDR lookup #${governedCallId}: Track2b P&L → +${pnlAdded} rows (pool=${cdrs.length})`);
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[call-governance] CDR lookup #${governedCallId}: Track2b P&L error: ${e?.message ?? e}`);
+    } finally {
+      _pnlFetching = false;
+    }
+  } else if (!callOldEnough) {
+    console.log(`[call-governance] CDR lookup #${governedCallId}: Track2b skipped (call <3 min old, CDR not written yet)`);
+  }
+
+  // ── Track 3: REMOVED — previously used destination=destDigits which triggered ──
+  // a different admin portal HTML layout (tooFewCells, 0 CDRs parsed). Since Track 2
+  // uses the same credentials as the old Track 3, removing the broken destination
+  // filter makes Track 3 redundant. The global cache + Track 2 live scrape is sufficient.
 
   // ── Diagnostic: log sample CDR callee values when pool is non-empty ──
   // Helps identify CLD format mismatches without verbose logs.
@@ -349,9 +431,11 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
 }
 
 function scheduleCdrLookup(governedCallId: number): void {
-  // Sippy can lag 1–3 min writing CDRs after a call ends.
-  // Fire at 45s, 3 min, 8 min — each attempt only overwrites if still no_cdr.
-  const attempts = [45_000, 3 * 60_000, 8 * 60_000];
+  // CDR generation timing: vendor B-leg is in Wait(90) after the governance BYE,
+  // so Sippy doesn't see the BYE on the outbound leg until ~T+90s. CDR is generated
+  // AFTER the B-leg disconnects. First retry at 45s is always too early — bumped to 100s.
+  // Subsequent retries: 3 min (CDR usually in portal by then), 10 min (final safety net).
+  const attempts = [100_000, 3 * 60_000, 10 * 60_000];
   for (const delay of attempts) {
     setTimeout(async () => {
       try {
@@ -685,23 +769,27 @@ export function registerCallGovernanceRoutes(app: Express) {
   // ── Periodic watchdog: every 60s catch any remaining missed bridges ────────
   setInterval(reconcileActiveCalls, 60_000);
 
-  // ── Periodic CDR backfill: every 30 min retry no_cdr cuts (last 7 days) ───
-  // Covers cases where the 45s/3min/8min lookups all fired during a Sippy outage.
-  // Runs in small batches with 1.5s spacing to avoid hammering Sippy.
-  async function runPeriodicCdrBackfill() {
+  // ── Periodic CDR backfill: every 30 min retry unresolved cuts (last 7 days) ──
+  // Covers: (a) cuts where all 3 retries fired during a Sippy outage, and
+  //         (b) completed calls — they never had scheduleCdrLookup() called.
+  // Note: portal CDR window is ~2 hours so older records can only be matched
+  // from the global cache. Records older than 2 hours will resolve on future
+  // backfill cycles once P&L extraction is wired.
+  async function runPeriodicCdrBackfill(limitOverride?: number) {
     try {
       const cutoff = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+      // No status filter — include both 'cut' AND 'completed' rows
       const pending = await db
         .select({ id: governedCalls.id })
         .from(governedCalls)
         .where(and(
-          eq(governedCalls.status, 'cut'),
           sql`(cdr_status IS NULL OR cdr_status = 'no_cdr')`,
           gte(governedCalls.startTime, cutoff),
         ))
-        .limit(50);
+        .orderBy(desc(governedCalls.id))   // newest first — most likely to be in portal
+        .limit(limitOverride ?? 50);
       if (pending.length === 0) return;
-      console.log(`[call-governance] Periodic CDR backfill: ${pending.length} no_cdr record(s) queued`);
+      console.log(`[call-governance] Periodic CDR backfill: ${pending.length} record(s) queued`);
       for (const { id } of pending) {
         runCdrLookup(id, false).catch(() => {});
         await new Promise(r => setTimeout(r, 1_500));
@@ -711,8 +799,9 @@ export function registerCallGovernanceRoutes(app: Express) {
     }
   }
   setInterval(runPeriodicCdrBackfill, 30 * 60 * 1000);
-  // Run once 5 min after startup to catch stale no_cdr records from the previous session
-  setTimeout(runPeriodicCdrBackfill, 5 * 60 * 1000);
+  // Run 5 min after startup with larger batch — portal covers last 2h so recent records
+  // missed by the previous session's retries can be recovered immediately.
+  setTimeout(() => runPeriodicCdrBackfill(200), 5 * 60 * 1000);
 
   // ── Bridge event → check governance rules ──────────────────────────────────
   amiGovernance.on('bridge', async (event) => {
