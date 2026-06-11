@@ -9,6 +9,7 @@ import { db } from './db';
 import {
   callGovernanceRules, governedCalls, callGovernanceLogs,
   canonicalVendors, vendorProductPrefixes, prefixAuditLog,
+  productRegistry,
 } from '@shared/schema';
 import { eq, desc, gte, and, sql } from 'drizzle-orm';
 import { amiGovernance } from './services/asterisk/ami-governance';
@@ -1863,6 +1864,192 @@ export function registerCallGovernanceRoutes(app: Express) {
       res.json({ summary, calls });
     } catch (e: any) {
       console.error('[recon-lab/identity-audit]', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Reconciliation Lab: Vendor Cost Validation ───────────────────────────
+  // GET /api/recon-lab/vendor-cost?days=7
+  // Shows P&L cost vs vendor cost per call. Diagnoses whether vendor cost is
+  // being extracted from the P&L scraper.
+  app.get('/api/recon-lab/vendor-cost', requireAdmin, async (req: any, res: any) => {
+    try {
+      const days = Math.min(Number(req.query.days) || 7, 30);
+      const since = new Date(Date.now() - days * 86400_000);
+
+      const rows = await db
+        .select()
+        .from(governedCalls)
+        .where(and(gte(governedCalls.startTime, since), sql`cdr_status IS NOT NULL`))
+        .orderBy(desc(governedCalls.startTime))
+        .limit(500);
+
+      const calls = rows.map((r: any) => {
+        const cost       = r.cdrCost       !== null ? Number(r.cdrCost)       : null;
+        const vendorCost = r.cdrVendorCost !== null ? Number(r.cdrVendorCost) : null;
+        const dur        = r.cdrDuration   !== null ? Number(r.cdrDuration)   : null;
+        const effectiveRatePerMin = (cost !== null && dur !== null && dur > 0)
+          ? cost / (dur / 60)
+          : null;
+        const margin = (cost !== null && vendorCost !== null) ? cost - vendorCost : null;
+        const marginPct = (margin !== null && cost !== null && cost > 0)
+          ? (margin / cost) * 100
+          : null;
+
+        return {
+          id: r.id,
+          caller: r.caller,
+          callee: r.callee,
+          cdrCallee: r.cdrCallee,
+          startTime: r.startTime,
+          cdrStatus: r.cdrStatus,
+          cdrCost: cost,
+          cdrVendorCost: vendorCost,
+          cdrVendorName: r.cdrVendorName,
+          cdrDuration: dur,
+          effectiveRatePerMin,
+          margin,
+          marginPct,
+          marginFlag: margin !== null ? (margin < 0 ? 'negative' : margin === 0 ? 'zero' : 'ok') : 'no_vendor_cost',
+        };
+      });
+
+      const resolved = calls.filter((c: any) => c.cdrStatus === 'ok');
+      const withVendor = resolved.filter((c: any) => c.cdrVendorCost !== null);
+      const negMargin = withVendor.filter((c: any) => c.marginFlag === 'negative');
+      const avgMarginPct = withVendor.length > 0
+        ? withVendor.reduce((s: number, c: any) => s + (c.marginPct ?? 0), 0) / withVendor.length
+        : null;
+
+      const summary = {
+        total: rows.length,
+        resolved: resolved.length,
+        withVendorCost: withVendor.length,
+        vendorCostGap: resolved.length - withVendor.length,
+        negativeMargin: negMargin.length,
+        avgMarginPct: avgMarginPct !== null ? Math.round(avgMarginPct * 10) / 10 : null,
+        vendorCostPopulated: withVendor.length > 0,
+        gapReason: withVendor.length === 0
+          ? 'P&L scraper currently extracts Revenue (cost to customer) but not the vendor buying cost column. Track 2b must be extended to parse the Cost column.'
+          : null,
+      };
+
+      res.json({ summary, calls });
+    } catch (e: any) {
+      console.error('[recon-lab/vendor-cost]', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Reconciliation Lab: Commercial Identity Audit ─────────────────────────
+  // GET /api/recon-lab/commercial-identity?days=7
+  // Shows original CLD → product prefix → product → effective rate per call.
+  // Product prefix is read from cdrCallee (P&L CLD) — first digit = trunk prefix.
+  app.get('/api/recon-lab/commercial-identity', requireAdmin, async (req: any, res: any) => {
+    try {
+      const days = Math.min(Number(req.query.days) || 7, 30);
+      const since = new Date(Date.now() - days * 86400_000);
+
+      // Load all products once
+      const products = await db.select().from(productRegistry);
+      const prefixMap: Record<string, typeof products[0]> = {};
+      for (const p of products) {
+        if (p.trunkPrefix) prefixMap[p.trunkPrefix] = p;
+      }
+
+      const rows = await db
+        .select()
+        .from(governedCalls)
+        .where(and(gte(governedCalls.startTime, since), sql`bye_sent_at IS NOT NULL`))
+        .orderBy(desc(governedCalls.startTime))
+        .limit(500);
+
+      const calls = rows.map((r: any) => {
+        const cost = r.cdrCost     !== null ? Number(r.cdrCost)     : null;
+        const dur  = r.cdrDuration !== null ? Number(r.cdrDuration) : null;
+
+        // Extract product prefix from cdrCallee (first digit of P&L CLD)
+        const cdrCallee = (r.cdrCallee as string | null) ?? null;
+        let detectedPrefix: string | null = null;
+        if (cdrCallee) {
+          const digits = cdrCallee.replace(/\D/g, '');
+          const firstDigit = digits[0];
+          if (firstDigit && prefixMap[firstDigit]) {
+            detectedPrefix = firstDigit;
+          }
+        }
+
+        const product = detectedPrefix ? prefixMap[detectedPrefix] ?? null : null;
+        const effectiveRatePerMin = (cost !== null && dur !== null && dur > 0)
+          ? cost / (dur / 60)
+          : null;
+
+        // Determine identity confidence
+        let confidence: string;
+        if (r.cdrStatus === 'ok' && detectedPrefix && product) {
+          confidence = 'confirmed';
+        } else if (r.cdrStatus === 'ok' && !detectedPrefix) {
+          confidence = 'resolved_no_prefix';
+        } else if (r.cdrStatus === 'no_cdr') {
+          confidence = 'no_p&l_match';
+        } else {
+          confidence = 'pending';
+        }
+
+        return {
+          id: r.id,
+          caller: r.caller,
+          callee: r.callee,                // Raw CLD from Asterisk (has 2060 routing prefix)
+          cdrCallee,                        // P&L CLD — original customer-dialed number
+          startTime: r.startTime,
+          cdrStatus: r.cdrStatus,
+          detectedPrefix,
+          productCode: product?.code ?? null,
+          productName: product?.name ?? null,
+          productColor: product?.color ?? null,
+          productStatus: product?.status ?? null,
+          minMarginPct: product?.minMarginPct ?? null,
+          effectiveRatePerMin,
+          cdrCost: cost,
+          cdrDuration: dur,
+          confidence,
+        };
+      });
+
+      // Breakdown by product
+      const confirmed = calls.filter((c: any) => c.confidence === 'confirmed');
+      const productBreakdown: Record<string, number> = {};
+      for (const c of confirmed) {
+        const key = c.productCode ?? 'unknown';
+        productBreakdown[key] = (productBreakdown[key] ?? 0) + 1;
+      }
+
+      const summary = {
+        total: calls.length,
+        confirmed: confirmed.length,
+        resolvedNoPrefix: calls.filter((c: any) => c.confidence === 'resolved_no_prefix').length,
+        noPnlMatch: calls.filter((c: any) => c.confidence === 'no_p&l_match').length,
+        pending: calls.filter((c: any) => c.confidence === 'pending').length,
+        productBreakdown,
+        avgEffectiveRateByProduct: (() => {
+          const byProduct: Record<string, number[]> = {};
+          for (const c of confirmed) {
+            if (c.effectiveRatePerMin !== null && c.productCode) {
+              byProduct[c.productCode] = byProduct[c.productCode] ?? [];
+              byProduct[c.productCode].push(c.effectiveRatePerMin);
+            }
+          }
+          const result: Record<string, number> = {};
+          for (const [k, arr] of Object.entries(byProduct)) {
+            result[k] = arr.reduce((a, b) => a + b, 0) / arr.length;
+          }
+          return result;
+        })(),
+      };
+
+      res.json({ summary, calls });
+    } catch (e: any) {
+      console.error('[recon-lab/commercial-identity]', e);
       res.status(500).json({ error: e.message });
     }
   });
