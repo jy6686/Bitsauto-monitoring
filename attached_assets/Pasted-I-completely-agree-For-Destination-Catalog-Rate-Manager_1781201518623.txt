@@ -1,0 +1,161 @@
+I completely agree.
+
+For Destination Catalog, Rate Manager, Rate Sheets, Customer Quotes, and Partner Rate Notifications, the product code should never be exposed in the destination prefix.
+
+❌ Wrong
+192 Pakistan Mobile
+292 Pakistan Mobile
+692 Pakistan Mobile
+792 Pakistan Mobile
+
+This will create:
+
+Customer confusion
+Billing disputes
+Rate sheet complexity
+Difficult rate comparison
+Sales team mistakes
+
+A partner expects:
+
+92 Pakistan
+923 Pakistan Mobile
+9230 Jazz
+9231 Zong
+9232 Ufone
+9234 Telenor
+
+not product prefixes.
+
+✅ Correct Architecture
+Frontend (Commercial View)
+
+Destination Catalog:
+
+Prefix	Destination
+92	Pakistan
+923	Pakistan Mobile
+9230	Jazz
+9231	Zong
+9232	Ufone
+
+Rate Sheet:
+
+Prefix	Destination	Rate
+923	Pakistan Mobile	0.023
+9230	Jazz	0.023
+9231	Zong	0.024
+
+This is what customers and vendors see.
+
+Backend (Product Layer)
+
+Internally:
+
+Destination	FC	BC	SB	SC
+923	0.0230	0.0194	0.0320	0.0400
+9230	0.0235	0.0198	0.0330	0.0410
+
+Stored as:
+
+destination_catalog
+    ↓
+product_rates
+    ↓
+FC
+BC
+SB
+SC
+
+The destination remains:
+
+923
+
+The product is:
+
+FC
+BC
+SB
+SC
+
+separate from the destination.
+
+Recommended Destination Catalog Structure
+Pakistan Mobile
+Prefix: 923
+
+Products
+ ├ FC → 0.0230
+ ├ BC → 0.0194
+ ├ SB → 0.0320
+ └ SC → 0.0400
+
+Approved Products
+ ☑ FC
+ ☑ BC
+ ☑ SC
+ ☐ SB
+
+Sales sees:
+
+923 Pakistan Mobile
+
+Operations sees:
+
+FC Rate
+BC Rate
+SB Rate
+SC Rate
+Product Prefix (1,2,6,7)
+
+Those should remain an internal routing/commercial identifier only:
+
+1 = FC
+2 = BC
+6 = SB
+7 = SC
+
+Used for:
+
+Asterisk routing
+Sippy routing
+Commercial Identity
+Billing Verification
+Margin Analysis
+Product Analytics
+
+Not for:
+
+Rate sheets
+Customer exports
+Vendor exports
+Destination Catalog display
+Partner notifications
+My Recommendation
+
+Destination Catalog should become:
+
+Destination
+↓
+Country
+↓
+Operator
+↓
+Commercial Status
+↓
+Product Rates (FC/BC/SB/SC)
+↓
+Approval Workflow
+
+while all external rate sheets continue to use normal telecom prefixes:
+
+92
+923
+9230
+9231
+291
+852
+44
+1
+
+This keeps the platform scalable and prevents product-routing logic from leaking into commercial documents sent to customers and vendors.
