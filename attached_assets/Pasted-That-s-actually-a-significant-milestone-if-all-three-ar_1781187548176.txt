@@ -1,0 +1,287 @@
+That's actually a significant milestone if all three are truly verified.
+
+Based on your update, the roadmap status changes from:
+
+0.2 P&L Extraction
+IN PROGRESS
+
+to:
+
+0.2 P&L Extraction
+COMPLETE
+
+because you've already proven:
+
+Governed Call
+↓
+Found in P&L
+↓
+Revenue
+↓
+Cost
+↓
+Margin
+
+and more importantly:
+
+1923069306001
+
+was found in the P&L source.
+
+That was the critical proof.
+
+What I Would Verify Next
+
+Before declaring Priority 0.3 complete, I'd verify four metrics from production traffic:
+
+1. P&L Match Rate
+
+Not:
+
+1 call matched
+
+Need:
+
+24h governed calls
+↓
+matched in P&L
+
+Target:
+
+>90%
+2. Revenue Population Rate
+
+Check:
+
+Revenue != NULL
+
+Target:
+
+>95%
+3. Cost Population Rate
+
+Check:
+
+Cost != NULL
+
+Target:
+
+>95%
+4. Margin Population Rate
+
+Check:
+
+Margin != NULL
+
+Target:
+
+>95%
+New Priority Order
+
+If the backfill is genuinely working:
+
+Priority 0.3
+
+Billing Verification
+
+Enhance Billing Check to show:
+
+Revenue
+Cost
+Margin
+Vendor
+Connection
+Selling Duration
+Buying Duration
+
+from P&L.
+
+This becomes the operational profit/loss screen.
+
+Priority 0.5
+
+Governance Validation
+
+Run:
+
+5–7 days
+
+and measure:
+
+CDR Match Rate
+P&L Match Rate
+Margin Coverage
+Recording Coverage
+One Thing Still Worrying Me
+
+From your earlier screenshots:
+
+500 / 500
+No CDR
+
+If Track 2b is fixed now, I would expect that number to begin dropping quickly.
+
+What I'd ask the team to verify immediately:
+
+Yesterday:
+500 No CDR
+
+Today:
+???
+
+If it's still:
+
+500 No CDR
+
+then either:
+
+Backfill isn't running
+Backfill isn't saving results
+P&L matching works manually but not in automation
+
+The metric that matters is not "the scraper exists."
+
+The metric that matters is:
+
+No CDR
+↓
+Revenue / Cost / Margin
+
+appearing automatically in Billing Check.
+
+Regarding the Uploaded File
+
+I can also see that a file was uploaded in this conversation (Pasted text.txt), but I haven't analyzed its contents yet. If that file contains the backfill logs, P&L probe results, or Track 2b implementation details, I can review it and tell you whether Priority 0.3 is actually complete or if there's still a hidden gap. Also note that some older uploaded files from previous messages have expired, so if you want me to compare against those, you'll need to upload them again.
+
+this i wat i mentioned many time 1 is missing in your CDR, but no action pleas emake sure firsst read call CLD etc
+
+Yes — and this is exactly the point you've been raising repeatedly.
+
+The issue is not just "No CDR".
+
+The issue is that the matching logic keeps ignoring number normalization, while your screenshots have already shown the pattern:
+
+Governance / Asterisk sees
+923069306001
+Sippy stores
+1923069306001
+
+or
+
+2060923069306001
+
+depending on product/trunk encoding.
+
+That extra leading digit(s) completely changes matching.
+
+What should happen BEFORE any matching
+
+Every search should first normalize CLD.
+
+Example:
+
+Source	Raw CLD
+Governance	923069306001
+Sippy CDR	1923069306001
+Product FC	1923069306001
+Product BC	2923069306001
+Product SB	6923069306001
+Product SC	7923069306001
+
+The system should derive:
+
+Base CLD = 923069306001
+
+Then compare.
+
+What I would ask the developer to verify
+
+For a failed Billing Check row:
+
+Step 1
+
+Print:
+
+Governed Call ID
+Raw CLI
+Raw CLD
+Bridge Time
+Step 2
+
+Print every P&L candidate found:
+
+P&L CLI
+P&L CLD
+Setup Time
+Revenue
+Cost
+Step 3
+
+Show normalization:
+
+923069306001
+↓
+normalize()
+↓
+923069306001
+
+1923069306001
+↓
+normalize()
+↓
+923069306001
+Step 4
+
+Show why rejected:
+
+Rejected:
+Time Difference 2h 14m
+
+OR
+
+Rejected:
+Different Destination
+
+Right now it feels like the platform is saying:
+
+No CDR
+
+without showing why.
+
+The Bigger Concern
+
+You mentioned this several times:
+
+"1 is missing in your CDR"
+
+If that's true, then before doing any P&L matching, Billing Verification, Governance Validation, etc., the team needs a CLD normalization audit.
+
+I would create a temporary debug table showing:
+
+Governed CLD	CDR CLD	Normalized Governed	Normalized CDR
+923069306001	1923069306001	923069306001	923069306001
+
+If those normalize to the same value and still don't match, then the problem is time correlation.
+
+If they don't normalize to the same value, then the normalization logic is wrong.
+
+My recommendation
+
+Before touching Trust Center, Rates, Quality Assurance, or any new feature:
+
+Pick one failed governed call.
+Show raw CLI, raw CLD, raw P&L CLI, raw P&L CLD.
+Show normalized values.
+Show exact rejection reason.
+
+That will reveal in 5 minutes whether the remaining issue is:
+
+Missing leading 1
+Product prefix (1/2/6/7)
+Time window
+Wrong P&L row
+Wrong account/source
+
+And yes, from everything you've shown so far, I would investigate the CLD normalization first, because the 923... vs 1923... mismatch has appeared repeatedly throughout the troubleshooting.
+
+Also, some earlier uploaded files and screenshots have expired. If there was a specific debug export or log file that showed the CLD mismatch, upload it again and I can analyze the exact normalization path.
