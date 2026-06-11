@@ -1,59 +1,53 @@
 ---
 name: Vendor Cost Extraction — Sippy P&L
-description: Decision to NOT estimate vendor cost; Sippy already has it via profit_loss_report.php; CSV export schema confirmed
+description: P3.1 done; P3.2 root causes diagnosed + two fixes applied; pnlCache is the authoritative vendor cost source
 ---
 
-# Vendor Cost — Do NOT Estimate
+# Vendor Cost — Architecture & Status
 
 ## The Rule
 Never implement estimated/calculated vendor cost (Rate × Duration proxy). Sippy already knows the actual cost.
 
-**Why:** Sippy's `profit_loss_report.php` and its CSV/XLSX export already contain Revenue, Cost, and Margin per call — calculated by Sippy itself. Building a shadow costing engine would duplicate real data and introduce drift.
+**Why:** Sippy's `profit_loss_report.php` CSV contains Revenue, Cost, and Margin per call — calculated by Sippy itself.
 
-## Confirmed Export Schema (9 Jun 2026 — 4,347 rows)
-Downloaded from the "Download" button on `/c1/profit_loss_report.php`. Columns confirmed:
+## P3.1 — DONE
+`scrapePnlCallRows` now emits `vendorCost = Cost (USD)` column. The DB column `cdr_vendor_cost` in `governed_calls` is written for newly-matched calls.
 
-| Column | Notes |
-|---|---|
-| Caller | Sippy account name |
-| Vendor Name | Vendor identity |
-| Connection Name | Specific vendor connection |
-| CLI | Originating number |
-| CLD | Destination number |
-| Country | Country resolved by Sippy |
-| Description | Destination description |
-| Setup Time | Call timestamp — **match key** |
-| Selling Duration | Customer-facing duration (mm:ss) |
-| Selling Billed Duration | Customer-billed duration |
-| Buying Duration | Vendor-facing duration |
-| Buying Billed Duration | Vendor-billed duration |
-| Revenue | Customer revenue in USD |
-| Cost | Vendor cost in USD |
-| Margin | Revenue − Cost (can be negative) |
-| Currency | USD or configured currency |
+## P3.2 — Root Causes Diagnosed & Two Fixes Applied (Jun 2026)
 
-**Match key for correlation with governed_calls:** `CLI + CLD + Setup Time` (appears to uniquely identify a call).
+### Three stacked failure modes (pre-fix baseline: 2/226 = 0.9% vendor cost coverage)
 
-## Example Rows
-- PUSHTOTALK / asterisk(SKY)/asterisk(PTCL) / Pakistan Mobile → Revenue=0.0239, Cost=0.0007, Margin=0.0232
-- Loss-making calls also present: Revenue=0, Cost=0.000017, Margin=-0.000017
+**Failure 1 — Track 1 XML-RPC CLD format mismatch (primary match blocker)**
+- Governed callee `2060923xxxxxxxx` (16 digits) strips to `923xxxxxxxx` (12 digits)
+- Sippy CDRs store `1923xxxxxxxx` (E.164 with leading `1`) — 13 digits
+- XML-RPC exact CLD filter = always 0 results for BC calls (prefix `2`)
+- **Fix applied (Track 1c):** after Track 1 returns 0, retry with `1`+destDigits and also with SIPPY_PROV credentials
 
-## Priority 0.2 Roadmap (carry forward — nothing built yet)
+**Failure 2 — Track 2b global lock (vendor cost blocker)**
+- `_pnlFetching = true` global boolean: only 1 per-call P&L scrape at a time
+- At 500 calls/hr, virtually every call hit the locked guard and skipped Track 2b
+- Only 2 calls in 7 days caught the lock unlocked → 0.9% vendor cost coverage
+- **Fix applied (pnlCache fallback):** after CDR match, if `cdrVendorCost` is null, search `global.__bitsautoPnlCache` by CLD 10-digit suffix + ±15 min window. Uses `sippy.parseSippyDate()`. `cdrVendorCost`/`cdrVendorName` changed from `const` to `let`.
 
-**Step 1 (highest):** Automate the Download. The report is generated via portal session — replicate the same HTTP request (with date params + format=csv/xlsx) as the portal scraper does for CDRs. Endpoint is likely a POST to `profit_loss_report.php` with `start_date`, `end_date`, `action=download` params.
+**Failure 3 — pnlCache not exposed to call-governance**
+- `pnlCache` was a local closure in routes.ts
+- **Fix applied:** exposed as `global.__bitsautoPnlCache` after registration AND after each 10-min refresh. `_getGlobalPnlCache()` added to routes-call-governance.ts.
 
-**Step 2:** Confirm CLI+CLD+Setup Time uniqueness across a full day export. If any collisions exist, add Selling Duration as a tiebreaker.
+### Open: Historical backfill
+Calls older than 24h that are `no_cdr` or missing vendor cost cannot be enriched automatically. Scope from the "Timed Out" count in `/api/recon-lab/coverage` before building a batch job.
 
-**Step 3:** Build a P&L cache/feed in the backend (like cdrCache) and expose it as `/api/sippy/pnl` with the same date-window params the portal uses.
+## Coverage Diagnostic (GET /api/recon-lab/coverage)
+Funnel for 24h/48h/7d: completed → checked → matched → enriched → timedOut → recoverable.
+Live numbers before fixes: 7d = 2,405 completed / 226 matched (9.4%) / 2 enriched (0.9%).
 
-**Step 4:** Wire Billing Check tab in Call Governance to match governed_calls against the P&L feed → show Revenue, Cost, Margin inline.
-
-**Step 5:** Wire Deal Workspace margin intelligence to the same P&L feed.
-
-## What to Check for XML-RPC (lower priority than scrape path)
-Methods to probe: `getProfitLoss`, `getPLReport`, `getTrafficReport`. If they exist, prefer XML-RPC over portal scrape for reliability.
+## pnlCache Architecture (routes.ts)
+- Key: `${cli}:${cld}:${startTime}` — dedup by call identity
+- PnlCsvRow fields: `cli`, `cld`, `startTime`, `revenue` (= customer charge), `cost` (= vendor cost), `connection` (= vendor name), `durationSec`, `buyDurationSec`, `margin`, etc.
+- Refreshed every 10 min, 24h window, evicts entries >48h old
+- Global ref: `global.__bitsautoPnlCache` — keep current after each refresh
 
 ## How to Apply in Code
 - Billing Check tab: match by CLI+CLD+Setup Time (±seconds) against P&L, not cdr_vendor_cost
 - Deal Workspace: actual Margin from P&L, not estimated from tariff
 - NEVER add any "estimate from tariff × duration" code path — reject it if proposed in any future session
+- CLD matching in XML-RPC: always try BOTH `destDigits` AND `1`+`destDigits` — Sippy stores E.164

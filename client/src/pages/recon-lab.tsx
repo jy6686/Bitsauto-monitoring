@@ -4,7 +4,7 @@ import {
   FlaskConical, RefreshCw, CheckCircle2, XCircle,
   FileAudio, Database, Search, Shield, Download,
   Fingerprint, FileSearch, Activity, TrendingUp, Tag,
-  AlertTriangle, Info,
+  AlertTriangle, Info, GitMerge, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
 // ── Tab IDs ───────────────────────────────────────────────────────────────────
-type TabId = "recording" | "cdr" | "identity" | "vendor" | "commercial";
+type TabId = "recording" | "cdr" | "identity" | "vendor" | "commercial" | "coverage";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined, decimals = 6) {
@@ -247,11 +247,17 @@ export default function ReconciliationLabPage() {
     queryFn: () => fetch(`/api/recon-lab/commercial-identity?days=${days}`).then(r => r.json()),
     staleTime: 60_000,
   });
+  const coverageQ = useQuery<any>({
+    queryKey: ["/api/recon-lab/coverage"],
+    queryFn: () => fetch(`/api/recon-lab/coverage`).then(r => r.json()),
+    staleTime: 60_000,
+    enabled: activeTab === "coverage",
+  });
 
-  const activeQ = { recording: recordingQ, cdr: cdrQ, identity: identityQ, vendor: vendorQ, commercial: commercialQ }[activeTab];
+  const activeQ = { recording: recordingQ, cdr: cdrQ, identity: identityQ, vendor: vendorQ, commercial: commercialQ, coverage: coverageQ }[activeTab];
 
   function refresh() {
-    recordingQ.refetch(); cdrQ.refetch(); identityQ.refetch(); vendorQ.refetch(); commercialQ.refetch();
+    recordingQ.refetch(); cdrQ.refetch(); identityQ.refetch(); vendorQ.refetch(); commercialQ.refetch(); coverageQ.refetch();
     toast({ title: "Refreshed", description: "All Recon Lab data reloaded." });
   }
 
@@ -264,11 +270,12 @@ export default function ReconciliationLabPage() {
 
   // ── Tab definitions ───────────────────────────────────────────────────────
   const tabs: { id: TabId; label: string; icon: any }[] = [
-    { id: "recording",  label: "Recording Integrity",   icon: FileAudio   },
-    { id: "cdr",        label: "CDR Reconciliation",    icon: Database    },
-    { id: "identity",   label: "Identity Audit",        icon: Fingerprint },
+    { id: "recording",  label: "Recording Integrity",    icon: FileAudio   },
+    { id: "cdr",        label: "CDR Reconciliation",     icon: Database    },
+    { id: "identity",   label: "Identity Audit",         icon: Fingerprint },
     { id: "vendor",     label: "Vendor Cost Validation", icon: TrendingUp  },
-    { id: "commercial", label: "Commercial Identity",   icon: Tag         },
+    { id: "commercial", label: "Commercial Identity",    icon: Tag         },
+    { id: "coverage",   label: "Cost Coverage",          icon: GitMerge    },
   ];
 
   return (
@@ -903,6 +910,145 @@ export default function ReconciliationLabPage() {
               </div>
               <div>
                 <span className="text-slate-300">Unclassified traffic</span> — Calls whose first digit is not in the registry. Classify or leave as-is — they are tracked separately and never forced into an existing product.
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════════
+            TAB 6 · Cost Coverage Diagnostic
+            Enrichment funnel: Completed → Checked → Matched → Enriched
+            Shows exactly where vendor cost coverage collapses, for 3 windows.
+        ════════════════════════════════════════════════════════════════════ */}
+        {activeTab === "coverage" && (
+          <>
+            {/* ── P&L cache health ── */}
+            {coverageQ.data?.meta && (
+              <div className="flex flex-wrap items-center gap-3">
+                <div className={cn(
+                  "flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border font-mono shrink-0",
+                  coverageQ.data.meta.pnlCacheHealthy
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                    : "bg-red-500/10 border-red-500/30 text-red-300"
+                )}>
+                  <div className={cn("w-1.5 h-1.5 rounded-full", coverageQ.data.meta.pnlCacheHealthy ? "bg-emerald-400" : "bg-red-400")} />
+                  P&L CSV cache: {coverageQ.data.meta.pnlCacheSize.toLocaleString()} rows
+                </div>
+                {coverageQ.data.meta.diagnosis?.map((d: string, i: number) => (
+                  <div key={i} className="text-xs text-slate-400 bg-slate-800/40 border border-slate-700/50 rounded px-3 py-1.5">
+                    {d}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {coverageQ.isLoading && (
+              <div className="text-center py-12 text-slate-500 text-sm">Loading coverage data…</div>
+            )}
+
+            {/* ── Three-window funnel ── */}
+            {coverageQ.data?.windows && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {coverageQ.data.windows.map((w: any) => (
+                  <div key={w.window} className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-200 font-semibold text-sm">{w.window} window</span>
+                      <span className={cn(
+                        "text-xs px-2 py-0.5 rounded-full font-mono border",
+                        w.rates.enrichedOfAll >= 50
+                          ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
+                          : w.rates.enrichedOfAll >= 20
+                          ? "bg-yellow-500/15 border-yellow-500/30 text-yellow-300"
+                          : "bg-red-500/15 border-red-500/30 text-red-300"
+                      )}>
+                        {w.rates.enrichedOfAll}% enriched
+                      </span>
+                    </div>
+
+                    {[
+                      { label: "Completed",  value: w.funnel.completed,  note: "BYE received",                              barColor: "bg-slate-500" },
+                      { label: "Checked",    value: w.funnel.checked,    note: `${w.rates.checkedPct}% of completed`,       barColor: "bg-blue-500" },
+                      { label: "Matched",    value: w.funnel.matched,    note: `${w.rates.matchedPct}% of checked`,         barColor: w.rates.matchedPct >= 60 ? "bg-emerald-500" : "bg-orange-500" },
+                      { label: "Enriched",   value: w.funnel.enriched,   note: `${w.rates.enrichedPct}% of matched`,        barColor: w.rates.enrichedPct >= 60 ? "bg-emerald-400" : "bg-red-500" },
+                    ].map((step, i, arr) => (
+                      <div key={step.label}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-slate-400">{step.label}</span>
+                          <span className="text-sm font-bold tabular-nums text-slate-200">{step.value.toLocaleString()}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-slate-700/60 overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full", step.barColor)}
+                            style={{ width: `${w.funnel.completed > 0 ? Math.round((step.value / w.funnel.completed) * 100) : 0}%` }}
+                          />
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">{step.note}</div>
+                        {i < arr.length - 1 && (
+                          <div className="flex justify-center mt-2">
+                            <ChevronRight className="w-3 h-3 text-slate-600 rotate-90" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    <div className="border-t border-slate-700/50 pt-3 space-y-1.5 text-xs">
+                      {w.funnel.timedOut > 0 && (
+                        <div className="flex justify-between text-red-400">
+                          <span>Timed out (past 2h window)</span>
+                          <span className="font-mono font-semibold">{w.funnel.timedOut.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.funnel.recoverable > 0 && (
+                        <div className="flex justify-between text-yellow-400">
+                          <span>Recoverable (still in window)</span>
+                          <span className="font-mono font-semibold">{w.funnel.recoverable.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.funnel.unchecked > 0 && (
+                        <div className="flex justify-between text-slate-400">
+                          <span>Unchecked</span>
+                          <span className="font-mono font-semibold">{w.funnel.unchecked.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.funnel.flagged > 0 && (
+                        <div className="flex justify-between text-amber-400">
+                          <span>Flagged (duration / margin)</span>
+                          <span className="font-mono font-semibold">{w.funnel.flagged.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.timing.p50CheckLagMin != null && (
+                        <div className="flex justify-between text-slate-500">
+                          <span>P50 check lag</span>
+                          <span className="font-mono">{w.timing.p50CheckLagMin} min</span>
+                        </div>
+                      )}
+                      {(w.triage.noCdrBc > 0 || w.triage.noCdrPtcl > 0) && (
+                        <div className="text-slate-500 pt-1 border-t border-slate-700/30 font-mono">
+                          no_cdr: BC={w.triage.noCdrBc.toLocaleString()} · PTCL={w.triage.noCdrPtcl.toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="rounded-lg border border-slate-700/40 bg-slate-800/30 p-4 text-xs text-slate-400 space-y-2">
+              <div className="font-semibold text-slate-300 mb-1">Root Cause Analysis — Fixes Applied</div>
+              <div>
+                <span className="text-emerald-300 font-semibold">Track 1c (CLD +1 prefix):</span>{" "}
+                XML-RPC was querying CLD <code className="text-slate-300">923xxxxxxxx</code> but Sippy stores <code className="text-slate-300">1923xxxxxxxx</code> (E.164).
+                Track 1c now retries with the leading-1 format. Applies to all new calls going forward.
+              </div>
+              <div>
+                <span className="text-emerald-300 font-semibold">pnlCache vendor cost fallback:</span>{" "}
+                Track 2b (per-call P&L scrape) had a global concurrency lock — only 2 calls/week got vendor cost.
+                The pnlCache (10-min refresh, 24h rolling window) is now the primary vendor cost source, matched by CLD suffix + ±15 min.
+              </div>
+              <div>
+                <span className="text-slate-400 font-semibold">Open — historical backfill:</span>{" "}
+                Calls older than 24h with <code className="text-slate-300">no_cdr</code> or missing vendor cost cannot be enriched automatically.
+                Scope from the "Timed Out" row above, then decide whether a backfill job is warranted.
               </div>
             </div>
           </>

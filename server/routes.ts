@@ -6536,6 +6536,7 @@ export async function registerRoutes(
       }
 
       pnlCacheUpdatedAt = new Date();
+      (global as any).__bitsautoPnlCache = pnlCache; // keep global reference current after each refresh
       console.log(`[pnl-cache] refresh OK — ${added} new rows added, cache=${pnlCache.size} (${Date.now() - t0}ms)`);
     } catch (e: any) {
       console.warn('[pnl-cache] refresh error:', e.message);
@@ -33243,6 +33244,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   registerBhaooRoutes(app);
   registerCallGovernanceRoutes(app);
   (global as any).__bitsautoCdrCache = cdrCache; // expose CDR cache via global for call-governance (survives hot-reload)
+  (global as any).__bitsautoPnlCache = pnlCache; // expose P&L CSV cache for vendor cost enrichment in call-governance
 
   // ── Rate Manager extended routes (product rates, notifications, per-row recon)
   registerRateManagerRoutes(app);

@@ -25,6 +25,14 @@ function _getGlobalCdrCache(): Map<string, any> | null {
   return (global as any).__bitsautoCdrCache ?? null;
 }
 
+// ── P&L CSV cache access via global singleton ──────────────────────────────────
+// routes.ts sets (global as any).__bitsautoPnlCache = pnlCache after each refresh.
+// Contains PnlCsvRow entries: { cld, cli, startTime, revenue, cost, connection, ... }
+// This is the authoritative vendor cost source (24h window, refreshed every 10 min).
+function _getGlobalPnlCache(): Map<string, any> | null {
+  return (global as any).__bitsautoPnlCache ?? null;
+}
+
 // ── Live portal scrape throttle ───────────────────────────────────────────────
 // Prevents concurrent Track-2 portal scrapes from hammering Sippy.
 // Only one live scrape at a time; callers that arrive while locked use cache only.
@@ -216,6 +224,44 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
     }
   }
 
+  // ── Track 1c: XML-RPC retry with leading '1' prefix ──────────────────────────
+  // Sippy CDR CLD format differs from our stripped destDigits.
+  // Governed callee "2060923xxxxxxxx" strips to "923xxxxxxxx" (12 digits),
+  // but every Sippy CDR stores "1923xxxxxxxx" (13 digits — E.164 with leading 1).
+  // Exact-match XML-RPC filter returns 0 rows. Try "1" + destDigits as fallback.
+  if ((cdrs.length === 0 || source === 'none') && destDigits.length >= 7 && !destDigits.startsWith('1')) {
+    const cldWith1 = '1' + destDigits;
+    try {
+      const cdrs1 = await sippy.getSippyCDRs(
+        apiUser, apiPass, 50,
+        { cld: cldWith1, startDate: winStart.toISOString(), endDate: winEnd.toISOString() },
+        portalUrl,
+      );
+      if (cdrs1.length > 0) {
+        cdrs = cdrs1; source = 'xmlrpc-1prefix';
+        console.log(`[call-governance] CDR lookup #${governedCallId}: XML-RPC +1prefix → ${cdrs1.length} CDR(s) for cld=${cldWith1}`);
+      }
+    } catch { /* fall through */ }
+    // Also try SIPPY_PROV credentials with the '1' prefix
+    if (cdrs.length === 0) {
+      const provUser = (process.env.SIPPY_PROV_USERNAME ?? '').trim();
+      const provPass = (process.env.SIPPY_PROV_PASSWORD ?? '').trim();
+      if (provUser && provUser !== apiUser) {
+        try {
+          const cdrs1p = await sippy.getSippyCDRs(
+            provUser, provPass, 50,
+            { cld: cldWith1, startDate: winStart.toISOString(), endDate: winEnd.toISOString() },
+            portalUrl,
+          );
+          if (cdrs1p.length > 0) {
+            cdrs = cdrs1p; source = 'xmlrpc-prov-1prefix';
+            console.log(`[call-governance] CDR lookup #${governedCallId}: XML-RPC prov +1prefix → ${cdrs1p.length} CDR(s)`);
+          }
+        } catch { /* fall through */ }
+      }
+    }
+  }
+
   // ── Track 2: LIVE portal scrape — runs when call is fresh & no concurrent scrape ──
   // CRITICAL FIX: Previously gated on cdrs.length===0 which meant it NEVER ran (cache
   // always non-empty). Now runs for fresh calls (within portal visibility window) with
@@ -396,10 +442,35 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
   // This correctly resolves as 'ok' rather than staying 'no_cdr'.
   const cdrDuration   = matched !== null ? (Number(matched.duration) || 0) : null;
   const cdrCost       = matched !== null ? (Number(matched.cost)     || 0) : null;
-  const cdrVendorCost = matched ? (Number((matched as any).vendorCost) || null) : null;
-  const cdrVendorName = matched?.vendorResolved ?? matched?.vendorName ?? null;
+  let cdrVendorCost   = matched ? (Number((matched as any).vendorCost) || null) : null;
+  let cdrVendorName   = matched?.vendorResolved ?? matched?.vendorName ?? null;
   const cdrCaller     = matched?.caller ?? null;
   const cdrCallee     = matched?.callee ?? null;
+
+  // ── pnlCache vendor cost fallback ─────────────────────────────────────────────
+  // The pnlCache (refreshed every 10 min) contains ALL calls in the last 24h with
+  // both revenue (cdrCost) and vendor cost. Most calls miss the per-call Track 2b
+  // scrape due to the concurrency guard — this covers the entire population instead.
+  // Match by CLD 10-digit suffix + ±15 min time window. Does not require CDR match.
+  if (cdrVendorCost === null && destSuffix.length >= 8) {
+    const pnlMap = _getGlobalPnlCache();
+    if (pnlMap && pnlMap.size > 0) {
+      const pnlWindowMs = 15 * 60_000;
+      for (const [, row] of pnlMap) {
+        const rowTs = sippy.parseSippyDate(row.startTime)?.getTime() ?? null;
+        if (rowTs === null || Math.abs(rowTs - startMs) > pnlWindowMs) continue;
+        const rowCld = (row.cld || '').replace(/\D/g, '');
+        if (rowCld.length >= 8 && rowCld.endsWith(destSuffix)) {
+          if (row.cost != null && Number(row.cost) > 0) {
+            cdrVendorCost = Number(row.cost);
+            cdrVendorName = cdrVendorName ?? (row.connection || null);
+            console.log(`[call-governance] CDR lookup #${governedCallId}: pnlCache vendorCost=${cdrVendorCost} from "${row.connection}"`);
+          }
+          break;
+        }
+      }
+    }
+  }
 
   const govSec = gc.startTime && gc.byeSentAt
     ? Math.round((new Date(gc.byeSentAt).getTime() - new Date(gc.startTime).getTime()) / 1000)
@@ -2058,6 +2129,117 @@ export function registerCallGovernanceRoutes(app: Express) {
       res.json({ summary, calls });
     } catch (e: any) {
       console.error('[recon-lab/vendor-cost]', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Reconciliation Lab: Vendor Cost Coverage Diagnostic ──────────────────
+  // GET /api/recon-lab/coverage
+  // Funnel: Completed → Checked → Matched → Enriched → Timed Out
+  // For 24h / 48h / 7d windows. Used to diagnose exactly where vendor cost
+  // enrichment is collapsing without building a batch processor blindly.
+  app.get('/api/recon-lab/coverage', requireAdmin, async (req: any, res: any) => {
+    try {
+      const windows = [
+        { label: '24h', hours: 24  },
+        { label: '48h', hours: 48  },
+        { label: '7d',  hours: 168 },
+      ];
+
+      const results = await Promise.all(windows.map(async (w) => {
+        const rows = await db.execute(sql`
+          SELECT
+            COUNT(*)                                                              AS completed,
+            COUNT(CASE WHEN cdr_checked_at IS NOT NULL THEN 1 END)               AS checked,
+            COUNT(CASE WHEN cdr_status = 'ok' THEN 1 END)                        AS matched,
+            COUNT(CASE WHEN cdr_vendor_cost IS NOT NULL THEN 1 END)              AS enriched,
+            COUNT(CASE WHEN cdr_status = 'no_cdr'
+                        AND start_time < NOW() - INTERVAL '2 hours' THEN 1 END) AS timed_out,
+            COUNT(CASE WHEN cdr_status = 'no_cdr'
+                        AND start_time >= NOW() - INTERVAL '2 hours' THEN 1 END) AS recoverable,
+            COUNT(CASE WHEN cdr_status IS NULL
+                        AND bye_sent_at IS NOT NULL THEN 1 END)                  AS unchecked,
+            COUNT(CASE WHEN cdr_status = 'check' THEN 1 END)                    AS flagged,
+            ROUND(AVG(EXTRACT(EPOCH FROM (cdr_checked_at - bye_sent_at)) / 60)::numeric, 1) AS avg_check_lag_min,
+            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (
+              ORDER BY EXTRACT(EPOCH FROM (cdr_checked_at - bye_sent_at)) / 60
+            )::numeric, 1)                                                        AS p50_check_lag_min,
+            -- Prefix breakdown for no_cdr triage
+            COUNT(CASE WHEN cdr_status = 'no_cdr'
+                        AND LEFT(REGEXP_REPLACE(callee,'\\D','','g'),1) = '2' THEN 1 END) AS no_cdr_bc,
+            COUNT(CASE WHEN cdr_status = 'no_cdr'
+                        AND LEFT(REGEXP_REPLACE(callee,'\\D','','g'),1) = '9' THEN 1 END) AS no_cdr_ptcl
+          FROM governed_calls
+          WHERE bye_sent_at IS NOT NULL
+            AND start_time > NOW() - INTERVAL '${sql.raw(w.hours + ' hours')}'
+        `);
+
+        const r: any = (rows as any).rows?.[0] ?? (rows as any)[0] ?? {};
+        const completed  = Number(r.completed  ?? 0);
+        const checked    = Number(r.checked    ?? 0);
+        const matched    = Number(r.matched    ?? 0);
+        const enriched   = Number(r.enriched   ?? 0);
+        const timedOut   = Number(r.timed_out  ?? 0);
+        const recoverable = Number(r.recoverable ?? 0);
+        const unchecked  = Number(r.unchecked  ?? 0);
+        const flagged    = Number(r.flagged    ?? 0);
+
+        return {
+          window: w.label,
+          funnel: {
+            completed,
+            checked,
+            matched,
+            enriched,
+            timedOut,
+            recoverable,
+            unchecked,
+            flagged,
+          },
+          rates: {
+            checkedPct:   completed  > 0 ? Math.round((checked   / completed)  * 100) : 0,
+            matchedPct:   checked    > 0 ? Math.round((matched   / checked)    * 100) : 0,
+            enrichedPct:  matched    > 0 ? Math.round((enriched  / matched)    * 100) : 0,
+            matchedOfAll: completed  > 0 ? Math.round((matched   / completed)  * 100) : 0,
+            enrichedOfAll:completed  > 0 ? Math.round((enriched  / completed)  * 100) : 0,
+          },
+          timing: {
+            avgCheckLagMin: r.avg_check_lag_min != null ? Number(r.avg_check_lag_min) : null,
+            p50CheckLagMin: r.p50_check_lag_min != null ? Number(r.p50_check_lag_min) : null,
+          },
+          triage: {
+            noCdrBc:   Number(r.no_cdr_bc   ?? 0),
+            noCdrPtcl: Number(r.no_cdr_ptcl ?? 0),
+          },
+        };
+      }));
+
+      // pnlCache size for reference (shows whether the vendor cost fallback has data)
+      const pnlMap = _getGlobalPnlCache();
+      const meta = {
+        pnlCacheSize:    pnlMap?.size ?? 0,
+        pnlCacheHealthy: (pnlMap?.size ?? 0) > 0,
+        diagnosis: [] as string[],
+      };
+
+      // Auto-diagnosis hints
+      const w7 = results.find(r => r.window === '7d');
+      if (w7) {
+        if (w7.rates.matchedPct < 50)
+          meta.diagnosis.push(`CDR match rate ${w7.rates.matchedPct}% — XML-RPC CLD format mismatch likely (Track 1c fix applied)`);
+        if (w7.rates.enrichedPct < 50)
+          meta.diagnosis.push(`Vendor cost coverage ${w7.rates.enrichedPct}% of matched — pnlCache fallback active for new calls`);
+        if (w7.funnel.timedOut > 0)
+          meta.diagnosis.push(`${w7.funnel.timedOut} calls timed out of 2h portal window — backfill required for historical enrichment`);
+        if (w7.funnel.recoverable > 0)
+          meta.diagnosis.push(`${w7.funnel.recoverable} calls still within 2h portal window — will be enriched on next CDR lookup`);
+        if (meta.diagnosis.length === 0)
+          meta.diagnosis.push('Pipeline healthy — no issues detected');
+      }
+
+      res.json({ windows: results, meta });
+    } catch (e: any) {
+      console.error('[recon-lab/coverage]', e);
       res.status(500).json({ error: e.message });
     }
   });
