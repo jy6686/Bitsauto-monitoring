@@ -1,0 +1,130 @@
+These summary reports actually strengthen your argument that Product Identity must be part of billing verification.
+
+What the Customer Summary report shows
+
+The same destination family is being billed under different prefixes:
+
+Prefix	Rate
+19230	0.0262
+19231	0.0265
+19232	0.0262
+1923	0.0285
+19230	0.0360
+19231	0.0400
+
+From the report, there are thousands of calls under these prefixes, and the rates are clearly different.
+
+Example from your export:
+
+Prefix 19230 → Rate 0.0262 → 2,761 calls
+Prefix 19232 → Rate 0.0262 → 1,054 calls
+Prefix 19231 → Rate 0.0400 → 1,720 calls
+
+That is a very large commercial difference.
+
+What this proves
+
+The billing engine is not simply rating:
+
+923069306001
+
+It is rating:
+
+1923069306001
+2923069306001
+6923069306001
+7923069306001
+
+or other product-encoded prefixes.
+
+Therefore:
+
+last 10 digits
+
+may be acceptable for finding candidates,
+
+but it is not acceptable as the final financial identity.
+
+Why this matters for invoices
+
+If two products share:
+
+3069306001
+
+but have different sell rates:
+
+FC = 0.0230
+BC = 0.0194
+SC = 0.0400
+
+then a wrong match could:
+
+Overcharge customer
+Undercharge customer
+Show wrong margin
+Produce wrong invoice
+Create disputes
+
+Exactly the concern you've been raising.
+
+What I would do before Trust Center
+
+I would move these to the top of the commercial roadmap:
+
+Product Registry completion
+Rate Repository
+Rate Manager
+Rate Integrity Audit
+Product-aware P&L matching
+Invoice validation
+
+Only after those are proven would I trust automated invoicing.
+
+Most important technical change
+
+For every governed call, store:
+
+Product Code
+Original CLD
+Normalized CLD
+Prefix
+
+Example:
+
+Product = FC
+Original CLD = 1923069306001
+Destination = 923069306001
+
+Then Billing Check matches:
+
+FC + 923069306001 + time
+
+instead of:
+
+3069306001 + time
+
+That removes the cross-product ambiguity entirely.
+
+My conclusion
+
+After reviewing both the customer and vendor summaries, I agree with you:
+
+Product and Rate Integrity should be elevated alongside Billing Verification.
+
+Before BitsAuto sends invoices, it must be able to prove:
+
+Call
+↓
+Product
+↓
+Tariff
+↓
+Rate
+↓
+Revenue
+↓
+Vendor Cost
+↓
+Margin
+
+for every call. Otherwise a P&L row may be technically correct while the commercial charging is wrong. That's a bigger business risk than any Trust Center or monitoring feature.
