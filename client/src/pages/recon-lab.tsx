@@ -354,14 +354,34 @@ export default function ReconciliationLabPage() {
                   ? <span>Checking Asterisk SSH connectivity…</span>
                   : sshCheckQ.data?.connected
                   ? <>
-                      <span className="font-semibold">Asterisk SSH reachable</span>
-                      <span className="text-xs opacity-70 ml-2">{sshCheckQ.data.host} as {sshCheckQ.data.user}</span>
-                      {sshCheckQ.data.tested?.length > 0 && (
-                        <span className="text-xs ml-3">
-                          Sample check: <span className={sshCheckQ.data.tested.filter((t: any) => t.exists).length === sshCheckQ.data.tested.length ? "text-emerald-400" : "text-orange-400"}>
-                            {sshCheckQ.data.tested.filter((t: any) => t.exists).length}/{sshCheckQ.data.tested.length} recent files found
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        <span className="font-semibold">Asterisk SSH reachable</span>
+                        <span className="text-xs opacity-70">{sshCheckQ.data.host} as {sshCheckQ.data.user}</span>
+                        {sshCheckQ.data.tested?.length > 0 && (
+                          <span className="text-xs">
+                            Files: <span className={sshCheckQ.data.tested.filter((t: any) => t.exists).length === sshCheckQ.data.tested.length ? "text-emerald-400" : "text-red-400 font-semibold"}>
+                              {sshCheckQ.data.tested.filter((t: any) => t.exists).length}/{sshCheckQ.data.tested.length} recent found
+                            </span>
                           </span>
-                        </span>
+                        )}
+                        {sshCheckQ.data.diskInfo && (
+                          <span className={cn("text-xs font-mono px-1.5 py-0.5 rounded", 
+                            sshCheckQ.data.diskInfo.usePct >= 95 ? "bg-red-500/20 text-red-300 font-semibold" :
+                            sshCheckQ.data.diskInfo.usePct >= 80 ? "bg-orange-500/20 text-orange-300" :
+                            "bg-slate-700/40 text-slate-400")}>
+                            Disk: {sshCheckQ.data.diskInfo.used}/{sshCheckQ.data.diskInfo.total} ({sshCheckQ.data.diskInfo.usePct}% used · {sshCheckQ.data.diskInfo.avail} free)
+                          </span>
+                        )}
+                      </div>
+                      {sshCheckQ.data.diskInfo?.usePct >= 95 && (
+                        <div className="mt-1 text-xs text-red-300 font-semibold">
+                          🚨 DISK FULL — Asterisk cannot write new recording files until space is freed. Delete old WAV files from /var/spool/asterisk/monitor/ or expand the disk volume.
+                        </div>
+                      )}
+                      {sshCheckQ.data.tested?.length > 0 && sshCheckQ.data.tested.filter((t: any) => t.exists).length === 0 && (sshCheckQ.data.diskInfo?.usePct ?? 0) < 95 && (
+                        <div className="mt-1 text-xs text-orange-300">
+                          Recent recordings not found on disk — check Asterisk Monitor/MixMonitor dialplan configuration.
+                        </div>
                       )}
                     </>
                   : sshCheckQ.data

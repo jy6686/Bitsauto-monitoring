@@ -1732,22 +1732,48 @@ export function registerCallGovernanceRoutes(app: Express) {
     const fileStats: Record<number, { exists: boolean; size: number }> = {};
 
     try {
+      let diskInfo: { total: string; used: string; avail: string; usePct: number } | null = null;
+
       await new Promise<void>((resolve, reject) => {
         const conn = new SshClient();
         conn.on('ready', () => {
-          if (testItems.length === 0) { conn.end(); resolve(); return; }
-          conn.sftp((err, sftp) => {
-            if (err) { conn.end(); reject(new Error('SFTP: ' + err.message)); return; }
-            let pending = testItems.length;
-            const done = () => { if (--pending === 0) { conn.end(); resolve(); } };
-            for (const { id, path } of testItems) {
-              sftp.stat(path, (statErr, stat) => {
-                fileStats[id] = statErr
-                  ? { exists: false, size: 0 }
-                  : { exists: true, size: stat.size };
-                done();
+          // Step 1: run df to get disk usage
+          conn.exec('df -k /var/spool/asterisk/ 2>/dev/null | tail -1', (err, stream) => {
+            if (err) { conn.end(); reject(new Error('exec df: ' + err.message)); return; }
+            let dfOut = '';
+            stream.on('data', (d: Buffer) => dfOut += d.toString());
+            stream.on('close', () => {
+              // Parse: Filesystem 1K-blocks Used Available Use% Mounted
+              const parts = dfOut.trim().split(/\s+/);
+              if (parts.length >= 5) {
+                const usePct = parseInt(parts[4], 10) || 0;
+                const usedKb = parseInt(parts[2], 10) || 0;
+                const availKb = parseInt(parts[3], 10) || 0;
+                const fmtGb = (kb: number) => `${(kb / 1024 / 1024).toFixed(1)} GB`;
+                diskInfo = {
+                  total: fmtGb(usedKb + availKb),
+                  used:  fmtGb(usedKb),
+                  avail: availKb < 1024 ? `${availKb} KB` : fmtGb(availKb),
+                  usePct,
+                };
+              }
+
+              // Step 2: SFTP stat sample files
+              if (testItems.length === 0) { conn.end(); resolve(); return; }
+              conn.sftp((sftpErr, sftp) => {
+                if (sftpErr) { conn.end(); reject(new Error('SFTP: ' + sftpErr.message)); return; }
+                let pending = testItems.length;
+                const done = () => { if (--pending === 0) { conn.end(); resolve(); } };
+                for (const { id, path } of testItems) {
+                  sftp.stat(path, (statErr, stat) => {
+                    fileStats[id] = statErr
+                      ? { exists: false, size: 0 }
+                      : { exists: true, size: stat.size };
+                    done();
+                  });
+                }
               });
-            }
+            });
           });
         });
         conn.on('error', reject);
@@ -1759,7 +1785,7 @@ export function registerCallGovernanceRoutes(app: Express) {
         path,
         ...(fileStats[id] ?? { exists: false, size: 0 }),
       }));
-      res.json({ connected: true, host, user, tested });
+      res.json({ connected: true, host, user, tested, diskInfo });
     } catch (e: any) {
       res.json({ connected: false, error: e.message, host, user });
     }
