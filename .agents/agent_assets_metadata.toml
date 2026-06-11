@@ -281,3 +281,9 @@ id = "sU8CQeuJWqUFTgayl_yGM"
 uri = "file://exports/global_destinations.xlsx"
 type = "table"
 title = "Global Destination Set"
+
+[[outputs]]
+id = "X7IwKYiTS7IJyu910fi6l"
+uri = "file://BitsAuto_Commercial_Identity_Analysis.xlsx"
+type = "table"
+title = "BitsAuto — Commercial Identity Analysis & Status Board"
