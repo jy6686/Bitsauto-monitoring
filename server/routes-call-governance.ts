@@ -11,7 +11,7 @@ import {
   canonicalVendors, vendorProductPrefixes, prefixAuditLog,
   productRegistry,
 } from '@shared/schema';
-import { eq, desc, gte, and, sql } from 'drizzle-orm';
+import { eq, desc, gte, and, sql, isNotNull } from 'drizzle-orm';
 import { amiGovernance } from './services/asterisk/ami-governance';
 import { storage } from './storage';
 import { Client as SshClient } from 'ssh2';
@@ -1117,21 +1117,42 @@ export function registerCallGovernanceRoutes(app: Express) {
             return res.status(404).json({ error: 'File not found on Asterisk: ' + filePath });
           }
 
-          const fileName = filePath.split('/').pop() ?? 'recording.wav';
-          console.log(`[recording-stream] Streaming ${fileName} (${stats.size} bytes)`);
-          res.setHeader('Content-Type', 'audio/wav');
-          res.setHeader('Content-Length', stats.size);
-          res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
-          res.setHeader('Accept-Ranges', 'bytes');
+          const fileName   = filePath.split('/').pop() ?? 'recording.wav';
+          const fileSize   = stats.size;
+          const rangeHeader = (req.headers as any).range as string | undefined;
 
-          const stream = sftp.createReadStream(filePath);
-          stream.on('error', (e: any) => {
-            console.error(`[recording-stream] Stream error: ${e.message}`);
-            conn.end();
-            if (!res.headersSent) res.status(500).end();
-          });
-          stream.on('close', () => conn.end());
-          stream.pipe(res);
+          if (rangeHeader) {
+            // Support HTTP range requests so <audio> elements can seek
+            const [startStr, endStr] = rangeHeader.replace(/bytes=/, '').split('-');
+            const start = parseInt(startStr, 10);
+            const end   = endStr ? parseInt(endStr, 10) : fileSize - 1;
+            const chunkSize = end - start + 1;
+
+            console.log(`[recording-stream] Range ${start}-${end}/${fileSize} for ${fileName}`);
+            res.status(206);
+            res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+            res.setHeader('Accept-Ranges', 'bytes');
+            res.setHeader('Content-Length', chunkSize);
+            res.setHeader('Content-Type', 'audio/wav');
+            res.setHeader('Cache-Control', 'no-store');
+
+            const stream = sftp.createReadStream(filePath, { start, end });
+            stream.on('error', (e: any) => { console.error(`[recording-stream] Range stream error: ${e.message}`); conn.end(); if (!res.headersSent) res.status(500).end(); });
+            stream.on('close', () => conn.end());
+            stream.pipe(res);
+          } else {
+            console.log(`[recording-stream] Streaming ${fileName} (${fileSize} bytes)`);
+            res.setHeader('Content-Type', 'audio/wav');
+            res.setHeader('Content-Length', fileSize);
+            res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+            res.setHeader('Accept-Ranges', 'bytes');
+            res.setHeader('Cache-Control', 'no-store');
+
+            const stream = sftp.createReadStream(filePath);
+            stream.on('error', (e: any) => { console.error(`[recording-stream] Stream error: ${e.message}`); conn.end(); if (!res.headersSent) res.status(500).end(); });
+            stream.on('close', () => conn.end());
+            stream.pipe(res);
+          }
         });
       });
     });
@@ -1142,7 +1163,7 @@ export function registerCallGovernanceRoutes(app: Express) {
     });
 
     console.log(`[recording-stream] Connecting to ${host} as ${user} for: ${filePath}`);
-    conn.connect({ host, port: 22, username: user, password });
+    conn.connect({ host, port: 22, username: user, password, readyTimeout: 8000 });
   });
 
   // ── Manual CDR backfill ────────────────────────────────────────────────────
@@ -1656,16 +1677,28 @@ export function registerCallGovernanceRoutes(app: Express) {
         };
       });
 
+      const fileOk      = calls.filter((c: any) => c.fileStatus === 'ok').length;
+      const fileMissing = calls.filter((c: any) => c.fileStatus === 'missing').length;
+      const fileEmpty   = calls.filter((c: any) => c.fileStatus === 'empty').length;
+      const unchecked   = calls.filter((c: any) => c.fileStatus === 'unchecked').length;
+      // successPct: of files that were actually SFTP-checked, what % were OK
+      // (not divided by all completed calls — that gives 0% when SSH check pool < total)
+      const checkedCount = fileOk + fileMissing + fileEmpty;
+
       const summary = {
         total: completed.length,
         hasPath: withPath.length,
         noPath: noPath.length,
-        fileOk: calls.filter((c: any) => c.fileStatus === 'ok').length,
-        fileMissing: calls.filter((c: any) => c.fileStatus === 'missing').length,
-        fileEmpty: calls.filter((c: any) => c.fileStatus === 'empty').length,
-        unchecked: calls.filter((c: any) => c.fileStatus === 'unchecked').length,
-        successPct: completed.length > 0
-          ? Math.round(calls.filter((c: any) => c.fileStatus === 'ok').length / completed.length * 100)
+        fileOk,
+        fileMissing,
+        fileEmpty,
+        unchecked,
+        checkedCount,
+        successPct: checkedCount > 0
+          ? Math.round(fileOk / checkedCount * 100)
+          : null,                              // null = SSH check didn't run (no password or no connection)
+        coveragePct: withPath.length > 0
+          ? Math.round(checkedCount / Math.min(withPath.length, toCheck.length || 1) * 100)
           : 0,
       };
 
@@ -1673,6 +1706,62 @@ export function registerCallGovernanceRoutes(app: Express) {
     } catch (e: any) {
       console.error('[recon-lab/recording-integrity]', e);
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Reconciliation Lab: SSH connectivity health check ────────────────────
+  // GET /api/recon-lab/recording-ssh-check
+  // Tests SSH/SFTP reachability to Asterisk and stats the 5 most-recent recordings.
+  app.get('/api/recon-lab/recording-ssh-check', requireAdmin, async (req: any, res: any) => {
+    const host     = process.env.ASTERISK_HOST     ?? '159.223.32.59';
+    const user     = process.env.ASTERISK_SSH_USER ?? 'root';
+    const password = process.env.ASTERISK_SSH_PASSWORD ?? '';
+
+    if (!password) {
+      return res.json({ connected: false, error: 'ASTERISK_SSH_PASSWORD not configured', host, user });
+    }
+
+    const recent = await db
+      .select({ id: governedCalls.id, recordingPath: governedCalls.recordingPath })
+      .from(governedCalls)
+      .where(and(isNotNull(governedCalls.recordingPath), isNotNull(governedCalls.byeSentAt)))
+      .orderBy(desc(governedCalls.startTime))
+      .limit(5);
+
+    const testItems = recent.map(r => ({ id: r.id, path: r.recordingPath! }));
+    const fileStats: Record<number, { exists: boolean; size: number }> = {};
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const conn = new SshClient();
+        conn.on('ready', () => {
+          if (testItems.length === 0) { conn.end(); resolve(); return; }
+          conn.sftp((err, sftp) => {
+            if (err) { conn.end(); reject(new Error('SFTP: ' + err.message)); return; }
+            let pending = testItems.length;
+            const done = () => { if (--pending === 0) { conn.end(); resolve(); } };
+            for (const { id, path } of testItems) {
+              sftp.stat(path, (statErr, stat) => {
+                fileStats[id] = statErr
+                  ? { exists: false, size: 0 }
+                  : { exists: true, size: stat.size };
+                done();
+              });
+            }
+          });
+        });
+        conn.on('error', reject);
+        conn.connect({ host, port: 22, username: user, password, readyTimeout: 8000 });
+      });
+
+      const tested = testItems.map(({ id, path }) => ({
+        id,
+        path,
+        ...(fileStats[id] ?? { exists: false, size: 0 }),
+      }));
+      res.json({ connected: true, host, user, tested });
+    } catch (e: any) {
+      res.json({ connected: false, error: e.message, host, user });
     }
   });
 

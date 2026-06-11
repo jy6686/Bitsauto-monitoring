@@ -202,6 +202,7 @@ export default function ReconciliationLabPage() {
   const [activeTab, setActiveTab] = useState<TabId>("recording");
   const [days, setDays]           = useState(7);
   const [search, setSearch]       = useState("");
+  const [playingId, setPlayingId] = useState<number | null>(null);
   const { toast } = useToast();
 
   // ── Queries ──────────────────────────────────────────────────────────────
@@ -209,6 +210,12 @@ export default function ReconciliationLabPage() {
     queryKey: ["/api/recon-lab/recording-integrity", days],
     queryFn: () => fetch(`/api/recon-lab/recording-integrity?days=${days}`).then(r => r.json()),
     staleTime: 60_000,
+  });
+  const sshCheckQ = useQuery<any>({
+    queryKey: ["/api/recon-lab/recording-ssh-check"],
+    queryFn: () => fetch(`/api/recon-lab/recording-ssh-check`).then(r => r.json()),
+    staleTime: 300_000,
+    enabled: activeTab === "recording",
   });
   const cdrQ = useQuery<any>({
     queryKey: ["/api/recon-lab/cdr-reconciliation", days],
@@ -326,22 +333,85 @@ export default function ReconciliationLabPage() {
         ════════════════════════════════════════════════════════════════════ */}
         {activeTab === "recording" && (
           <>
+            {/* SSH connectivity status card */}
+            <div className={cn(
+              "flex items-center gap-3 rounded-lg border p-3 text-sm transition-colors",
+              sshCheckQ.isLoading
+                ? "border-slate-700/40 bg-slate-800/30 text-slate-400"
+                : sshCheckQ.data?.connected
+                ? "border-emerald-700/40 bg-emerald-900/20 text-emerald-300"
+                : sshCheckQ.data
+                ? "border-red-700/40 bg-red-900/20 text-red-300"
+                : "border-slate-700/40 bg-slate-800/30 text-slate-400"
+            )} data-testid="card-ssh-status">
+              {sshCheckQ.isLoading
+                ? <RefreshCw className="w-4 h-4 shrink-0 animate-spin" />
+                : sshCheckQ.data?.connected
+                ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+                : <XCircle className="w-4 h-4 shrink-0" />}
+              <div className="flex-1 min-w-0">
+                {sshCheckQ.isLoading
+                  ? <span>Checking Asterisk SSH connectivity…</span>
+                  : sshCheckQ.data?.connected
+                  ? <>
+                      <span className="font-semibold">Asterisk SSH reachable</span>
+                      <span className="text-xs opacity-70 ml-2">{sshCheckQ.data.host} as {sshCheckQ.data.user}</span>
+                      {sshCheckQ.data.tested?.length > 0 && (
+                        <span className="text-xs ml-3">
+                          Sample check: <span className={sshCheckQ.data.tested.filter((t: any) => t.exists).length === sshCheckQ.data.tested.length ? "text-emerald-400" : "text-orange-400"}>
+                            {sshCheckQ.data.tested.filter((t: any) => t.exists).length}/{sshCheckQ.data.tested.length} recent files found
+                          </span>
+                        </span>
+                      )}
+                    </>
+                  : sshCheckQ.data
+                  ? <>
+                      <span className="font-semibold">Asterisk SSH unreachable</span>
+                      <span className="text-xs opacity-70 ml-2">{sshCheckQ.data.host}</span>
+                      {sshCheckQ.data.error && <span className="text-xs ml-2 opacity-80">— {sshCheckQ.data.error}</span>}
+                      <span className="text-xs ml-3 text-slate-400">File-stat checks and audio streaming will fail until SSH is restored.</span>
+                    </>
+                  : <span>SSH check pending…</span>}
+              </div>
+              <Button size="sm" variant="ghost" className="text-xs shrink-0 text-slate-400 hover:text-white"
+                onClick={() => sshCheckQ.refetch()} disabled={sshCheckQ.isFetching}
+                data-testid="btn-ssh-recheck">
+                Recheck
+              </Button>
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-              <SummaryCard label="Completed Calls"   value={recordingQ.data?.summary?.total     ?? "…"} />
-              <SummaryCard label="Has Path"          value={recordingQ.data?.summary?.hasPath   ?? "…"} color="text-blue-300" />
-              <SummaryCard label="No Path"           value={recordingQ.data?.summary?.noPath    ?? "…"} color="text-slate-400" />
-              <SummaryCard label="File OK"           value={recordingQ.data?.summary?.fileOk    ?? "…"} color="text-emerald-400" />
-              <SummaryCard label="File Missing"      value={recordingQ.data?.summary?.fileMissing ?? "…"} color="text-red-400" />
-              <SummaryCard label="Empty (0 B)"       value={recordingQ.data?.summary?.fileEmpty ?? "…"} color="text-orange-400" />
-              <SummaryCard label="Success Rate"      value={`${recordingQ.data?.summary?.successPct ?? "…"}%`}
-                color={(recordingQ.data?.summary?.successPct ?? 0) >= 90 ? "text-emerald-400" :
-                       (recordingQ.data?.summary?.successPct ?? 0) >= 60 ? "text-yellow-400" : "text-red-400"} />
+              <SummaryCard label="Completed Calls"    value={recordingQ.data?.summary?.total       ?? "…"} />
+              <SummaryCard label="Has Path"           value={recordingQ.data?.summary?.hasPath     ?? "…"} color="text-blue-300" />
+              <SummaryCard label="No Path"            value={recordingQ.data?.summary?.noPath      ?? "…"} color="text-slate-400" />
+              <SummaryCard label="File OK"            value={recordingQ.data?.summary?.fileOk      ?? "…"} color="text-emerald-400" />
+              <SummaryCard label="File Missing"       value={recordingQ.data?.summary?.fileMissing ?? "…"} color="text-red-400" />
+              <SummaryCard label="Empty (0 B)"        value={recordingQ.data?.summary?.fileEmpty   ?? "…"} color="text-orange-400" />
+              <SummaryCard
+                label="File OK Rate"
+                value={recordingQ.data?.summary?.successPct !== null && recordingQ.data?.summary?.successPct !== undefined
+                  ? `${recordingQ.data.summary.successPct}%`
+                  : "—"}
+                sub={recordingQ.data?.summary?.checkedCount != null
+                  ? `of ${recordingQ.data.summary.checkedCount} checked`
+                  : "SSH not checked"}
+                color={
+                  recordingQ.data?.summary?.successPct == null ? "text-slate-400" :
+                  recordingQ.data.summary.successPct >= 90 ? "text-emerald-400" :
+                  recordingQ.data.summary.successPct >= 60 ? "text-yellow-400" : "text-red-400"
+                }
+              />
             </div>
 
             {(recordingQ.data?.summary?.fileMissing ?? 0) > 0 && (
               <AlertBanner icon={AlertTriangle} color="border-red-500/30 bg-red-500/10 text-red-300"
                 title="Recording files missing on Asterisk"
-                body={`${recordingQ.data.summary.fileMissing} recording(s) have a path recorded in the DB but the file does not exist on the Asterisk server. This is a live production defect — investigate before enabling billing verification.`} />
+                body={`${recordingQ.data.summary.fileMissing} recording(s) have a path in the DB but the file is absent on the Asterisk server. This is a live production defect — investigate before enabling billing verification.`} />
+            )}
+            {recordingQ.data?.summary?.successPct === null && recordingQ.data?.summary?.total > 0 && (
+              <AlertBanner icon={Info} color="border-blue-500/30 bg-blue-500/10 text-blue-300"
+                title="File-stat check did not run"
+                body="The SFTP batch check returned no results. This usually means the SSH connection to Asterisk failed. Use the Recheck button above to diagnose." />
             )}
 
             <SearchBox value={search} onChange={setSearch} testId="input-recording-search" />
@@ -350,7 +420,7 @@ export default function ReconciliationLabPage() {
               <thead className="bg-slate-800/80">
                 <tr>
                   <TH>#</TH><TH>CLI</TH><TH>CLD</TH><TH>Start (UTC)</TH>
-                  <TH>Recording Path</TH><TH>Status</TH><TH>Size</TH><TH>Stream</TH>
+                  <TH>Recording Path</TH><TH>Status</TH><TH>Size</TH><TH>Play</TH>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -367,15 +437,28 @@ export default function ReconciliationLabPage() {
                       </td>
                       <td className="px-3 py-2"><FileStatusBadge status={c.fileStatus} /></td>
                       <TD muted>{fmtBytes(c.fileSize)}</TD>
-                      <td className="px-3 py-2">
-                        {c.recordingPath
-                          ? <a href={`/api/call-governance/recordings/stream?path=${encodeURIComponent(c.recordingPath)}`}
-                              target="_blank" rel="noopener noreferrer"
-                              className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                              data-testid={`link-stream-${c.id}`}>
-                              <Download className="w-3 h-3" />Stream
-                            </a>
-                          : <span className="text-slate-600 text-xs">—</span>}
+                      <td className="px-3 py-2 min-w-[220px]">
+                        {c.recordingPath ? (
+                          playingId === c.id
+                            ? <audio
+                                autoPlay
+                                controls
+                                preload="auto"
+                                className="h-8 w-52 accent-violet-500"
+                                src={`/api/call-governance/recordings/stream?path=${encodeURIComponent(c.recordingPath)}`}
+                                onEnded={() => setPlayingId(null)}
+                                data-testid={`audio-${c.id}`}
+                              />
+                            : <button
+                                onClick={() => setPlayingId(c.id)}
+                                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1.5 px-2 py-1 rounded border border-blue-500/20 hover:border-blue-400/40 transition-colors"
+                                data-testid={`btn-play-${c.id}`}
+                              >
+                                <Download className="w-3 h-3" />Play
+                              </button>
+                        ) : (
+                          <span className="text-slate-600 text-xs">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -383,7 +466,7 @@ export default function ReconciliationLabPage() {
             </TableShell>
             {recCalls.length > 0 && (
               <p className="text-xs text-slate-500">
-                {recCalls.length} completed calls · SSH file-stat checks via SFTP for up to 100 recording paths
+                {recCalls.length} completed calls shown · SFTP file-stat run on first 100 recording paths · File OK Rate = ok ÷ checked (not ÷ total)
               </p>
             )}
           </>
