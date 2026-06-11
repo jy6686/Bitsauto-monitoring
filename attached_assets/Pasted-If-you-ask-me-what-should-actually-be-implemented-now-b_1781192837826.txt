@@ -1,0 +1,137 @@
+If you ask me what should actually be implemented now, based on your BitsAuto roadmap, current production issues, and everything we've analyzed, I would implement only Phase 1 Reconciliation Lab MVP.
+
+Implement Now (Sprint 1)
+New Workspace
+Platform Operations
+└─ Reconciliation Lab
+
+Admin / Super Admin only.
+
+Tab 1 — Recording Integrity
+
+Purpose:
+
+Why recording missing?
+
+Show:
+
+Call ID
+CLI
+CLD
+Recording Path
+File Exists
+File Size
+Duration
+Download
+Status
+
+Summary cards:
+
+Recording Success %
+Missing Recordings
+Unreadable Recordings
+Last 24 Hours
+
+This directly addresses your current recording issue.
+
+Tab 2 — CDR Reconciliation
+
+Purpose:
+
+Why does a call show No CDR?
+
+Unified view:
+
+Governed Call
+↓
+Customer CDR
+↓
+Vendor CDR
+↓
+P&L
+
+Status:
+
+MATCHED
+PARTIAL
+MISSING
+
+Columns:
+
+Call ID
+CLI
+CLD
+Customer CDR
+Vendor CDR
+P&L
+Match Status
+Tab 3 — Identity Audit
+
+Purpose:
+
+Do we already have a universal call identifier?
+
+Matrix:
+
+Field	Customer CDR	Vendor CDR	P&L
+Call-ID	✓/✗	✓/✗	✓/✗
+Conf-ID	✓/✗	✓/✗	✓/✗
+UniqueID	✓/✗	✓/✗	✓/✗
+Original CLD	✓/✗	✓/✗	✓/✗
+
+Output:
+
+Recommended Master Key
+
+This may eliminate a large part of future CCI work.
+
+Do NOT Implement Yet
+
+Hold these until the MVP proves the data:
+
+Phase 2
+Vendor Cost Validation
+P&L Validation
+Phase 3
+Commercial Identity Audit
+Commercial Call Identity (CCI)
+Rate Integrity Audit
+Frozen
+Trust Center
+Route Certification
+QA Workspace
+Security Scoring
+Voice Escalation
+Config Governance
+My recommendation to Replit
+
+If you're sending work to the team today, I would give them exactly this:
+
+Build Reconciliation Lab MVP under Platform Operations.
+
+Scope:
+
+Recording Integrity
+Recording path
+File exists
+File size
+Duration
+Download validation
+Success metrics
+CDR Reconciliation
+Unified Customer CDR + Vendor CDR + P&L view
+Match status (Matched / Partial / Missing)
+Search by Call ID, CLI, CLD
+Identity Audit
+Compare Call-ID, Conf-ID, UniqueID, Original CLD across Customer CDR, Vendor CDR, and P&L
+Recommend strongest reconciliation key
+
+Access:
+
+Super Admin
+Admin only
+
+Goal:
+Expose recording failures, reconciliation failures, and identity linkage issues in one place before implementing Commercial Call Identity, Rate Integrity Audit, or Invoice Validation.
+
+One more note: several of the CDR exports and screenshots used earlier in the analysis have expired. Before implementing the Identity Audit tab, upload fresh Customer CDR, Vendor CDR, and P&L exports so the actual identifiers can be validated against current production data.

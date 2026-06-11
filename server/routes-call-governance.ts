@@ -1580,5 +1580,292 @@ export function registerCallGovernanceRoutes(app: Express) {
     }
   });
 
+  // ── Reconciliation Lab: Recording Integrity ───────────────────────────────
+  // GET /api/recon-lab/recording-integrity?days=7
+  // Returns governed calls with recording path status. Batch-checks files via SSH.
+  app.get('/api/recon-lab/recording-integrity', requireAdmin, async (req: any, res: any) => {
+    try {
+      const days = Math.min(Number(req.query.days) || 7, 30);
+      const since = new Date(Date.now() - days * 86400_000);
+
+      const rows = await db
+        .select()
+        .from(governedCalls)
+        .where(and(gte(governedCalls.startTime, since)))
+        .orderBy(desc(governedCalls.startTime))
+        .limit(500);
+
+      const completed = rows.filter((r: any) => r.byeSentAt);
+      const withPath  = completed.filter((r: any) => r.recordingPath);
+      const noPath    = completed.filter((r: any) => !r.recordingPath);
+
+      // Attempt SSH batch file-stat for calls with a recording path (up to 100)
+      const toCheck = withPath.slice(0, 100);
+      const fileStats: Record<number, { exists: boolean; size: number; error?: string }> = {};
+
+      if (toCheck.length > 0) {
+        const host     = process.env.ASTERISK_HOST     ?? '159.223.32.59';
+        const user     = process.env.ASTERISK_SSH_USER ?? 'root';
+        const password = process.env.ASTERISK_SSH_PASSWORD ?? '';
+
+        if (password) {
+          await new Promise<void>((resolve) => {
+            const conn = new SshClient();
+            conn.on('ready', () => {
+              conn.sftp((err, sftp) => {
+                if (err) { conn.end(); resolve(); return; }
+                let pending = toCheck.length;
+                const done = () => { if (--pending === 0) { conn.end(); resolve(); } };
+                for (const row of toCheck) {
+                  const fp = row.recordingPath!;
+                  sftp.stat(fp, (statErr, stat) => {
+                    fileStats[row.id] = statErr
+                      ? { exists: false, size: 0, error: statErr.message }
+                      : { exists: true, size: stat.size };
+                    done();
+                  });
+                }
+              });
+            });
+            conn.on('error', () => resolve());
+            conn.connect({ host, port: 22, username: user, password, readyTimeout: 8000 });
+          });
+        }
+      }
+
+      const calls = completed.map((r: any) => {
+        const stat = fileStats[r.id];
+        let fileStatus = 'no_path';
+        if (r.recordingPath) {
+          if (stat === undefined) fileStatus = 'unchecked';
+          else if (stat.exists && stat.size > 0) fileStatus = 'ok';
+          else if (stat.exists && stat.size === 0) fileStatus = 'empty';
+          else fileStatus = 'missing';
+        }
+        return {
+          id: r.id,
+          caller: r.caller,
+          callee: r.callee,
+          startTime: r.startTime,
+          byeSentAt: r.byeSentAt,
+          recordingPath: r.recordingPath,
+          fileStatus,
+          fileSize: stat?.size ?? null,
+          fileError: stat?.error ?? null,
+        };
+      });
+
+      const summary = {
+        total: completed.length,
+        hasPath: withPath.length,
+        noPath: noPath.length,
+        fileOk: calls.filter((c: any) => c.fileStatus === 'ok').length,
+        fileMissing: calls.filter((c: any) => c.fileStatus === 'missing').length,
+        fileEmpty: calls.filter((c: any) => c.fileStatus === 'empty').length,
+        unchecked: calls.filter((c: any) => c.fileStatus === 'unchecked').length,
+        successPct: completed.length > 0
+          ? Math.round(calls.filter((c: any) => c.fileStatus === 'ok').length / completed.length * 100)
+          : 0,
+      };
+
+      res.json({ summary, calls });
+    } catch (e: any) {
+      console.error('[recon-lab/recording-integrity]', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Reconciliation Lab: CDR Reconciliation ────────────────────────────────
+  // GET /api/recon-lab/cdr-reconciliation?days=7
+  // Returns governed calls unified with CDR/P&L data.
+  app.get('/api/recon-lab/cdr-reconciliation', requireAdmin, async (req: any, res: any) => {
+    try {
+      const days = Math.min(Number(req.query.days) || 7, 30);
+      const since = new Date(Date.now() - days * 86400_000);
+
+      const rows = await db
+        .select()
+        .from(governedCalls)
+        .where(and(gte(governedCalls.startTime, since)))
+        .orderBy(desc(governedCalls.startTime))
+        .limit(500);
+
+      const cdrCache = _getGlobalCdrCache();
+
+      const calls = rows.map((r: any) => {
+        // Determine match status
+        let matchStatus = 'pending';
+        if (r.byeSentAt) {
+          if (r.cdrStatus === 'ok') matchStatus = 'matched';
+          else if (r.cdrStatus === 'no_cdr') matchStatus = 'missing';
+          else if (r.cdrStatus) matchStatus = 'partial';
+          else matchStatus = 'pending';
+        }
+
+        // Check if Call-ID exists in cdrCache (customer CDR)
+        let customerCdrFound = false;
+        let customerCdrEntry: any = null;
+        if (cdrCache && r.vendorCallId) {
+          const callIdNorm = (r.vendorCallId || '').replace(/^<|>$/g, '').trim();
+          for (const entry of cdrCache.values()) {
+            const entryCallId = (entry.callId || '').replace(/^<|>$/g, '').trim();
+            if (entryCallId && entryCallId === callIdNorm) {
+              customerCdrFound = true;
+              customerCdrEntry = entry;
+              break;
+            }
+          }
+        }
+
+        return {
+          id: r.id,
+          caller: r.caller,
+          callee: r.callee,
+          startTime: r.startTime,
+          byeSentAt: r.byeSentAt,
+          status: r.status,
+          matchStatus,
+          // Governed / P&L data
+          cdrStatus: r.cdrStatus,
+          cdrCost: r.cdrCost,
+          cdrVendorCost: r.cdrVendorCost,
+          cdrVendorName: r.cdrVendorName,
+          cdrCaller: r.cdrCaller,
+          cdrCallee: r.cdrCallee,
+          cdrDuration: r.cdrDuration,
+          cdrCheckedAt: r.cdrCheckedAt,
+          // Customer CDR (from cdrCache)
+          customerCdrFound,
+          customerCdrCli: customerCdrEntry?.caller ?? null,
+          customerCdrCld: customerCdrEntry?.callee ?? null,
+          customerCdrCost: customerCdrEntry?.cost ?? null,
+          customerCdrCallId: customerCdrEntry?.callId ?? null,
+          // Identity
+          vendorCallId: r.vendorCallId,
+          uniqueId: r.uniqueId,
+        };
+      });
+
+      const completed = calls.filter((c: any) => c.byeSentAt);
+      const summary = {
+        total: rows.length,
+        completed: completed.length,
+        matched: completed.filter((c: any) => c.matchStatus === 'matched').length,
+        missing: completed.filter((c: any) => c.matchStatus === 'missing').length,
+        partial: completed.filter((c: any) => c.matchStatus === 'partial').length,
+        pending: calls.filter((c: any) => c.matchStatus === 'pending').length,
+        matchRatePct: completed.length > 0
+          ? Math.round(completed.filter((c: any) => c.matchStatus === 'matched').length / completed.length * 100)
+          : 0,
+        customerCdrFound: calls.filter((c: any) => c.customerCdrFound).length,
+      };
+
+      res.json({ summary, calls });
+    } catch (e: any) {
+      console.error('[recon-lab/cdr-reconciliation]', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Reconciliation Lab: Identity Audit ────────────────────────────────────
+  // GET /api/recon-lab/identity-audit?limit=50
+  // Audits cross-system call identity: which fields survive Governed→CDR→P&L.
+  app.get('/api/recon-lab/identity-audit', requireAdmin, async (req: any, res: any) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const since = new Date(Date.now() - 7 * 86400_000);
+
+      const rows = await db
+        .select()
+        .from(governedCalls)
+        .where(and(gte(governedCalls.startTime, since), sql`bye_sent_at IS NOT NULL`))
+        .orderBy(desc(governedCalls.startTime))
+        .limit(limit);
+
+      const cdrCache = _getGlobalCdrCache();
+      const cacheArr = cdrCache ? Array.from(cdrCache.values()) : [];
+
+      const calls = rows.map((r: any) => {
+        const callIdNorm = (r.vendorCallId || '').replace(/^<|>$/g, '').trim();
+
+        // Check Call-ID in customer CDR (cdrCache)
+        const callIdInCustomerCdr = callIdNorm
+          ? cacheArr.some((e: any) => (e.callId || '').replace(/^<|>$/g, '').trim() === callIdNorm)
+          : false;
+
+        // Check Call-ID in P&L (DB — cdrCallee populated by Track2b = P&L match confirmed)
+        const callIdInPnl = !!r.cdrStatus && r.cdrStatus === 'ok';
+
+        // Check Original CLD in customer CDR
+        const callee = (r.callee || '').replace(/\D/g, '');
+        const suffix10 = callee.slice(-10);
+        const cldInCustomerCdr = suffix10.length >= 8
+          ? cacheArr.some((e: any) => (e.callee || '').replace(/\D/g, '').endsWith(suffix10))
+          : false;
+
+        // Check CLI in customer CDR
+        const caller = (r.caller || '').replace(/\D/g, '');
+        const cliInCustomerCdr = caller.length >= 7
+          ? cacheArr.some((e: any) => (e.caller || '').replace(/\D/g, '') === caller)
+          : false;
+
+        // Determine product prefix from callee
+        const stripped = callee.replace(/^2060/, '');
+        const productPrefix = stripped.startsWith('1') ? '1 (FC)' :
+                              stripped.startsWith('2') ? '2 (BC)' :
+                              stripped.startsWith('6') ? '6 (SB)' :
+                              stripped.startsWith('7') ? '7 (SC)' : '?';
+
+        return {
+          id: r.id,
+          startTime: r.startTime,
+          caller: r.caller,
+          callee: r.callee,
+          productPrefix,
+          // Identity fields
+          vendorCallId: r.vendorCallId || null,
+          asteriskUniqueId: r.uniqueId || null,
+          // Cross-system presence
+          callIdInGovernedCall: !!r.vendorCallId,
+          callIdInCustomerCdr,
+          callIdInPnl,
+          cldInCustomerCdr,
+          cliInCustomerCdr,
+          // CDR status
+          cdrStatus: r.cdrStatus,
+          cdrCost: r.cdrCost,
+        };
+      });
+
+      // Aggregate: how often does each field span systems?
+      const total = calls.length;
+      const summary = {
+        total,
+        callIdCoverage: {
+          governedCall: calls.filter((c: any) => c.callIdInGovernedCall).length,
+          customerCdr:  calls.filter((c: any) => c.callIdInCustomerCdr).length,
+          pnl:          calls.filter((c: any) => c.callIdInPnl).length,
+        },
+        cldCoverage: {
+          customerCdr: calls.filter((c: any) => c.cldInCustomerCdr).length,
+        },
+        cliCoverage: {
+          customerCdr: calls.filter((c: any) => c.cliInCustomerCdr).length,
+        },
+        recommendation: (() => {
+          const callIdSpansAll = calls.filter((c: any) => c.callIdInGovernedCall && c.callIdInCustomerCdr).length;
+          if (callIdSpansAll / Math.max(total, 1) > 0.8) return 'Call-ID — spans Governed + Customer CDR (>80%). Use as reconciliation key.';
+          if (calls.filter((c: any) => c.cldInCustomerCdr).length / Math.max(total, 1) > 0.8) return 'Original CLD — spans Governed + Customer CDR (>80%). Use suffix-10 as fallback key.';
+          return 'No single field spans all systems reliably. CCI (call_uuid) required as master key.';
+        })(),
+      };
+
+      res.json({ summary, calls });
+    } catch (e: any) {
+      console.error('[recon-lab/identity-audit]', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   console.log('[call-governance] Routes registered');
 }

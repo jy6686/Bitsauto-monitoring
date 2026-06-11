@@ -193,6 +193,7 @@ import LiveTrafficPage from "@/pages/live-traffic";
 import NotificationCentrePage from "@/pages/notification-centre";
 import BillingPage from "@/pages/billing";
 import WorkspaceHomePage from "@/pages/workspace-home";
+import ReconciliationLabPage from "@/pages/recon-lab";
 import { WorkspaceShell } from "@/components/workspace-shell";
 
 // ── Workspace composition helper ─────────────────────────────────────────────
@@ -773,6 +774,10 @@ function Router() {
       {/* Keep legacy route for backward compat */}
       <Route path="/navigation-governance">
         {() => <ProtectedRoute component={NavigationGovernancePage} requiredRoles={['admin', 'super_admin']} />}
+      </Route>
+      {/* Reconciliation Lab — admin diagnostics: recording integrity, CDR recon, identity audit */}
+      <Route path="/recon-lab">
+        {() => <ProtectedRoute component={ReconciliationLabPage} requiredRoles={['admin', 'super_admin']} />}
       </Route>
 
       <Route path="/company/list">
