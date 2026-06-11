@@ -1,0 +1,165 @@
+I agree with this separation. Looking at everything you've shared over the last few weeks, I think the team has been mixing production defects and architecture design, which is why progress feels slow.
+
+What I would do immediately
+P1 — Recording Retrieval (Stop Everything Else Until Verified)
+
+This is not a future roadmap item.
+
+This is a production defect.
+
+For every governed call, add a verification chain:
+
+Bridge Event
+↓
+Recording Start Command Sent
+↓
+Recording File Created?
+↓
+File Size > 0?
+↓
+File Readable?
+↓
+UI Download Works?
+
+Create a diagnostic page:
+
+Call ID
+Recording Path
+Exists?
+Size
+Created Time
+Download Test
+
+Until this is green, nobody knows if recordings are actually being captured.
+
+P2 — Universal Reconciliation Engine
+
+Instead of:
+
+Billing Tab → Find CDR
+Governance → Find CDR
+Finance → Find CDR
+
+build:
+
+Reconciliation Engine
+
+Customer CDR
+Vendor CDR
+P&L
+↓
+Single Reconciled Record
+
+Every module consumes that.
+
+This is where the real fix should happen.
+
+P3 — Vendor Cost Validation
+
+Before building any margin feature:
+
+Take 20 calls.
+
+Verify:
+
+Vendor CDR Cost
+=
+P&L Cost
+
+If not equal:
+
+Stop.
+
+Find out why.
+
+Because margin calculations become meaningless otherwise.
+
+What should NOT be built yet
+
+I would freeze:
+
+Trust Center
+Route Certification
+QA Workspace
+Security Scoring
+Voice Escalation
+Config Governance
+
+until:
+
+Recording Retrieval
++
+Reconciliation Engine
++
+Vendor Cost Validation
+
+are proven.
+
+Regarding CCI (Commercial Call Identity)
+
+I think the latest correction is right.
+
+The product already exists in the dialed number.
+
+Example:
+
+1923069306001
+↑
+1 = FC
+
+So Asterisk can stamp:
+
+BITSAUTO_PRODUCT=FC
+
+immediately.
+
+No Product Registry lookup needed.
+
+Product Registry later says:
+
+FC
+↓
+Pricing Template
+↓
+Routing Template
+↓
+Tariff
+
+but it does not originate the product.
+
+What I think is the biggest mistake today
+
+The platform is trying to answer:
+
+How much revenue?
+How much cost?
+How much margin?
+
+before it can answer:
+
+What call is this?
+
+That is why:
+
+Billing Verification has issues.
+P&L matching has issues.
+Vendor cost validation is incomplete.
+Invoice trust is not ready.
+
+The missing piece is the unified identity layer.
+
+Current Status Board
+Area	Status
+Recording Retrieval	❌ Open
+Customer CDR Access	⚠ Partial
+Vendor CDR Access	⚠ Partial
+P&L Extraction	✅ Working
+Unified Reconciliation Engine	❌ Missing
+Vendor Cost Validation	⚠ Not Verified
+Commercial Call Identity	❌ Missing
+Product Identity	❌ Missing
+Rate Integrity Audit	❌ Missing
+Invoice Validation	❌ Missing
+One more thing
+
+Some of the files/screenshots you uploaded earlier in this discussion have expired and are no longer accessible. If you want me to re-review any of the customer CDR exports, vendor CDR exports, summary reports, or P&L files, please upload them again. Those reports were important for validating the product-prefix and billing-identity architecture.
