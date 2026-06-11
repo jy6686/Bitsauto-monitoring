@@ -1993,6 +1993,8 @@ export async function scrapePnlCallRows(
     else if (dtMon)   startTime = `${dtMon[3]}-${MONTHS[dtMon[2]] ?? '01'}-${dtMon[1].padStart(2,'0')}T${dtMon[4]}Z`;
     else if (dtIso)   startTime = `${dtIso[1]}-${dtIso[2]}-${dtIso[3]}T${dtIso[4]}Z`;
 
+    // P3.1: cost = Revenue column (customer billing, consistent with portal CDR naming)
+    //        vendorCost = Cost column (what we pay the vendor — was not extracted before)
     cdrs.push({
       callId:        `pnl-html-${rowIdx}`,
       caller:        cli.replace(/\D/g, ''),
@@ -2000,8 +2002,8 @@ export async function scrapePnlCallRows(
       startTime,
       duration:      parsePnlDuration(cell(iDur)),
       totalDuration: parsePnlDuration(cell(iDur)),
-      cost:          numCell(iCost),
-      revenue:       numCell(iRev),
+      cost:          numCell(iRev),       // Revenue, USD → customer billing (cdrCost)
+      vendorCost:    numCell(iCost),      // Cost, USD    → vendor buying cost (cdrVendorCost)
       vendorName:    cell(iConn) || undefined,
       description:   cell(iAcct) || undefined,
     } as any);
@@ -2072,7 +2074,7 @@ export async function scrapePnlCdrForCall(
     // Early exit: found a CLD suffix match
     const match = rows.find(c => (c.callee || '').replace(/\D/g,'').endsWith(destSuffix10));
     if (match) {
-      console.log(`[scrapePnlCdrForCall] destSuffix=${destSuffix10} FOUND on page ${page}: CLD=${match.callee} t=${match.startTime} cost=${match.cost}`);
+      console.log(`[scrapePnlCdrForCall] destSuffix=${destSuffix10} FOUND on page ${page}: CLD=${match.callee} t=${match.startTime} rev(cust)=${match.cost} vendorCost=${(match as any).vendorCost ?? '—'}`);
       break;
     }
 

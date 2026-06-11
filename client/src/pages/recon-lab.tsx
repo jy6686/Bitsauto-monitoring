@@ -655,11 +655,18 @@ export default function ReconciliationLabPage() {
               </tbody>
             </TableShell>
 
-            <div className="rounded-lg border border-slate-700/40 bg-slate-800/30 p-4 text-xs text-slate-400 space-y-1">
-              <div className="font-semibold text-slate-300 mb-1">Next step to unblock Vendor Cost Validation</div>
-              <div>The P&amp;L scraper (<code className="text-slate-300">scrapePnlCallRows</code>) currently reads the <span className="text-emerald-300">Revenue, USD</span> column into <code className="text-slate-300">cdrCost</code>.</div>
-              <div>It must also read the <span className="text-amber-300">Cost, USD</span> column into <code className="text-slate-300">cdrVendorCost</code>. Once done, this tab will show real margin data.</div>
-              <div className="text-slate-500 pt-1">Until vendor cost is populated, margin analysis and all downstream margin-dependent work should remain blocked.</div>
+            <div className="rounded-lg border border-emerald-700/40 bg-emerald-900/20 p-4 text-xs text-slate-300 space-y-1">
+              <div className="font-semibold text-emerald-300 mb-1">P3.1 Fix Applied ✓</div>
+              <div>
+                The P&amp;L scraper now correctly reads both columns:
+                <span className="text-emerald-300 font-mono ml-1">Revenue, USD</span> → <code className="text-slate-300">cdrCost</code> (customer billing) and
+                <span className="text-amber-300 font-mono ml-1">Cost, USD</span> → <code className="text-slate-300">cdrVendorCost</code> (vendor buying cost).
+              </div>
+              <div>All calls resolved <span className="font-semibold">from this point forward</span> will have both values populated and margin will compute correctly.</div>
+              <div className="text-slate-500 pt-1">
+                Historical calls (resolved before P3.1) have <code>cdrVendorCost = NULL</code> and their <code>cdrCost</code> contains the old Cost column value — they cannot be backfilled via the portal (beyond the 2-hour visibility window).
+                Use the forced billing-backfill endpoint only for calls within the last 2 hours if you want to correct recent ones.
+              </div>
             </div>
           </>
         )}

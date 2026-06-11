@@ -1,0 +1,131 @@
+If the implementation summary is accurate, then Reconciliation Lab has already uncovered two very important facts:
+
+Confirmed Finding #1
+cdr_vendor_cost = NULL
+
+for all resolved calls.
+
+That means:
+
+P&L Revenue
+✓ Available
+
+P&L Cost
+✗ Not extracted
+
+This should become the next development task, because until P&L Cost is extracted:
+
+Margin is not trusted
+Vendor Cost Validation cannot pass
+Billing Verification is incomplete
+Invoice Validation is blocked
+
+I would make this:
+
+Priority P3.1
+Extract Cost column from P&L
+→ populate cdr_vendor_cost
+
+before any additional finance work.
+
+Confirmed Finding #2
+
+Product identity appears in:
+
+cdrCallee
+
+such as:
+
+1923xxxxxxx → FC
+2923xxxxxxx → BC
+6923xxxxxxx → SB
+7923xxxxxxx → SC
+
+This is a major discovery because it means:
+
+Product Identity
+
+already exists in production data.
+
+The Commercial Identity Audit tab should now verify:
+
+Prefix
+↓
+Product
+↓
+Rate
+↓
+Revenue
+
+for real calls.
+
+What I would focus on next
+Immediate
+Recording Integrity results
+CDR Reconciliation match %
+Identity Audit recommendation
+Next Development Task
+Extract P&L Cost
+Populate cdr_vendor_cost
+
+Then rerun:
+
+Vendor Cost Validation
+
+on 20–50 calls.
+
+Before Building CCI
+
+Answer these questions from the new lab:
+
+Identity Audit
+
+Does:
+
+Call-ID
+
+span:
+
+Customer CDR
+Vendor CDR
+P&L
+
+If yes:
+
+Use Call-ID
+
+If no:
+
+Proceed with CCI
+Commercial Identity Audit
+
+Verify:
+
+1923 → FC → Correct Tariff?
+2923 → BC → Correct Tariff?
+6923 → SB → Correct Tariff?
+7923 → SC → Correct Tariff?
+
+This is where invoice trust starts.
+
+Updated Priority Stack
+Active
+Recording Integrity
+CDR Reconciliation
+Identity Audit
+P&L Cost Extraction
+Vendor Cost Validation
+Commercial Identity Audit
+Deferred
+Commercial Call Identity (only if audit proves necessary)
+Rate Integrity Audit
+Invoice Validation
+Frozen
+Trust Center
+Route Certification
+QA Workspace
+Security Scoring
+Voice Escalation
+Config Governance
+
+Also, some of the customer CDR exports, vendor CDR exports, P&L exports, and screenshots referenced earlier have expired and are no longer accessible. If you want to validate the Identity Audit, Vendor Cost Validation, or Commercial Identity Audit against actual production data, please upload the latest exports again. That will allow analysis against current live records rather than historical samples.

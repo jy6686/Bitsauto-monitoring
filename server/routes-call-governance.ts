@@ -1929,8 +1929,14 @@ export function registerCallGovernanceRoutes(app: Express) {
         negativeMargin: negMargin.length,
         avgMarginPct: avgMarginPct !== null ? Math.round(avgMarginPct * 10) / 10 : null,
         vendorCostPopulated: withVendor.length > 0,
-        gapReason: withVendor.length === 0
-          ? 'P&L scraper currently extracts Revenue (cost to customer) but not the vendor buying cost column. Track 2b must be extended to parse the Cost column.'
+        // P3.1 applied: scrapePnlCallRows now emits vendorCost from the Cost,USD column.
+        // Calls resolved AFTER this fix will have cdrVendorCost populated automatically.
+        // Calls resolved BEFORE this fix (cdrVendorCost=NULL) need a forced P&L backfill,
+        // but those calls are beyond the portal 2-hour window so re-scrape won't find them.
+        gapReason: withVendor.length === 0 && resolved > 0
+          ? 'P3.1 fix is live — vendor cost will populate for all new resolved calls. Historical calls (resolved before P3.1) cannot be backfilled via the portal (beyond 2-hour visibility window). Trigger a forced billing-backfill only for calls within the last 2 hours.'
+          : withVendor.length === 0 && resolved === 0
+          ? 'No P&L-resolved calls in this window yet.'
           : null,
       };
 
