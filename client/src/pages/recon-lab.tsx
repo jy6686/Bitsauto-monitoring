@@ -74,17 +74,27 @@ function ConfidenceBadge({ v }: { v: string }) {
   return <span className={cn("text-xs px-2 py-0.5 rounded-full border font-mono", m.cls)}>{m.label}</span>;
 }
 
+const PRODUCT_COLORS = [
+  "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
+  "bg-purple-500/15 text-purple-300 border-purple-500/30",
+  "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  "bg-green-500/15 text-green-300 border-green-500/30",
+  "bg-rose-500/15 text-rose-300 border-rose-500/30",
+  "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+  "bg-teal-500/15 text-teal-300 border-teal-500/30",
+];
+function productColor(code: string | null) {
+  if (!code) return "bg-slate-500/15 text-slate-400 border-slate-500/30";
+  let hash = 0;
+  for (let i = 0; i < code.length; i++) hash = (hash * 31 + code.charCodeAt(i)) & 0xffff;
+  return PRODUCT_COLORS[hash % PRODUCT_COLORS.length];
+}
 function ProductBadge({ code, name }: { code: string | null; name: string | null }) {
-  if (!code) return <span className="text-slate-600 text-xs">—</span>;
-  const colorMap: Record<string, string> = {
-    FC: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-    BC: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
-    SB: "bg-purple-500/15 text-purple-300 border-purple-500/30",
-    SC: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  };
+  if (!code) return <span className="text-slate-600 text-xs italic">Unclassified</span>;
   return (
-    <span className={cn("text-xs px-2 py-0.5 rounded-full border font-mono", colorMap[code] ?? "bg-slate-500/15 text-slate-400")}>
-      {code} · {name}
+    <span className={cn("text-xs px-2 py-0.5 rounded-full border font-mono", productColor(code))}>
+      {code}{name && name !== code ? ` · ${name}` : ""}
     </span>
   );
 }
@@ -776,56 +786,65 @@ export default function ReconciliationLabPage() {
 
         {/* ════════════════════════════════════════════════════════════════════
             TAB 5 · Commercial Identity Audit
+            Dynamic — driven by product_prefixes table, no hardcoding.
+            Client / vendor / country / route agnostic.
         ════════════════════════════════════════════════════════════════════ */}
         {activeTab === "commercial" && (
           <>
-            {/* Product breakdown */}
+            {/* ── Top metrics ── */}
             {commercialQ.data?.summary && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-                <SummaryCard label="Completed Calls" value={commercialQ.data.summary.total ?? "…"} />
-                <SummaryCard label="Product Confirmed" value={commercialQ.data.summary.confirmed ?? "…"} color="text-emerald-400"
-                  sub={`${pct(commercialQ.data.summary.confirmed, commercialQ.data.summary.total)} of completed`} />
-                <SummaryCard label="Resolved, No Prefix" value={commercialQ.data.summary.resolvedNoPrefix ?? "…"} color="text-yellow-400" />
-                <SummaryCard label="No P&L Match" value={commercialQ.data.summary.noPnlMatch ?? "…"} color="text-red-400" />
-                <SummaryCard label="FC (First Class)"
-                  value={commercialQ.data.summary.productBreakdown?.FC ?? 0} color="text-blue-300" />
-                <SummaryCard label="BC (Business)"
-                  value={commercialQ.data.summary.productBreakdown?.BC ?? 0} color="text-cyan-300" />
-                <SummaryCard label="SC (Charlie)"
-                  value={commercialQ.data.summary.productBreakdown?.SC ?? 0} color="text-amber-300" />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <SummaryCard label="Total Calls" value={commercialQ.data.summary.total ?? "…"} />
+                <SummaryCard
+                  label="Classified"
+                  value={commercialQ.data.summary.classified ?? "…"}
+                  color="text-emerald-400"
+                  sub={`${commercialQ.data.summary.classifiedPct ?? 0}% of traffic`}
+                />
+                <SummaryCard
+                  label="Unclassified"
+                  value={commercialQ.data.summary.unclassified ?? "…"}
+                  color={(commercialQ.data.summary.unclassified ?? 0) > 0 ? "text-orange-400" : "text-emerald-400"}
+                  sub={`${100 - (commercialQ.data.summary.classifiedPct ?? 0)}% — no matching prefix`}
+                />
+                <SummaryCard
+                  label="Registered Prefixes"
+                  value={commercialQ.data.summary.knownPrefixes?.length ?? "…"}
+                  color="text-slate-300"
+                  sub={commercialQ.data.summary.knownPrefixes?.join(", ") ?? ""}
+                />
               </div>
             )}
 
-            {/* Effective rate by product */}
-            {commercialQ.data?.summary?.avgEffectiveRateByProduct &&
-              Object.keys(commercialQ.data.summary.avgEffectiveRateByProduct).length > 0 && (
+            {/* ── Per-product breakdown — fully dynamic ── */}
+            {commercialQ.data?.summary?.byProduct &&
+              Object.keys(commercialQ.data.summary.byProduct).length > 0 && (
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4">
-                <div className="text-xs font-semibold text-slate-300 mb-3">Average Effective Rate / min by Product</div>
+                <div className="text-xs font-semibold text-slate-300 mb-3">Classified Traffic by Product</div>
                 <div className="flex flex-wrap gap-4">
-                  {Object.entries(commercialQ.data.summary.avgEffectiveRateByProduct).map(([code, rate]: any) => (
+                  {Object.entries(commercialQ.data.summary.byProduct).map(([code, count]: any) => (
                     <div key={code} className="flex items-center gap-2">
                       <ProductBadge code={code} name={code} />
-                      <span className="font-mono text-sm text-white">{fmtRate(rate)}</span>
-                      <span className="text-xs text-slate-400">USD/min</span>
+                      <span className="font-mono text-sm text-white">{count.toLocaleString()}</span>
+                      <span className="text-xs text-slate-400">calls</span>
+                      {commercialQ.data.summary.avgEffectiveRateByProduct?.[code] != null && (
+                        <span className="text-xs text-slate-500 font-mono">
+                          @ {fmtRate(commercialQ.data.summary.avgEffectiveRateByProduct[code])} USD/min
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  Effective rate = P&L revenue ÷ duration in minutes · Requires cdrStatus = ok
-                </p>
               </div>
             )}
 
-            {(commercialQ.data?.summary?.noPnlMatch ?? 0) > 0 && (
-              <AlertBanner icon={AlertTriangle} color="border-red-500/30 bg-red-500/10 text-red-300"
-                title={`${commercialQ.data.summary.noPnlMatch} calls have no P&L match — product unknown`}
-                body="These calls completed but were not found in the P&L report. Product prefix cannot be determined. Invoice automation must not proceed until this gap is closed." />
-            )}
-
-            {(commercialQ.data?.summary?.resolvedNoPrefix ?? 0) > 0 && (
-              <AlertBanner icon={Info} color="border-yellow-500/30 bg-yellow-500/10 text-yellow-200"
-                title={`${commercialQ.data.summary.resolvedNoPrefix} calls resolved in P&L but product prefix undetected`}
-                body="P&L CLD (cdrCallee) does not start with a known trunk prefix (1/2/6/7). These calls may use a different billing schema or the CLD was modified in transit." />
+            {/* ── Unclassified prefix triage ── */}
+            {commercialQ.data?.summary?.byUnknownPrefix &&
+              Object.keys(commercialQ.data.summary.byUnknownPrefix).length > 0 && (
+              <AlertBanner icon={Info} color="border-orange-500/30 bg-orange-500/10 text-orange-200"
+                title={`${commercialQ.data.summary.unclassified} calls have no registered product prefix`}
+                body={`Prefix breakdown: ${Object.entries(commercialQ.data.summary.byUnknownPrefix)
+                  .map(([p, n]) => `"${p}xxx" = ${n} calls`).join(" · ")}. Add these prefixes to the product_prefixes table to classify them.`} />
             )}
 
             <SearchBox value={search} onChange={setSearch} testId="input-commercial-search" />
@@ -833,14 +852,14 @@ export default function ReconciliationLabPage() {
             <TableShell>
               <thead className="bg-slate-800/80">
                 <tr>
-                  <TH>#</TH><TH>CLI</TH><TH>Raw CLD</TH><TH>P&amp;L CLD</TH>
-                  <TH>Prefix</TH><TH>Product</TH><TH>Confidence</TH>
-                  <TH>Eff. Rate/min</TH><TH>P&amp;L Revenue</TH><TH>Dur</TH><TH>Min Margin</TH>
+                  <TH>#</TH><TH>CLI</TH><TH>Governed CLD</TH><TH>CDR CLD</TH>
+                  <TH>Prefix</TH><TH>Product</TH><TH>Source</TH>
+                  <TH>Eff. Rate/min</TH><TH>Revenue</TH><TH>Dur</TH>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {commercialQ.isLoading || commercialCalls.length === 0
-                  ? <EmptyRow cols={11} loading={commercialQ.isLoading} />
+                  ? <EmptyRow cols={10} loading={commercialQ.isLoading} />
                   : commercialCalls.map((c: any) => (
                     <tr key={c.id} className="hover:bg-slate-800/30" data-testid={`row-commercial-${c.id}`}>
                       <TD mono muted>{c.id}</TD>
@@ -852,33 +871,38 @@ export default function ReconciliationLabPage() {
                       <td className="px-3 py-2 text-xs font-mono">
                         {c.detectedPrefix
                           ? <span className="text-emerald-400">{c.detectedPrefix}</span>
-                          : <span className="text-slate-600">?</span>}
+                          : <span className="text-slate-600">{c.callee ? String(c.callee)[0] : "?"}?</span>}
                       </td>
                       <td className="px-3 py-2">
                         <ProductBadge code={c.productCode} name={c.productName} />
                       </td>
                       <td className="px-3 py-2">
-                        <ConfidenceBadge v={c.confidence} />
+                        {c.classificationSource === 'governed_callee'
+                          ? <span className="text-xs text-emerald-400 font-mono">dial</span>
+                          : c.classificationSource === 'cdr_callee'
+                          ? <span className="text-xs text-yellow-400 font-mono">cdr</span>
+                          : <span className="text-xs text-slate-600 font-mono">none</span>}
                       </td>
                       <TD mono>{fmtRate(c.effectiveRatePerMin)}</TD>
                       <TD mono>{fmt(c.cdrCost)}</TD>
                       <TD muted>{c.cdrDuration != null ? `${c.cdrDuration}s` : "—"}</TD>
-                      <TD muted>{c.minMarginPct != null ? `${c.minMarginPct}%` : "—"}</TD>
                     </tr>
                   ))}
               </tbody>
             </TableShell>
 
             <div className="rounded-lg border border-slate-700/40 bg-slate-800/30 p-4 text-xs text-slate-400 space-y-1">
-              <div className="font-semibold text-slate-300 mb-1">Commercial Identity — Decision gates</div>
+              <div className="font-semibold text-slate-300 mb-1">Commercial Identity — Architecture</div>
               <div>
-                <span className="text-slate-300">Product Registry authority</span> — Invoice automation is blocked until every completed call in this tab has a <span className="text-emerald-300">Confirmed</span> confidence. No partial or unknown products.
+                <span className="text-slate-300">Classification source</span> — <span className="text-emerald-300 font-mono">dial</span> = classified from the governed callee first digit (available for 100% of calls).
+                <span className="text-yellow-300 font-mono ml-1">cdr</span> = fallback from P&amp;L CLD (only available after CDR enrichment).
               </div>
               <div>
-                <span className="text-slate-300">Rate integrity</span> — Effective rate per product must be stable across calls of the same product. Cross-product rate bleed (e.g. SC call billed at FC rate) is a commercial risk.
+                <span className="text-slate-300">Extending the model</span> — Add any new prefix → product mapping to the <code className="text-slate-300">product_prefixes</code> table.
+                No code changes required. Supports any number of products, vendors, routes, and countries.
               </div>
               <div>
-                <span className="text-slate-300">Min margin floor</span> — Effective rate must exceed the product's min margin threshold at all times. Check column "Min Margin" vs "Eff. Rate/min".
+                <span className="text-slate-300">Unclassified traffic</span> — Calls whose first digit is not in the registry. Classify or leave as-is — they are tracked separately and never forced into an existing product.
               </div>
             </div>
           </>

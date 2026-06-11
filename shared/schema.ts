@@ -3766,6 +3766,21 @@ export const productRegistry = pgTable("product_registry", {
 export type ProductRegistryItem       = typeof productRegistry.$inferSelect;
 export type InsertProductRegistryItem = typeof productRegistry.$inferInsert;
 
+// ── Product Prefixes — generic dial-prefix → product mapping ──────────────────
+// Maps first digit(s) of the governed callee to a commercial product.
+// Agnostic of vendor, client, country, or route. Extensible at runtime.
+// Seed: 1=FC, 2=BC, 6=SB, 7=SC. Any unknown prefix → "Unclassified".
+export const productPrefixes = pgTable("product_prefixes", {
+  prefix:       varchar("prefix",       { length: 16 }).primaryKey(),  // e.g. "1", "2", "6", "7"
+  productCode:  varchar("product_code", { length: 16 }).notNull(),     // FC, BC, SB, SC, custom
+  productName:  varchar("product_name", { length: 64 }).notNull(),     // human label
+  description:  text("description"),
+  active:       boolean("active").default(true).notNull(),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+});
+export type ProductPrefix       = typeof productPrefixes.$inferSelect;
+export type InsertProductPrefix = typeof productPrefixes.$inferInsert;
+
 // ── Routing Templates ─────────────────────────────────────────────────────────
 export const routingTemplates = pgTable("routing_templates", {
   id:          serial("id").primaryKey(),

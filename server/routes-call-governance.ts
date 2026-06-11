@@ -9,7 +9,7 @@ import { db } from './db';
 import {
   callGovernanceRules, governedCalls, callGovernanceLogs,
   canonicalVendors, vendorProductPrefixes, prefixAuditLog,
-  productRegistry,
+  productRegistry, productPrefixes,
 } from '@shared/schema';
 import { eq, desc, gte, and, sql, isNotNull } from 'drizzle-orm';
 import { amiGovernance } from './services/asterisk/ami-governance';
@@ -2062,20 +2062,40 @@ export function registerCallGovernanceRoutes(app: Express) {
     }
   });
 
+  // ── Reconciliation Lab: Product Prefix Registry ───────────────────────────
+  // GET /api/recon-lab/product-prefixes
+  // Returns the live product_prefixes table — client/vendor/country agnostic.
+  // Add rows here to classify new dial prefixes without code changes.
+  app.get('/api/recon-lab/product-prefixes', requireAdmin, async (req: any, res: any) => {
+    try {
+      const rows = await db.select().from(productPrefixes).orderBy(productPrefixes.prefix);
+      res.json({ prefixes: rows });
+    } catch (e: any) {
+      console.error('[recon-lab/product-prefixes]', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Reconciliation Lab: Commercial Identity Audit ─────────────────────────
   // GET /api/recon-lab/commercial-identity?days=7
-  // Shows original CLD → product prefix → product → effective rate per call.
-  // Product prefix is read from cdrCallee (P&L CLD) — first digit = trunk prefix.
+  //
+  // Classification is fully dynamic via the product_prefixes table.
+  // Primary source: governed callee first digit (LEFT(callee,1)) — always
+  //   available for 100% of calls, independent of CDR/P&L enrichment.
+  // Secondary source: cdrCallee first digit — used when governed callee
+  //   is unknown/corrupt but P&L CLD is available.
+  // Unknown prefix → "unclassified" (shown as its own category, not forced
+  //   into any product). Agnostic of vendor, client, country, route.
   app.get('/api/recon-lab/commercial-identity', requireAdmin, async (req: any, res: any) => {
     try {
       const days = Math.min(Number(req.query.days) || 7, 30);
       const since = new Date(Date.now() - days * 86400_000);
 
-      // Load all products once
-      const products = await db.select().from(productRegistry);
-      const prefixMap: Record<string, typeof products[0]> = {};
-      for (const p of products) {
-        if (p.trunkPrefix) prefixMap[p.trunkPrefix] = p;
+      // Load product prefix registry once — fully dynamic, no hardcoding
+      const prefixRows = await db.select().from(productPrefixes).where(eq(productPrefixes.active, true));
+      const prefixMap: Record<string, { productCode: string; productName: string }> = {};
+      for (const p of prefixRows) {
+        prefixMap[p.prefix] = { productCode: p.productCode, productName: p.productName };
       }
 
       const rows = await db
@@ -2088,84 +2108,99 @@ export function registerCallGovernanceRoutes(app: Express) {
       const calls = rows.map((r: any) => {
         const cost = r.cdrCost     !== null ? Number(r.cdrCost)     : null;
         const dur  = r.cdrDuration !== null ? Number(r.cdrDuration) : null;
-
-        // Extract product prefix from cdrCallee (first digit of P&L CLD)
         const cdrCallee = (r.cdrCallee as string | null) ?? null;
+
+        // ── Primary classification: governed callee first digit ──────────────
+        // This is available for ALL calls (no CDR enrichment required).
         let detectedPrefix: string | null = null;
-        if (cdrCallee) {
-          const digits = cdrCallee.replace(/\D/g, '');
-          const firstDigit = digits[0];
-          if (firstDigit && prefixMap[firstDigit]) {
-            detectedPrefix = firstDigit;
+        let classificationSource: string = 'none';
+
+        const govFirstDigit = r.callee ? String(r.callee).replace(/\D/g, '')[0] ?? null : null;
+        if (govFirstDigit && prefixMap[govFirstDigit]) {
+          detectedPrefix = govFirstDigit;
+          classificationSource = 'governed_callee';
+        }
+
+        // ── Secondary: cdrCallee first digit (if governed prefix unknown) ────
+        if (!detectedPrefix && cdrCallee) {
+          const cdrFirstDigit = cdrCallee.replace(/\D/g, '')[0] ?? null;
+          if (cdrFirstDigit && prefixMap[cdrFirstDigit]) {
+            detectedPrefix = cdrFirstDigit;
+            classificationSource = 'cdr_callee';
           }
         }
 
         const product = detectedPrefix ? prefixMap[detectedPrefix] ?? null : null;
         const effectiveRatePerMin = (cost !== null && dur !== null && dur > 0)
-          ? cost / (dur / 60)
-          : null;
+          ? cost / (dur / 60) : null;
 
-        // Determine identity confidence
-        let confidence: string;
-        if (r.cdrStatus === 'ok' && detectedPrefix && product) {
-          confidence = 'confirmed';
-        } else if (r.cdrStatus === 'ok' && !detectedPrefix) {
-          confidence = 'resolved_no_prefix';
-        } else if (r.cdrStatus === 'no_cdr') {
-          confidence = 'no_p&l_match';
+        // ── Classification status ────────────────────────────────────────────
+        let classification: string;
+        if (product) {
+          classification = 'classified';
         } else {
-          confidence = 'pending';
+          classification = 'unclassified';
         }
 
         return {
           id: r.id,
           caller: r.caller,
-          callee: r.callee,                // Raw CLD from Asterisk (has 2060 routing prefix)
-          cdrCallee,                        // P&L CLD — original customer-dialed number
+          callee: r.callee,
+          cdrCallee,
           startTime: r.startTime,
+          status: r.status,
           cdrStatus: r.cdrStatus,
           detectedPrefix,
-          productCode: product?.code ?? null,
-          productName: product?.name ?? null,
-          productColor: product?.color ?? null,
-          productStatus: product?.status ?? null,
-          minMarginPct: product?.minMarginPct ?? null,
+          classificationSource,
+          classification,
+          productCode: product?.productCode ?? null,
+          productName: product?.productName ?? null,
           effectiveRatePerMin,
           cdrCost: cost,
           cdrDuration: dur,
-          confidence,
         };
       });
 
-      // Breakdown by product
-      const confirmed = calls.filter((c: any) => c.confidence === 'confirmed');
-      const productBreakdown: Record<string, number> = {};
-      for (const c of confirmed) {
+      // ── Summary ─────────────────────────────────────────────────────────────
+      const classified   = calls.filter((c: any) => c.classification === 'classified');
+      const unclassified = calls.filter((c: any) => c.classification === 'unclassified');
+
+      // Count by product code — dynamic, works for any number of products
+      const byProduct: Record<string, number> = {};
+      for (const c of classified) {
         const key = c.productCode ?? 'unknown';
-        productBreakdown[key] = (productBreakdown[key] ?? 0) + 1;
+        byProduct[key] = (byProduct[key] ?? 0) + 1;
+      }
+
+      // Count unclassified by their actual first-digit prefix (for triage)
+      const byUnknownPrefix: Record<string, number> = {};
+      for (const c of unclassified) {
+        const digit = c.callee ? String(c.callee).replace(/\D/g, '')[0] ?? '?' : '?';
+        byUnknownPrefix[digit] = (byUnknownPrefix[digit] ?? 0) + 1;
+      }
+
+      // Avg effective rate by product — dynamic
+      const rateByProduct: Record<string, number> = {};
+      const rateAccum: Record<string, number[]> = {};
+      for (const c of classified) {
+        if (c.effectiveRatePerMin !== null && c.productCode) {
+          rateAccum[c.productCode] = rateAccum[c.productCode] ?? [];
+          rateAccum[c.productCode].push(c.effectiveRatePerMin);
+        }
+      }
+      for (const [k, arr] of Object.entries(rateAccum)) {
+        rateByProduct[k] = arr.reduce((a, b) => a + b, 0) / arr.length;
       }
 
       const summary = {
         total: calls.length,
-        confirmed: confirmed.length,
-        resolvedNoPrefix: calls.filter((c: any) => c.confidence === 'resolved_no_prefix').length,
-        noPnlMatch: calls.filter((c: any) => c.confidence === 'no_p&l_match').length,
-        pending: calls.filter((c: any) => c.confidence === 'pending').length,
-        productBreakdown,
-        avgEffectiveRateByProduct: (() => {
-          const byProduct: Record<string, number[]> = {};
-          for (const c of confirmed) {
-            if (c.effectiveRatePerMin !== null && c.productCode) {
-              byProduct[c.productCode] = byProduct[c.productCode] ?? [];
-              byProduct[c.productCode].push(c.effectiveRatePerMin);
-            }
-          }
-          const result: Record<string, number> = {};
-          for (const [k, arr] of Object.entries(byProduct)) {
-            result[k] = arr.reduce((a, b) => a + b, 0) / arr.length;
-          }
-          return result;
-        })(),
+        classified: classified.length,
+        unclassified: unclassified.length,
+        classifiedPct: calls.length > 0 ? Math.round((classified.length / calls.length) * 100) : 0,
+        byProduct,           // { BC: 8638, FC: 0, ... }
+        byUnknownPrefix,     // { "9": 1573, ... } — triage helper
+        avgEffectiveRateByProduct: rateByProduct,
+        knownPrefixes: Object.keys(prefixMap), // which prefixes are registered
       };
 
       res.json({ summary, calls });
