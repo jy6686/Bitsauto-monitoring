@@ -33960,6 +33960,204 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+
+  // ── Destination Catalog — GDS Reconciliation Layer ──────────────────────────
+
+  // GET /api/product-prefixes — active products from product_prefixes table
+  app.get('/api/product-prefixes', async (_req: any, res: any) => {
+    try {
+      const r = await db.execute(sql.raw('SELECT prefix, product_code, product_name, description FROM product_prefixes WHERE active = true ORDER BY prefix'));
+      res.json(r.rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/destination-catalog/product-rates
+  app.get('/api/destination-catalog/product-rates', async (_req: any, res: any) => {
+    try {
+      const r = await db.execute(sql.raw(`
+        SELECT dpr.id, dpr.destination_id, dpr.product_prefix, dpr.dial_prefix,
+               dpr.destination_name, dpr.buy_rate, dpr.sell_rate, dpr.currency,
+               dpr.approval_status, dpr.approved_by, dpr.approved_at,
+               dpr.source, dpr.source_file, dpr.notes, dpr.created_at, dpr.updated_at,
+               gd.name as dest_name_live, gd.commercial_status as dest_status,
+               pp.product_code, pp.product_name
+        FROM destination_product_rates dpr
+        LEFT JOIN global_destinations gd ON gd.id = dpr.destination_id
+        LEFT JOIN product_prefixes pp ON pp.prefix = dpr.product_prefix
+        ORDER BY COALESCE(gd.name, dpr.destination_name), dpr.product_prefix
+      `));
+      res.json(r.rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/destination-catalog/product-rates/pending-count
+  app.get('/api/destination-catalog/product-rates/pending-count', async (_req: any, res: any) => {
+    try {
+      const r = await db.execute(sql.raw(`SELECT COUNT(*) FROM destination_product_rates WHERE approval_status = 'pending'`));
+      res.json({ count: parseInt((r.rows[0] as any).count) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/destination-catalog/gds-reconcile
+  // Parse a GDS upload server-side and return reconciliation preview (no DB writes)
+  app.post('/api/destination-catalog/gds-reconcile', async (req: any, res: any) => {
+    try {
+      const { rows, productPrefix } = req.body;
+      if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows is required' });
+
+      const dests = await db.execute(sql.raw(`
+        SELECT id, name, dial_prefix, commercial_status FROM global_destinations
+        WHERE level >= 2 AND dial_prefix IS NOT NULL AND dial_prefix != ''
+        ORDER BY length(dial_prefix) DESC
+      `));
+      const destRows = dests.rows as any[];
+
+      const existingRates = await db.execute(sql.raw(`
+        SELECT destination_id, product_prefix, buy_rate, sell_rate, approval_status
+        FROM destination_product_rates
+      `));
+      const existingMap = new Map<string, any>();
+      for (const r of existingRates.rows as any[]) {
+        existingMap.set(\`\${r.destination_id}:\${r.product_prefix}\`, r);
+      }
+
+      const products = await db.execute(sql.raw(`SELECT prefix, product_code, product_name FROM product_prefixes WHERE active = true`));
+      const productMap = new Map((products.rows as any[]).map((p: any) => [p.prefix, p]));
+
+      const preview: any[] = [];
+      for (const row of rows) {
+        const prefix = (row.dialPrefix ?? '').toString().trim().replace(/^\+/, '');
+        const pPrefix = (row.productPrefix ?? productPrefix ?? '').toString().trim();
+
+        if (!prefix || !pPrefix) {
+          preview.push({ ...row, _status: 'invalid', _reason: 'Missing prefix or product' });
+          continue;
+        }
+        if (!productMap.has(pPrefix)) {
+          preview.push({ ...row, _status: 'invalid', _reason: \`Unknown product: \${pPrefix}\` });
+          continue;
+        }
+
+        // Longest-prefix match against global_destinations
+        const match = destRows.find((d: any) =>
+          prefix === d.dial_prefix ||
+          (prefix.length > d.dial_prefix.length && prefix.startsWith(d.dial_prefix)) ||
+          (d.dial_prefix.length > prefix.length && d.dial_prefix.startsWith(prefix))
+        );
+
+        if (!match) {
+          preview.push({ ...row, _status: 'unmatched', _reason: 'No destination matches this prefix', _prefix: prefix });
+          continue;
+        }
+
+        const existing = existingMap.get(\`\${match.id}:\${pPrefix}\`);
+        const product = productMap.get(pPrefix) as any;
+        const buyRate = parseFloat(row.buyRate ?? 0) || 0;
+        const sellRate = parseFloat(row.sellRate ?? 0) || 0;
+        const margin = sellRate > 0 ? ((sellRate - buyRate) / sellRate * 100).toFixed(1) : null;
+
+        preview.push({
+          ...row,
+          _status: existing ? 'update' : 'new',
+          _destId: match.id,
+          _destName: match.name,
+          _destDialPrefix: match.dial_prefix,
+          _destStatus: match.commercial_status,
+          _productCode: product?.product_code,
+          _productName: product?.product_name,
+          _productPrefix: pPrefix,
+          _existingBuyRate: existing?.buy_rate ?? null,
+          _existingApprovalStatus: existing?.approval_status ?? null,
+          _marginPct: margin,
+          buyRate,
+          sellRate,
+        });
+      }
+
+      res.json({
+        preview,
+        matched:   preview.filter(r => r._status === 'new' || r._status === 'update').length,
+        unmatched: preview.filter(r => r._status === 'unmatched').length,
+        invalid:   preview.filter(r => r._status === 'invalid').length,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/destination-catalog/gds-commit — write reconciled rows (status = pending)
+  app.post('/api/destination-catalog/gds-commit', async (req: any, res: any) => {
+    try {
+      const { rows, sourceFile } = req.body;
+      if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows is required' });
+
+      let saved = 0;
+      for (const row of rows) {
+        if (!row._destId || !row._productPrefix) continue;
+        const buyRate  = parseFloat(row.buyRate  ?? 0) || null;
+        const sellRate = parseFloat(row.sellRate ?? 0) || null;
+        await db.execute(sql.raw(
+          \`INSERT INTO destination_product_rates
+              (destination_id, product_prefix, dial_prefix, destination_name, buy_rate, sell_rate, approval_status, source, source_file, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,'pending','gds_upload',$7,NOW())
+            ON CONFLICT (destination_id, product_prefix)
+            DO UPDATE SET buy_rate=$5, sell_rate=$6, source_file=$7,
+              approval_status=CASE WHEN destination_product_rates.approval_status='approved' THEN 'pending'
+                                   ELSE destination_product_rates.approval_status END,
+              updated_at=NOW()\`,
+          [row._destId, row._productPrefix, row._destDialPrefix ?? null, row._destName ?? null, buyRate, sellRate, sourceFile ?? null]
+        ));
+        saved++;
+      }
+      res.json({ saved });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/destination-catalog/product-rates/:id/approve
+  app.post('/api/destination-catalog/product-rates/:id/approve', async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.execute(sql.raw(
+        `UPDATE destination_product_rates SET approval_status='approved', approved_by=$1, approved_at=NOW(), updated_at=NOW() WHERE id=$2`,
+        [req.user?.claims?.sub ?? 'admin', id]
+      ));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/destination-catalog/product-rates/:id/reject
+  app.post('/api/destination-catalog/product-rates/:id/reject', async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { reason } = req.body ?? {};
+      await db.execute(sql.raw(
+        `UPDATE destination_product_rates SET approval_status='rejected', notes=COALESCE($2, notes), updated_at=NOW() WHERE id=$1`,
+        [id, reason ?? null]
+      ));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/destination-catalog/product-rates/approve-all-pending
+  app.post('/api/destination-catalog/product-rates/approve-all-pending', async (req: any, res: any) => {
+    try {
+      const r = await db.execute(sql.raw(
+        `UPDATE destination_product_rates SET approval_status='approved', approved_by=$1, approved_at=NOW(), updated_at=NOW() WHERE approval_status='pending' RETURNING id`,
+        [req.user?.claims?.sub ?? 'admin']
+      ));
+      res.json({ approved: r.rowCount ?? 0 });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // DELETE /api/destination-catalog/product-rates/:id
+  app.delete('/api/destination-catalog/product-rates/:id', async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.execute(sql.raw(`DELETE FROM destination_product_rates WHERE id=$1`, [id]));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── end GDS Reconciliation Layer ─────────────────────────────────────────────
+
   // POST /api/product-registry/destinations/sync-legacy
   // Scrapes ALL pages of the legacy BitsAuto client_filteration view.
   // Uses concurrent batching + diminishing-returns stop to handle 800+ page sets efficiently.

@@ -4014,3 +4014,27 @@ export const dealApprovals = pgTable("deal_approvals", {
 });
 export type DealApproval       = typeof dealApprovals.$inferSelect;
 export type InsertDealApproval = typeof dealApprovals.$inferInsert;
+
+// ── Destination × Product Rate Matrix (GDS Reconciliation Layer) ──────────────
+// Per-product buy/sell rates per destination. Populated via GDS file uploads.
+// product_prefix references product_prefixes.prefix (dynamic — no hardcoding).
+export const destinationProductRates = pgTable("destination_product_rates", {
+  id:             serial("id").primaryKey(),
+  destinationId:  integer("destination_id"),
+  productPrefix:  varchar("product_prefix", { length: 16 }).notNull(),
+  dialPrefix:     varchar("dial_prefix",    { length: 32 }),
+  destinationName:varchar("destination_name",{ length: 256 }),
+  buyRate:        numeric("buy_rate",       { precision: 10, scale: 6 }),
+  sellRate:       numeric("sell_rate",      { precision: 10, scale: 6 }),
+  currency:       varchar("currency",       { length: 8  }).default("USD"),
+  approvalStatus: varchar("approval_status",{ length: 32 }).default("pending"),
+  approvedBy:     varchar("approved_by",    { length: 128 }),
+  approvedAt:     timestamp("approved_at"),
+  source:         varchar("source",         { length: 64 }).default("manual"),
+  sourceFile:     varchar("source_file",    { length: 256 }),
+  notes:          text("notes"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  updatedAt:      timestamp("updated_at").defaultNow().notNull(),
+});
+export type DestinationProductRate       = typeof destinationProductRates.$inferSelect;
+export type InsertDestinationProductRate = typeof destinationProductRates.$inferInsert;

@@ -27,12 +27,13 @@ interface Dest {
   sortOrder: number | null; createdAt: string;
 }
 interface TreeNode extends Dest { children: TreeNode[]; }
-type TabId = "catalog" | "approvals" | "intel" | "import";
+type TabId = "catalog" | "approvals" | "intel" | "import" | "gds";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: "catalog",   label: "Destination Catalog", icon: Globe      },
   { id: "approvals", label: "Approvals",            icon: Shield     },
+  { id: "gds",       label: "GDS Rates",            icon: BarChart2  },
   { id: "intel",     label: "Market Intel",         icon: TrendingUp },
   { id: "import",    label: "Bulk Import",          icon: Upload     },
 ];
@@ -1142,11 +1143,495 @@ function ImportTab() {
   );
 }
 
+// ── GDS Rates Types ────────────────────────────────────────────────────────────
+interface ProductPrefix { prefix: string; product_code: string; product_name: string; }
+interface DestProductRate {
+  id: number; destination_id: number; product_prefix: string; dial_prefix: string | null;
+  destination_name: string | null; buy_rate: string | null; sell_rate: string | null;
+  currency: string; approval_status: string; approved_by: string | null; approved_at: string | null;
+  source: string; source_file: string | null; notes: string | null;
+  dest_name_live: string | null; dest_status: string | null;
+  product_code: string | null; product_name: string | null;
+}
+interface ReconRow {
+  _status: "new" | "update" | "unmatched" | "invalid";
+  _destId?: number; _destName?: string; _destDialPrefix?: string;
+  _productCode?: string; _productName?: string; _productPrefix?: string;
+  _existingBuyRate?: string; _existingApprovalStatus?: string;
+  _marginPct?: string | null; _reason?: string;
+  dialPrefix?: string; destinationName?: string; buyRate?: number; sellRate?: number;
+}
+
+function marginColor(pct: number | null) {
+  if (pct === null) return "text-muted-foreground";
+  if (pct >= 20) return "text-emerald-400";
+  if (pct >= 10) return "text-amber-400";
+  return "text-rose-400";
+}
+
+// ── GDS Rates Tab ──────────────────────────────────────────────────────────────
+function GdsRatesTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [view, setView] = useState<"matrix" | "upload">("matrix");
+  const [dragging, setDragging] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [parsedRows, setParsedRows] = useState<any[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<string>("");
+  const [buyCol, setBuyCol] = useState<string>("Rate");
+  const [sellCol, setSellCol] = useState<string>("");
+  const [reconResult, setReconResult] = useState<{ preview: ReconRow[]; matched: number; unmatched: number; invalid: number } | null>(null);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const { data: products = [] } = useQuery<ProductPrefix[]>({ queryKey: ["/api/product-prefixes"] });
+  const { data: rates = [], isLoading: ratesLoading } = useQuery<DestProductRate[]>({ queryKey: ["/api/destination-catalog/product-rates"] });
+  const { data: pendingData } = useQuery<{ count: number }>({ queryKey: ["/api/destination-catalog/product-rates/pending-count"] });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["/api/destination-catalog/product-rates"] });
+    qc.invalidateQueries({ queryKey: ["/api/destination-catalog/product-rates/pending-count"] });
+  };
+
+  const reconcileMut = useMutation({
+    mutationFn: (body: any) => apiRequest("POST", "/api/destination-catalog/gds-reconcile", body),
+    onSuccess: async (res) => { const d = await res.json(); setReconResult(d); },
+    onError: (e: any) => toast({ title: "Reconcile error", description: e.message, variant: "destructive" }),
+  });
+
+  const commitMut = useMutation({
+    mutationFn: (body: any) => apiRequest("POST", "/api/destination-catalog/gds-commit", body),
+    onSuccess: async (res) => {
+      const d = await res.json();
+      toast({ title: "Committed", description: `${d.saved} rate(s) saved — pending your approval.` });
+      invalidate(); setReconResult(null); setParsedRows([]); setFileName(null);
+    },
+    onError: (e: any) => toast({ title: "Commit error", description: e.message, variant: "destructive" }),
+  });
+
+  const approveMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/destination-catalog/product-rates/${id}/approve`, {}),
+    onSuccess: () => invalidate(),
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+      apiRequest("POST", `/api/destination-catalog/product-rates/${id}/reject`, { reason }),
+    onSuccess: () => invalidate(),
+  });
+
+  const approveAllMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/destination-catalog/product-rates/approve-all-pending", {}),
+    onSuccess: async (res) => {
+      const d = await res.json();
+      toast({ title: "Approved", description: `${d.approved} rate(s) approved.` });
+      invalidate();
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/destination-catalog/product-rates/${id}`, {}),
+    onSuccess: () => { invalidate(); toast({ title: "Deleted" }); },
+  });
+
+  // ── File parsing ────────────────────────────────────────────────────────────
+  function parseFile(file: File) {
+    setFileName(file.name); setReconResult(null); setParsedRows([]);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target!.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+        if (rows.length < 2) return;
+
+        const headers = (rows[0] as any[]).map((h: any) => String(h).trim());
+        const prefixIdx = headers.findIndex(h => /^(prefix|code|dial|number)$/i.test(h));
+        const nameIdx   = headers.findIndex(h => /^(dest|name|country|description)$/i.test(h));
+        const buyIdx    = headers.findIndex(h => /^(buy|cost|buying|buy_rate)$/i.test(h));
+        const sellIdx   = headers.findIndex(h => /^(sell|rate|selling|sell_rate|price)$/i.test(h));
+
+        const pi = prefixIdx >= 0 ? prefixIdx : 0;
+        const ni = nameIdx   >= 0 ? nameIdx   : 1;
+        const bi = buyIdx    >= 0 ? buyIdx    : (sellIdx >= 0 ? -1 : 2);
+        const si = sellIdx   >= 0 ? sellIdx   : (buyIdx  >= 0 ? -1 : 2);
+
+        if (buyIdx >= 0) setBuyCol(headers[buyIdx]);
+        if (sellIdx >= 0) setSellCol(headers[sellIdx]);
+        else if (buyIdx < 0) setSellCol(headers[2] ?? "Rate");
+
+        const parsed = rows.slice(1).filter(r => r[pi]).map(r => ({
+          dialPrefix:      String(r[pi] ?? "").trim().replace(/^\+/, ""),
+          destinationName: String(r[ni] ?? "").trim(),
+          buyRate:  bi >= 0 ? parseFloat(String(r[bi] ?? "0")) || 0 : 0,
+          sellRate: si >= 0 ? parseFloat(String(r[si] ?? "0")) || 0 : 0,
+        }));
+        setParsedRows(parsed);
+      } catch (err: any) {
+        toast({ title: "Parse error", description: err.message, variant: "destructive" });
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault(); setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) parseFile(file);
+  }
+
+  function handleReconcile() {
+    if (!parsedRows.length || !selectedProduct) return;
+    const rows = parsedRows.map(r => ({ ...r, productPrefix: selectedProduct }));
+    reconcileMut.mutate({ rows, productPrefix: selectedProduct });
+  }
+
+  function handleCommit() {
+    if (!reconResult) return;
+    const rows = reconResult.preview.filter(r => r._status === "new" || r._status === "update");
+    commitMut.mutate({ rows, sourceFile: fileName });
+  }
+
+  // ── Rate Matrix ─────────────────────────────────────────────────────────────
+  const allRates = rates;
+  const pendingCount = pendingData?.count ?? 0;
+
+  const destMap = new Map<string, { name: string; prefix: string | null; status: string | null; rates: Map<string, DestProductRate> }>();
+  for (const r of allRates) {
+    const key = r.dest_name_live ?? r.destination_name ?? `dest-${r.destination_id}`;
+    if (!destMap.has(key)) destMap.set(key, { name: key, prefix: r.dial_prefix, status: r.dest_status, rates: new Map() });
+    destMap.get(key)!.rates.set(r.product_prefix, r);
+  }
+
+  const filteredDests = [...destMap.entries()]
+    .filter(([name]) => !search || name.toLowerCase().includes(search.toLowerCase()))
+    .filter(([, d]) => {
+      if (filterStatus === "all") return true;
+      return [...d.rates.values()].some(r => r.approval_status === filterStatus);
+    })
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  // ── Upload View ─────────────────────────────────────────────────────────────
+  if (view === "upload") return (
+    <div className="p-4 space-y-4 max-w-4xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Upload GDS Rate Sheet</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">CSV or Excel with Prefix, Destination, Buy Rate, Sell Rate columns</p>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => { setView("matrix"); setReconResult(null); setParsedRows([]); setFileName(null); }} data-testid="btn-back-matrix">
+          ← Rate Matrix
+        </Button>
+      </div>
+
+      {/* Drop zone */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => fileRef.current?.click()}
+        className={cn("flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-8 cursor-pointer transition-colors",
+          dragging ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/40 hover:bg-muted/20")}
+        data-testid="gds-dropzone"
+      >
+        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) parseFile(f); }} />
+        <FileSpreadsheet className={cn("w-9 h-9", dragging ? "text-primary" : "text-muted-foreground")} />
+        {fileName ? (
+          <div className="text-center">
+            <p className="text-sm font-medium">{fileName}</p>
+            <p className="text-xs text-muted-foreground">{parsedRows.length} rows — click to replace</p>
+          </div>
+        ) : (
+          <div className="text-center">
+            <p className="text-sm font-medium">Drop GDS file or click to browse</p>
+            <p className="text-xs text-muted-foreground">CSV / XLSX — columns: Prefix, Destination, Buy Rate, Sell Rate</p>
+          </div>
+        )}
+      </div>
+
+      {/* Column format hint */}
+      <div className="bg-muted/20 border border-border/60 rounded p-3 text-xs font-mono text-muted-foreground space-y-0.5">
+        <div className="text-foreground font-semibold mb-1 font-sans">Expected column names</div>
+        <div>Prefix · Code · Dial · Number → <span className="text-cyan-400">dial prefix</span></div>
+        <div>Dest · Name · Country · Description → <span className="text-violet-400">destination</span></div>
+        <div>Buy · Cost · Buying · Buy_Rate → <span className="text-amber-400">buy rate</span></div>
+        <div>Sell · Rate · Selling · Price · Sell_Rate → <span className="text-emerald-400">sell rate</span></div>
+      </div>
+
+      {/* Product selector + reconcile */}
+      {parsedRows.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-end gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Apply rates to product</Label>
+              <Select value={selectedProduct} onValueChange={setSelectedProduct}>
+                <SelectTrigger className="h-8 w-48 text-sm" data-testid="select-product">
+                  <SelectValue placeholder="Select product…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {products.map(p => (
+                    <SelectItem key={p.prefix} value={p.prefix}>
+                      {p.product_code} — {p.product_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" onClick={handleReconcile} disabled={!selectedProduct || reconcileMut.isPending} data-testid="btn-reconcile">
+              {reconcileMut.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+              Reconcile {parsedRows.length} rows
+            </Button>
+          </div>
+
+          {/* Local parse preview */}
+          {!reconResult && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="px-3 py-2 border-b border-border text-xs font-medium text-muted-foreground">
+                Parsed — {parsedRows.length} rows · {buyCol && <span className="text-amber-400 mr-2">Buy: {buyCol}</span>}{sellCol && <span className="text-emerald-400">Sell: {sellCol}</span>}
+              </div>
+              <div className="max-h-56 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-muted/30">
+                    <tr className="border-b border-border">
+                      {["Prefix", "Destination", "Buy Rate", "Sell Rate"].map(h => (
+                        <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedRows.slice(0, 100).map((r, i) => (
+                      <tr key={i} className="border-b border-border/40 hover:bg-muted/20">
+                        <td className="py-1.5 px-3 font-mono">{r.dialPrefix}</td>
+                        <td className="py-1.5 px-3">{r.destinationName || <span className="text-muted-foreground">—</span>}</td>
+                        <td className="py-1.5 px-3 font-mono text-amber-400">{r.buyRate > 0 ? `$${r.buyRate.toFixed(5)}` : <span className="text-muted-foreground">—</span>}</td>
+                        <td className="py-1.5 px-3 font-mono text-emerald-400">{r.sellRate > 0 ? `$${r.sellRate.toFixed(5)}` : <span className="text-muted-foreground">—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Server reconciliation preview */}
+          {reconResult && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-4 text-xs">
+                <span className="flex items-center gap-1 text-emerald-400"><CheckCircle2 className="w-3 h-3" />{reconResult.matched} matched</span>
+                {reconResult.unmatched > 0 && <span className="flex items-center gap-1 text-amber-400"><AlertTriangle className="w-3 h-3" />{reconResult.unmatched} unmatched</span>}
+                {reconResult.invalid > 0 && <span className="flex items-center gap-1 text-rose-400"><XCircle className="w-3 h-3" />{reconResult.invalid} invalid</span>}
+                {reconResult.matched > 0 && (
+                  <Button size="sm" className="ml-auto" onClick={handleCommit} disabled={commitMut.isPending} data-testid="btn-commit-rates">
+                    {commitMut.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 mr-1.5" />}
+                    Commit {reconResult.matched} rate{reconResult.matched !== 1 ? "s" : ""} (pending approval)
+                  </Button>
+                )}
+              </div>
+              <div className="bg-card border border-border rounded-lg overflow-hidden">
+                <div className="max-h-72 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-muted/30">
+                      <tr className="border-b border-border">
+                        <th className="text-left py-2 px-2 font-medium text-muted-foreground w-4"></th>
+                        {["Prefix", "Destination", "Product", "Buy Rate", "Sell Rate", "Margin"].map(h => (
+                          <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reconResult.preview.map((r, i) => {
+                        const mPct = r._marginPct ? parseFloat(r._marginPct) : null;
+                        return (
+                          <tr key={i} className={cn("border-b border-border/40",
+                            r._status === "new"       ? "bg-emerald-500/5" :
+                            r._status === "update"    ? "bg-blue-500/5"    :
+                            r._status === "unmatched" ? "bg-amber-500/5"   : "bg-rose-500/5"
+                          )}>
+                            <td className="py-1.5 px-2">
+                              {r._status === "new"       && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                              {r._status === "update"    && <div className="w-1.5 h-1.5 rounded-full bg-blue-400"    />}
+                              {r._status === "unmatched" && <div className="w-1.5 h-1.5 rounded-full bg-amber-400"   />}
+                              {r._status === "invalid"   && <div className="w-1.5 h-1.5 rounded-full bg-rose-400"    />}
+                            </td>
+                            <td className="py-1.5 px-3 font-mono text-muted-foreground">{r._destDialPrefix ?? r.dialPrefix}</td>
+                            <td className="py-1.5 px-3 font-medium">{r._destName ?? <span className="text-muted-foreground">{r._reason}</span>}</td>
+                            <td className="py-1.5 px-3 text-xs text-muted-foreground">{r._productCode ?? r._productPrefix}</td>
+                            <td className="py-1.5 px-3 font-mono text-amber-400">{(r.buyRate ?? 0) > 0 ? `$${r.buyRate!.toFixed(5)}` : "—"}</td>
+                            <td className="py-1.5 px-3 font-mono text-emerald-400">{(r.sellRate ?? 0) > 0 ? `$${r.sellRate!.toFixed(5)}` : "—"}</td>
+                            <td className={cn("py-1.5 px-3 font-mono", marginColor(mPct))}>{mPct !== null ? `${mPct}%` : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Matrix View ─────────────────────────────────────────────────────────────
+  return (
+    <div className="flex flex-col h-full">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-background/80 flex-shrink-0 flex-wrap gap-y-2">
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search destinations…"
+            className="h-7 pl-8 w-52 text-xs" data-testid="input-gds-search" />
+        </div>
+        <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <SelectTrigger className="h-7 w-36 text-xs" data-testid="select-filter-status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All rates</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
+          </SelectContent>
+        </Select>
+        {pendingCount > 0 && (
+          <Button size="sm" variant="outline" onClick={() => approveAllMut.mutate()} disabled={approveAllMut.isPending}
+            className="h-7 text-xs text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10" data-testid="btn-approve-all">
+            {approveAllMut.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Check className="w-3 h-3 mr-1" />}
+            Approve all ({pendingCount})
+          </Button>
+        )}
+        <div className="ml-auto">
+          <Button size="sm" onClick={() => setView("upload")} data-testid="btn-upload-gds">
+            <Upload className="w-3.5 h-3.5 mr-1.5" />Upload GDS
+          </Button>
+        </div>
+      </div>
+
+      {ratesLoading ? (
+        <div className="flex items-center justify-center flex-1">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : filteredDests.length === 0 ? (
+        <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center p-8">
+          <BarChart2 className="w-10 h-10 text-muted-foreground/40" />
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">No rates uploaded yet</p>
+            <p className="text-xs text-muted-foreground mt-1">Upload a GDS rate sheet to populate the rate matrix.</p>
+          </div>
+          <Button size="sm" onClick={() => setView("upload")} data-testid="btn-start-upload">
+            <Upload className="w-3.5 h-3.5 mr-1.5" />Upload GDS Rate Sheet
+          </Button>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead className="sticky top-0 z-10 bg-background border-b border-border">
+              <tr>
+                <th className="text-left py-2.5 px-4 font-medium text-muted-foreground w-56">Destination</th>
+                <th className="text-left py-2.5 px-3 font-medium text-muted-foreground w-24">Prefix</th>
+                {products.map(p => (
+                  <th key={p.prefix} className="text-center py-2.5 px-3 font-medium text-muted-foreground min-w-[140px]">
+                    <span className="bg-primary/10 text-primary rounded px-1.5 py-0.5">{p.product_code}</span>
+                    <span className="block text-[10px] text-muted-foreground/60 font-normal mt-0.5">{p.product_name}</span>
+                  </th>
+                ))}
+                <th className="w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredDests.map(([destKey, dest]) => (
+                <tr key={destKey} className="border-b border-border/40 hover:bg-muted/20 transition-colors group">
+                  <td className="py-2.5 px-4">
+                    <div className="font-medium truncate max-w-[200px]" title={dest.name}>{dest.name}</div>
+                    {dest.status && (
+                      <span className={cn("text-[10px] rounded px-1 py-0.5 border", STATUS_COLORS[dest.status] ?? STATUS_COLORS.deprecated)}>
+                        {dest.status}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-3 font-mono text-muted-foreground">{dest.prefix ?? "—"}</td>
+                  {products.map(p => {
+                    const rate = dest.rates.get(p.prefix);
+                    if (!rate) return (
+                      <td key={p.prefix} className="py-2.5 px-3 text-center">
+                        <span className="text-muted-foreground/30 text-[10px]">—</span>
+                      </td>
+                    );
+                    const buy  = rate.buy_rate  ? parseFloat(rate.buy_rate)  : null;
+                    const sell = rate.sell_rate ? parseFloat(rate.sell_rate) : null;
+                    const margin = sell && buy ? ((sell - buy) / sell * 100) : null;
+                    const st = rate.approval_status;
+                    return (
+                      <td key={p.prefix} className="py-2 px-3 text-center align-top">
+                        <div className="space-y-1">
+                          <div className="flex justify-center gap-2 text-[11px]">
+                            {buy  !== null && <span className="text-amber-400  font-mono">${buy.toFixed(5)}</span>}
+                            {sell !== null && <span className="text-emerald-400 font-mono">${sell.toFixed(5)}</span>}
+                          </div>
+                          {margin !== null && (
+                            <div className={cn("text-[10px] font-mono", marginColor(margin))}>
+                              {margin.toFixed(1)}% margin
+                            </div>
+                          )}
+                          <div className="flex items-center justify-center gap-1">
+                            <span className={cn("text-[10px] rounded-full px-1.5 py-0.5 border font-medium",
+                              st === "approved" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" :
+                              st === "rejected" ? "bg-rose-500/15    text-rose-400    border-rose-500/30"    :
+                                                  "bg-amber-500/15   text-amber-400   border-amber-500/30"
+                            )}>
+                              {st}
+                            </span>
+                          </div>
+                          {st === "pending" && (
+                            <div className="flex justify-center gap-1">
+                              <button onClick={() => approveMut.mutate(rate.id)} disabled={approveMut.isPending}
+                                className="text-emerald-400 hover:text-emerald-300 rounded px-1 py-0.5 hover:bg-emerald-500/10 text-[10px] font-medium transition-colors"
+                                data-testid={`btn-approve-${rate.id}`}>✓ Approve</button>
+                              <button onClick={() => rejectMut.mutate({ id: rate.id })} disabled={rejectMut.isPending}
+                                className="text-rose-400 hover:text-rose-300 rounded px-1 py-0.5 hover:bg-rose-500/10 text-[10px] font-medium transition-colors"
+                                data-testid={`btn-reject-${rate.id}`}>✗ Reject</button>
+                            </div>
+                          )}
+                          {st === "rejected" && (
+                            <button onClick={() => approveMut.mutate(rate.id)}
+                              className="text-muted-foreground hover:text-foreground text-[10px] hover:underline"
+                              data-testid={`btn-re-approve-${rate.id}`}>Re-approve</button>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
+                  <td className="py-2 px-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {[...dest.rates.values()].map(r => (
+                      <button key={r.id} onClick={() => deleteMut.mutate(r.id)}
+                        className="text-muted-foreground hover:text-rose-400 transition-colors block"
+                        title={`Delete ${r.product_code} rate`} data-testid={`btn-delete-rate-${r.id}`}>
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function DestinationCatalogPage() {
   const [activeTab, setActiveTab] = useState<TabId>("catalog");
   const { data: flatNodes = [], isLoading } = useQuery<Dest[]>({
     queryKey: ["/api/product-registry/destinations"],
+  });
+  const { data: gdsPending } = useQuery<{ count: number }>({
+    queryKey: ["/api/destination-catalog/product-rates/pending-count"],
   });
 
   const stats = useMemo(() => ({
@@ -1168,7 +1653,9 @@ export default function DestinationCatalogPage() {
           <div className="flex items-center gap-0.5 flex-1">
             {TABS.map(tab => {
               const Icon = tab.icon;
-              const badge = tab.id === "approvals" && stats.pending > 0 ? stats.pending : null;
+              const badge = tab.id === "approvals" && stats.pending > 0 ? stats.pending
+                         : tab.id === "gds"       && (gdsPending?.count ?? 0) > 0 ? gdsPending!.count
+                         : null;
               return (
                 <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                   className={cn("relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap",
@@ -1205,6 +1692,7 @@ export default function DestinationCatalogPage() {
           <>
             {activeTab === "catalog"   && <CatalogTab flatNodes={flatNodes} />}
             {activeTab === "approvals" && <div className="h-full overflow-y-auto"><ApprovalsTab flatNodes={flatNodes} /></div>}
+            {activeTab === "gds"       && <div className="h-full overflow-y-auto"><GdsRatesTab /></div>}
             {activeTab === "intel"     && <MarketIntelTab flatNodes={flatNodes} />}
             {activeTab === "import"    && <div className="h-full overflow-y-auto"><ImportTab /></div>}
           </>
