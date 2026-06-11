@@ -34018,7 +34018,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       `));
       const existingMap = new Map<string, any>();
       for (const r of existingRates.rows as any[]) {
-        existingMap.set(\`\${r.destination_id}:\${r.product_prefix}\`, r);
+        existingMap.set(`\${r.destination_id}:\${r.product_prefix}`, r);
       }
 
       const products = await db.execute(sql.raw(`SELECT prefix, product_code, product_name FROM product_prefixes WHERE active = true`));
@@ -34034,7 +34034,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           continue;
         }
         if (!productMap.has(pPrefix)) {
-          preview.push({ ...row, _status: 'invalid', _reason: \`Unknown product: \${pPrefix}\` });
+          preview.push({ ...row, _status: 'invalid', _reason: `Unknown product: \${pPrefix}` });
           continue;
         }
 
@@ -34050,7 +34050,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           continue;
         }
 
-        const existing = existingMap.get(\`\${match.id}:\${pPrefix}\`);
+        const existing = existingMap.get(`\${match.id}:\${pPrefix}`);
         const product = productMap.get(pPrefix) as any;
         const buyRate = parseFloat(row.buyRate ?? 0) || 0;
         const sellRate = parseFloat(row.sellRate ?? 0) || 0;
@@ -34095,14 +34095,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const buyRate  = parseFloat(row.buyRate  ?? 0) || null;
         const sellRate = parseFloat(row.sellRate ?? 0) || null;
         await db.execute(sql.raw(
-          \`INSERT INTO destination_product_rates
+          `INSERT INTO destination_product_rates
               (destination_id, product_prefix, dial_prefix, destination_name, buy_rate, sell_rate, approval_status, source, source_file, updated_at)
             VALUES ($1,$2,$3,$4,$5,$6,'pending','gds_upload',$7,NOW())
             ON CONFLICT (destination_id, product_prefix)
             DO UPDATE SET buy_rate=$5, sell_rate=$6, source_file=$7,
               approval_status=CASE WHEN destination_product_rates.approval_status='approved' THEN 'pending'
                                    ELSE destination_product_rates.approval_status END,
-              updated_at=NOW()\`,
+              updated_at=NOW()`,
           [row._destId, row._productPrefix, row._destDialPrefix ?? null, row._destName ?? null, buyRate, sellRate, sourceFile ?? null]
         ));
         saved++;
