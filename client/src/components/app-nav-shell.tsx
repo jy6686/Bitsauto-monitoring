@@ -769,7 +769,7 @@ export function AppNavShell() {
         <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
 
         {/* ── Domain mega-menu tabs — always visible ─────────────────────────── */}
-        <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-hidden" role="menubar">
+        <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-visible" role="menubar">
             {shownDomains.map(domain => {
               const isActive = meta.domain === domain.id;
               const isOpen   = openDomain === domain.id;
