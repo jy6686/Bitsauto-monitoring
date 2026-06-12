@@ -103,7 +103,7 @@ const DOMAINS: Domain[] = [
         { href: '/balance',                   label: 'Balance Monitor',    desc: 'Vendor account balances',   icon: Wallet },
         { href: '/vendor-sla-scorecard',      label: 'SLA Scorecard',      desc: 'Carrier SLA performance',   icon: HeartPulse },
         { href: '/carrier-scoring',           label: 'Carrier Scoring',    desc: 'Quality benchmarks',        icon: BarChart3 },
-        { href: '/vendor-stability-timeline', label: 'Stability Timeline', desc: 'Vendor stability history',  icon: Activity },
+        // Removed: Stability Timeline — canonical home is BitsEye
         { href: '/vendor-health',           label: 'Health Engine',      desc: 'Unified 0–100 vendor & route health score', icon: HeartPulse },
       ]},
       { label: 'Routing', desc: 'Routing groups, LCR analysis, simulators and route testing', icon: GitBranch, items: [
@@ -152,7 +152,7 @@ const DOMAINS: Domain[] = [
       { label: 'Comparative & Intelligence Views', desc: 'Vendor vs vendor, today vs yesterday, Q-Score arc drill-down and RCA foundation', icon: GitCompare, items: [
         { href: '/bitseye2',               label: 'Comparative Telemetry', desc: 'Today vs yesterday · vendor A vs B · entity drill-down side-by-side', icon: GitCompare },
         { href: '/vendor-stability-timeline', label: 'Stability Timeline', desc: 'Historical stability scoring with outage overlays per vendor',         icon: Activity },
-        { href: '/vendor-rca',             label: 'Graph-Driven RCA',      desc: 'ASR drop → revenue drop → vendor change — graph-powered root cause',  icon: Search },
+        // Removed: Vendor RCA — canonical home is Intelligence
         { href: '/asr-acd',                label: 'ASR / ACD',             desc: 'Sippy-native ASR/ACD/NER aggregation via portal auth chain',           icon: BarChart3 },
       ]},
     ],
@@ -164,10 +164,7 @@ const DOMAINS: Domain[] = [
     groups: [
       { label: 'Traffic & Quality', desc: 'Call traffic, QoS and codec analytics', icon: Activity, items: [
         { href: '/analytics',       label: 'Traffic Analytics', desc: 'Call traffic analytics overview',  icon: Activity },
-        { href: '/asr-acd',         label: 'ASR / ACD',         desc: 'ASR/ACD call quality KPIs',        icon: BarChart3 },
-        { href: '/qos-heatmap',     label: 'QoS Heatmap',       desc: 'Quality of service map',           icon: HeartPulse },
-        { href: '/rtp-analytics',   label: 'RTP Analytics',     desc: 'Media quality & jitter',           icon: Activity },
-        { href: '/codec-analytics', label: 'Codec Analytics',   desc: 'Codec breakdown analysis',         icon: Route },
+        // Removed: ASR/ACD, QoS Heatmap, RTP Analytics, Codec Analytics — canonical home is BitsEye
       ]},
       { label: 'Reports & Forecasting', desc: 'Revenue reports, traffic forecasting and executive summaries', icon: TrendingDown, items: [
         { href: '/reports',           label: 'Reports',           desc: 'Standard report centre',    icon: BarChart2 },
@@ -196,7 +193,7 @@ const DOMAINS: Domain[] = [
         { href: '/vendor-rca',                 label: 'Vendor RCA',           desc: 'Root cause analysis',            icon: Search },
         { href: '/vendor-prefix-intelligence', label: 'Prefix Intelligence',  desc: 'Prefix-level signals',           icon: Globe },
         { href: '/route-intelligence',         label: 'Route Intelligence',   desc: 'Route health scoring & decision trace audit', icon: Route },
-        { href: '/routing-intelligence',       label: 'Routing Intelligence', desc: 'Route intelligence engine',      icon: GitBranch },
+        { href: '/routing-intelligence',       label: 'Routing Engine',       desc: 'Automated routing decision engine', icon: GitBranch },
       ]},
       { label: 'Optimisation', desc: 'Route and cost optimisation, traffic steering and simulation', icon: TrendingDown, items: [
         { href: '/cost-optimisation',   label: 'Cost Optimisation',  desc: 'Route cost engine',                 icon: TrendingDown },

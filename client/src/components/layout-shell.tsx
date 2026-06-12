@@ -1560,7 +1560,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
         })}
 
         {/* Group+ button */}
-        {!mobile && role === 'admin' && (
+        {false && !mobile && role === 'admin' && (
           <button
             onClick={() => setGroupPlusOpen(true)}
             data-testid="button-group-plus"
