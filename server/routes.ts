@@ -16354,6 +16354,47 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/download/project-zip — full source code ZIP (dev workspace only)
+  app.get('/api/download/project-zip', async (_req: any, res: any) => {
+    try {
+      const { existsSync, statSync, createReadStream } = await import('fs');
+      const { spawn } = await import('child_process');
+      const zipPath = _pathJoin(process.cwd(), 'client', 'public', 'downloads', 'BitsAuto_project.zip');
+      const shouldRegen = !existsSync(zipPath) || (Date.now() - statSync(zipPath).mtimeMs > 7200000);
+      if (shouldRegen) {
+        await new Promise<void>((resolve, reject) => {
+          const py = spawn('python3', ['-c', [
+            'import zipfile,os',
+            'exc_d={"node_modules",".git","dist",".cache","__pycache__",".local","attached_assets"}',
+            'exc_e={".log",".zip",".tar",".gz",".mp4"}',
+            'out="' + zipPath + '"',
+            'ft=(2024,1,1,0,0,0)',
+            'with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED,allowZip64=True) as zf:',
+            ' for r,ds,fs in os.walk("' + process.cwd() + '"):',
+            '  ds[:]=[d for d in ds if d not in exc_d]',
+            '  for f in fs:',
+            '   fp=os.path.join(r,f)',
+            '   if any(fp.endswith(e) for e in exc_e): continue',
+            '   if "public/downloads" in fp: continue',
+            '   rel=os.path.relpath(fp,"' + process.cwd() + '")',
+            '   i=zipfile.ZipInfo(rel,date_time=ft)',
+            '   i.compress_type=zipfile.ZIP_DEFLATED',
+            '   fh=open(fp,"rb") if True else None',
+            '   try:',
+            '    with open(fp,"rb") as fh: zf.writestr(i,fh.read())',
+            '   except: pass',
+          ].join('\n')]);
+          py.on('close', (code: number) => code === 0 ? resolve() : reject(new Error('zip generation failed')));
+        });
+      }
+      const stat = statSync(zipPath);
+      res.setHeader('Content-Disposition', 'attachment; filename="BitsAuto_project.zip"');
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Length', stat.size);
+      createReadStream(zipPath).pipe(res);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/download/feature-roadmap — serve the Feature Roadmap Word document (Vol I)
   app.get('/api/download/feature-roadmap', (_req: any, res: any) => {
     const filePath = require('path').join(process.cwd(), 'attached_assets', 'VoIP_Watcher_Feature_Roadmap.docx');
