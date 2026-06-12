@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { SIDEBAR_GROUPS } from "@/components/layout-shell";
 
-const ALWAYS_VISIBLE = new Set(['/', '/chat', '/account', '/sidebar-settings']);
+const ALWAYS_VISIBLE = new Set(['/', '/chat', '/account', '/navigation-manager']);
 
 const GROUP_COLORS: Record<string, { badge: string; dot: string; header: string }> = {
   live_network:    { badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',  dot: 'bg-emerald-400',  header: 'border-l-emerald-400/60'  },

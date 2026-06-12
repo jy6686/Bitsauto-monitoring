@@ -2456,7 +2456,7 @@ export default function SettingsPage() {
   const resetMutation = useResetSimulation();
   const _initialSearch = useSearch();
   const _initialTab = (new URLSearchParams(_initialSearch).get('tab') as any) ?? 'connection';
-  const [activeTab, setActiveTab] = useState<'connection'|'monitoring'|'alerts'|'users'|'system'|'navigation'|'access'>(_initialTab);
+  const [activeTab, setActiveTab] = useState<'connection'|'monitoring'|'alerts'|'users'|'system'|'access'>(_initialTab);
   const [showPassword, setShowPassword] = useState(false);
   const [testResult, setTestResult] = useState<TestResult>(null);
   const [isTesting, setIsTesting] = useState(false);
@@ -2697,7 +2697,6 @@ export default function SettingsPage() {
     { id: 'monitoring',  label: 'Monitoring',        Icon: Activity      },
     { id: 'alerts',      label: 'Alerts',            Icon: Bell          },
     { id: 'users',       label: 'Users & Switches',  Icon: Users         },
-    { id: 'navigation',  label: 'Navigation',        Icon: LayoutGrid    },
     { id: 'access',      label: 'Access Control',    Icon: Lock          },
     { id: 'system',      label: 'System',            Icon: Server        },
   ] as const;
@@ -3522,6 +3521,130 @@ export default function SettingsPage() {
         <SippyUsersPanel />
         <SwitchesPanel />
       </div>
+
+      {/* ══ ACCESS CONTROL TAB ══ */}
+      <div className={activeTab !== 'access' ? 'hidden' : 'space-y-6'}>
+
+        {/* Roles & Permissions */}
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
+            <Shield className="w-4 h-4 text-violet-400" />
+            <div>
+              <h3 className="font-semibold text-sm">Roles &amp; Permissions</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Platform role hierarchy and permission matrix across all modules.</p>
+            </div>
+          </div>
+          <div className="p-5 space-y-3">
+            {[
+              { role: 'super_admin',   color: 'text-rose-400',    bg: 'bg-rose-500/10 border-rose-500/20',     desc: 'Unrestricted access — all modules, settings, danger zone.' },
+              { role: 'admin',         color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/20', desc: 'Full operational control, user management, configuration.' },
+              { role: 'management',    color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20',   desc: 'Analytics, finance, reporting. No danger zone access.' },
+              { role: 'team_lead',     color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/20',     desc: 'Operations, CDR, call governance. Read/write on own team.' },
+              { role: 'noc_operator',  color: 'text-cyan-400',    bg: 'bg-cyan-500/10 border-cyan-500/20',     desc: 'Live monitoring, NOC board, alerts. No billing access.' },
+              { role: 'kam',           color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20',desc: 'KAM dashboard, assigned accounts only.' },
+              { role: 'viewer',        color: 'text-slate-400',   bg: 'bg-slate-500/10 border-slate-500/20',   desc: 'Read-only access to dashboard and reports.' },
+            ].map(({ role, color, bg, desc }) => (
+              <div key={role} className={`flex items-start gap-3 rounded-lg border px-4 py-3 ${bg}`}>
+                <span className={`text-xs font-mono font-semibold mt-0.5 ${color}`}>{role}</span>
+                <span className="text-xs text-muted-foreground">{desc}</span>
+              </div>
+            ))}
+            <Link href="/rbac">
+              <button type="button" className="mt-1 w-full flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 hover:bg-muted/60 transition-colors px-4 py-2.5 text-xs font-medium" data-testid="link-rbac-matrix">
+                <ClipboardList className="w-3.5 h-3.5" /> Open RBAC Permission Matrix <ArrowRight className="w-3.5 h-3.5 ml-auto" />
+              </button>
+            </Link>
+          </div>
+        </div>
+
+        {/* Team & KAM Management */}
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
+            <Users className="w-4 h-4 text-blue-400" />
+            <div>
+              <h3 className="font-semibold text-sm">Team &amp; KAM Management</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Organisational hierarchy, KAM assignments, and team role configuration.</p>
+            </div>
+          </div>
+          <div className="p-5 space-y-2">
+            {[
+              { href: '/team',            label: 'Team Management',       desc: 'Users, KAM tree, org hierarchy',        icon: UserCog       },
+              { href: '/rbac',            label: 'Permission Matrix',     desc: 'Role × module access grid',             icon: ClipboardList },
+            ].map(({ href, label, desc, icon: Icon }) => (
+              <Link key={href} href={href}>
+                <button type="button" className="w-full flex items-center gap-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/50 transition-colors px-4 py-3 text-left" data-testid={`link-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+                  <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <div>
+                    <div className="text-xs font-medium">{label}</div>
+                    <div className="text-xs text-muted-foreground">{desc}</div>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+                </button>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Authentication & Security */}
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
+            <Fingerprint className="w-4 h-4 text-emerald-400" />
+            <div>
+              <h3 className="font-semibold text-sm">Authentication &amp; Security</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">MFA policy, session governance, IP restrictions, and API key management.</p>
+            </div>
+          </div>
+          <div className="p-5 space-y-2">
+            {[
+              { href: '/mfa-setup',       label: 'MFA / 2FA Setup',       desc: 'TOTP authenticator configuration',       icon: Fingerprint  },
+              { href: '/api-keys',        label: 'API Keys',              desc: 'Platform API key management',            icon: Key          },
+              { href: '/security-ops',    label: 'Security &amp; Sessions',    desc: 'IP restrictions, session timeout, audit', icon: ShieldCheck  },
+              { href: '/audit-log',       label: 'Audit Log',             desc: 'Full platform action history',           icon: History      },
+            ].map(({ href, label, desc, icon: Icon }) => (
+              <Link key={href} href={href}>
+                <button type="button" className="w-full flex items-center gap-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/50 transition-colors px-4 py-3 text-left" data-testid={`link-${label.toLowerCase().replace(/[\s/&]+/g, '-')}`}>
+                  <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <div>
+                    <div className="text-xs font-medium" dangerouslySetInnerHTML={{ __html: label }} />
+                    <div className="text-xs text-muted-foreground" dangerouslySetInnerHTML={{ __html: desc }} />
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+                </button>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Trust & Governance */}
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-border/50 bg-muted/20">
+            <ShieldAlert className="w-4 h-4 text-amber-400" />
+            <div>
+              <h3 className="font-semibold text-sm">Trust &amp; Configuration Governance</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Approval workflows, configuration drift detection, and governance validation.</p>
+            </div>
+          </div>
+          <div className="p-5 space-y-2">
+            {[
+              { href: '/approval-settings', label: 'Approval Rules',       desc: 'Sippy operation approval workflows',     icon: Settings2     },
+              { href: '/governance',         label: 'Governance Console',   desc: 'Module assignment &amp; portal sections',     icon: GitBranch     },
+              { href: '/security-audit',     label: 'Security Audit',       desc: 'Configuration drift &amp; baseline checks',   icon: ShieldCheck   },
+            ].map(({ href, label, desc, icon: Icon }) => (
+              <Link key={href} href={href}>
+                <button type="button" className="w-full flex items-center gap-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/50 transition-colors px-4 py-3 text-left" data-testid={`link-gov-${href.replace('/', '')}`}>
+                  <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <div>
+                    <div className="text-xs font-medium" dangerouslySetInnerHTML={{ __html: label }} />
+                    <div className="text-xs text-muted-foreground" dangerouslySetInnerHTML={{ __html: desc }} />
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
+                </button>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+      </div>{/* /access control tab */}
 
       {/* ══ SYSTEM TAB (continued: docs + danger zone) ══ */}
       <div className={activeTab !== 'system' ? 'hidden' : 'space-y-6'}>

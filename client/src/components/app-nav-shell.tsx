@@ -313,7 +313,7 @@ const DOMAINS: Domain[] = [
       { label: 'System', desc: 'System configuration, workspaces, VPN and navigation', icon: Settings, items: [
         { href: '/settings',              label: 'Platform Settings',     desc: 'System configuration',           icon: Settings },
         { href: '/workspace-settings',    label: 'Workspace Settings',    desc: 'Portal workspaces & themes',     icon: Layers },
-        { href: '/sidebar-settings',      label: 'Navigation Manager',    desc: 'Sidebar item visibility',        icon: SlidersHorizontal },
+        { href: '/navigation-manager',      label: 'Navigation Manager',    desc: 'Sidebar item visibility',        icon: SlidersHorizontal },
         { href: '/governance',            label: 'Governance Console',    desc: 'Module assignments & sections',  icon: Shield },
         { href: '/navigation-governance', label: 'Nav Governance',        desc: 'Navigation module visibility & role gates', icon: Monitor },
         { href: '/console',               label: 'Platform Console',      desc: 'Live log viewer & diagnostic runner', icon: Database },

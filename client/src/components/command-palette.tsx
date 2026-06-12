@@ -61,7 +61,7 @@ const PAGES: { label: string; route: string; group: string; icon: React.Componen
   // Platform
   { label: "Platform Settings",  route: "/settings",                  group: "Platform",        icon: Settings },
   { label: "Team & KAM",         route: "/team",                      group: "Platform",        icon: Users },
-  { label: "Navigation Manager", route: "/sidebar-settings",          group: "Platform",        icon: Layers },
+  { label: "Navigation Manager", route: "/navigation-manager",          group: "Platform",        icon: Layers },
   { label: "Nav Governance",     route: "/navigation-governance",     group: "Platform",        icon: Layers },
   { label: "My Account",         route: "/account",                   group: "Platform",        icon: Users },
 ];

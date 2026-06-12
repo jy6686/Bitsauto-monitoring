@@ -278,7 +278,7 @@ export default function WorkspaceSettingsPage() {
           Visibility of individual sidebar items is managed separately.
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
-          <Link href="/sidebar-settings">
+          <Link href="/navigation-manager">
             <div
               data-testid="link-sidebar-settings"
               className="flex items-center gap-3 p-4 rounded-xl border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05] transition-colors cursor-pointer group"

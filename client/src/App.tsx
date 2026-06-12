@@ -760,7 +760,7 @@ function Router() {
       <Route path="/self-heal">
         {() => <ProtectedRoute component={SelfHealPage} requiredRoles={['admin', 'management']} />}
       </Route>
-      <Route path="/sidebar-settings">
+      <Route path="/navigation-manager">
         {() => <ProtectedRoute component={SidebarSettingsPage} requiredRoles={['admin']} />}
       </Route>
       {/* Workspace Settings — operational admin view (portal on/off, themes) */}

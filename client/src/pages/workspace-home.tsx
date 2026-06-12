@@ -127,7 +127,7 @@ const WS_CONFIG: Record<WorkspaceDomain, WorkspaceConfig> = {
       { href: '/approval-settings', label: 'Approval Rules',    desc: 'Approval configuration', icon: SlidersHorizontal,color: 'text-emerald-400'},
       { href: '/whatsapp-alerts',   label: 'WhatsApp Alerts',   desc: 'Alert delivery config',  icon: Bell,             color: 'text-rose-400'   },
       { href: '/vpn-config',        label: 'VPN Config',        desc: 'VPN configuration',      icon: Lock,             color: 'text-blue-400'   },
-      { href: '/sidebar-settings',  label: 'Sidebar Menu',      desc: 'Navigation preferences', icon: SlidersHorizontal,color: 'text-indigo-400' },
+      { href: '/navigation-manager',  label: 'Navigation Manager',      desc: 'Navigation preferences', icon: SlidersHorizontal,color: 'text-indigo-400' },
     ],
   },
 };

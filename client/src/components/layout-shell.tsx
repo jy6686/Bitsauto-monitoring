@@ -323,7 +323,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/whatsapp-alerts",      label: "WhatsApp Alerts",    icon: MessageSquare,    roles: ['admin','management']                              },
       { href: "/sms-monitor",          label: "SMS / A2P",          icon: MessageCircle,    roles: ['admin','management'],  status: 'planned'          },
       { href: "/workspace-settings",   label: "Workspace Settings", icon: Layers,           roles: ['admin','super_admin']                              },
-      { href: "/sidebar-settings",     label: "Navigation Manager", icon: SlidersHorizontal,roles: ['admin']                                           },
+      { href: "/navigation-manager",     label: "Navigation Manager", icon: SlidersHorizontal,roles: ['admin']                                           },
       { href: "/governance",           label: "Governance Console", icon: Shield,           roles: ['super_admin']                                      },
       { href: "/account",              label: "My Account",         icon: UserCog,          roles: ['admin','management','viewer','noc_operator','team_lead','super_admin'] },
     ],
@@ -884,7 +884,7 @@ export function LayoutShell({ children }: LayoutShellProps) {
 
   // ── Visibility gate ───────────────────────────────────────────────────────────
   const VIEWER_ALWAYS_SHOW   = new Set(['/']);
-  const SIDEBAR_ALWAYS_SHOW  = new Set(['/sidebar-settings']);
+  const SIDEBAR_ALWAYS_SHOW  = new Set(['/navigation-manager']);
 
   const isItemVisible = (item: NavItem): boolean => {
     if (role === 'viewer') {

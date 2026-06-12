@@ -19,7 +19,7 @@ export type WorkspaceDomain =
 const ROUTE_DOMAIN_MAP: [string, WorkspaceDomain][] = [
   // ── Platform ──────────────────────────────────────────────────────────────
   ['/approval-settings',          'platform'],
-  ['/sidebar-settings',           'platform'],
+  ['/navigation-manager',           'platform'],
   ['/whatsapp-alerts',            'platform'],
   ['/notification-centre',        'platform'],
   ['/email-centre',               'platform'],
