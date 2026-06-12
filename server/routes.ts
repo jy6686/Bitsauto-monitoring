@@ -6505,10 +6505,13 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       if (!settings) return;
-      const pUser  = (settings as any).apiAdminUsername || (settings as any).portalUsername || '';
-      const pPass  = (settings as any).apiAdminPassword || (settings as any).portalPassword || '';
-      const fbUser = (settings as any).portalUsername   || (settings as any).apiAdminUsername || '';
-      const fbPass = (settings as any).portalPassword   || (settings as any).apiAdminPassword || '';
+      // P&L report needs ADMIN portal session (ssp-root + web password)
+      // NOT the API password (!chiaan1) - that is XML-RPC only
+      // NOT the portal/customer password (RTST1/abcd@1234) - insufficient scope
+      const pUser  = (settings as any).portalUsername   || (settings as any).apiAdminUsername || '';
+      const pPass  = (settings as any).adminWebPassword || (settings as any).portalPassword   || '';
+      const fbUser = (settings as any).apiAdminUsername || (settings as any).portalUsername   || '';
+      const fbPass = (settings as any).apiAdminPassword || (settings as any).adminWebPassword || '';
       const portalUrl = sippyPortalUrl(settings);
 
       const fromDate = new Date(Date.now() - 24 * 60 * 60_000);

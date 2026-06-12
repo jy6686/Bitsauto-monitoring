@@ -495,9 +495,23 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
     return;
   }
 
-  await db.update(governedCalls)
-    .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
-    .where(eq(governedCalls.id, governedCallId));
+  // Atomic guard: never downgrade ok/check/loss → no_cdr even under concurrent lookups.
+  // The in-memory lock above is not sufficient because multiple async lookups can
+  // read the same stale gc.cdrStatus before any of them writes back.
+  if (cdrStatus === 'no_cdr') {
+    // Only write no_cdr if DB currently shows null or no_cdr (not a resolved status)
+    await db.update(governedCalls)
+      .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
+      .where(and(
+        eq(governedCalls.id, governedCallId),
+        sql`(cdr_status IS NULL OR cdr_status = 'no_cdr')`,
+      ));
+  } else {
+    // Writing a resolved status — always allowed, overwrite anything
+    await db.update(governedCalls)
+      .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
+      .where(eq(governedCalls.id, governedCallId));
+  }
 
   console.log(`[call-governance] CDR lookup #${governedCallId}: status=${cdrStatus} tier=${matchTier} source=${source} pool=${cdrs.length} duration=${cdrDuration} cost=${cdrCost}`);
 }
@@ -507,7 +521,7 @@ function scheduleCdrLookup(governedCallId: number): void {
   // so Sippy doesn't see the BYE on the outbound leg until ~T+90s. CDR is generated
   // AFTER the B-leg disconnects. First retry at 45s is always too early — bumped to 100s.
   // Subsequent retries: 3 min (CDR usually in portal by then), 10 min (final safety net).
-  const attempts = [100_000, 3 * 60_000, 10 * 60_000];
+  const attempts = [100_000, 3 * 60_000, 10 * 60_000, 20 * 60_000, 45 * 60_000];
   for (const delay of attempts) {
     setTimeout(async () => {
       try {
@@ -873,7 +887,7 @@ export function registerCallGovernanceRoutes(app: Express) {
   setInterval(runPeriodicCdrBackfill, 30 * 60 * 1000);
   // Run 5 min after startup with larger batch — portal covers last 2h so recent records
   // missed by the previous session's retries can be recovered immediately.
-  setTimeout(() => runPeriodicCdrBackfill(200), 5 * 60 * 1000);
+  setTimeout(() => runPeriodicCdrBackfill(500), 3 * 60 * 1000);  // larger batch, sooner
 
   // ── Bridge event → check governance rules ──────────────────────────────────
   amiGovernance.on('bridge', async (event) => {

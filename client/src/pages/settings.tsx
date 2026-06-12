@@ -11,7 +11,8 @@ import {
   Plus, Trash2, Pencil, Server, ChevronDown, ChevronUp, Users, UserPlus, X, AlertCircle,
   Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck, Download, FileText,
   BellRing, BellOff, Smartphone, ShieldAlert, Check, History, ArrowRight, BarChart2,
-  Mic,
+  Mic, LayoutGrid, Lock, Key, Shield, Navigation, SlidersHorizontal, UserCog,
+  EyeIcon, Layers, Network, Settings2, GitBranch, Fingerprint, ClipboardList,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -2455,7 +2456,7 @@ export default function SettingsPage() {
   const resetMutation = useResetSimulation();
   const _initialSearch = useSearch();
   const _initialTab = (new URLSearchParams(_initialSearch).get('tab') as any) ?? 'connection';
-  const [activeTab, setActiveTab] = useState<'connection'|'monitoring'|'alerts'|'users'|'system'>(_initialTab);
+  const [activeTab, setActiveTab] = useState<'connection'|'monitoring'|'alerts'|'users'|'system'|'navigation'|'access'>(_initialTab);
   const [showPassword, setShowPassword] = useState(false);
   const [testResult, setTestResult] = useState<TestResult>(null);
   const [isTesting, setIsTesting] = useState(false);
@@ -2692,11 +2693,13 @@ export default function SettingsPage() {
   const hasSavedPortal = !!(settings?.portalUrl && settings?.portalUsername && settings?.portalPassword);
 
   const SETTINGS_TABS = [
-    { id: 'connection',  label: 'Connection',       Icon: Globe    },
-    { id: 'monitoring',  label: 'Monitoring',        Icon: Activity },
-    { id: 'alerts',      label: 'Alerts',            Icon: Bell     },
-    { id: 'users',       label: 'Users & Switches',  Icon: Users    },
-    { id: 'system',      label: 'System',            Icon: Server   },
+    { id: 'connection',  label: 'Connection',       Icon: Globe         },
+    { id: 'monitoring',  label: 'Monitoring',        Icon: Activity      },
+    { id: 'alerts',      label: 'Alerts',            Icon: Bell          },
+    { id: 'users',       label: 'Users & Switches',  Icon: Users         },
+    { id: 'navigation',  label: 'Navigation',        Icon: LayoutGrid    },
+    { id: 'access',      label: 'Access Control',    Icon: Lock          },
+    { id: 'system',      label: 'System',            Icon: Server        },
   ] as const;
 
   return (
