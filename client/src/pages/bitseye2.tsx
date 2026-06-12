@@ -2185,6 +2185,7 @@ export default function BitsEye2Page() {
   const [destLookupQ, setDestLookupQ]         = useState('');
   const [wallboardSlide, setWallboardSlide]   = useState(0);
   const [sidebarExpanded, setSidebarExpanded] = useState<{ dim: string; name: string; sectionId: string } | null>(null);
+  const [hideZeroEnts, setHideZeroEnts]       = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Pinned entities per dimension — persisted in localStorage
@@ -2634,7 +2635,9 @@ export default function BitsEye2Page() {
               ? [...unpinnedEnts].sort((a, b) =>
                   attentionScore(sec.dim!, b.name, b.active) - attentionScore(sec.dim!, a.name, a.active))
               : unpinnedEnts;
-            const orderedEnts    = [...pinnedEnts, ...sortedUnpinned].slice(0, 10);
+            const visibleUnpinned = hideZeroEnts ? sortedUnpinned.filter(e => e.active > 0) : sortedUnpinned;
+            const orderedEnts    = [...pinnedEnts, ...visibleUnpinned].slice(0, 10);
+            const hiddenZeroCount = hideZeroEnts ? sortedUnpinned.filter(e => e.active === 0).length : 0;
 
             return (
               <div key={sec.id}>
@@ -2798,8 +2801,18 @@ export default function BitsEye2Page() {
                           </div>
                         );
                       })}
-                      {allEnts.length > 10 && (
-                        <div style={{ fontSize: 10, color: '#9CA3AF', padding: '2px 12px 4px 26px' }}>+{allEnts.length - 10} more</div>
+                      {hiddenZeroCount > 0 && (
+                        <button
+                          onClick={e => { e.stopPropagation(); setHideZeroEnts(false); }}
+                          style={{ display: 'flex', alignItems: 'center', padding: '3px 12px 5px 26px', background: 'none', border: 'none', cursor: 'pointer', width: '100%' }}
+                        >
+                          <span style={{ fontSize: 10, color: '#9CA3AF' }}>+{hiddenZeroCount} idle — show all</span>
+                        </button>
+                      )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 12px 4px 26px' }}>
+                          <span style={{ fontSize: 10, color: '#9CA3AF' }}>+{allEnts.length - 10} more</span>
+                          <button onClick={e => { e.stopPropagation(); setHideZeroEnts(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#9CA3AF', textDecoration: 'underline', padding: 0 }}>hide idle</button>
+                        </div>
                       )}
                       {/* Global destination search — only in the Destinations section */}
                       {sec.id === 'destinations' && (
