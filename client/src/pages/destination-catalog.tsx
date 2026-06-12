@@ -662,6 +662,8 @@ function ApprovalsTab({ flatNodes }: { flatNodes: Dest[] }) {
 function MarketIntelTab({ flatNodes }: { flatNodes: Dest[] }) {
   const [search, setSearch] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
+  const { data: productRates = [] } = useQuery({ queryKey: ["/api/destination-catalog/product-rates"] });
+  const rateByDest = useMemo(() => { const m = new Map(); for (const r of productRates) { if (r.approval_status !== "approved") continue; const key = r.dest_name_live ?? r.destination_name ?? ""; if (!key) continue; const buy = r.buy_rate ? parseFloat(r.buy_rate) : null; const sell = r.sell_rate ? parseFloat(r.sell_rate) : null; if (!m.has(key)) { m.set(key, { buy, sell }); } else { const ex = m.get(key); if (buy !== null && (ex.buy === null || buy < ex.buy)) ex.buy = buy; if (sell !== null && (ex.sell === null || sell < ex.sell)) ex.sell = sell; } } return m; }, [productRates]);
   const approved = flatNodes.filter(n => n.commercialStatus === "approved");
   const filtered = approved.filter(n => {
     const ok = levelFilter === "all" || String(n.level) === levelFilter;

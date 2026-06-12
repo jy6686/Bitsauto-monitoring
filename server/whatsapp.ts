@@ -1,3 +1,5 @@
+export function formatRateDropAlert(opts) { return ["Rate Drop Alert", "Destination: "+opts.destination, "Prefix: "+opts.dialPrefix, "Product: "+opts.productCode, "Old: $"+opts.oldSellRate.toFixed(5), "New: $"+opts.newSellRate.toFixed(5), "Drop: -"+opts.dropPct.toFixed(1)+"%", new Date().toUTCString(), "Review pricing immediately."].join("\n"); }
+
 
 import { storage } from './storage';
 import { sendMetaDirectText, sendMetaOtpTemplate } from './services/meta-cloud-api/index';

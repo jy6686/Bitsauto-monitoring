@@ -1,3 +1,4 @@
+import * as XLSX from "xlsx";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -512,10 +513,10 @@ export default function TariffProfilesPage() {
           </Tabs>
 
           <DialogFooter className="flex items-center gap-2 pt-2 border-t border-border/30">
-            <Button variant="outline" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => toast({ title: "Coming soon", description: "Excel export will be available in the next release." })}>
+            <Button variant="outline" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => { const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Profile", profileName], ["Date", new Date().toISOString().slice(0,10)]]), "Info"); XLSX.writeFile(wb, (profileName||"tariff").replace(/s+/g,"-") + ".xlsx"); toast({title:"Downloaded"}); }}>
               <Download className="h-3.5 w-3.5" /> Download Excel
             </Button>
-            <Button variant="outline" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => toast({ title: "Coming soon", description: "PDF export will be available in the next release." })}>
+            <Button variant="outline" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => { const w = window.open("","_blank"); if(w){ w.document.write("<html><body><h1>" + (profileName||"Tariff Profile") + "</h1><p>" + new Date().toISOString().slice(0,10) + "</p><button onclick=window.print()>Print/Save PDF</button></body></html>"); w.document.close(); }}}>
               <Download className="h-3.5 w-3.5" /> Download PDF
             </Button>
             <div className="flex-1" />
