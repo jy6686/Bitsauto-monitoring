@@ -13,8 +13,8 @@ Products are **commercial classes** (pricing/routing strategies), NOT destinatio
 |------|------|----------------|
 | FC | First Class | 1 |
 | BC | Business Class | 2 |
-| SB | Standard Business | 6 |
-| SC | Super Class | 7 |
+| SB | Special Bravo | 6 |
+| SC | Special Charlie | 7 |
 
 Internal prefix is ROUTING ONLY. Never exposed to customers/partners.
 
