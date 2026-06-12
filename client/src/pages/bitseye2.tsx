@@ -2809,6 +2809,7 @@ export default function BitsEye2Page() {
                           <span style={{ fontSize: 10, color: '#9CA3AF' }}>+{hiddenZeroCount} idle — show all</span>
                         </button>
                       )}
+                      {allEnts.length > 10 && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 12px 4px 26px' }}>
                           <span style={{ fontSize: 10, color: '#9CA3AF' }}>+{allEnts.length - 10} more</span>
                           <button onClick={e => { e.stopPropagation(); setHideZeroEnts(true); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#9CA3AF', textDecoration: 'underline', padding: 0 }}>hide idle</button>
