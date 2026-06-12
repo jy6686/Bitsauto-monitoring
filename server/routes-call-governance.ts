@@ -39,7 +39,7 @@ function _getGlobalPnlCache(): Map<string, any> | null {
 // Also limits Track-2 to calls within the 2h portal visibility window — older calls
 // can never be found via live scrape (CDRs age out of portal view).
 let _portalScrapeLock = false;
-const PORTAL_WINDOW_MS = 2 * 60 * 60 * 1000;
+const PORTAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // ── Track 2b: P&L targeted lookup concurrency guard ──────────────────────────
 // Prevents multiple concurrent P&L scrapes for different calls from hammering

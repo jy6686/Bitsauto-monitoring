@@ -6180,7 +6180,7 @@ export async function registerRoutes(
       // date window is specified.  Always pass startDate+endDate — same "2 hours ago"
       // to "now" rolling window the FAS background job uses successfully.  The portal
       // scrape (Attempt 1/2) supplements with older CDRs beyond this window.
-      const xmlRpcCdrStart = sippy.toSippyDate(new Date(Date.now() - 2 * 60 * 60 * 1000)); // last 2h
+      const xmlRpcCdrStart = sippy.toSippyDate(new Date(Date.now() - 24 * 60 * 60 * 1000)); // last 24h
       const xmlRpcCdrEnd   = sippy.toSippyDate(new Date());
       if (!xmlRpcCircuitGuard()) {
         for (const { username, password } of credPairs) {
