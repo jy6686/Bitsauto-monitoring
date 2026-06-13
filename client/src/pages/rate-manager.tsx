@@ -1488,9 +1488,18 @@ function AutoSeedButton({ onSeeded }: { onSeeded?: () => void }) {
   const handleSeed = async () => {
     setLoading(true);
     try {
-      const res = await apiRequest("POST", "/api/customer-product-assignments/auto-seed", {});
+      const res = await fetch("/api/customer-product-assignments/auto-seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        credentials: "include",
+      });
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("application/json")) {
+        throw new Error(`Server returned unexpected response (${res.status}). Check that you are logged in.`);
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Seed failed");
+      if (!res.ok) throw new Error(data.error || data.message || `Error ${res.status}`);
       toast({
         title: `Auto-assign complete — ${data.assigned}/${data.total} accounts`,
         description: data.errors > 0 ? `${data.errors} failed (tariff not matched)` : "All accounts assigned to products.",
