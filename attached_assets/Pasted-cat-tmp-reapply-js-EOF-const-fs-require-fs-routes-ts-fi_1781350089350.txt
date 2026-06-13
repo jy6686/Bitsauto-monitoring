@@ -1,0 +1,125 @@
+cat > /tmp/reapply.js << 'EOF'
+const fs = require('fs');
+
+// ── routes.ts fixes ──
+let r = fs.readFileSync('server/routes.ts', 'utf8');
+
+// Fix 1: CDR cache window 2h → 24h
+r = r.replace(
+  'sippy.toSippyDate(new Date(Date.now() - 2 * 60 * 60 * 1000)); // last 2h',
+  'sippy.toSippyDate(new Date(Date.now() - 24 * 60 * 60 * 1000)); // last 24h'
+);
+console.log('Fix 1: CDR cache 24h');
+
+// Fix 2: refreshPnlCache → use exportVendorsCDRsMera
+const pnlStart = r.indexOf('async function refreshPnlCache(): Promise<void> {');
+let depth=0, inF=false, pnlEnd=pnlStart;
+for(let i=pnlStart;i<r.length;i++){if(r[i]==='{'){depth++;inF=true;}if(r[i]==='}')depth--;if(inF&&depth===0){pnlEnd=i+1;break;}}
+const newPnl = `async function refreshPnlCache(): Promise<void> {
+    if (_pnlCacheRunning) return;
+    _pnlCacheRunning = true;
+    const t0 = Date.now();
+    try {
+      const settings = await storage.getSettings();
+      if (!settings) return;
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings) ?? '';
+      if (!portalUrl) { console.warn('[pnl-cache] no portalUrl'); return; }
+      const fromDate = new Date(Date.now() - 24 * 60 * 60_000);
+      const toDate   = new Date();
+      const vendorCdrs = await sippy.exportVendorsCDRsMera(portalUrl, username, password, fromDate, toDate);
+      pnlCacheLastProbe = [{ attempt: 'exportVendorsCDRs_Mera', statusCode: 200, bodyLen: vendorCdrs.length, contentType: 'xml-rpc' }];
+      if (!vendorCdrs || vendorCdrs.length === 0) { console.warn('[pnl-cache] exportVendorsCDRsMera returned 0 rows'); return; }
+      let added = 0;
+      for (const row of vendorCdrs) {
+        const cld = (row.dstNumberBill || row.dstNumberIn || '').replace(/\\D/g, '');
+        const cli = (row.srcNumberBill || row.srcNumberIn || '').replace(/\\D/g, '');
+        const startTime = row.connectTime || row.setupTime || '';
+        const key = \`\${cli}:\${cld}:\${startTime}\`;
+        if (!pnlCache.has(key)) {
+          pnlCache.set(key, { cli, cld, startTime, setupTimeSec:0, durationSec:Number(row.elapsedTime)||0, buyDurationSec:Number(row.elapsedTime)||0, revenue:0, cost:Number(row.cost)||0, profit:0, margin:0, connection:row.dstName||'', account:row.srcName||'', result:row.disconnectCodeQ931||'', pdd:0, extra:{} } as any);
+          added++;
+        }
+      }
+      const cutoff = Date.now() - 48*60*60_000;
+      for (const [k,v] of pnlCache.entries()) { const ts=sippy.parseSippyDate(v.startTime)?.getTime()??0; if(ts>0&&ts<cutoff) pnlCache.delete(k); }
+      pnlCacheUpdatedAt = new Date();
+      (global as any).__bitsautoPnlCache = pnlCache;
+      console.log(\`[pnl-cache] exportVendorsCDRsMera OK — \${added} new rows, cache=\${pnlCache.size} (\${Date.now()-t0}ms)\`);
+    } catch(e:any) { console.warn('[pnl-cache] refresh error:', e.message); }
+    finally { _pnlCacheRunning = false; }
+  }`;
+r = r.slice(0, pnlStart) + newPnl + r.slice(pnlEnd);
+console.log('Fix 2: refreshPnlCache → exportVendorsCDRsMera');
+
+// Fix 3: Global auth guard
+const authAnchor = "app.use('/api', sessionActivityMiddleware);";
+if (!r.includes('GLOBAL AUTH GUARD') && r.includes(authAnchor)) {
+  r = r.replace(authAnchor, `app.use('/api', sessionActivityMiddleware);
+  const UNGUARDED = new Set(['/probe/status','/notifications/acknowledge','/portal/auth/logout','/portal/auth/session','/sippy/connect','/destination-catalog/gds-auto-load']);
+  app.use('/api', (req:any,res:any,next:any) => {
+    if (UNGUARDED.has(req.path)||req.path.startsWith('/notifications/acknowledge')) return next();
+    const userId = req.user?.claims?.sub ?? req.user?.id ?? null;
+    if (!userId) return res.status(401).json({error:'Authentication required',code:'UNAUTHENTICATED'});
+    next();
+  });`);
+  console.log('Fix 3: Global auth guard');
+} else { console.log('Fix 3: already present or anchor missing'); }
+
+fs.writeFileSync('server/routes.ts', r);
+
+// ── routes-call-governance.ts fixes ──
+let g = fs.readFileSync('server/routes-call-governance.ts', 'utf8');
+
+// Fix 4: PORTAL_WINDOW_MS 2h → 24h
+g = g.replace('const PORTAL_WINDOW_MS = 2 * 60 * 60 * 1000;','const PORTAL_WINDOW_MS = 24 * 60 * 60 * 1000;');
+console.log('Fix 4: PORTAL_WINDOW_MS 24h');
+
+// Fix 5: CDR retry attempts
+g = g.replace('const attempts = [100_000, 3 * 60_000, 10 * 60_000];','const attempts = [100_000, 3 * 60_000, 10 * 60_000, 20 * 60_000, 45 * 60_000];');
+console.log('Fix 5: CDR retry attempts extended');
+
+// Fix 6: Atomic DB guard (race condition fix)
+const oldUpdate = `  await db.update(governedCalls)
+    .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
+    .where(eq(governedCalls.id, governedCallId));`;
+const newUpdate = `  if (cdrStatus === 'no_cdr') {
+    await db.update(governedCalls)
+      .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
+      .where(and(eq(governedCalls.id, governedCallId), sql\`(cdr_status IS NULL OR cdr_status = 'no_cdr')\`));
+  } else {
+    await db.update(governedCalls)
+      .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
+      .where(eq(governedCalls.id, governedCallId));
+  }`;
+if (g.includes(oldUpdate) && !g.includes('cdrStatus === \'no_cdr\'')) {
+  g = g.replace(oldUpdate, newUpdate);
+  console.log('Fix 6: Atomic DB guard (race condition fix)');
+} else { console.log('Fix 6: already present'); }
+
+// Fix 7: Startup backfill 200→500, 5min→3min
+g = g.replace('setTimeout(() => runPeriodicCdrBackfill(200), 5 * 60 * 1000);','setTimeout(() => runPeriodicCdrBackfill(500), 3 * 60 * 1000);');
+console.log('Fix 7: startup backfill batch increased');
+
+fs.writeFileSync('server/routes-call-governance.ts', g);
+
+// ── Portal security fix ──
+const { execSync } = require('child_process');
+const portals = [
+  ['noc',     '{super_admin,admin,noc_operator}'],
+  ['finance', '{super_admin,admin,finance_manager}'],
+  ['kam',     '{super_admin,admin,kam,noc_operator}'],
+  ['partner', '{super_admin,admin}'],
+  ['admin',   '{super_admin,admin}'],
+];
+const db = process.env.DATABASE_URL;
+for (const [slug, roles] of portals) {
+  try {
+    execSync(`psql "${db}" -c "UPDATE portal_definitions SET allowed_roles = '${roles}' WHERE slug = '${slug}';"`, {encoding:'utf8'});
+    console.log(`Portal ${slug}: roles updated`);
+  } catch(e) { console.log(`Portal ${slug}: skipped`); }
+}
+
+console.log('\nALL FIXES REAPPLIED');
+EOF
+node /tmp/reapply.js
