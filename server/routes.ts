@@ -808,22 +808,6 @@ export async function registerRoutes(
   // ── Security Middleware ────────────────────────────────────────────────────
   app.use('/api', sessionActivityMiddleware);
 
-  // GLOBAL AUTH GUARD — protects all /api/ routes platform-wide
-  const UNGUARDED = new Set([
-    '/probe/status',
-    '/destination-catalog/gds-auto-load',
-    '/notifications/acknowledge',
-    '/portal/auth/logout',
-    '/portal/auth/session',
-    '/sippy/connect',  // needed for initial setup
-  ]);
-  app.use('/api', (req: any, res: any, next: any) => {
-    if (UNGUARDED.has(req.path) || req.path.startsWith('/notifications/acknowledge')) return next();
-    const userId = req.user?.claims?.sub ?? req.user?.id ?? null;
-    if (!userId) return res.status(401).json({ error: 'Authentication required', code: 'UNAUTHENTICATED' });
-    next();
-  });
-
   // ── Smart Sippy Connect ────────────────────────────────────────────────────
   // Tries both credential pairs and always prefers XML-RPC mode over portal.
   // This handles the common case where admin credentials are saved in the
@@ -1441,35 +1425,8 @@ export async function registerRoutes(
     const userId = req.user?.claims?.sub;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
     try {
-      const userRole: string = req.user?.claims?.role ?? req.user?.role ?? 'viewer';
       const defs = await storage.getPortalDefinitions();
-      // SERVER-SIDE role filter — never trust the frontend alone
-      const allowed = defs.filter((d: any) => {
-        if (!d.isActive) return false;
-        const roles: string[] = d.allowedRoles ?? [];
-        // super_admin sees everything
-        if (userRole === 'super_admin') return true;
-        return roles.includes(userRole);
-      });
-      res.json(allowed);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Portal modules — also enforce role check
-  app.get('/api/portal/access-check/:slug', async (req: any, res) => {
-    const userId = req.user?.claims?.sub;
-    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-    try {
-      const userRole: string = req.user?.claims?.role ?? req.user?.role ?? 'viewer';
-      const defs = await storage.getPortalDefinitions();
-      const def = defs.find((d: any) => d.slug === req.params.slug);
-      if (!def || !def.isActive) return res.status(404).json({ error: 'Portal not found' });
-      const roles: string[] = def.allowedRoles ?? [];
-      const hasAccess = userRole === 'super_admin' || roles.includes(userRole);
-      if (!hasAccess) return res.status(403).json({ error: 'Access denied' });
-      res.json({ allowed: true, slug: def.slug });
+      res.json(defs);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -4573,7 +4530,7 @@ export async function registerRoutes(
         const portalUser = settings?.portalUsername ?? '';
         const portalPass = settings?.portalPassword ?? '';
         try {
-          const result = await sippy.getSippyAsrAcdReport(adminUser, adminPass, '', 60, adminUser, adminPass); // always ssp-root
+          const result = await sippy.getSippyAsrAcdReport(portalUser, portalPass, '', 60, adminUser, adminPass);
           return res.json({ ...result, period: PERIOD_LABEL, source: 'portal' });
         } catch { /* fall through to zeros */ }
         return res.json({ ...EMPTY_STATS, ok: true, source: 'empty' });
@@ -6248,8 +6205,9 @@ export async function registerRoutes(
         console.log('[cdr-cache] XML-RPC CDR fetch skipped — circuit open');
       }
 
-      // Portal scrape fallback REMOVED — platform uses ssp-root XML-RPC only.
-      // RTST1 is a reseller account and must NOT be used for platform-level data.
+      // Fallback: portal scrape — this Sippy build only grants customer sessions
+      // (logins redirect to /c1/).  Try scrapePortalCDRs (customer portal) first with
+      // RTST1 credentials, then fall back to scrapeAdminPortalCDRs for each cred combo.
       // Sippy portal caps at 50 rows per page regardless of limit param, so we step
       // offset by PORTAL_PAGE_CAP (50) and stop when a page returns 0 rows.
       if (batch.length === 0 && settings) {
@@ -6547,55 +6505,33 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       if (!settings) return;
-      // Always use ssp-root XML-RPC — never portal scraping or RTST1
-      const { username, password } = sippyXmlCreds(settings as any);
-      const portalUrl = sippyPortalUrl(settings) ?? '';
-      if (!portalUrl) { console.warn('[pnl-cache] no portalUrl — skip'); return; }
+      // P&L report needs ADMIN portal session (ssp-root + web password)
+      // NOT the API password (!chiaan1) - that is XML-RPC only
+      // NOT the portal/customer password (RTST1/abcd@1234) - insufficient scope
+      const pUser  = (settings as any).portalUsername   || (settings as any).apiAdminUsername || '';
+      const pPass  = (settings as any).adminWebPassword || (settings as any).portalPassword   || '';
+      const fbUser = (settings as any).apiAdminUsername || (settings as any).portalUsername   || '';
+      const fbPass = (settings as any).apiAdminPassword || (settings as any).adminWebPassword || '';
+      const portalUrl = sippyPortalUrl(settings);
 
-      // exportVendorsCDRs_Mera: official Sippy XML-RPC for vendor CDRs with COST
-      // Docs: https://support.sippysoft.com/support/solutions/articles/107436
-      // Available since Sippy 2022. Returns COST per vendor call directly.
       const fromDate = new Date(Date.now() - 24 * 60 * 60_000);
       const toDate   = new Date();
 
-      const vendorCdrs = await sippy.exportVendorsCDRsMera(
-        portalUrl, username, password, fromDate, toDate
-      );
+      const report = await sippy.downloadPnlCsv(pUser, pPass, fbUser, fbPass, fromDate, toDate, portalUrl ?? undefined);
+      pnlCacheLastProbe = report.probe;
 
-      pnlCacheLastProbe = [{ attempt: 'exportVendorsCDRs_Mera', statusCode: 200, bodyLen: vendorCdrs.length, contentType: 'xml-rpc' }];
-
-      if (!vendorCdrs || vendorCdrs.length === 0) {
-        console.warn('[pnl-cache] exportVendorsCDRs_Mera returned 0 rows — vendor cost unavailable');
+      if (!report.ok || report.rows.length === 0) {
+        console.warn(`[pnl-cache] refresh failed: ${report.error ?? 'no rows'}`);
         return;
       }
 
       let added = 0;
-      for (const row of vendorCdrs) {
-        const cld = (row.dstNumberBill || row.dstNumberIn || '').replace(/\D/g, '');
-        const cli = (row.srcNumberBill || row.srcNumberIn || '').replace(/\D/g, '');
-        const startTime = row.connectTime || row.setupTime || '';
-        const key = `${cli}:${cld}:${startTime}`;
-        if (!pnlCache.has(key)) {
-          pnlCache.set(key, {
-            cli, cld, startTime,
-            setupTimeSec:    0,
-            durationSec:     Number(row.elapsedTime) || 0,
-            buyDurationSec:  Number(row.elapsedTime) || 0,
-            revenue:         0,
-            cost:            Number(row.cost) || 0,
-            profit:          0,
-            margin:          0,
-            connection:      row.dstName || '',
-            account:         row.srcName || '',
-            result:          row.disconnectCodeQ931 || '',
-            pdd:             0,
-            extra:           {},
-          } as any);
-          added++;
-        }
+      for (const row of report.rows) {
+        const key = `${row.cli}:${row.cld}:${row.startTime}`;
+        if (!pnlCache.has(key)) { pnlCache.set(key, row); added++; }
       }
 
-      // Evict entries older than 48h to cap memory
+      // Evict entries older than 48 h to cap memory usage
       const cutoff = Date.now() - 48 * 60 * 60_000;
       for (const [k, r] of pnlCache.entries()) {
         const ts = sippy.parseSippyDate(r.startTime)?.getTime() ?? 0;
@@ -6603,8 +6539,8 @@ export async function registerRoutes(
       }
 
       pnlCacheUpdatedAt = new Date();
-      (global as any).__bitsautoPnlCache = pnlCache;
-      console.log(`[pnl-cache] exportVendorsCDRs_Mera OK — ${added} new rows, cache=${pnlCache.size} total (${Date.now() - t0}ms)`);
+      (global as any).__bitsautoPnlCache = pnlCache; // keep global reference current after each refresh
+      console.log(`[pnl-cache] refresh OK — ${added} new rows added, cache=${pnlCache.size} (${Date.now() - t0}ms)`);
     } catch (e: any) {
       console.warn('[pnl-cache] refresh error:', e.message);
     } finally {
@@ -34103,58 +34039,6 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const r = await db.execute(sql.raw(`SELECT COUNT(*) FROM destination_product_rates WHERE approval_status = 'pending'`));
       res.json({ count: parseInt((r.rows[0] as any).count) });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
-  });
-
-
-  // GET /api/destination-catalog/gds-auto-reconcile
-  // Auto-reads the GDS_Reconciled_Master.xlsx from disk and returns rows for all 4 products
-  // No upload needed — uses the pre-built file in /exports/
-  app.get('/api/destination-catalog/gds-auto-load', async (req: any, res: any) => {
-    try {
-      const { join } = await import('path');
-      const { existsSync, readFileSync } = await import('fs');
-      const XLSX = await import('xlsx');
-
-      const filePath = join(process.cwd(), 'exports', 'GDS_Reconciled_Master.xlsx');
-      if (!existsSync(filePath)) {
-        return res.status(404).json({ error: 'GDS_Reconciled_Master.xlsx not found in exports/' });
-      }
-
-      const workbook = XLSX.read(readFileSync(filePath), { type: 'buffer' });
-      const result: any = { sheets: [], totalRows: 0 };
-
-      // Read all sheets — each sheet may be a product tab
-      for (const sheetName of workbook.SheetNames) {
-        const ws = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        result.sheets.push({ name: sheetName, rows: rows.length });
-        result.totalRows += rows.length;
-      }
-
-      // Read master sheet (first sheet or 'Master Catalog')
-      const masterSheet = workbook.Sheets['Master Catalog'] ?? workbook.Sheets[workbook.SheetNames[0]];
-      const masterRows = XLSX.utils.sheet_to_json(masterSheet, { defval: '' }) as any[];
-
-      // Normalize column names
-      const normalized = masterRows.map((r: any) => ({
-        dialPrefix:    String(r['Dial Prefix'] ?? r['dial_prefix'] ?? r['Prefix'] ?? r['prefix'] ?? '').replace(/^\+/, ''),
-        destinationName: String(r['Destination'] ?? r['destination'] ?? r['Name'] ?? r['name'] ?? ''),
-        countryCode:   String(r['ISO2'] ?? r['Country Code'] ?? r['country_code'] ?? ''),
-        operatorName:  String(r['Operator'] ?? r['operator_name'] ?? ''),
-        buyRate:       parseFloat(r['Buy Rate'] ?? r['buy_rate'] ?? r['Cost'] ?? r['Price/min'] ?? 0) || 0,
-        sellRate:      parseFloat(r['Sell Rate'] ?? r['sell_rate'] ?? r['Price'] ?? 0) || 0,
-        ibisCode:      String(r['IBIS'] ?? r['ibis_code'] ?? ''),
-      })).filter(r => r.dialPrefix);
-
-      res.json({
-        file: 'GDS_Reconciled_Master.xlsx',
-        sheets: result.sheets,
-        totalRows: result.totalRows,
-        masterRows: normalized.length,
-        preview: normalized.slice(0, 5),
-        rows: normalized,
-      });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
