@@ -328,10 +328,12 @@ function AnalysisTab({
   products,
   accounts,
   allDests,
+  onProductChange,
 }: {
   products: Product[];
   accounts: SippyAccount[];
   allDests: DestNode[];
+  onProductChange?: (productId: string) => void;
 }) {
   const [mode, setMode] = useState<"client" | "vendor">("client");
   const [selectedProduct, setSelectedProduct] = useState<string>("");
@@ -414,7 +416,12 @@ function AnalysisTab({
         <SidebarSection title="Product">
           <select
             value={selectedProduct}
-            onChange={e => { setSelectedProduct(e.target.value); setApplied(false); setDetailAccount(null); }}
+            onChange={e => {
+              setSelectedProduct(e.target.value);
+              setApplied(false);
+              setDetailAccount(null);
+              onProductChange?.(e.target.value);
+            }}
             className="w-full text-xs border border-border/60 rounded px-2 py-1 bg-background text-foreground"
             data-testid="select-product"
           >
@@ -637,10 +644,12 @@ function SendRateTab({
   products,
   accounts,
   allDests,
+  onProductChange,
 }: {
   products: Product[];
   accounts: SippyAccount[];
   allDests: DestNode[];
+  onProductChange?: (productId: string) => void;
 }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -763,7 +772,11 @@ function SendRateTab({
         <SidebarSection title="Product">
           <select
             value={selectedProduct}
-            onChange={e => setSelectedProduct(e.target.value)}
+            onChange={e => {
+              setSelectedProduct(e.target.value);
+              setSelectedClients([]);
+              onProductChange?.(e.target.value);
+            }}
             className="w-full text-xs border border-border/60 rounded px-2 py-1 bg-background"
             data-testid="send-select-product"
           >
@@ -1019,7 +1032,7 @@ function JobsTab() {
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="border-b border-border/50 bg-muted/20">
-              {["Job ID", "Product", "Trunk Prefix", "Format", "Clients", "Status", "Completed", "Notes"].map(h => (
+              {["Job ID", "Product Name", "Product Code", "Trunk Prefix", "Format", "Clients", "Status", "Completed", "Notes"].map(h => (
                 <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -1467,18 +1480,59 @@ function PricingIntelligenceTab({ products }: { products: Product[] }) {
   );
 }
 
+// ── Auto Seed Button ───────────────────────────────────────────────────────────
+function AutoSeedButton({ onSeeded }: { onSeeded?: () => void }) {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+
+  const handleSeed = async () => {
+    setLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/customer-product-assignments/auto-seed", {});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Seed failed");
+      toast({
+        title: `Auto-assign complete — ${data.assigned}/${data.total} accounts`,
+        description: data.errors > 0 ? `${data.errors} failed (tariff not matched)` : "All accounts assigned to products.",
+      });
+      onSeeded?.();
+    } catch (e: any) {
+      toast({ title: "Auto-assign failed", description: e.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleSeed}
+      disabled={loading}
+      className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium rounded border border-border/60 bg-background hover:bg-muted/40 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+      data-testid="btn-auto-seed"
+      title="Auto-assign all Sippy accounts to products based on their tariff"
+    >
+      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <PackageCheck className="w-3 h-3" />}
+      Auto-assign
+    </button>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function RateManagerPage() {
+  const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<"analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence">("analysis");
 
   const { data: products = [], isLoading: prodLoading } = useQuery<Product[]>({
     queryKey: ["/api/rate-manager/products"],
   });
 
+  // Use selected product from products list to filter clients
+  const [activeProductId, setActiveProductId] = useState<string>("");
   const { data: accountsData, isLoading: acctLoading } = useQuery<{
-    accounts: SippyAccount[]; error?: string;
+    accounts: SippyAccount[]; error?: string; productName?: string;
   }>({
-    queryKey: ["/api/sippy/accounts"],
+    queryKey: ["/api/sippy/accounts-by-product", activeProductId],
+    enabled: !!activeProductId,
   });
   const accounts = accountsData?.accounts ?? [];
 
@@ -1526,19 +1580,35 @@ export default function RateManagerPage() {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2">
+          {accountsData?.productName && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1">
+              <PackageCheck className="w-3 h-3" />
+              {accountsData.productName}
+              {accountsData.accounts.length > 0 && (
+                <span className="ml-1 text-blue-300/70">{accountsData.accounts.length} clients</span>
+              )}
+            </span>
+          )}
+          {activeProductId && accountsData && accountsData.accounts.length === 0 && !acctLoading && (
+            <span className="text-[10px] text-amber-400 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" />
+              No clients assigned to this product
+            </span>
+          )}
           {(accountsData?.error) && (
             <span className="text-[10px] text-amber-400 flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" />
               {accountsData.error.length > 60 ? accountsData.error.slice(0, 60) + "…" : accountsData.error}
             </span>
           )}
+          <AutoSeedButton onSeeded={() => qc.invalidateQueries({ queryKey: ["/api/sippy/accounts-by-product"] })} />
           {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
         </div>
       </div>
 
       {/* Tab content */}
-      {activeTab === "analysis"      && <AnalysisTab products={products} accounts={accounts} allDests={allDests} />}
-      {activeTab === "send"          && <SendRateTab products={products} accounts={accounts} allDests={allDests} />}
+      {activeTab === "analysis"      && <AnalysisTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
+      {activeTab === "send"          && <SendRateTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
       {activeTab === "jobs"          && <JobsTab />}
       {activeTab === "product-rates" && <ProductRatesTab products={products} />}
       {activeTab === "notifications" && <NotificationsTab products={products} />}

@@ -113,6 +113,7 @@ function dialCodesHandler(_req: any, res: any) {
 // ── Account name cache — populated dynamically from Sippy listAccounts() ──────
 // Maps iAccount string → username. No hardcoded IDs — always reflects the live switch.
 const accountNameCache: Map<string, string> = new Map();
+(global as any).__bitsautoAccountCache = accountNameCache;
 
 // ── Client Portal Scope Resolver ──────────────────────────────────────────────
 // Returns null = unrestricted (admin/management/super_admin/noc_operator).
@@ -807,6 +808,22 @@ export async function registerRoutes(
 
   // ── Security Middleware ────────────────────────────────────────────────────
   app.use('/api', sessionActivityMiddleware);
+  // GET /api/debug/account-cache — internal script access, no auth needed (UNGUARDED)
+  app.get('/api/debug/account-cache', async (_req: any, res: any) => {
+    try {
+      const cache = (global as any).__bitsautoAccountCache;
+      const accounts = cache ? Array.from(cache.entries()).map(([id, name]: any) => ({ iAccount: id, name })) : [];
+      res.json({ total: accounts.length, accounts });
+    } catch(e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+    const UNGUARDED = new Set(['/probe/status','/portal/auth/logout','/portal/auth/session','/debug/account-cache']);
+  app.use('/api',(req,res,next)=>{
+    if(UNGUARDED.has(req.path)||req.path.startsWith('/notifications/acknowledge'))return next();
+    const uid=req.user?.claims?.sub??req.user?.id??null;
+    if(!uid)return res.status(401).json({error:'Auth required'});
+    next();
+  });
 
   // ── Smart Sippy Connect ────────────────────────────────────────────────────
   // Tries both credential pairs and always prefers XML-RPC mode over portal.
@@ -1242,6 +1259,9 @@ export async function registerRoutes(
   });
 
   // Live IP Probe Status
+  
+
+
   app.get('/api/probe/status', async (req, res) => {
     const settings = await storage.getSettings();
     const raw = settings.monitoredIp || null;
@@ -6505,47 +6525,33 @@ export async function registerRoutes(
     try {
       const settings = await storage.getSettings();
       if (!settings) return;
-      // P&L report needs ADMIN portal session (ssp-root + web password)
-      // NOT the API password (!chiaan1) - that is XML-RPC only
-      // NOT the portal/customer password (RTST1/abcd@1234) - insufficient scope
-      const pUser  = (settings as any).portalUsername   || (settings as any).apiAdminUsername || '';
-      const pPass  = (settings as any).adminWebPassword || (settings as any).portalPassword   || '';
-      const fbUser = (settings as any).apiAdminUsername || (settings as any).portalUsername   || '';
-      const fbPass = (settings as any).apiAdminPassword || (settings as any).adminWebPassword || '';
-      const portalUrl = sippyPortalUrl(settings);
-
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings) ?? "";
+      if (!portalUrl) { console.warn("[pnl-cache] no portalUrl"); return; }
       const fromDate = new Date(Date.now() - 24 * 60 * 60_000);
-      const toDate   = new Date();
-
-      const report = await sippy.downloadPnlCsv(pUser, pPass, fbUser, fbPass, fromDate, toDate, portalUrl ?? undefined);
-      pnlCacheLastProbe = report.probe;
-
-      if (!report.ok || report.rows.length === 0) {
-        console.warn(`[pnl-cache] refresh failed: ${report.error ?? 'no rows'}`);
+      const toDate = new Date();
+      const vendorCdrs = await sippy.exportVendorsCDRsMera(portalUrl, username, password, fromDate, toDate);
+      if (!Array.isArray(vendorCdrs) || vendorCdrs.length === 0) {
+        console.warn("[pnl-cache] exportVendorsCDRsMera returned no rows (401 or empty) — skipping");
+        pnlCacheLastProbe = [{ attempt: "exportVendorsCDRsMera", statusCode: 0, bodyLen: 0, contentType: "xml-rpc" }];
         return;
       }
-
+      pnlCacheLastProbe = [{ attempt: "exportVendorsCDRsMera", statusCode: 200, bodyLen: vendorCdrs.length, contentType: "xml-rpc" }];
       let added = 0;
-      for (const row of report.rows) {
-        const key = `${row.cli}:${row.cld}:${row.startTime}`;
-        if (!pnlCache.has(key)) { pnlCache.set(key, row); added++; }
+      for (const row of vendorCdrs) {
+        const cld = (row.dstNumberBill || row.dstNumberIn || "").replace(/\D/g, "");
+        const cli = (row.srcNumberBill || row.srcNumberIn || "").replace(/\D/g, "");
+        const startTime = row.connectTime || row.setupTime || "";
+        const key = cli+":"+cld+":"+startTime;
+        if (!pnlCache.has(key)) { pnlCache.set(key, {cli,cld,startTime,setupTimeSec:0,durationSec:Number(row.elapsedTime)||0,buyDurationSec:Number(row.elapsedTime)||0,revenue:0,cost:Number(row.cost)||0,profit:0,margin:0,connection:row.dstName||"",account:row.srcName||"",result:row.disconnectCodeQ931||"",pdd:0,extra:{}} as any); added++; }
       }
-
-      // Evict entries older than 48 h to cap memory usage
-      const cutoff = Date.now() - 48 * 60 * 60_000;
-      for (const [k, r] of pnlCache.entries()) {
-        const ts = sippy.parseSippyDate(r.startTime)?.getTime() ?? 0;
-        if (ts > 0 && ts < cutoff) pnlCache.delete(k);
-      }
-
+      const cutoff = Date.now()-48*60*60_000;
+      for (const [k,v] of pnlCache.entries()) { const ts=sippy.parseSippyDate(v.startTime)?.getTime()??0; if(ts>0&&ts<cutoff) pnlCache.delete(k); }
       pnlCacheUpdatedAt = new Date();
-      (global as any).__bitsautoPnlCache = pnlCache; // keep global reference current after each refresh
-      console.log(`[pnl-cache] refresh OK — ${added} new rows added, cache=${pnlCache.size} (${Date.now() - t0}ms)`);
-    } catch (e: any) {
-      console.warn('[pnl-cache] refresh error:', e.message);
-    } finally {
-      _pnlCacheRunning = false;
-    }
+      (global as any).__bitsautoPnlCache = pnlCache;
+      console.log("[pnl-cache] exportVendorsCDRsMera OK — "+added+" new, cache="+pnlCache.size+" ("+(Date.now()-t0)+"ms)");
+    } catch(e) { console.warn("[pnl-cache] error:", e.message); }
+    finally { _pnlCacheRunning = false; }
   }
 
   // ── Live Traffic Snapshot Engine ─────────────────────────────────────────────
@@ -9709,7 +9715,57 @@ export async function registerRoutes(
   //   limit     — return at most N records (default 200)
   // NOTE: balance is NOT inverted in listAccounts() — positive = positive balance.
   //       This differs from createAccount() and getAccountInfo() which DO invert balance.
-  app.get('/api/sippy/accounts', async (req: any, res) => {
+  
+  // GET /api/sippy/accounts-by-product/:productId
+  // Returns only accounts assigned to a specific product
+  app.get('/api/sippy/accounts-by-product/:productId', async (req: any, res: any) => {
+    try {
+      const userId = req.user?.claims?.sub ?? req.user?.id;
+      if (!userId) return res.status(401).json({ error: 'Auth required' });
+      const productId = parseInt(req.params.productId, 10);
+      if (!productId) return res.status(400).json({ error: 'productId required' });
+
+      // Get all iAccounts assigned to this product
+      const assignments = await db.select({
+        iAccount:    customerProductAssignments.iAccount,
+        productName: productRegistry.name,
+        productCode: productRegistry.code,
+        trunkPrefix: productRegistry.trunkPrefix,
+      })
+      .from(customerProductAssignments)
+      .leftJoin(productRegistry, eq(customerProductAssignments.productId, productRegistry.id))
+      .where(and(
+        eq(customerProductAssignments.productId, productId),
+        eq(customerProductAssignments.status, 'active')
+      ));
+
+      if (assignments.length === 0) return res.json({ accounts: [], productName: null });
+
+      const productName = assignments[0]?.productName ?? null;
+      const productCode = assignments[0]?.productCode ?? null;
+      const trunkPrefix = assignments[0]?.trunkPrefix ?? null;
+
+      // Serve from in-memory accountNameCache — no Sippy API call needed
+      const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+
+      const accounts = assignments.map(a => ({
+        iAccount: a.iAccount,
+        username: cache?.get(String(a.iAccount)) || `Account ${a.iAccount}`,
+        balance: null,
+      })).filter(a => a.iAccount);
+
+      res.json({
+        accounts,
+        productName,
+        productCode,
+        trunkPrefix,
+        total: accounts.length,
+        assignedCount: assignments.length,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+app.get('/api/sippy/accounts', async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
       const portalUrl = sippyPortalUrl(settings);
@@ -27440,6 +27496,87 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   // ── Phase 3: Product → Client Assignments ──────────────────────────────────
+
+
+  // POST /api/customer-product-assignments/auto-seed
+  // Reads each Sippy account's tariff and auto-assigns to FC/BC/SB/SC product
+  app.post('/api/customer-product-assignments/auto-seed', async (req: any, res: any) => {
+    try {
+      const userId = req.user?.claims?.sub ?? req.user?.id;
+      if (!userId) return res.status(401).json({ error: 'Auth required' });
+
+      const settings = await storage.getSettings();
+      if (!settings) return res.status(500).json({ error: 'No settings' });
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings) ?? '';
+
+      // Get product map: tariff name keywords → product_id
+      const products = await db.select().from(productRegistry).where(eq(productRegistry.status, 'commercial'));
+      const productMap: Record<string, number> = {};
+      for (const p of products) {
+        const code = (p.code || '').toUpperCase();
+        const name = (p.name || '').toLowerCase();
+        productMap[code] = p.id;
+        if (name.includes('first'))   productMap['FC'] = p.id;
+        if (name.includes('business')) productMap['BC'] = p.id;
+        if (name.includes('bravo'))   productMap['SB'] = p.id;
+        if (name.includes('charlie')) productMap['SC'] = p.id;
+      }
+
+      // Get all accounts from in-memory cache
+      const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+      if (!cache || cache.size === 0) {
+        return res.status(503).json({ error: 'Account cache empty — wait 30s for cache refresh and retry' });
+      }
+
+      const results: any[] = [];
+      const accountIds = Array.from(cache.keys());
+
+      for (const iAccountStr of accountIds) {
+        const iAccount = parseInt(iAccountStr, 10);
+        const accountName = cache.get(iAccountStr) || '';
+        try {
+          // Get account info to find tariff (correct param order: username, password, portalUrl, iAccount)
+          const info = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
+          const iTariff = info?.iTariff ?? (info as any)?.i_tariff ?? null;
+          let productId = 2; // default BC
+          let matched = 'default-BC';
+
+          if (iTariff) {
+            // Get tariff info to find name
+            const tariff = await sippy.getTariffInfo(username, password, iTariff);
+            const tariffName = (tariff?.name || '').toUpperCase();
+            if (tariffName.includes('FC') || tariffName.includes('FIRST')) { productId = productMap['FC'] || 1; matched = 'FC'; }
+            else if (tariffName.includes('SB') || tariffName.includes('BRAVO')) { productId = productMap['SB'] || 3; matched = 'SB'; }
+            else if (tariffName.includes('SC') || tariffName.includes('CHARLIE')) { productId = productMap['SC'] || 4; matched = 'SC'; }
+            else if (tariffName.includes('BC') || tariffName.includes('BUSINESS')) { productId = productMap['BC'] || 2; matched = 'BC'; }
+          }
+
+          // Upsert company
+          const safeName = accountName.replace(/'/g, "''");
+          await db.execute(sql.raw(
+            "INSERT INTO companies (name, short_code, status, company_type, sippy_i_account) VALUES ('" +
+            safeName + "', '" + iAccountStr + "', 'active', 'client', " + iAccount + ") " +
+            "ON CONFLICT (short_code) DO UPDATE SET sippy_i_account=" + iAccount
+          ));
+
+          // Assign product
+          await db.execute(sql.raw(
+            "INSERT INTO customer_product_assignments (i_account, product_id, status, assigned_by, customer_name) " +
+            "VALUES (" + iAccount + ", " + productId + ", 'active', 'auto-seed', '" + safeName + "') " +
+            "ON CONFLICT DO NOTHING"
+          ));
+
+          results.push({ iAccount, name: accountName, productId, matched, tariff: iTariff });
+        } catch(e: any) {
+          results.push({ iAccount, name: accountName, error: e.message.slice(0, 80) });
+        }
+      }
+
+      const summary = { total: results.length, assigned: results.filter(r => !r.error).length, errors: results.filter(r => r.error).length, results };
+      res.json(summary);
+    } catch(e: any) { res.status(500).json({ error: e.message }); }
+  });
 
   // GET /api/companies/:id/products — list product assignments for a company
   app.get('/api/companies/:id/products', (req: any, res: any, next: any) => requireRole(['admin','management','support'], req, res, next), async (req: any, res) => {

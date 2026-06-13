@@ -1,0 +1,53 @@
+cat > /tmp/fixpnl2.js << 'EOF'
+const fs = require('fs');
+let r = fs.readFileSync('server/routes.ts', 'utf8');
+
+if (r.includes('exportVendorsCDRsMera') && r.includes('downloadPnlCsv') && r.includes('refreshPnlCache')) {
+  const start = r.indexOf('async function refreshPnlCache(): Promise<void> {');
+  let depth=0,inF=false,end=start;
+  for(let i=start;i<r.length;i++){if(r[i]==='{'){depth++;inF=true;}if(r[i]==='}')depth--;if(inF&&depth===0){end=i+1;break;}}
+  
+  const newFn = `async function refreshPnlCache(): Promise<void> {
+    if (_pnlCacheRunning) return;
+    _pnlCacheRunning = true;
+    const t0 = Date.now();
+    try {
+      const settings = await storage.getSettings();
+      if (!settings) return;
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings) ?? '';
+      if (!portalUrl) { console.warn('[pnl-cache] no portalUrl'); return; }
+      const fromDate = new Date(Date.now() - 24 * 60 * 60_000);
+      const toDate = new Date();
+      const vendorCdrs = await sippy.exportVendorsCDRsMera(portalUrl, username, password, fromDate, toDate);
+      pnlCacheLastProbe = [{ attempt: 'exportVendorsCDRsMera', statusCode: 200, bodyLen: vendorCdrs.length, contentType: 'xml-rpc' }];
+      if (!vendorCdrs || vendorCdrs.length === 0) { console.warn('[pnl-cache] 0 rows returned'); return; }
+      let added = 0;
+      for (const row of vendorCdrs) {
+        const cld = (row.dstNumberBill || row.dstNumberIn || '').replace(/\\D/g, '');
+        const cli = (row.srcNumberBill || row.srcNumberIn || '').replace(/\\D/g, '');
+        const startTime = row.connectTime || row.setupTime || '';
+        const key = \`\${cli}:\${cld}:\${startTime}\`;
+        if (!pnlCache.has(key)) {
+          pnlCache.set(key, { cli, cld, startTime, setupTimeSec:0, durationSec:Number(row.elapsedTime)||0, buyDurationSec:Number(row.elapsedTime)||0, revenue:0, cost:Number(row.cost)||0, profit:0, margin:0, connection:row.dstName||'', account:row.srcName||'', result:row.disconnectCodeQ931||'', pdd:0, extra:{} } as any);
+          added++;
+        }
+      }
+      const cutoff = Date.now() - 48*60*60_000;
+      for (const [k,v] of pnlCache.entries()) { const ts=sippy.parseSippyDate(v.startTime)?.getTime()??0; if(ts>0&&ts<cutoff) pnlCache.delete(k); }
+      pnlCacheUpdatedAt = new Date();
+      (global as any).__bitsautoPnlCache = pnlCache;
+      console.log(\`[pnl-cache] exportVendorsCDRsMera OK — \${added} new, cache=\${pnlCache.size} (\${Date.now()-t0}ms)\`);
+    } catch(e:any) { console.warn('[pnl-cache] error:', e.message); }
+    finally { _pnlCacheRunning = false; }
+  }`;
+  
+  r = r.slice(0,start) + newFn + r.slice(end);
+  fs.writeFileSync('server/routes.ts', r);
+  console.log('DONE: refreshPnlCache now uses exportVendorsCDRsMera');
+} else {
+  console.log('Check: downloadPnlCsv present:', r.includes('downloadPnlCsv'));
+  console.log('Check: refreshPnlCache present:', r.includes('refreshPnlCache'));
+}
+EOF
+node /tmp/fixpnl2.js
