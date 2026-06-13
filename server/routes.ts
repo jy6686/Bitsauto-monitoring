@@ -811,6 +811,7 @@ export async function registerRoutes(
   // GLOBAL AUTH GUARD — protects all /api/ routes platform-wide
   const UNGUARDED = new Set([
     '/probe/status',
+    '/destination-catalog/gds-auto-load',
     '/notifications/acknowledge',
     '/portal/auth/logout',
     '/portal/auth/session',
@@ -34102,6 +34103,58 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const r = await db.execute(sql.raw(`SELECT COUNT(*) FROM destination_product_rates WHERE approval_status = 'pending'`));
       res.json({ count: parseInt((r.rows[0] as any).count) });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+
+  // GET /api/destination-catalog/gds-auto-reconcile
+  // Auto-reads the GDS_Reconciled_Master.xlsx from disk and returns rows for all 4 products
+  // No upload needed — uses the pre-built file in /exports/
+  app.get('/api/destination-catalog/gds-auto-load', async (req: any, res: any) => {
+    try {
+      const { join } = await import('path');
+      const { existsSync, readFileSync } = await import('fs');
+      const XLSX = await import('xlsx');
+
+      const filePath = join(process.cwd(), 'exports', 'GDS_Reconciled_Master.xlsx');
+      if (!existsSync(filePath)) {
+        return res.status(404).json({ error: 'GDS_Reconciled_Master.xlsx not found in exports/' });
+      }
+
+      const workbook = XLSX.read(readFileSync(filePath), { type: 'buffer' });
+      const result: any = { sheets: [], totalRows: 0 };
+
+      // Read all sheets — each sheet may be a product tab
+      for (const sheetName of workbook.SheetNames) {
+        const ws = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        result.sheets.push({ name: sheetName, rows: rows.length });
+        result.totalRows += rows.length;
+      }
+
+      // Read master sheet (first sheet or 'Master Catalog')
+      const masterSheet = workbook.Sheets['Master Catalog'] ?? workbook.Sheets[workbook.SheetNames[0]];
+      const masterRows = XLSX.utils.sheet_to_json(masterSheet, { defval: '' }) as any[];
+
+      // Normalize column names
+      const normalized = masterRows.map((r: any) => ({
+        dialPrefix:    String(r['Dial Prefix'] ?? r['dial_prefix'] ?? r['Prefix'] ?? r['prefix'] ?? '').replace(/^\+/, ''),
+        destinationName: String(r['Destination'] ?? r['destination'] ?? r['Name'] ?? r['name'] ?? ''),
+        countryCode:   String(r['ISO2'] ?? r['Country Code'] ?? r['country_code'] ?? ''),
+        operatorName:  String(r['Operator'] ?? r['operator_name'] ?? ''),
+        buyRate:       parseFloat(r['Buy Rate'] ?? r['buy_rate'] ?? r['Cost'] ?? r['Price/min'] ?? 0) || 0,
+        sellRate:      parseFloat(r['Sell Rate'] ?? r['sell_rate'] ?? r['Price'] ?? 0) || 0,
+        ibisCode:      String(r['IBIS'] ?? r['ibis_code'] ?? ''),
+      })).filter(r => r.dialPrefix);
+
+      res.json({
+        file: 'GDS_Reconciled_Master.xlsx',
+        sheets: result.sheets,
+        totalRows: result.totalRows,
+        masterRows: normalized.length,
+        preview: normalized.slice(0, 5),
+        rows: normalized,
+      });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

@@ -78,6 +78,7 @@ import BitsEyePage from "@/pages/bitseye";
 import BitsEye2Page from "@/pages/bitseye2";
 import RateCardsPage from "@/pages/rate-cards";
 import RateManagerPage from "@/pages/rate-manager";
+import RateEditorPage from "@/pages/rate-editor";
 import AnalyticsPage from "@/pages/analytics";
 import ProductsPage from "@/pages/products";
 import ProductRegistryPage from "@/pages/product-registry";
@@ -443,6 +444,9 @@ function Router() {
       </Route>
       <Route path="/rate-cards">
         {() => <ProtectedRoute component={RateCardsWS} requiredRoles={['admin','management']} mgmtFeature="rate_cards" />}
+      </Route>
+      <Route path="/rate-editor">
+        {() => <ProtectedRoute component={RateEditorPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/rate-manager">
         {() => <ProtectedRoute component={RateManagerPage} requiredRoles={['admin','management']} />}
