@@ -17655,7 +17655,101 @@ export async function bulkDeleteDIDs(
   username: string,
   password: string,
   iDids: number[],
-  opts?: { portalUrl?: string },
+  opts?: { portalUrl?: string }
+
+// exportVendorsCDRs_Mera — fetches all vendor CDRs with cost via XML-RPC
+// Sippy 2022+ includes COST field. Docs: /solutions/articles/107436
+export interface MeraCdrRow {
+  host: string;
+  confId: string;
+  callId: string;
+  srcIp: string;
+  iCall: string;
+  cost: string;           // vendor cost in USD — available since Sippy 2022
+  dstIp: string;
+  srcName: string;
+  dstName: string;
+  srcNumberIn: string;
+  srcNumberBill: string;
+  srcNumberOut: string;
+  dstNumberIn: string;
+  dstNumberBill: string;  // CLD used for routing — matches governance destDigits
+  dstNumberOut: string;
+  setupTime: string;
+  connectTime: string;
+  disconnectTime: string;
+  elapsedTime: string;
+  disconnectCodeQ931: string;
+}
+
+export async function exportVendorsCDRsMera(
+  portalUrl: string,
+  username: string,
+  password: string,
+  fromDate?: Date,
+  toDate?: Date,
+): Promise<MeraCdrRow[]> {
+  const fmt = (d: Date) => {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.000 GMT ${days[d.getDay()]} ${months[d.getMonth()]} ${pad(d.getDate())} ${d.getFullYear()}`;
+  };
+
+  const params: Record<string, string> = {};
+  if (fromDate) params.start_date = fmt(fromDate);
+  if (toDate)   params.end_date   = fmt(toDate);
+
+  try {
+    const result = await xmlRpcCall(portalUrl, username, password, 'exportVendorsCDRs_Mera', [params]);
+    if (!result || result.result !== 'OK') {
+      console.warn('[sippy] exportVendorsCDRs_Mera failed:', result?.result);
+      return [];
+    }
+
+    const cdrs: MeraCdrRow[] = [];
+    for (const line of (result.cdrs || [])) {
+      // Parse "HOST=x,CONFID=y,CALLID=z,..." format
+      const row: any = {};
+      for (const part of String(line).split(',')) {
+        const eq = part.indexOf('=');
+        if (eq < 0) continue;
+        const k = part.slice(0, eq).trim();
+        const v = part.slice(eq + 1).trim();
+        row[k] = v;
+      }
+      cdrs.push({
+        host:              row['HOST']              || '',
+        confId:            row['CONFID']            || '',
+        callId:            row['CALLID']            || '',
+        srcIp:             row['SRC-IP']            || '',
+        iCall:             row['I_CALL']            || '',
+        cost:              row['COST']              || '0',
+        dstIp:             row['DST-IP']            || '',
+        srcName:           row['SRC-NAME']          || '',
+        dstName:           row['DST-NAME']          || '',
+        srcNumberIn:       row['SRC-NUMBER-IN']     || '',
+        srcNumberBill:     row['SRC-NUMBER-BILL']   || '',
+        srcNumberOut:      row['SRC-NUMBER-OUT']    || '',
+        dstNumberIn:       row['DST-NUMBER-IN']     || '',
+        dstNumberBill:     row['DST-NUMBER-BILL']   || '',
+        dstNumberOut:      row['DST-NUMBER-OUT']    || '',
+        setupTime:         row['SETUP-TIME']        || '',
+        connectTime:       row['CONNECT-TIME']      || '',
+        disconnectTime:    row['DISCONNECT-TIME']   || '',
+        elapsedTime:       row['ELAPSED-TIME']      || '0',
+        disconnectCodeQ931:row['DISCONNECT-CODE-Q931'] || '',
+      });
+    }
+    console.log(`[sippy] exportVendorsCDRs_Mera — ${cdrs.length} vendor CDRs fetched`);
+    return cdrs;
+  } catch (e: any) {
+    console.warn('[sippy] exportVendorsCDRs_Mera error:', e.message);
+    return [];
+  }
+}
+
+,
 ): Promise<{ success: boolean; results: MulticallResult[]; message: string }> {
   const calls: MulticallEntry[] = iDids.map(id => ({
     methodName: 'deleteDID',

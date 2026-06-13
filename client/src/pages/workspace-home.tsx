@@ -487,10 +487,10 @@ export default function WorkspaceHomePage() {
   const HeaderIcon = config.headerIcon;
 
   // ── Data queries ──────────────────────────────────────────────────────────
-  const { data: liveCallsRaw } = useQuery<any>({
+  const { data: liveCallsRaw = [] } = useQuery<any>({
     queryKey: ['/api/sippy/live-calls'], staleTime: 30_000, refetchInterval: 60_000,
   });
-  const { data: incidentsRaw } = useQuery<any[]>({
+  const { data: incidentsRaw = [] } = useQuery<any[]>({
     queryKey: ['/api/ai/incidents'], staleTime: 30_000, refetchInterval: 60_000,
   });
   const { data: carrierScoresRaw } = useQuery<any[]>({

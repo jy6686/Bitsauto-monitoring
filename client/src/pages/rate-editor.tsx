@@ -2,6 +2,7 @@ import { useState, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
+import * as XLSX from "xlsx";
   Table2, Plus, Trash2, Save, Upload, Download, RefreshCw, Search,
   ChevronDown, CheckCircle2, XCircle, Loader2, Pencil, X, AlertCircle,
 } from "lucide-react";
@@ -211,13 +212,11 @@ export default function RateEditorPage() {
 
   const exportCSV = () => {
     const csv = toCSV(rows);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `rates_${selectedTariff}_${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Excel export (default format)
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows.map((r: any) => Object.values(r))]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Report');
+    XLSX.writeFile(wb, `rates_${selectedTariff}_${Date.now()}.xlsx`);
   };
 
   const saveAll = async () => {
@@ -254,7 +253,7 @@ export default function RateEditorPage() {
                 onClick={exportCSV}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
               >
-                <Download className="w-3.5 h-3.5" /> Export CSV
+                <Download className="w-3.5 h-3.5" /> Export Excel
               </button>
               <button
                 data-testid="button-import-csv"

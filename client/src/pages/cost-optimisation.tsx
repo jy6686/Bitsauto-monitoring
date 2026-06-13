@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatInTz } from "@/lib/date-utils";
 import { useTimezone } from "@/context/timezone-context";
+import * as XLSX from "xlsx";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -257,7 +258,7 @@ export default function CostOptimisationPage() {
     ];
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([rows.join("\n")], { type: "text/csv" }));
-    a.download = `cost_optimisation_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `cost_optimisation_${new Date().toISOString().slice(0, 10)}.xlsx`;
     a.click();
   }
 

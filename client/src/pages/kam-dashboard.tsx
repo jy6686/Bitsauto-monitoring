@@ -366,18 +366,18 @@ export default function KamDashboardPage() {
     staleTime: 30_000,
   });
 
-  const { data: liveCallsRaw } = useQuery<any>({
+  const { data: liveCallsRaw = [] } = useQuery<any>({
     queryKey: ["/api/sippy/live-calls"],
     refetchInterval: 30_000,
     staleTime: 15_000,
   });
 
-  const { data: invoices } = useQuery<any[]>({
+  const { data: invoices = [] } = useQuery<any[]>({
     queryKey: ["/api/invoices"],
     staleTime: 5 * 60_000,
   });
 
-  const { data: disputes } = useQuery<any[]>({
+  const { data: disputes = [] } = useQuery<any[]>({
     queryKey: ["/api/billing-disputes"],
     staleTime: 5 * 60_000,
   });

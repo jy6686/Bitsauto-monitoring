@@ -520,7 +520,7 @@ export default function SmsMonitorPage() {
     refetchInterval: 30_000,
   });
 
-  const { data: voiceHourly } = useQuery<VoiceOtpHourlyPoint[]>({
+  const { data: voiceHourly = [] } = useQuery<VoiceOtpHourlyPoint[]>({
     queryKey: ['/api/voice-otp/stats/hourly'],
     refetchInterval: 30_000,
   });
@@ -530,7 +530,7 @@ export default function SmsMonitorPage() {
     refetchInterval: 15_000,
   });
 
-  const { data: profiles, isLoading: profilesLoading } = useQuery<BhaooProfile[]>({
+  const { data: profiles = [], isLoading: profilesLoading } = useQuery<BhaooProfile[]>({
     queryKey: ['/api/bhaoo/profiles'],
   });
 
@@ -578,7 +578,7 @@ export default function SmsMonitorPage() {
     },
   });
 
-  const { data: voiceCalls, isLoading: voiceLoading } = useQuery<VoiceOtpCall[]>({
+  const { data: voiceCalls = [], isLoading: voiceLoading } = useQuery<VoiceOtpCall[]>({
     queryKey: ['/api/voice-otp/calls'],
     refetchInterval: 3_000,
   });

@@ -24,6 +24,7 @@ import { Link } from "wouter";
 import type { AsrAcdReportRow, ClientProfile } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import * as XLSX from "xlsx";
 
 type ReportRow = AsrAcdReportRow & {
   clientName?: string;
@@ -401,13 +402,11 @@ export default function ReportsPage() {
       r.asr.toFixed(4), r.avgPdd.toFixed(3), r.revenueUsd.toFixed(4),
     ].join(','));
     const csv = [headers.join(','), ...csvRows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${activeTab}_report_${formatUTC(new Date(), 'yyyyMMdd_HHmmss')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Excel export (default format)
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows.map((r: any) => Object.values(r))]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Report');
+    XLSX.writeFile(wb, `${activeTab}_report_${formatUTC(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`);
   }
 
   const toAppliedUTC = (s: string) => tzDateToUTC(s, applied.tz || tz);
@@ -442,7 +441,7 @@ export default function ReportsPage() {
             className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card text-sm font-medium hover:bg-muted/50 transition-colors disabled:opacity-40"
           >
             <Download className="w-3.5 h-3.5" />
-            Export CSV
+            Export Excel
           </button>
         )}
       </div>

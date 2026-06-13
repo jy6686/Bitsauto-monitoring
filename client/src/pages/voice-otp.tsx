@@ -73,7 +73,7 @@ export default function VoiceOtpPage() {
     refetchInterval: 15_000,
   });
 
-  const { data: calls, isLoading } = useQuery<VoiceOtpCall[]>({
+  const { data: calls = [], isLoading } = useQuery<VoiceOtpCall[]>({
     queryKey: ['/api/voice-otp/calls'],
     refetchInterval: 5_000,
   });

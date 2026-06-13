@@ -993,7 +993,7 @@ function SendRateTab({
 
 // ── Jobs Tab ───────────────────────────────────────────────────────────────────
 function JobsTab() {
-  const { data: jobs, isLoading } = useQuery<any[]>({ queryKey: ["/api/rate-manager/jobs"] });
+  const { data: jobs = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/rate-manager/jobs"] });
 
   const STATUS_COLOR: Record<string, string> = {
     completed: "text-green-400",

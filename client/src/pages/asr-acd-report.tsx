@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export-excel";
+import * as XLSX from "xlsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -711,10 +712,10 @@ export default function AsrAcdReportPage() {
         r.asr.toFixed(4),(r.nerPct!=null?r.nerPct.toFixed(2):""),(r.fasRate!=null?r.fasRate.toFixed(2):""),
         r.avgPdd.toFixed(3),r.amount.toFixed(6)].join(","));
     });
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([lines.join("\n")], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
-    a.href = url; a.download = `asr-ner-${new Date().toISOString().slice(0,16).replace("T","-")}.csv`;
+    a.href = url; a.download = `asr-ner-${new Date().toISOString().slice(0,16).replace("T","-")}.xlsx`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }

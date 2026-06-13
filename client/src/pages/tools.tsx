@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiRequest } from "@/lib/queryClient";
 import { toTzDateInput, toSippyDateTz } from "@/lib/date-utils";
 import { useTimezone } from "@/context/timezone-context";
+import * as XLSX from "xlsx";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1493,9 +1494,9 @@ function PrefixCoverageTab() {
     const body = rows.map(r =>
       [r.cld, r.result ?? '', r.tariff ?? '', r.routeCount ?? '', r.bestRoute ?? '', r.cost ?? ''].map(v => `"${v}"`).join(',')
     ).join('\n');
-    const blob = new Blob([header + body], { type: 'text/csv' });
+    const blob = new Blob([header + body], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url  = URL.createObjectURL(blob);
-    const a    = Object.assign(document.createElement('a'), { href: url, download: 'prefix_coverage.csv' });
+    const a    = Object.assign(document.createElement('a'), { href: url, download: 'prefix_coverage.xlsx' });
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1563,7 +1564,7 @@ function PrefixCoverageTab() {
           </Button>
           {rows.length > 0 && !running && (
             <Button variant="outline" onClick={exportCsv} data-testid="button-export-coverage">
-              <Download className="h-4 w-4 mr-2" />Export CSV
+              <Download className="h-4 w-4 mr-2" />Export Excel
             </Button>
           )}
         </div>

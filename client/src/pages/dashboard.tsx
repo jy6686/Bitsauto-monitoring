@@ -623,7 +623,7 @@ export default function DashboardPage() {
   });
 
   // Active alerts count — for KPI card
-  const { data: alertsListData } = useQuery<{ alerts: any[] } | any[]>({
+  const { data: alertsListData = [] } = useQuery<{ alerts: any[] } | any[]>({
     queryKey: ['/api/alerts'],
     refetchInterval: 30_000,
     staleTime: 25_000,

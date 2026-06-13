@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import * as XLSX from "xlsx";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -242,8 +243,14 @@ export default function VendorSlaScorecardPage() {
     ].join(","));
     const csv = [headers.join(","), ...lines].join("\n");
     const a = document.createElement("a");
-    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
-    a.download = `vendor_sla_scorecard_${hours}h.csv`;
+    // Excel export
+    const wsData = csv.split('\n').map((r: string) => r.split(','));
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Data');
+    XLSX.writeFile(wb, `vendor_sla_scorecard_${hours}h.xlsx`);
+    // dummy to avoid unused var warning
+    void a;
     a.click();
   }
 
