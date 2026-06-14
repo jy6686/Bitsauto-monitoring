@@ -117,7 +117,7 @@ export default function BillingPage() {
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<BillingData>({
     queryKey: ["/api/billing/connection", connectionId],
-    queryFn: () => fetch(`/api/billing/connection/${connectionId}`).then(r => {
+    queryFn: () => fetch(`/api/billing/connection/${connectionId}`, { credentials: 'include' }).then(r => {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     }),
@@ -128,10 +128,11 @@ export default function BillingPage() {
 
   if (isNaN(connectionId)) {
     return (
-      <div className="max-w-5xl mx-auto py-20 text-center text-muted-foreground">
-        <AlertTriangle className="w-8 h-8 mx-auto mb-3 text-amber-400" />
-        <p className="font-medium">No connection ID provided.</p>
-        <Link href="/routing-manager" className="text-indigo-400 text-sm hover:underline mt-2 inline-block">← Back to Routing Manager</Link>
+      <div className="flex flex-col items-center justify-center h-64 gap-3 text-muted-foreground">
+        <AlertTriangle className="h-8 w-8 text-amber-400" />
+        <p className="font-medium text-foreground">Select a vendor connection to view billing</p>
+        <p className="text-sm">Go to Operations → Routing Manager → open a vendor connection</p>
+        <Link href="/routing-manager" className="text-sm text-primary hover:underline flex items-center gap-1">← Open Routing Manager</Link>
       </div>
     );
   }

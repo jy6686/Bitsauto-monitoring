@@ -30826,6 +30826,135 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // GET /api/billing/reconciliation/export/pdf    — formatted PDF report
   // GET /api/billing/reconciliation/export/download/:token — retrieve pre-generated large export
 
+
+  // POST /api/invoices/:id/reject
+  app.post('/api/invoices/:id/reject', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const { reason } = req.body ?? {};
+      await db.update(clientInvoices).set({ status: 'rejected', notes: reason ?? null, updatedAt: new Date() } as any).where(eq(clientInvoices.id, id));
+      res.json({ ok: true });
+    } catch(e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/invoices/:id/mark-paid
+  app.post('/api/invoices/:id/mark-paid', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const { reference, method } = req.body ?? {};
+      await db.update(clientInvoices).set({ status: 'paid', notes: `Paid via ${method ?? 'manual'} ref:${reference ?? ''}`, updatedAt: new Date() } as any).where(eq(clientInvoices.id, id));
+      res.json({ ok: true });
+    } catch(e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/invoices/:id/dispute
+  app.post('/api/invoices/:id/dispute', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const { note } = req.body ?? {};
+      await db.update(clientInvoices).set({ status: 'disputed', notes: note ?? null, updatedAt: new Date() } as any).where(eq(clientInvoices.id, id));
+      res.json({ ok: true });
+    } catch(e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/invoices/:id/pdf — generate PDF matching C-1736-0675 format
+  app.get('/api/invoices/:id/pdf', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      const invRows = await db.select().from(clientInvoices).where(eq(clientInvoices.id, id)).limit(1);
+      if (!invRows.length) return res.status(404).json({ error: 'Not found' });
+      const inv = invRows[0] as any;
+
+      // Get line items
+      const lines = await db.select().from(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, id));
+
+      // Group by country for page 1 summary
+      const byCountry = new Map<string, { minutes: number; amount: number }>();
+      for (const line of lines as any[]) {
+        const country = (line.country || line.destination || 'Unknown').split(' - ')[0].split('(')[0].trim();
+        const existing = byCountry.get(country) ?? { minutes: 0, amount: 0 };
+        byCountry.set(country, {
+          minutes: existing.minutes + (Number(line.minutes) || 0),
+          amount:  existing.amount  + (Number(line.amount)  || 0),
+        });
+      }
+
+      const totalMinutes = Array.from(byCountry.values()).reduce((s, r) => s + r.minutes, 0);
+      const totalAmount  = Array.from(byCountry.values()).reduce((s, r) => s + r.amount,  0);
+
+      // Build HTML for PDF
+      const countrySummaryRows = Array.from(byCountry.entries()).map(([country, data]) =>
+        `<tr><td>${country}</td><td style="text-align:right">${data.minutes.toFixed(2)}</td><td style="text-align:right">${data.amount.toFixed(2)}</td></tr>`
+      ).join('');
+
+      const detailRows = (lines as any[]).map(line =>
+        `<tr><td>${line.country || ''}</td><td>${line.destination || ''}</td><td style="text-align:right">${Number(line.minutes||0).toFixed(2)}</td><td style="text-align:right">${Number(line.ratePerMin||0).toFixed(5)}</td><td style="text-align:right">${Number(line.amount||0).toFixed(2)}</td></tr>`
+      ).join('');
+
+      const header = `<div style="display:flex;justify-content:space-between;border-bottom:2px solid #1a56db;padding-bottom:12px;margin-bottom:20px">
+        <div><strong style="font-size:18px;color:#1a56db">ICHIBAAN LOGIC</strong></div>
+        <div style="text-align:right;font-size:11px"><strong>ICHIBAAN LOGIC PRIVATE LIMITED</strong><br>Unit Level 11(A), Main Office Tower, Financial Park,<br>Labuan, Jalan Merdeka, 87000 Federal Territory of Labuan, Malaysia.<br>Website: www.ichibaanlogic.com &nbsp; Email: ac.bill@ichibaanlogic.com</div>
+      </div>`;
+
+      const footer = `<div style="margin-top:40px;text-align:center;background:#1a56db;color:white;padding:10px;font-size:12px"><strong>THANK YOU FOR YOUR BUSINESS!</strong><br><small>Please note that the above invoice has been raised subject to the terms of the agreement between us. Kindly treat this invoice as a provisional for payment.<br>For disputes related questions please email to dispute@ichibaanlogic.com</small></div>`;
+
+      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>body{font-family:Arial,sans-serif;font-size:12px;margin:30px}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#1a56db;color:white;padding:6px 8px;text-align:left}td{padding:5px 8px;border-bottom:1px solid #eee}.total-row{font-weight:bold;border-top:2px solid #333}h2{color:#1a56db;text-align:center;margin:20px 0}.info-grid{display:flex;gap:40px;margin:20px 0}.info-left{flex:1}.info-right{flex:1}label{font-weight:bold}</style>
+</head><body>
+
+<!-- PAGE 1: Country Summary -->
+${header}
+<h2>INVOICE</h2>
+<div class="info-grid">
+  <div class="info-left"><strong>${inv.customerName || 'Customer'}</strong></div>
+  <div class="info-right">
+    <table style="width:auto;border:none"><tbody>
+    <tr><td><label>Invoice #:</label></td><td>${inv.invoiceNumber}</td></tr>
+    <tr><td><label>Invoice Created:</label></td><td>${inv.createdAt ? new Date(inv.createdAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}).replace(/ /g,'-') : ''}</td></tr>
+    <tr><td><label>Billing Period:</label></td><td>${inv.periodStart || ''} - ${inv.periodEnd || ''}</td></tr>
+    </tbody></table>
+  </div>
+</div>
+<table><thead><tr><th>Country</th><th style="text-align:right">Minutes</th><th style="text-align:right">Amount (USD)</th></tr></thead>
+<tbody>${countrySummaryRows}</tbody>
+<tfoot><tr class="total-row"><td><strong>Total</strong></td><td style="text-align:right"><strong>${totalMinutes.toFixed(2)}</strong></td><td style="text-align:right"><strong>${totalAmount.toFixed(2)}</strong></td></tr></tfoot></table>
+${footer}
+
+<div style="page-break-after:always"></div>
+
+<!-- PAGE 2: Banking Details -->
+${header}
+<h2 style="background:#1a56db;color:white;padding:8px;text-align:center">BANKING DETAIL</h2>
+<p>Payments to Ichibaan Logic shall be only transferred to one of our below stated bank accounts:</p>
+<table><thead><tr><th colspan="2" style="text-align:center">CIMB Bank</th></tr></thead>
+<tbody>
+<tr><td style="width:200px"><strong>Beneficiary Name:</strong></td><td>ICHIBAAN LOGIC PRIVATE LIMITED</td></tr>
+<tr><td><strong>Bank Address:</strong></td><td>CIMB Bank Berhad, Labuan Branch of Lot E 006, Podium Level, Financial Park Labuan, Jalan Merdeka 87000, Labuan FT</td></tr>
+<tr><td><strong>Account Number:</strong></td><td>800829397640</td></tr>
+<tr><td><strong>Account Currency:</strong></td><td>USD</td></tr>
+<tr><td><strong>Bank Swift Code:</strong></td><td>CIBBMYKL</td></tr>
+</tbody></table>
+${footer}
+
+<div style="page-break-after:always"></div>
+
+<!-- PAGE 3: Detailed Breakdown -->
+${header}
+<table><thead><tr><th>Country</th><th>Destination</th><th style="text-align:right">Minutes</th><th style="text-align:right">Rate/Min</th><th style="text-align:right">Amount (USD)</th></tr></thead>
+<tbody>${detailRows}</tbody>
+<tfoot><tr class="total-row"><td colspan="2"><strong>Total</strong></td><td style="text-align:right"><strong>${totalMinutes.toFixed(2)}</strong></td><td></td><td style="text-align:right"><strong>${totalAmount.toFixed(2)}</strong></td></tr></tfoot></table>
+${footer}
+
+</body></html>`;
+
+      // Return as HTML for now (browser can print to PDF)
+      // For true PDF, puppeteer can be added later
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Disposition', `inline; filename="Invoice-${inv.invoiceNumber}.html"`);
+      res.send(html);
+    } catch(e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get('/api/billing/reconciliation/export/csv', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { buildCarrierSnapshotXLSX, buildCarrierReconSummaryXLSX, LARGE_EXPORT_THRESHOLD, XLSX_MIME, storeTempFile } = await import('./services/billing/reconciliation-export');

@@ -25,7 +25,7 @@ import {
 import {
   FileText, Play, Eye, CheckCircle, AlertTriangle, DollarSign, Hash,
   RefreshCw, Calendar, User, Zap, CheckCheck, XCircle, Lock, Layers,
-  Send, Mail, MailCheck, MailX, X, Clock, History, FileSpreadsheet,
+  Send, Mail, MailCheck, MailX, X, Clock, History, FileSpreadsheet, FileDown, Flag,
 } from "lucide-react";
 import { exportToExcel } from "@/lib/export-excel";
 
@@ -591,7 +591,9 @@ export default function InvoicesPage() {
                 "Period Start": inv.periodStart   ?? "",
                 "Period End":   inv.periodEnd     ?? "",
                 "Lines":        inv.lineCount     ?? "",
-                "Amount ($)":   inv.totalReproduced != null ? Number(inv.totalReproduced).toFixed(4) : "",
+                "DMR Amount":    inv.totalReproduced != null ? Number(inv.totalReproduced).toFixed(4) : "",
+                "Sippy Amount":  inv.totalActual     != null ? Number(inv.totalActual).toFixed(4)     : "",
+                "Difference":    inv.totalDelta      != null ? Number(inv.totalDelta).toFixed(4)      : "",
                 "Status":       inv.status,
                 "Generated At": inv.generatedAt   ?? "",
                 "Approved At":  inv.approvedAt    ?? "",
@@ -652,7 +654,7 @@ export default function InvoicesPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {["all","draft","review","approved","sent","void"].map(s => (
+                {["all","draft","review","approved","sent","paid","disputed","rejected","void"].map(s => (
                   <SelectItem key={s} value={s}>{s === "all" ? "All statuses" : s}</SelectItem>
                 ))}
               </SelectContent>
@@ -676,8 +678,10 @@ export default function InvoicesPage() {
                     <TableHead>Invoice #</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Period</TableHead>
+                    <TableHead className="text-right text-xs">DMR Amount</TableHead>
+                    <TableHead className="text-right text-xs">Sippy Amount</TableHead>
+                    <TableHead className="text-right text-xs">Difference</TableHead>
                     <TableHead>Lines</TableHead>
-                    <TableHead>Total</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -691,7 +695,17 @@ export default function InvoicesPage() {
                         {inv.periodStart ?? "—"} → {inv.periodEnd ?? "—"}
                       </TableCell>
                       <TableCell className="text-sm">{inv.lineCount?.toLocaleString() ?? "—"}</TableCell>
-                      <TableCell className="font-mono text-sm">${(inv.totalReproduced ?? 0).toFixed(4)}</TableCell>
+                      <TableCell className="font-mono text-xs text-right">${(inv.totalReproduced ?? 0).toFixed(4)}</TableCell>
+                      <TableCell className="font-mono text-xs text-right">${(inv.totalActual ?? 0).toFixed(4)}</TableCell>
+                      <TableCell className="font-mono text-xs text-right">
+                        {(() => {
+                          const delta = inv.totalDelta ?? 0;
+                          const base  = inv.totalReproduced ?? 0;
+                          const pct   = base > 0 ? Math.abs(delta / base) * 100 : 0;
+                          const cls   = pct < 2 ? 'text-emerald-400' : pct < 5 ? 'text-amber-400' : 'text-red-400';
+                          return <span className={cls}>{delta >= 0 ? '+' : ''}{delta.toFixed(4)}</span>;
+                        })()}
+                      </TableCell>
                       <TableCell><StatusBadge status={inv.status} /></TableCell>
                       <TableCell>
                         <div className="flex gap-1">
@@ -703,15 +717,49 @@ export default function InvoicesPage() {
                               <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
                             </Button>
                           )}
+                          {(inv.status === "draft" || inv.status === "review") && (
+                            <Button variant="ghost" size="sm" title="Reject invoice"
+                              onClick={() => {
+                                const reason = window.prompt('Rejection reason:');
+                                if (reason) apiRequest('POST', `/api/invoices/${inv.id}/reject`, { reason })
+                                  .then(() => qc.invalidateQueries({ queryKey: ['/api/invoices'] }));
+                              }}>
+                              <XCircle className="h-3.5 w-3.5 text-red-400" />
+                            </Button>
+                          )}
                           {(inv.status === "approved" || inv.status === "sent") && (
                             <Button
                               data-testid={`button-send-${inv.id}`}
-                              variant="ghost"
-                              size="sm"
+                              variant="ghost" size="sm"
                               title="Send invoice via email"
-                              onClick={() => openSendDialog(inv)}
-                            >
+                              onClick={() => openSendDialog(inv)}>
                               <Send className="h-3.5 w-3.5 text-blue-400" />
+                            </Button>
+                          )}
+                          {(inv.status === "approved" || inv.status === "sent") && (
+                            <Button variant="ghost" size="sm" title="Download PDF"
+                              onClick={() => window.open(`/api/invoices/${inv.id}/pdf`, '_blank')}>
+                              <FileDown className="h-3.5 w-3.5 text-slate-400" />
+                            </Button>
+                          )}
+                          {inv.status === "sent" && (
+                            <Button variant="ghost" size="sm" title="Mark as Paid"
+                              onClick={() => {
+                                const ref = window.prompt('Payment reference (USDT txid / Bank ref):');
+                                if (ref) apiRequest('POST', `/api/invoices/${inv.id}/mark-paid`, { reference: ref, method: 'usdt' })
+                                  .then(() => qc.invalidateQueries({ queryKey: ['/api/invoices'] }));
+                              }}>
+                              <DollarSign className="h-3.5 w-3.5 text-emerald-400" />
+                            </Button>
+                          )}
+                          {inv.status === "sent" && (
+                            <Button variant="ghost" size="sm" title="Raise Dispute"
+                              onClick={() => {
+                                const note = window.prompt('Dispute reason:');
+                                if (note) apiRequest('POST', `/api/invoices/${inv.id}/dispute`, { note })
+                                  .then(() => qc.invalidateQueries({ queryKey: ['/api/invoices'] }));
+                              }}>
+                              <Flag className="h-3.5 w-3.5 text-amber-400" />
                             </Button>
                           )}
                         </div>
