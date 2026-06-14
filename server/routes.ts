@@ -30632,29 +30632,100 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       const settings = await storage.getSippySettings();
       if (!settings) return res.status(503).json({ error: 'Sippy not configured' });
-      const { username, password } = sippyXmlCreds(settings);
+      const credPairs = sippyXmlCredsPairs(settings);
       const portalUrl = sippyPortalUrl(settings);
 
-      // ── 1. Account info ──────────────────────────────────────────────────────
-      const accountInfo = await sippy.getAccountInfo(username, password, portalUrl, Number(iAccount));
+      // ── 1. Account info (try all cred pairs) ────────────────────────────────
+      let accountInfo: Awaited<ReturnType<typeof sippy.getAccountInfo>> = null;
+      for (const { username, password } of credPairs) {
+        accountInfo = await sippy.getAccountInfo(username, password, portalUrl, Number(iAccount));
+        if (accountInfo) break;
+      }
       if (!accountInfo) {
         return res.status(404).json({ error: `Account #${iAccount} not found in Sippy` });
       }
-      const customerName = accountInfo.name || accountInfo.username || `Account #${iAccount}`;
-      const iTariff      = accountInfo.iTariff ? String(accountInfo.iTariff) : undefined;
+      const customerName = (accountInfo as any).name || (accountInfo as any).username || `Account #${iAccount}`;
+      const accountUsername = (accountInfo as any).username as string | undefined;
+      const iTariff      = (accountInfo as any).iTariff ? String((accountInfo as any).iTariff) : undefined;
 
-      // ── 2. Fetch CDRs ────────────────────────────────────────────────────────
+      // ── 2. Fetch CDRs — XML-RPC first, portal scrape fallback ───────────────
       console.log(`[invoices/from-sippy] Fetching CDRs for account #${iAccount} ${periodStart}–${periodEnd}`);
-      const cdrs = await sippy.getSippyCDRs(
-        username, password, 50_000,
-        { iAccount: Number(iAccount), startDate: periodStart, endDate: periodEnd, type: 'complete' },
-        portalUrl,
-      );
+      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+
+      // Attempt A: XML-RPC (try all credential pairs)
+      if (!xmlRpcCircuitGuard()) {
+        for (const { username, password } of credPairs) {
+          const batch = await sippy.getSippyCDRs(
+            username, password, 50_000,
+            { iAccount: Number(iAccount), startDate: periodStart, endDate: periodEnd, type: 'complete' },
+            portalUrl,
+          );
+          if (batch.length > 0) { xmlRpcRecordSuccess(); cdrs = batch; break; }
+        }
+      }
+
+      // Attempt B: portal scrape — scrapePortalCDRsAll with date filter, then filter by account
+      // Uses same credential strategy as refreshCdrCache (portUser+portPass → apiUser+webPass)
+      if (cdrs.length === 0) {
+        const portUser = settings.portalUsername    ?? '';
+        const portPass = settings.portalPassword    ?? '';
+        const apiUser  = settings.apiAdminUsername  ?? '';
+        const apiPass  = settings.apiAdminPassword  ?? '';
+        const webPass  = (settings as any).adminWebPassword ?? '';
+        const portalScrapeAttempts = [
+          { user: portUser, pass: portPass, fallbackUser: apiUser, fallbackPass: webPass || apiPass },
+          { user: apiUser,  pass: webPass  },
+          { user: apiUser,  pass: apiPass  },
+        ].filter(a => a.user && a.pass);
+
+        for (const { user, pass, fallbackUser, fallbackPass } of portalScrapeAttempts) {
+          try {
+            const all = await sippy.scrapePortalCDRsAll(user, pass, portalUrl, {
+              startDate:        periodStart,
+              endDate:          periodEnd,
+              maxPages:         200,
+              fallbackUsername: fallbackUser,
+              fallbackPassword: fallbackPass,
+            });
+            if (all.length > 0) {
+              // Filter to this account by username match (portal returns all-account CDRs)
+              const filtered = accountUsername
+                ? all.filter((c: any) =>
+                    (c.user && c.user === accountUsername) ||
+                    (c.iAccount && Number(c.iAccount) === Number(iAccount))
+                  )
+                : all.filter((c: any) => Number(c.iAccount) === Number(iAccount));
+              if (filtered.length > 0) {
+                cdrs = filtered;
+                console.log(`[invoices/from-sippy] portal fallback: ${filtered.length}/${all.length} CDRs for "${accountUsername}" via ${user}`);
+                break;
+              }
+            }
+          } catch { /* try next */ }
+        }
+      }
+
+      // Attempt C: CDR cache fallback (background-populated, filtered by account + date range)
+      if (cdrs.length === 0 && cdrCache.size > 0) {
+        const startMs = new Date(periodStart).getTime();
+        const endMs   = new Date(periodEnd + 'T23:59:59Z').getTime();
+        const fromCache = [...cdrCache.values()].filter((c: any) => {
+          const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+          if (ts < startMs || ts > endMs) return false;
+          if (accountUsername && c.user && c.user !== accountUsername) return false;
+          if (!accountUsername && c.iAccount && Number(c.iAccount) !== Number(iAccount)) return false;
+          return true;
+        });
+        if (fromCache.length > 0) {
+          cdrs = fromCache;
+          console.log(`[invoices/from-sippy] cache fallback: ${cdrs.length} CDRs for account #${iAccount}`);
+        }
+      }
 
       if (cdrs.length === 0) {
         return res.status(422).json({
           error: 'No CDRs found',
-          detail: `Sippy returned 0 completed CDRs for account #${iAccount} between ${periodStart} and ${periodEnd}. Verify the period and account ID.`,
+          detail: `No completed CDRs found for account #${iAccount} (${accountUsername ?? 'unknown'}) between ${periodStart} and ${periodEnd}. XML-RPC and portal scrape both returned 0. Verify the period and account ID.`,
         });
       }
       console.log(`[invoices/from-sippy] ${cdrs.length} CDRs received for "${customerName}"`);
