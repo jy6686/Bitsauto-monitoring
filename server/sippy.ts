@@ -3769,6 +3769,7 @@ export async function scrapePortalCDRsAll(
     endDate?: string;
     callsSelect?: string;
     destination?: string;
+    iAccount?: number;        // when set: filter portal CDRs to this account (caller=N_N)
     fallbackUsername?: string;
     fallbackPassword?: string;
     maxPages?: number;
@@ -3777,9 +3778,10 @@ export async function scrapePortalCDRsAll(
   const PORTAL_CAP = 50;
   const MAX_PAGES  = opts.maxPages ?? 200;
 
-  const startDate = toSippyPortalDate(opts.startDate || '1 day ago');
-  const endDate   = toSippyPortalDate(opts.endDate   || 'now');
-  const callsSel  = opts.callsSelect || '1';
+  const startDate   = toSippyPortalDate(opts.startDate || '1 day ago');
+  const endDate     = toSippyPortalDate(opts.endDate   || 'now');
+  const callsSel    = opts.callsSelect || '1';
+  const callerParam = opts.iAccount ? `${opts.iAccount}_${opts.iAccount}` : '0_0';
 
   // Login once
   let loginRes = await portalLogin(base, portalUsername, portalPassword, 'customer');
@@ -3802,7 +3804,7 @@ export async function scrapePortalCDRsAll(
       'n=' + offset, 'action=search', 'from_form=1',
       'startDate=' + encodeURIComponent(startDate),
       'endDate='   + encodeURIComponent(endDate),
-      'source=', 'destination=' + encodeURIComponent(opts.destination || ''), 'caller=0_0',
+      'source=', 'destination=' + encodeURIComponent(opts.destination || ''), 'caller=' + callerParam,
       'calls_select=' + callsSel,
       'cdr_currency=USD', 'cli_clause=0', 'cld_clause=0',
       'bt_clause=0', 'bt_pattern=', 'account_class=0',

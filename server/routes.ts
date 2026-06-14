@@ -30672,6 +30672,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const apiUser  = settings.apiAdminUsername  ?? '';
         const apiPass  = settings.apiAdminPassword  ?? '';
         const webPass  = (settings as any).adminWebPassword ?? '';
+
+        // Portal scrape with server-side iAccount filter (caller=N_N param).
+        // scrapePortalCDRsAll now supports iAccount → no client-side user-field matching needed.
+        // Credential order mirrors refreshCdrCache: portUser+portPass → apiUser+webPass → apiUser+apiPass
         const portalScrapeAttempts = [
           { user: portUser, pass: portPass, fallbackUser: apiUser, fallbackPass: webPass || apiPass },
           { user: apiUser,  pass: webPass  },
@@ -30679,29 +30683,47 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         ].filter(a => a.user && a.pass);
 
         for (const { user, pass, fallbackUser, fallbackPass } of portalScrapeAttempts) {
+          if (cdrs.length > 0) break;
           try {
-            const all = await sippy.scrapePortalCDRsAll(user, pass, portalUrl, {
+            // First attempt: with date filter (periodStart→periodEnd)
+            const withDate = await sippy.scrapePortalCDRsAll(user, pass, portalUrl, {
               startDate:        periodStart,
               endDate:          periodEnd,
+              iAccount:         Number(iAccount),
               maxPages:         200,
               fallbackUsername: fallbackUser,
               fallbackPassword: fallbackPass,
             });
-            if (all.length > 0) {
-              // Filter to this account by username match (portal returns all-account CDRs)
-              const filtered = accountUsername
-                ? all.filter((c: any) =>
-                    (c.user && c.user === accountUsername) ||
-                    (c.iAccount && Number(c.iAccount) === Number(iAccount))
-                  )
-                : all.filter((c: any) => Number(c.iAccount) === Number(iAccount));
-              if (filtered.length > 0) {
-                cdrs = filtered;
-                console.log(`[invoices/from-sippy] portal fallback: ${filtered.length}/${all.length} CDRs for "${accountUsername}" via ${user}`);
+            if (withDate.length > 0) {
+              cdrs = withDate;
+              console.log(`[invoices/from-sippy] portal fallback (date-filtered): ${cdrs.length} CDRs for acct #${iAccount} via ${user}`);
+              break;
+            }
+
+            // Second attempt: no date filter — portal CDR retention may not cover the invoice period.
+            // Fetch recent CDRs for this account and filter by date client-side.
+            // Useful when periodStart is within the last ~7 days of portal CDR history.
+            const startMs = new Date(periodStart).getTime();
+            const endMs   = new Date(periodEnd + 'T23:59:59Z').getTime();
+            const withoutDate = await sippy.scrapePortalCDRsAll(user, pass, portalUrl, {
+              iAccount:         Number(iAccount),
+              maxPages:         200,
+              fallbackUsername: fallbackUser,
+              fallbackPassword: fallbackPass,
+            });
+            if (withoutDate.length > 0) {
+              const inRange = withoutDate.filter((c: any) => {
+                const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
+                return ts >= startMs && ts <= endMs;
+              });
+              if (inRange.length > 0) {
+                cdrs = inRange;
+                console.log(`[invoices/from-sippy] portal fallback (no-date filter, in-range): ${inRange.length}/${withoutDate.length} CDRs for acct #${iAccount} via ${user}`);
                 break;
               }
+              console.log(`[invoices/from-sippy] portal returned ${withoutDate.length} recent CDRs for acct #${iAccount} via ${user}, but 0 match period ${periodStart}–${periodEnd} — portal CDR retention may not cover this period`);
             }
-          } catch { /* try next */ }
+          } catch { /* try next cred pair */ }
         }
       }
 
