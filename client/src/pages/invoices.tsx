@@ -197,6 +197,8 @@ export default function InvoicesPage() {
   const [form,           setForm]           = useState<FormState>(EMPTY_FORM);
   const [fetchingTariff, setFetchingTariff] = useState(false);
   const [autoTariffName, setAutoTariffName] = useState<string | null>(null);
+  const [generateMode,      setGenerateMode]      = useState<'sippy' | 'snapshot'>('sippy');
+  const [sippyCurrency,     setSippyCurrency]     = useState<string | null>(null);
   const [dmrGateError,      setDmrGateError]      = useState<DmrGateError | null>(null);
   const [dmrAutoResults,    setDmrAutoResults]    = useState<DmrAutoResult[] | null>(null);
   const [dmrAutoRunning,    setDmrAutoRunning]    = useState(false);
@@ -273,6 +275,38 @@ export default function InvoicesPage() {
       } else {
         toast({ title: "Generation failed", description: err.message, variant: "destructive" });
       }
+    },
+  });
+
+  const generateDirectMutation = useMutation({
+    mutationFn: (data: FormState) =>
+      apiRequest("POST", "/api/invoices/generate-from-sippy", {
+        iAccount:    data.iAccount,
+        periodStart: data.periodStart,
+        periodEnd:   data.periodEnd,
+        notes:       data.notes,
+      }).then(async r => {
+        if (!r.ok) {
+          const body = await r.json();
+          throw Object.assign(new Error(body.error ?? "Generation failed"), body);
+        }
+        return r.json();
+      }),
+    onSuccess: (data: { invoice: Invoice; lineCount: number; cdrCount: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      setShowGenerate(false);
+      setForm(EMPTY_FORM);
+      setAutoTariffName(null);
+      setSippyCurrency(null);
+      setGenerateMode('sippy');
+      setPreviewId(data.invoice.id);
+      toast({
+        title: `Invoice ${data.invoice.invoiceNumber} created (DRAFT)`,
+        description: `${data.cdrCount} CDRs from Sippy · ${data.lineCount} destination groups.`,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Generation failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -394,6 +428,8 @@ export default function InvoicesPage() {
     try {
       const info = await apiRequest("GET", `/api/sippy/accounts/${acct.iAccount}/info`).then(r => r.json());
       const tariffId = info.iTariff ?? info.i_tariff;
+      const currency = info.baseCurrency ?? info.base_currency ?? null;
+      setSippyCurrency(currency);
       if (tariffId && Number(tariffId) > 0) {
         setForm(f => ({ ...f, iTariff: String(tariffId), clientTimezone }));
         const matched = tariffs.find(t => t.iTariff === Number(tariffId));
@@ -544,6 +580,8 @@ export default function InvoicesPage() {
     setShowGenerate(false);
     setForm(EMPTY_FORM);
     setAutoTariffName(null);
+    setSippyCurrency(null);
+    setGenerateMode('sippy');
     setDmrGateError(null);
     setDmrAutoResults(null);
     setSnapshotGateError(null);
@@ -779,13 +817,15 @@ export default function InvoicesPage() {
           <DialogHeader>
             <DialogTitle>Generate Invoice</DialogTitle>
             <DialogDescription>
-              Creates a DRAFT invoice from locked immutable rating snapshots. Sourced by client account, never live tariffs.
+              {generateMode === 'sippy'
+                ? "Fetches CDRs and billing data directly from Sippy — no snapshots required."
+                : "Creates a DRAFT invoice from locked immutable rating snapshots."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
 
-            {/* ── Client Account ── */}
+            {/* ── Client Account (shared by both modes) ── */}
             <div>
               <Label className="text-xs mb-1.5 flex items-center gap-1.5">
                 <User className="h-3.5 w-3.5" /> Client Account
@@ -808,71 +848,92 @@ export default function InvoicesPage() {
               </Select>
               {fetchingTariff && (
                 <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3 animate-spin" /> Looking up assigned tariff…
+                  <RefreshCw className="h-3 w-3 animate-spin" /> Fetching account details from Sippy…
                 </p>
               )}
             </div>
 
-            {/* ── Customer Name ── */}
-            <div>
-              <Label className="text-xs mb-1.5 block">Customer Name</Label>
-              <Input
-                data-testid="input-customer-name"
-                value={form.customerName}
-                onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))}
-                placeholder="Auto-filled from account selection"
-              />
-            </div>
+            {/* ── Sippy mode: read-only account info strip ── */}
+            {generateMode === 'sippy' && form.iAccount && !fetchingTariff && (
+              <div className="rounded-md border border-border bg-muted/20 px-3 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                <span className="flex items-center gap-1.5 text-foreground font-medium">
+                  <User className="h-3 w-3 text-muted-foreground" />
+                  {form.customerName || accounts.find(a => String(a.iAccount) === form.iAccount)?.displayName || `Account #${form.iAccount}`}
+                </span>
+                {autoTariffName && (
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <span className="w-1 h-1 rounded-full bg-border inline-block" />
+                    {autoTariffName}
+                    {form.iTariff && <span className="font-mono text-[10px] text-muted-foreground/70 ml-0.5">(ID {form.iTariff})</span>}
+                  </span>
+                )}
+                {sippyCurrency && (
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <span className="w-1 h-1 rounded-full bg-border inline-block" />
+                    {sippyCurrency}
+                  </span>
+                )}
+              </div>
+            )}
 
-            {/* ── Tariff / Service Plan ── */}
-            <div>
-              <Label className="text-xs mb-1.5 block">Service Plan (Tariff)</Label>
-              <Select
-                value={form.iTariff}
-                onValueChange={onTariffSelect}
-                disabled={!form.iAccount || fetchingTariff || tariffs.length === 0}
-              >
-                <SelectTrigger data-testid="select-inv-tariff">
-                  <SelectValue
-                    placeholder={
-                      !form.iAccount    ? "Select a client account first" :
-                      fetchingTariff    ? "Fetching…" :
-                      tariffs.length === 0 ? "Loading tariffs…" :
-                      "Select service plan"
-                    }
+            {/* ── Snapshot mode: Customer Name + Tariff fields ── */}
+            {generateMode === 'snapshot' && (
+              <>
+                <div>
+                  <Label className="text-xs mb-1.5 block">Customer Name</Label>
+                  <Input
+                    data-testid="input-customer-name"
+                    value={form.customerName}
+                    onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))}
+                    placeholder="Auto-filled from account selection"
                   />
-                </SelectTrigger>
-                <SelectContent>
-                  {tariffs
-                    .slice()
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map(t => (
-                      <SelectItem key={t.iTariff} value={String(t.iTariff)} data-testid={`tariff-option-${t.iTariff}`}>
-                        <span className="flex items-center gap-2">
-                          <span>{t.name}</span>
-                          <span className="text-xs text-muted-foreground font-mono">({t.currency} · ID {t.iTariff})</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+                </div>
 
-              {/* Status line below tariff selector */}
-              {form.iTariff && !fetchingTariff && (
-                <p className="text-xs text-emerald-400 mt-1.5 flex items-center gap-1">
-                  <CheckCircle className="h-3 w-3" />
-                  {selectedTariff
-                    ? `${selectedTariff.name} · ${selectedTariff.currency} · ID ${selectedTariff.iTariff}`
-                    : `Tariff ID ${form.iTariff} selected`
-                  }
-                  {autoTariffName && form.iTariff && (
-                    <span className="text-muted-foreground ml-1">(auto-matched from account)</span>
+                <div>
+                  <Label className="text-xs mb-1.5 block">Service Plan (Tariff)</Label>
+                  <Select
+                    value={form.iTariff}
+                    onValueChange={onTariffSelect}
+                    disabled={!form.iAccount || fetchingTariff || tariffs.length === 0}
+                  >
+                    <SelectTrigger data-testid="select-inv-tariff">
+                      <SelectValue
+                        placeholder={
+                          !form.iAccount       ? "Select a client account first" :
+                          fetchingTariff       ? "Fetching…" :
+                          tariffs.length === 0 ? "Loading tariffs…" :
+                          "Select service plan"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tariffs
+                        .slice()
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(t => (
+                          <SelectItem key={t.iTariff} value={String(t.iTariff)} data-testid={`tariff-option-${t.iTariff}`}>
+                            <span className="flex items-center gap-2">
+                              <span>{t.name}</span>
+                              <span className="text-xs text-muted-foreground font-mono">({t.currency} · ID {t.iTariff})</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  {form.iTariff && !fetchingTariff && (
+                    <p className="text-xs text-emerald-400 mt-1.5 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" />
+                      {selectedTariff
+                        ? `${selectedTariff.name} · ${selectedTariff.currency} · ID ${selectedTariff.iTariff}`
+                        : `Tariff ID ${form.iTariff} selected`}
+                      {autoTariffName && <span className="text-muted-foreground ml-1">(auto-matched)</span>}
+                    </p>
                   )}
-                </p>
-              )}
-            </div>
+                </div>
+              </>
+            )}
 
-            {/* ── Billing Cycle ── */}
+            {/* ── Billing Cycle (shared) ── */}
             <div>
               <Label className="text-xs mb-2 flex items-center gap-1.5">
                 <Calendar className="h-3.5 w-3.5" /> Billing Cycle
@@ -905,7 +966,7 @@ export default function InvoicesPage() {
               )}
             </div>
 
-            {/* ── Period dates ── */}
+            {/* ── Period dates (shared) ── */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs mb-1.5 block">Period Start</Label>
@@ -931,7 +992,7 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            {/* ── Notes ── */}
+            {/* ── Notes (shared) ── */}
             <div>
               <Label className="text-xs mb-1.5 block">Notes (optional)</Label>
               <Input
@@ -942,152 +1003,195 @@ export default function InvoicesPage() {
               />
             </div>
 
-            {/* ── Snapshot Gate Error block ── */}
-            {snapshotGateError && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 p-4 space-y-3">
-                <div className="flex items-start gap-2">
-                  <Lock className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-amber-400">No Locked Snapshots — Pre-requisite Required</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Invoice generation requires immutable CDR rating snapshots to be crystallised first.
-                      This is a two-step process: <span className="text-amber-300 font-medium">Rating Verification → Lock Batch</span>.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded px-3 py-2">
-                  <Layers className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-400/70" />
-                  <span>
-                    Step 1 fetches billing CDRs via the <span className="text-amber-300 font-medium">Sippy Admin API (XML-RPC)</span> for tariff <span className="font-mono text-amber-300">ID {form.iTariff}</span> — never from live operational data.
-                    Step 2 crystallises verified records into locked, immutable snapshots used for invoice line items.
-                  </span>
-                </div>
-                {lockBatchResult && lockBatchResult.created === 0 && (
-                  <div className="text-xs text-muted-foreground px-1">
-                    <span className="text-amber-300 font-medium">0 new snapshots created</span>
-                    {lockBatchResult.skipped > 0
-                      ? ` — ${lockBatchResult.skipped} snapshot(s) already exist for this tariff.`
-                      : " — Admin API returned 0 CDRs. Check the iAccount ID and XML-RPC credentials in Settings → Sippy Connection."}
-                  </div>
-                )}
-                <Button
-                  data-testid="button-run-lock-batch"
-                  size="sm"
-                  variant="outline"
-                  className="w-full border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
-                  onClick={handleRunLockBatch}
-                  disabled={lockBatchRunning}
-                >
-                  {lockBatchRunning
-                    ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />{seedJobPhase || 'Starting…'}</>
-                    : <><Zap className="h-3.5 w-3.5 mr-2" />Fetch via Admin API + Lock Batch</>
-                  }
-                </Button>
-              </div>
-            )}
-
-            {/* ── Lock batch success ── */}
-            {lockBatchResult && lockBatchResult.created > 0 && (
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/8 p-3 flex items-center gap-2">
-                <CheckCheck className="h-4 w-4 text-emerald-400 shrink-0" />
-                <p className="text-xs text-emerald-400 font-medium">
-                  {lockBatchResult.created} CDR snapshot(s) locked.
-                  {lockBatchResult.skipped > 0 && ` (${lockBatchResult.skipped} already existed)`}
-                  {" "}Click <span className="font-semibold">Generate Draft Invoice</span> below.
-                </p>
-              </div>
-            )}
-
-            {/* ── DMR Gate Error block ── */}
-            {dmrGateError && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/8 p-4 space-y-3">
-                <div className="flex items-start gap-2">
-                  <XCircle className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-red-400">DMR Governance Gate — Blocked</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      All days in the billing period must have verified Daily Metrics Reports before an invoice can be generated.
-                    </p>
-                  </div>
-                </div>
-                {dmrGateError.missingDates.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-red-300 mb-1.5">{dmrGateError.missingDates.length} date(s) missing verified DMR:</p>
-                    <div className="flex flex-wrap gap-1">
-                      {dmrGateError.missingDates.map(d => (
-                        <span key={d} className="font-mono text-xs px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/20">{d}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {dmrGateError.criticalDates.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-amber-300 mb-1.5">{dmrGateError.criticalDates.length} date(s) have critical discrepancies — manual review needed:</p>
-                    <div className="flex flex-wrap gap-1">
-                      {dmrGateError.criticalDates.map(d => (
-                        <span key={d} className="font-mono text-xs px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/20">{d}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {dmrGateError.missingDates.length > 0 && dmrGateError.criticalDates.length === 0 && (
-                  <Button
-                    data-testid="button-auto-dmr"
-                    size="sm"
-                    variant="outline"
-                    className="w-full border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10"
-                    onClick={handleAutoGenerateDmr}
-                    disabled={dmrAutoRunning}
-                  >
-                    {dmrAutoRunning
-                      ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />Generating DMR for {dmrGateError.missingDates.length} date(s)…</>
-                      : <><Zap className="h-3.5 w-3.5 mr-2" />Auto-generate &amp; Verify DMR for all {dmrGateError.missingDates.length} date(s)</>
-                    }
-                  </Button>
-                )}
-              </div>
-            )}
-
-            {/* ── DMR Auto-generate results ── */}
-            {dmrAutoResults && dmrAutoResults.length > 0 && (
-              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">DMR Generation Results</p>
-                <div className="space-y-1 max-h-36 overflow-y-auto">
-                  {dmrAutoResults.map(r => (
-                    <div key={r.date} className="flex items-center justify-between text-xs">
-                      <span className="font-mono text-muted-foreground">{r.date}</span>
-                      {r.error
-                        ? <span className="text-red-400 flex items-center gap-1"><XCircle className="h-3 w-3" />{r.error.slice(0, 50)}</span>
-                        : <span className="text-emerald-400 flex items-center gap-1"><CheckCheck className="h-3 w-3" />{r.verified} row(s) verified</span>
-                      }
-                    </div>
-                  ))}
-                </div>
-                {!dmrGateError && (
-                  <p className="text-xs text-emerald-400 font-medium flex items-center gap-1">
-                    <CheckCircle className="h-3.5 w-3.5" /> All dates verified — period cleared. Click generate below.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* ── Generate button ── */}
-            <Button
-              data-testid="button-confirm-generate"
-              className="w-full"
-              onClick={() => generateMutation.mutate(form)}
-              disabled={!canGenerate || dmrAutoRunning}
-            >
-              {generateMutation.isPending
-                ? "Generating…"
-                : !form.iAccount
-                  ? "Select a client account"
-                  : !form.iTariff
-                    ? fetchingTariff ? "Fetching tariff…" : "Select a service plan"
+            {/* ── Sippy mode: Generate button ── */}
+            {generateMode === 'sippy' && (
+              <Button
+                data-testid="button-confirm-generate-sippy"
+                className="w-full"
+                onClick={() => generateDirectMutation.mutate(form)}
+                disabled={!form.iAccount || !form.periodStart || !form.periodEnd || generateDirectMutation.isPending || fetchingTariff}
+              >
+                {generateDirectMutation.isPending
+                  ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />Fetching CDRs from Sippy…</>
+                  : !form.iAccount
+                    ? "Select a client account"
                     : !form.periodStart || !form.periodEnd
                       ? "Select billing period"
-                      : "Generate Draft Invoice"}
-            </Button>
+                      : <><Zap className="h-3.5 w-3.5 mr-1.5" />Generate Invoice from Sippy</>
+                }
+              </Button>
+            )}
+
+            {/* ── Snapshot mode gate errors + generate button ── */}
+            {generateMode === 'snapshot' && (
+              <>
+                {snapshotGateError && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 p-4 space-y-3">
+                    <div className="flex items-start gap-2">
+                      <Lock className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-amber-400">No Locked Snapshots — Pre-requisite Required</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Snapshot-based generation requires immutable CDR rating snapshots to be crystallised first.
+                          This is a two-step process: <span className="text-amber-300 font-medium">Rating Verification → Lock Batch</span>.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded px-3 py-2">
+                      <Layers className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-400/70" />
+                      <span>
+                        Step 1 fetches billing CDRs via the <span className="text-amber-300 font-medium">Sippy Admin API (XML-RPC)</span> for tariff <span className="font-mono text-amber-300">ID {form.iTariff}</span>.
+                        Step 2 crystallises verified records into locked, immutable snapshots used for invoice line items.
+                      </span>
+                    </div>
+                    {lockBatchResult && lockBatchResult.created === 0 && (
+                      <div className="text-xs text-muted-foreground px-1">
+                        <span className="text-amber-300 font-medium">0 new snapshots created</span>
+                        {lockBatchResult.skipped > 0
+                          ? ` — ${lockBatchResult.skipped} snapshot(s) already exist for this tariff.`
+                          : " — Admin API returned 0 CDRs. Check the iAccount ID and XML-RPC credentials in Settings → Sippy Connection."}
+                      </div>
+                    )}
+                    <Button
+                      data-testid="button-run-lock-batch"
+                      size="sm"
+                      variant="outline"
+                      className="w-full border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                      onClick={handleRunLockBatch}
+                      disabled={lockBatchRunning}
+                    >
+                      {lockBatchRunning
+                        ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />{seedJobPhase || 'Starting…'}</>
+                        : <><Zap className="h-3.5 w-3.5 mr-2" />Fetch via Admin API + Lock Batch</>
+                      }
+                    </Button>
+                  </div>
+                )}
+
+                {lockBatchResult && lockBatchResult.created > 0 && (
+                  <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/8 p-3 flex items-center gap-2">
+                    <CheckCheck className="h-4 w-4 text-emerald-400 shrink-0" />
+                    <p className="text-xs text-emerald-400 font-medium">
+                      {lockBatchResult.created} CDR snapshot(s) locked.
+                      {lockBatchResult.skipped > 0 && ` (${lockBatchResult.skipped} already existed)`}
+                      {" "}Click <span className="font-semibold">Generate Draft Invoice</span> below.
+                    </p>
+                  </div>
+                )}
+
+                {dmrGateError && (
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/8 p-4 space-y-3">
+                    <div className="flex items-start gap-2">
+                      <XCircle className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-red-400">DMR Governance Gate — Blocked</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          All days in the billing period must have verified Daily Metrics Reports before an invoice can be generated.
+                        </p>
+                      </div>
+                    </div>
+                    {dmrGateError.missingDates.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-red-300 mb-1.5">{dmrGateError.missingDates.length} date(s) missing verified DMR:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {dmrGateError.missingDates.map(d => (
+                            <span key={d} className="font-mono text-xs px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/20">{d}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {dmrGateError.criticalDates.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-amber-300 mb-1.5">{dmrGateError.criticalDates.length} date(s) have critical discrepancies — manual review needed:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {dmrGateError.criticalDates.map(d => (
+                            <span key={d} className="font-mono text-xs px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/20">{d}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {dmrGateError.missingDates.length > 0 && dmrGateError.criticalDates.length === 0 && (
+                      <Button
+                        data-testid="button-auto-dmr"
+                        size="sm"
+                        variant="outline"
+                        className="w-full border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10"
+                        onClick={handleAutoGenerateDmr}
+                        disabled={dmrAutoRunning}
+                      >
+                        {dmrAutoRunning
+                          ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />Generating DMR for {dmrGateError.missingDates.length} date(s)…</>
+                          : <><Zap className="h-3.5 w-3.5 mr-2" />Auto-generate &amp; Verify DMR for all {dmrGateError.missingDates.length} date(s)</>
+                        }
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {dmrAutoResults && dmrAutoResults.length > 0 && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">DMR Generation Results</p>
+                    <div className="space-y-1 max-h-36 overflow-y-auto">
+                      {dmrAutoResults.map(r => (
+                        <div key={r.date} className="flex items-center justify-between text-xs">
+                          <span className="font-mono text-muted-foreground">{r.date}</span>
+                          {r.error
+                            ? <span className="text-red-400 flex items-center gap-1"><XCircle className="h-3 w-3" />{r.error.slice(0, 50)}</span>
+                            : <span className="text-emerald-400 flex items-center gap-1"><CheckCheck className="h-3 w-3" />{r.verified} row(s) verified</span>
+                          }
+                        </div>
+                      ))}
+                    </div>
+                    {!dmrGateError && (
+                      <p className="text-xs text-emerald-400 font-medium flex items-center gap-1">
+                        <CheckCircle className="h-3.5 w-3.5" /> All dates verified — period cleared. Click generate below.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <Button
+                  data-testid="button-confirm-generate"
+                  className="w-full"
+                  onClick={() => generateMutation.mutate(form)}
+                  disabled={!canGenerate || dmrAutoRunning}
+                >
+                  {generateMutation.isPending
+                    ? "Generating…"
+                    : !form.iAccount
+                      ? "Select a client account"
+                      : !form.iTariff
+                        ? fetchingTariff ? "Fetching tariff…" : "Select a service plan"
+                        : !form.periodStart || !form.periodEnd
+                          ? "Select billing period"
+                          : "Generate Draft Invoice (Snapshots)"}
+                </Button>
+              </>
+            )}
+
+            {/* ── Mode toggle strip ── */}
+            <div className="pt-1 border-t border-border/50 flex items-center justify-center">
+              {generateMode === 'sippy' ? (
+                <button
+                  type="button"
+                  data-testid="button-switch-snapshot-mode"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                  onClick={() => { setGenerateMode('snapshot'); setDmrGateError(null); setSnapshotGateError(null); }}
+                >
+                  <Lock className="h-3 w-3" /> Advanced: Use locked CDR snapshots (audit-grade)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="button-switch-sippy-mode"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                  onClick={() => { setGenerateMode('sippy'); setDmrGateError(null); setSnapshotGateError(null); }}
+                >
+                  ← Back to Sippy direct mode
+                </button>
+              )}
+            </div>
+
           </div>
         </DialogContent>
       </Dialog>

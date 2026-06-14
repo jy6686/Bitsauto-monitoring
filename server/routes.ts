@@ -30620,6 +30620,147 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── POST /api/invoices/generate-from-sippy ──────────────────────────────────
+  // Direct Sippy CDR-based generation — NO DMR gate, NO snapshot pipeline.
+  // Fetches CDRs for the account+period straight from Sippy, groups by destination
+  // prefix, and creates a draft invoice with line items.
+  app.post('/api/invoices/generate-from-sippy', async (req: any, res: any) => {
+    try {
+      const { iAccount, periodStart, periodEnd, notes } = req.body ?? {};
+      if (!iAccount || !periodStart || !periodEnd) {
+        return res.status(400).json({ error: 'iAccount, periodStart, and periodEnd are required' });
+      }
+
+      const settings = await storage.getSippySettings();
+      if (!settings) return res.status(503).json({ error: 'Sippy not configured' });
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+
+      // ── 1. Account info ──────────────────────────────────────────────────────
+      const accountInfo = await sippy.getAccountInfo(username, password, portalUrl, Number(iAccount));
+      if (!accountInfo) {
+        return res.status(404).json({ error: `Account #${iAccount} not found in Sippy` });
+      }
+      const customerName = accountInfo.name || accountInfo.username || `Account #${iAccount}`;
+      const iTariff      = accountInfo.iTariff ? String(accountInfo.iTariff) : undefined;
+
+      // ── 2. Fetch CDRs ────────────────────────────────────────────────────────
+      console.log(`[invoices/from-sippy] Fetching CDRs for account #${iAccount} ${periodStart}–${periodEnd}`);
+      const cdrs = await sippy.getSippyCDRs(
+        username, password, 50_000,
+        { iAccount: Number(iAccount), startDate: periodStart, endDate: periodEnd, type: 'complete' },
+        portalUrl,
+      );
+
+      if (cdrs.length === 0) {
+        return res.status(422).json({
+          error: 'No CDRs found',
+          detail: `Sippy returned 0 completed CDRs for account #${iAccount} between ${periodStart} and ${periodEnd}. Verify the period and account ID.`,
+        });
+      }
+      console.log(`[invoices/from-sippy] ${cdrs.length} CDRs received for "${customerName}"`);
+
+      // ── 3. Group CDRs by destination prefix ──────────────────────────────────
+      const prefixMap = new Map<string, { durationSecs: number; cost: number; calls: number }>();
+      let totalCost = 0;
+      for (const cdr of cdrs as any[]) {
+        const cld    = String(cdr.cld || cdr.callee || '').replace(/\D/g, '');
+        const prefix = cld.slice(0, Math.min(cld.length, 8)) || 'unknown';
+        const dur    = Number(cdr.billedDuration ?? cdr.duration ?? 0);
+        const cost   = parseFloat(String(cdr.cost ?? '0')) || 0;
+        const prev   = prefixMap.get(prefix) ?? { durationSecs: 0, cost: 0, calls: 0 };
+        prev.durationSecs += dur;
+        prev.cost         += cost;
+        prev.calls++;
+        prefixMap.set(prefix, prev);
+        totalCost += cost;
+      }
+
+      // ── 4. Create invoice record ─────────────────────────────────────────────
+      const d   = new Date();
+      const seq = await storage.countInvoices() + 1;
+      const invoiceNumber = `C-${String(d.getUTCFullYear()).slice(2)}${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(seq).padStart(4, '0')}`;
+
+      const invoice = await storage.createInvoice({
+        invoiceNumber,
+        iTariff,
+        customerName,
+        periodStart,
+        periodEnd,
+        totalReproduced: +totalCost.toFixed(6),
+        totalActual:     +totalCost.toFixed(6),
+        totalDelta:      0,
+        lineCount:       prefixMap.size,
+        status:          'draft',
+        notes:           notes || `Generated from Sippy CDRs · ${cdrs.length} calls`,
+        generatedAt:     new Date(),
+      });
+
+      // ── 5. Line items (one row per destination prefix) ───────────────────────
+      const lineItemBatch = [...prefixMap.entries()].map(([prefix, v]) => ({
+        invoiceId:      invoice.id,
+        snapshotId:     null,
+        cdrCallId:      null,
+        prefix,
+        durationSecs:   Math.round(v.durationSecs),
+        actualCost:     +v.cost.toFixed(6),
+        reproducedCost: +v.cost.toFixed(6),
+        delta:          0,
+      }));
+      for (let i = 0; i < lineItemBatch.length; i += 500) {
+        await storage.bulkCreateInvoiceLineItems(lineItemBatch.slice(i, i + 500));
+      }
+
+      // ── 6. Generate HTML using existing pipeline (pseudo-snapshots from CDRs) ─
+      try {
+        const { generateInvoiceHtml } = await import('./services/sippy/index');
+        const pseudoSnaps: any[] = (cdrs as any[]).map((cdr: any) => ({
+          callee:         String(cdr.cld || cdr.callee || ''),
+          prefix:         String(cdr.cld || cdr.callee || '').replace(/\D/g, '').slice(0, 8),
+          durationSecs:   Number(cdr.billedDuration ?? cdr.duration ?? 0),
+          reproducedCost: parseFloat(String(cdr.cost ?? '0')) || 0,
+          actualCost:     parseFloat(String(cdr.cost ?? '0')) || 0,
+          delta:          0,
+        }));
+
+        let branding: any = null;
+        let customerBranding: any = null;
+        try {
+          const [gp, cp] = await Promise.all([
+            storage.listBrandingProfiles({ isGlobal: true }),
+            storage.listBrandingProfiles({ clientName: customerName }),
+          ]);
+          branding         = gp[0] ?? null;
+          customerBranding = cp[0] ?? null;
+        } catch { /* non-fatal */ }
+
+        const fmtD2 = (s: string) => {
+          const dt = new Date(s + 'T00:00:00Z');
+          return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+        };
+
+        const html = generateInvoiceHtml({
+          invoice,
+          lineItems:       [],
+          snapshots:       pseudoSnaps,
+          customerName,
+          periodLabel:     `${fmtD2(periodStart)} – ${fmtD2(periodEnd)}`,
+          branding,
+          customerBranding,
+        });
+
+        await storage.updateInvoice(invoice.id, { htmlContent: html } as any);
+        return res.json({ invoice: { ...invoice, htmlContent: html }, lineCount: prefixMap.size, cdrCount: cdrs.length });
+      } catch (htmlErr: any) {
+        console.warn('[invoices/from-sippy] HTML generation skipped:', htmlErr.message);
+        return res.json({ invoice, lineCount: prefixMap.size, cdrCount: cdrs.length });
+      }
+    } catch (err: any) {
+      console.error('[invoices/generate-from-sippy] error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post('/api/invoices/:id/approve', async (req: any, res: any) => {
     try {
       const id = Number(req.params.id);
