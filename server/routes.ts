@@ -7578,43 +7578,42 @@ export async function registerRoutes(
         }
         // empty CDR result is not a circuit failure
       }
-      // Fallback 1: XML-RPC returned 0 → scrape customer portal with RTST1 credentials
+      // Fallback: XML-RPC returned 0 → use scrapePortalCDRsAll with same credential
+      // strategy that works in refreshCdrCache: portUser+portPass first, then
+      // apiUser+adminWebPassword (ssp-root), matching the background job exactly.
       if (cdrs.length === 0 && settings) {
-        const portalUser = settings.portalUsername ?? '';
-        const portalPass = settings.portalPassword ?? '';
         const portalUrl  = sippyPortalUrl(settings);
-        const adminUser  = settings.apiAdminUsername ?? '';
-        const adminPass  = settings.apiAdminPassword ?? '';
+        const portUser   = settings.portalUsername     ?? '';
+        const portPass   = settings.portalPassword     ?? '';
+        const apiUser    = settings.apiAdminUsername   ?? '';
+        const apiPass    = settings.apiAdminPassword   ?? '';
+        const webPass    = (settings as any).adminWebPassword ?? '';
         const startDate  = (req.query.startDate as string) || '1 day ago';
         const endDate    = (req.query.endDate   as string) || 'now';
-        const typeMap: Record<string, string> = {
-          errors: '6', non_zero: '4', complete: '5', non_zero_and_errors: '3', incomplete: '2',
-        };
-        const callsSel = typeMap[req.query.type as string] || '1';
         const pageOffset = offset || 0;
-        try {
-          const scraped = await sippy.scrapePortalCDRs(portalUser, portalPass, portalUrl, {
-            limit, startDate, endDate, callsSelect: callsSel,
-            fallbackUsername: adminUser, fallbackPassword: adminPass,
-          });
-          if (scraped.length > 0) cdrs = scraped;
-        } catch { /* ignore */ }
 
-        // Fallback 2: customer portal also empty → scrape ADMIN portal as ssp-root (admin login)
-        // This gives access to ALL customers' CDRs (Vovida, Manor-It, etc.)
-        if (cdrs.length === 0 && adminUser && adminPass) {
+        // Build the same credential attempt list as refreshCdrCache, using
+        // scrapePortalCDRsAll (login once + paginate) instead of the single-page
+        // scrapePortalCDRs / scrapeAdminPortalCDRs which fail on this Sippy build.
+        const scrapeAttempts: Array<{ user: string; pass: string; fallbackUser?: string; fallbackPass?: string }> = [];
+        if (portUser && portPass) scrapeAttempts.push({ user: portUser, pass: portPass, fallbackUser: apiUser, fallbackPass: webPass || apiPass });
+        if (apiUser  && webPass)  scrapeAttempts.push({ user: apiUser,  pass: webPass  });
+        if (apiUser  && apiPass)  scrapeAttempts.push({ user: apiUser,  pass: apiPass  });
+
+        for (const { user, pass, fallbackUser, fallbackPass } of scrapeAttempts) {
+          if (!user || !pass) continue;
           try {
-            const adminScraped = await sippy.scrapeAdminPortalCDRs(adminUser, adminPass, portalUrl, {
-              limit,
-              startDate,
-              endDate,
-              callsSelect: callsSel,
-              source:      req.query.cli  as string | undefined,
-              destination: req.query.cld  as string | undefined,
-              offset:      pageOffset,
+            const scraped = await sippy.scrapePortalCDRsAll(user, pass, portalUrl, {
+              maxPages:        40,
+              fallbackUsername: fallbackUser,
+              fallbackPassword: fallbackPass,
             });
-            if (adminScraped.length > 0) cdrs = adminScraped;
-          } catch { /* ignore */ }
+            if (scraped.length > 0) {
+              cdrs = scraped.slice(pageOffset, pageOffset + limit);
+              console.log(`[/api/sippy/cdr] portal fallback: ${scraped.length} CDRs via ${user}@${portalUrl}`);
+              break;
+            }
+          } catch { /* try next */ }
         }
 
         // Final fallback: CDR cache (background 5-min rolling 72h window).
