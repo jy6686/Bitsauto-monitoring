@@ -1,6 +1,8 @@
 /**
  * Call Governance Routes
- * AMI-triggered vendor BYE at configurable timer + 120s audio replay to A-leg.
+ * AMI-triggered vendor leg cut at configurable cap timer.
+ * After cut, the A-leg (caller) stays alive until the caller hangs up —
+ * the platform NEVER forcibly disconnects the caller under any circumstance.
  * Registered by server/routes.ts via registerCallGovernanceRoutes(app).
  */
 
@@ -560,28 +562,20 @@ async function cutVendorLeg(
       const playbackFile = 'silence/10';
 
       // Atomic redirect:
-      //   A-leg → gov-playback  (StopMixMonitor + Wait(1) + Playback + Hangup)
-      //   B-leg → gov-hangup    (Wait(90) + Hangup)
+      //   A-leg → gov-playback  (StopMixMonitor + loop playback until caller hangs up)
+      //   B-leg → gov-hangup    (Wait until Asterisk cleans up naturally)
       //
-      // B-leg enters Wait(90) instead of immediate Hangup so that Sippy
-      // (acting as B2BUA) does NOT receive a BYE on the outbound call leg
-      // during playback. If Sippy got that BYE it would cascade BYE to the
-      // A-leg and kill the caller before the recording plays.
-      // We send an explicit AMI Hangup to B-leg ~40s later (after playback
-      // is done) so it is cleaned up promptly without waiting the full 90s.
+      // IMPORTANT: The platform NEVER sends an explicit AMI Hangup to either leg
+      // after this redirect. The caller (A-leg) must remain connected and looping
+      // audio until THEY choose to hang up. Only the vendor B-leg is governed.
       await amiGovernance.cutAndPlayback(channelA, channelB, playbackFile);
 
-      // Delayed B-leg cleanup — 8 seconds after cut.
-      // NOTE: Sippy is a B2BUA; when B-leg sends BYE Sippy will also send BYE
-      // to the A-leg. Keep this value >= playback length if you want the full
-      // recording to play. At 8s the carrier charges only 8 extra seconds but
-      // playback will be cut at ~8s by the Sippy cascade.
-      const bLegCleanupMs = 8_000;
-      console.log(`[call-governance] B-leg cleanup scheduled in 8s for ${channelB}`);
-      setTimeout(() => {
-        console.log(`[call-governance] B-leg cleanup firing for ${channelB}`);
-        amiGovernance.hangup(channelB).catch(() => {});
-      }, bLegCleanupMs);
+      // NOTE: We do NOT send an explicit AMI Hangup on the B-leg here.
+      // The B-leg is redirected to gov-hangup context in Asterisk, which
+      // handles its own cleanup (Wait + Hangup). Sending an explicit AMI
+      // Hangup would cause Sippy (B2BUA) to cascade BYE to the A-leg,
+      // killing the caller — which we must never do from the platform side.
+      // The caller must remain connected until THEY choose to hang up.
 
       await db.update(governedCalls)
         .set({ byeSentAt: new Date(), playbackStartedAt: new Date(), triggerReason, status: 'cut' })
@@ -664,13 +658,16 @@ async function reconcileActiveCalls() {
     if (!amiGovernance.isConnected) return;
 
     // ── Age-based stale cleanup (always runs) ─────────────────────────────
-    // Mark 'active' rows as completed when their cap time + 5 min buffer has
-    // passed. Handles calls that ended while AMI was down / server restarted
-    // and whose Hangup event was never delivered.
+    // Mark 'active' rows as completed only after 24 hours have elapsed since
+    // start_time. A governed call's A-leg must remain alive until the CALLER
+    // hangs up — cap_sec is the vendor-cut timer, NOT a call-end timer. Using
+    // a short buffer (e.g. cap_sec + 5 min) would auto-complete calls that are
+    // still live and bulk-kill active traffic. 24h is a safe outer fence that
+    // only catches rows that were truly orphaned (AMI down, server restart, etc.).
     const staleByAge = await db.select().from(governedCalls).where(
       and(
         eq(governedCalls.status, 'active'),
-        sql`start_time + (COALESCE(cap_sec, 120) || ' seconds')::interval + interval '5 minutes' < NOW()`,
+        sql`start_time + interval '24 hours' < NOW()`,
       )
     );
     for (const row of staleByAge) {
