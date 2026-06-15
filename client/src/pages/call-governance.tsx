@@ -847,11 +847,12 @@ export default function CallGovernancePage() {
       </div>
 
       {/* KPI strip */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {[
-          { label: 'Active Now',   value: stats?.active     ?? '—', color: 'text-emerald-400', icon: Phone    },
-          { label: 'Cuts Today',   value: stats?.cutsToday  ?? '—', color: 'text-amber-400',   icon: Scissors },
-          { label: 'Total Today',  value: stats?.totalToday ?? '—', color: 'text-blue-400',    icon: Activity },
+          { label: 'Active Now',      value: stats?.active       ?? '—', color: 'text-emerald-400', icon: Phone,    tip: 'Calls waiting for cap timer to fire' },
+          { label: 'Post-Cut Live',   value: stats?.postCutLive  ?? '—', color: 'text-violet-400',  icon: Phone,    tip: 'Vendor cut — caller still connected in silence' },
+          { label: 'Cuts Today',      value: stats?.cutsToday    ?? '—', color: 'text-amber-400',   icon: Scissors, tip: 'Vendor legs cut today' },
+          { label: 'Total Today',     value: stats?.totalToday   ?? '—', color: 'text-blue-400',    icon: Activity, tip: 'Total governed calls today' },
         ].map(k => (
           <div key={k.label} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex items-center gap-3" data-testid={`kpi-${k.label.toLowerCase().replace(/\s/g,'-')}`}>
             <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0">

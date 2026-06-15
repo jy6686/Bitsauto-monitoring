@@ -13,7 +13,7 @@ import {
   canonicalVendors, vendorProductPrefixes, prefixAuditLog,
   productRegistry, productPrefixes,
 } from '@shared/schema';
-import { eq, desc, gte, and, sql, isNotNull } from 'drizzle-orm';
+import { eq, desc, gte, and, sql, isNotNull, isNull } from 'drizzle-orm';
 import { amiGovernance } from './services/asterisk/ami-governance';
 import { storage } from './storage';
 import { Client as SshClient } from 'ssh2';
@@ -1131,18 +1131,22 @@ export function registerCallGovernanceRoutes(app: Express) {
     try {
       const today = new Date(); today.setHours(0, 0, 0, 0);
 
-      const [[activeRow], [cutsRow], [totalRow]] = await Promise.all([
+      const [[activeRow], [cutsRow], [totalRow], [postCutRow]] = await Promise.all([
         db.select({ count: sql<number>`count(*)` }).from(governedCalls).where(eq(governedCalls.status, 'active')),
         db.select({ count: sql<number>`count(*)` }).from(governedCalls)
           .where(and(eq(governedCalls.triggerReason, 'time_cap'), gte(governedCalls.byeSentAt, today))),
         db.select({ count: sql<number>`count(*)` }).from(governedCalls).where(gte(governedCalls.startTime, today)),
+        // Post-cut live: vendor was cut but caller hasn't hung up yet (in silence)
+        db.select({ count: sql<number>`count(*)` }).from(governedCalls)
+          .where(and(eq(governedCalls.status, 'cut'), isNull(governedCalls.completedAt))),
       ]);
 
       res.json({
-        active:     Number(activeRow?.count  ?? 0),
-        cutsToday:  Number(cutsRow?.count    ?? 0),
-        totalToday: Number(totalRow?.count   ?? 0),
-        amiOnline:  amiGovernance.isConnected,
+        active:      Number(activeRow?.count   ?? 0),
+        cutsToday:   Number(cutsRow?.count     ?? 0),
+        totalToday:  Number(totalRow?.count    ?? 0),
+        postCutLive: Number(postCutRow?.count  ?? 0),
+        amiOnline:   amiGovernance.isConnected,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
