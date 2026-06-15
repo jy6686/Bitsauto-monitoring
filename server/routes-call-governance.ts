@@ -562,20 +562,26 @@ async function cutVendorLeg(
       const playbackFile = 'silence/10';
 
       // Atomic redirect:
-      //   A-leg → gov-playback  (StopMixMonitor + loop playback until caller hangs up)
-      //   B-leg → gov-hangup    (Wait until Asterisk cleans up naturally)
+      //   A-leg → gov-playback  (StopMixMonitor + silence loop until caller hangs up)
+      //   B-leg → gov-hangup    (short wait then Hangup)
       //
-      // IMPORTANT: The platform NEVER sends an explicit AMI Hangup to either leg
-      // after this redirect. The caller (A-leg) must remain connected and looping
-      // audio until THEY choose to hang up. Only the vendor B-leg is governed.
+      // After this redirect both legs are in SEPARATE contexts — they are no
+      // longer bridged in Asterisk. Hanging up B-leg post-redirect is safe:
+      // Asterisk will NOT cascade the BYE to A-leg (cascade only happens while
+      // legs are bridged). Sippy's two SIP dialogs are independent, so
+      // terminating dialog-2 (Asterisk→Sippy→Vendor) does not affect
+      // dialog-1 (Caller→Sippy→Asterisk A-leg).
       await amiGovernance.cutAndPlayback(channelA, channelB, playbackFile);
 
-      // NOTE: We do NOT send an explicit AMI Hangup on the B-leg here.
-      // The B-leg is redirected to gov-hangup context in Asterisk, which
-      // handles its own cleanup (Wait + Hangup). Sending an explicit AMI
-      // Hangup would cause Sippy (B2BUA) to cascade BYE to the A-leg,
-      // killing the caller — which we must never do from the platform side.
-      // The caller must remain connected until THEY choose to hang up.
+      // Terminate B-leg 3 seconds after redirect so the vendor SIP leg is
+      // released immediately instead of billing for up to 60 minutes.
+      // 3 s gives Asterisk time to fully process the redirect before we send
+      // the Hangup action. At that point the legs are already unlinked so
+      // there is zero risk of cascading to the caller.
+      setTimeout(() => {
+        amiGovernance.hangup(channelB).catch(() => {/* channel may already be gone */});
+        console.log(`[call-governance] B-leg ${channelB} hangup sent (3s post-cut)`);
+      }, 3_000);
 
       await db.update(governedCalls)
         .set({ byeSentAt: new Date(), playbackStartedAt: new Date(), triggerReason, status: 'cut' })
