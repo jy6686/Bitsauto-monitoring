@@ -1,0 +1,263 @@
+The design shown in the screenshot is technically possible, but there is an important impact on your Call Governance platform.
+
+What the Diagram Is Showing
+
+Current Mode (what you use today):
+
+Caller ↔ Asterisk ↔ Sippy ↔ Vendor
+          RTP passes through your servers
+
+Benefits:
+
+Call Governance can monitor calls.
+Call recording works.
+AMI bridge events work reliably.
+RTP statistics are visible.
+Vendor leg can be cut and replay/recording actions can occur.
+Billing reconciliation is easier.
+
+Target Mode (Direct RTP / Media Bypass):
+
+Caller → Asterisk/Sippy (SIP signaling only) → Vendor
+
+Caller ↔ Vendor
+      RTP direct
+
+Benefits:
+
+Lower bandwidth usage.
+Lower RTP load on Asterisk/Sippy.
+Reduced server resources.
+Slightly lower latency.
+Impact on Your Call Governance
+
+For normal wholesale traffic:
+
+✅ Direct RTP is usually fine.
+
+For your OTP / Call Governance traffic:
+
+⚠️ Several features become limited.
+
+Feature	Current RTP Proxy	Direct RTP
+Vendor leg cut	✅	✅
+AMI monitoring	✅	✅
+Call recording	✅	❌
+Replay recording	✅	❌
+RTP analytics	✅	❌
+MOS/Jitter monitoring	✅	❌
+RTP troubleshooting	✅	❌
+Billing reconciliation	✅	Partial
+For Your Specific Use Case
+
+You recently requested:
+
+Cut vendor leg at 7–20 seconds
+Do not replay audio
+Give silence after cut
+Keep call governance active
+
+For that requirement:
+
+cap_and_silence
+
+Direct RTP can work because:
+
+Call is established.
+AMI timer reaches cap_sec.
+Governance cuts vendor leg.
+Caller hears silence.
+No recording is required.
+
+That matches your latest requirement.
+
+Recommendation
+
+Do not enable Direct RTP globally.
+
+Use:
+
+Normal Traffic
+→ Direct RTP Enabled
+
+OTP / Call Governance Routes
+→ RTP Proxy Enabled
+
+or create a route-level setting:
+
+Call Governance Mode
+
+☐ RTP Proxy
+☐ Direct RTP
+☐ Direct RTP + Cap & Silence
+
+This gives you:
+
+Low bandwidth for normal traffic.
+Full governance control where needed.
+No impact on client billing.
+No impact on routing.
+No impact on authentication.
+Before Implementing
+
+I would first verify:
+
+Does the terminating vendor support symmetric/direct RTP?
+Is NAT involved?
+Do you still need call recordings for compliance or dispute resolution?
+
+If the answer to #3 is yes, keep RTP through Asterisk/Sippy for governance traffic. If the answer is no and you only need cut + silence, then Direct RTP for governance routes is a valid option.
+
+i want this is a separate call governace rule with new prefix on astrisk 
+
+I do not want to enable Direct RTP / Media Bypass globally.
+
+I want this to be implemented as a new Call Governance rule type with its own dedicated Asterisk prefix and routing logic.
+
+Proposed Design
+
+Normal Traffic
+
+Continue using the existing flow:
+Caller → Asterisk → Sippy → Vendor
+RTP remains proxied through the platform
+No changes to current routing, billing, recordings, or analytics.
+
+Call Governance Bypass Traffic
+
+Use a dedicated Governance Prefix (separate from normal traffic).
+When a call matches this Governance Prefix:
+Route through a dedicated Asterisk context.
+Enable Direct RTP / Media Bypass.
+SIP signaling remains under Asterisk/Sippy control.
+RTP flows directly between Caller and Vendor.
+New Governance Rule Type
+cap_and_bypass
+
+Behavior:
+
+Call matches Governance Prefix.
+Asterisk routes call through the Governance Bypass context.
+RTP is established directly between Caller and Vendor.
+AMI timer starts normally.
+When cap_sec is reached:
+Vendor leg is disconnected.
+Caller remains connected.
+Silence is played (or dead air is maintained).
+Call Governance logs the action.
+No recording is required for this rule type.
+Requirements
+Dedicated Governance Prefixes only.
+Must not affect existing traffic.
+Must not affect existing Call Governance rules.
+Must not affect Sippy routing groups.
+Must not affect billing logic.
+Must not affect current recording-based governance scenarios.
+New Rule Options
+cap_and_replay (existing)
+cap_and_record (existing)
+cap_and_silence (existing)
+cap_and_bypass (new)
+Asterisk Requirements
+
+Create a dedicated Governance Bypass context with:
+
+directmedia=yes
+RTP bypass enabled
+AMI control retained
+Vendor leg cut capability retained
+Safety Requirement
+
+The new bypass mode must only be triggered by dedicated Governance Prefixes and must never be enabled globally for normal production traffic.
+
+This approach keeps your existing platform stable while allowing a completely separate governance scenario for Pakistan OTP, Eritrea OTP, or any future destination where you want Direct RTP + AMI Cut Control without impacting normal wholesale traffic.
+
+donot limit on Pakistan OTP, and Eritrea OTP, make it Globally any destination can be use in future, 
+same as for new rule
+
+Do not design this specifically for Pakistan OTP, Eritrea OTP, or any destination-specific use case.
+
+The new Call Governance rule must be built as a global governance capability that can be applied to any destination, product, client, vendor, routing group, or future traffic category.
+
+New Governance Rule Type
+cap_and_bypass
+Scope
+
+Applicable to:
+
+Any country
+Any destination prefix
+Any product
+Any client
+Any vendor
+Any routing group
+Any future service category
+
+The rule engine should remain destination-agnostic and work globally.
+
+Proposed Call Flow
+
+Normal Traffic
+
+Caller → Asterisk → Sippy → Vendor
+RTP through platform
+
+Governance Bypass Traffic
+
+Caller → Asterisk/Sippy (SIP signaling only) → Vendor
+Caller ↔ Vendor (Direct RTP)
+Rule Behaviour
+
+When a call matches a Governance Bypass rule:
+
+Governance Prefix is matched.
+Dedicated Governance Bypass context is selected.
+RTP media bypass is enabled.
+SIP signaling remains under Asterisk/Sippy control.
+AMI monitoring remains active.
+Governance timer starts normally.
+When cap_sec is reached:
+Vendor leg is disconnected.
+Governance action is logged.
+Caller receives silence (or configured post-cut treatment).
+Call record is written to Governance Analytics.
+New Rule Actions
+
+Existing:
+
+cap_and_replay
+cap_and_record
+cap_and_silence
+
+New:
+
+cap_and_bypass
+Governance Configuration
+
+The rule should support:
+
+Destination Prefix
+Client
+Vendor
+Product
+Routing Group
+Authentication Group
+Cap Time
+Jitter
+Post-Cut Action
+Direct RTP Enabled/Disabled
+Critical Requirement
+
+This feature must be activated only when a Governance Rule explicitly selects cap_and_bypass.
+
+It must never modify:
+
+Normal production traffic
+Existing routing behaviour
+Existing Call Governance rules
+Existing recordings
+Existing billing workflows
+Existing RTP proxy traffic
+Future-Proof Design
+
+The implementation should be generic and reusable so that any future destination, client, vendor, or service can use Direct RTP Governance without requiring additional development or destination-specific logic.
