@@ -929,9 +929,13 @@ export default function CallGovernancePage() {
             type TodayDest = { country: CountryEntry | null; prefix: string; total: number; cut: number; govMin: number; rules: Map<string, number>; };
             const destTodayMap = new Map<string, TodayDest>();
             for (const c of calls) {
-              const digits = (c.callee ?? '').replace(/\D/g, '');
+              const rawCallee = c.callee ?? '';
+              if (!rawCallee || rawCallee === '<unknown>') continue;
+              const digits = rawCallee.replace(/\D/g, '');
+              if (!digits) continue;
               const country = resolveDestination(digits);
-              const key = country?.prefix ?? (digits.slice(0, 3) || 'unknown');
+              const key = country?.prefix ?? (digits.slice(0, 3) || 'unresolved');
+              if (key === 'unresolved') continue;
               if (!destTodayMap.has(key)) destTodayMap.set(key, { country, prefix: key, total: 0, cut: 0, govMin: 0, rules: new Map() });
               const eg = destTodayMap.get(key)!;
               eg.total++;

@@ -997,7 +997,7 @@ export function registerCallGovernanceRoutes(app: Express) {
         .from(governedCalls)
         .where(
           and(
-            eq(governedCalls.status, 'active'),
+            sql`status IN ('active', 'cut')`,
             sql`(channel_a = ${event.channel} OR channel_b = ${event.channel})`,
           )
         )
@@ -1024,6 +1024,33 @@ export function registerCallGovernanceRoutes(app: Express) {
       console.error('[call-governance] hangup handler error:', err?.message);
     }
   });
+
+
+  // ── Daily cleanup: mark orphaned 'cut' rows as completed ──────────────────
+  // Runs every hour — any 'cut' row with bye_sent_at > 2 hours ago is orphaned
+  // (AMI hangup event was missed — caller definitely gone by now)
+  setInterval(async () => {
+    try {
+      const result = await db.update(governedCalls)
+        .set({ 
+          completedAt: sql`bye_sent_at + interval '30 seconds'`,
+          status: 'completed',
+        })
+        .where(
+          and(
+            eq(governedCalls.status, 'cut'),
+            isNull(governedCalls.completedAt),
+            sql`bye_sent_at < NOW() - interval '10 minutes'`
+          )
+        );
+      const count = (result as any).rowCount ?? 0;
+      if (count > 0) {
+        console.log(`[call-governance] orphan cleanup: marked ${count} stale cut→completed`);
+      }
+    } catch (e: any) {
+      console.error('[call-governance] orphan cleanup error:', e.message);
+    }
+  }, 60 * 60 * 1000); // every 1 hour
 
   // ── REST: Governance Rules ─────────────────────────────────────────────────
 
