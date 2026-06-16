@@ -15082,6 +15082,52 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
   // which caused numeric account IDs to appear in live-call client name fields.
   setTimeout(() => refreshAccountCache(),           500);
   setTimeout(() => refreshConnectionVendorCache(),  1500);
+
+  // ── Auto-seed customer_product_assignments if empty ───────────────────────────
+  // Fires 8s after startup (after account cache is warm). Assigns all cached
+  // accounts to BC (Business Class) by default so the Rate Manager carrier
+  // dropdown is never empty. Users can re-run the in-UI Auto-assign to re-map
+  // by tariff name at any time.
+  setTimeout(async () => {
+    try {
+      const [existingAssignment] = await db
+        .select({ id: customerProductAssignments.id })
+        .from(customerProductAssignments)
+        .limit(1);
+      if (existingAssignment) return; // already seeded
+
+      const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+      if (!cache || cache.size === 0) return; // cache not ready — skip (will be populated next cycle)
+
+      // Find default product: prefer BC, fall back to first commercial product
+      const products = await db.select().from(productRegistry)
+        .where(inArray(productRegistry.status, ['active', 'commercial']))
+        .orderBy(productRegistry.sortOrder);
+      if (!products.length) return;
+
+      const defaultProduct = products.find(p => p.code === 'BC') ?? products[0];
+      const productId = defaultProduct.id;
+      const productName = defaultProduct.name;
+
+      let seeded = 0;
+      for (const [iAccountStr, displayName] of cache.entries()) {
+        const iAccount = parseInt(iAccountStr, 10);
+        if (!iAccount) continue;
+        const safeName = displayName.replace(/'/g, "''");
+        await db.execute(sql.raw(
+          `INSERT INTO customer_product_assignments (i_account, product_id, status, assigned_by, customer_name) ` +
+          `VALUES (${iAccount}, ${productId}, 'active', 'startup-seed', '${safeName}') ` +
+          `ON CONFLICT DO NOTHING`
+        ));
+        seeded++;
+      }
+      if (seeded > 0) {
+        console.log(`[startup] Auto-seeded ${seeded} account→${productName} assignments (use Rate Manager → Auto-assign to remap by tariff)`);
+      }
+    } catch (e: any) {
+      console.warn('[startup] Assignment auto-seed failed (non-fatal):', e.message);
+    }
+  }, 8000);
   setInterval(() => refreshAccountCache(),          30 * 60 * 1000);
   setInterval(() => refreshConnectionVendorCache(), 30 * 60 * 1000);
 
