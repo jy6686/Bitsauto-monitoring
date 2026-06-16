@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { workspaceDefinitions, workspaceTabs, workspaceTabItems } from "@shared/schema";
+import { workspaceDefinitions, workspaceTabs, workspaceTabItems, productRegistry, productPrefixes } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 
 interface TabSeed {
@@ -133,8 +133,42 @@ const WORKSPACES: WorkspaceSeed[] = [
   },
 ];
 
+const CANONICAL_PRODUCTS = [
+  { code: 'FC', name: 'First Class',      description: 'Premium quality voice routing — best ASR/ACD performance',          status: 'commercial', color: 'blue',  trunkPrefix: '1', sortOrder: 1, minMarginPct: 15 },
+  { code: 'BC', name: 'Business Class',   description: 'Standard quality commercial routing with good reliability',           status: 'commercial', color: 'green', trunkPrefix: '2', sortOrder: 2, minMarginPct: 12 },
+  { code: 'SB', name: 'Special Bravo',    description: 'Cost-optimised routing with acceptable quality thresholds',           status: 'commercial', color: 'amber', trunkPrefix: '6', sortOrder: 3, minMarginPct: 10 },
+  { code: 'SC', name: 'Special Charlie',  description: 'Budget routing for high-volume, low-margin traffic',                 status: 'commercial', color: 'red',   trunkPrefix: '7', sortOrder: 4, minMarginPct:  8 },
+] as const;
+
+const CANONICAL_PREFIXES = [
+  { prefix: '1', productCode: 'FC', productName: 'First Class' },
+  { prefix: '2', productCode: 'BC', productName: 'Business Class' },
+  { prefix: '6', productCode: 'SB', productName: 'Special Bravo' },
+  { prefix: '7', productCode: 'SC', productName: 'Special Charlie' },
+] as const;
+
+async function seedProductsIfEmpty(): Promise<void> {
+  const [existing] = await db.select({ id: productRegistry.id }).from(productRegistry).limit(1);
+  if (existing) return;
+
+  console.log('[workspace-seed] Seeding canonical products (FC/BC/SB/SC)...');
+  for (const p of CANONICAL_PRODUCTS) {
+    await db.insert(productRegistry).values(p).onConflictDoNothing();
+  }
+
+  const [prefixExists] = await db.select({ prefix: productPrefixes.prefix }).from(productPrefixes).limit(1);
+  if (!prefixExists) {
+    for (const px of CANONICAL_PREFIXES) {
+      await db.insert(productPrefixes).values({ ...px, active: true }).onConflictDoNothing();
+    }
+  }
+  console.log('[workspace-seed] Product seed complete.');
+}
+
 export async function seedWorkspacesIfEmpty(): Promise<void> {
   try {
+    await seedProductsIfEmpty();
+
     for (const ws of WORKSPACES) {
       const [existing] = await db
         .select({ id: workspaceDefinitions.id })
