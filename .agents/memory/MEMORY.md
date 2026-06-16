@@ -30,3 +30,4 @@
 - [Product Policy](product-policy.md) — FC/BC/SB/SC are commercial classes with internal prefix 1/2/6/7; prefix NEVER exposed to customers; Destination Catalog is customer-facing authority; Rate Manager is internal-only; invoices show destination+product+rate, never raw prefix.
 - [On-demand CDR endpoint portal fallback](cdr-ondemand-portal-fallback.md) — /api/sippy/cdr must use scrapePortalCDRsAll (not scrapePortalCDRs/scrapeAdminPortalCDRs) with adminWebPassword for ssp-root; mirrors refreshCdrCache credential strategy.
 - [scrapePortalCDRsAll iAccount filter](scrape-portal-cdrs-all-iaccount.md) — added iAccount opt (caller=N_N); use for account-specific invoice CDR fetch instead of client-side user-field matching.
+- [Sippy account→tariff chain](sippy-account-tariff-chain.md) — accounts use Service Plans (iBillingPlan), NOT direct iTariff; resolve via listSippyBillingPlans→iTariff, never keyword-match tariff names.

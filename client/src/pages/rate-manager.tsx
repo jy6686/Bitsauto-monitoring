@@ -15,7 +15,7 @@ interface Product {
   id: number; code: string; name: string;
   trunkPrefix: string | null; status: string; color: string;
 }
-interface SippyAccount { iAccount: number; username: string; balance: number; cached?: boolean; }
+interface SippyAccount { iAccount: number; username: string; balance: number; cached?: boolean; tariffName?: string | null; }
 interface DestNode {
   id: number; parentId: number | null; level: number; name: string;
   countryCode: string | null; dialPrefix: string | null; commercialStatus: string;
@@ -444,7 +444,7 @@ function AnalysisTab({
 
         <SidebarSection title="Carrier">
           <MultiSelect
-            options={accounts.map(a => ({ value: String(a.iAccount), label: a.username }))}
+            options={accounts.map(a => ({ value: String(a.iAccount), label: a.tariffName ? `${a.username} (${a.tariffName})` : a.username }))}
             value={selectedCarriers}
             onChange={setSelectedCarriers}
             placeholder="All carriers"
@@ -791,7 +791,7 @@ function SendRateTab({
 
         <SidebarSection title="Clients">
           <MultiSelect
-            options={accounts.map(a => ({ value: String(a.iAccount), label: a.username }))}
+            options={accounts.map(a => ({ value: String(a.iAccount), label: a.tariffName ? `${a.username} (${a.tariffName})` : a.username }))}
             value={selectedClients}
             onChange={setSelectedClients}
             placeholder="Select clients"
