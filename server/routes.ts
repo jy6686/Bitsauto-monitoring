@@ -77,8 +77,9 @@ import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealth
 import { refreshVendorAcds } from "./vendor-acd-cache";
 import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs } from "@shared/schema";
 import { db } from "./db";
-import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql as sqlExpr } from "drizzle-orm";
-const drizzleSql = sqlExpr;
+import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql } from "drizzle-orm";
+const sqlExpr = sql;
+const drizzleSql = sql;
 import { broadcastNocTick, broadcastRouteTestEvent, broadcastIncidentUpdated } from "./noc-ws";
 import { lookupDialCode, searchDialCodes } from "./dial-lookup";
 import { readFileSync } from "fs";
