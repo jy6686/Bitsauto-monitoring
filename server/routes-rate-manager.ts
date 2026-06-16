@@ -341,7 +341,7 @@ export function registerRateManagerRoutes(app: Express) {
       const rates = await db.select().from(productRates)
         .where(productId !== null ? eq(productRates.productId, productId) : undefined as any);
 
-      const products = await db.select().from(productRegistry).where(eq(productRegistry.status, 'commercial')).limit(50);
+      const products = await db.select().from(productRegistry).where(eq(productRegistry.status, 'commercial'));
 
       const assignments = await db.select().from(customerProductAssignments)
         .where(eq(customerProductAssignments.status, 'active'));
