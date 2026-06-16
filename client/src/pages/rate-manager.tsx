@@ -1501,12 +1501,14 @@ function AutoSeedButton({ onSeeded }: { onSeeded?: () => void }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || data.message || `Error ${res.status}`);
       toast({
-        title: `Auto-assign complete — ${data.assigned}/${data.total} accounts`,
-        description: data.errors > 0 ? `${data.errors} failed (tariff not matched)` : "All accounts assigned to products.",
+        title: `Sync complete — ${data.assigned}/${data.total} accounts`,
+        description: data.defaulted > 0
+          ? `${data.defaulted} defaulted to BC (no tariff match)`
+          : data.message ?? "All accounts matched to products.",
       });
       onSeeded?.();
     } catch (e: any) {
-      toast({ title: "Auto-assign failed", description: e.message, variant: "destructive" });
+      toast({ title: "Sync from Sippy failed", description: e.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -1518,10 +1520,10 @@ function AutoSeedButton({ onSeeded }: { onSeeded?: () => void }) {
       disabled={loading}
       className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium rounded border border-border/60 bg-background hover:bg-muted/40 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
       data-testid="btn-auto-seed"
-      title="Auto-assign all Sippy accounts to products based on their tariff"
+      title="Sync carrier→product mapping from Sippy tariff data"
     >
       {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <PackageCheck className="w-3 h-3" />}
-      Auto-assign
+      Sync from Sippy
     </button>
   );
 }
@@ -1599,9 +1601,11 @@ export default function RateManagerPage() {
             </span>
           )}
           {activeProductId && accountsData && accountsData.accounts.length === 0 && !acctLoading && (
-            <span className="text-[10px] text-amber-400 flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" />
-              No clients assigned to this product
+            <span className={`text-[10px] flex items-center gap-1 ${(accountsData as any).syncing ? 'text-blue-400' : 'text-amber-400'}`}>
+              {(accountsData as any).syncing
+                ? <><Loader2 className="w-3 h-3 animate-spin" />Syncing tariff data from Sippy…</>
+                : <><AlertTriangle className="w-3 h-3" />No clients assigned to this product</>
+              }
             </span>
           )}
           {(accountsData?.error) && (

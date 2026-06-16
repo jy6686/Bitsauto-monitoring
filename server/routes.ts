@@ -9716,8 +9716,118 @@ export async function registerRoutes(
   // NOTE: balance is NOT inverted in listAccounts() — positive = positive balance.
   //       This differs from createAccount() and getAccountInfo() which DO invert balance.
   
+  // ── Tariff→Product in-memory cache (auto-built from Sippy, no manual step needed) ──
+  const _tariffProductCache: { map: Map<number, number>; builtAt: number | null } =
+    { map: new Map(), builtAt: null };
+
+  async function rebuildTariffProductMap(): Promise<{ assigned: number; defaulted: number; errors: number }> {
+    try {
+      const settings = await storage.getSettings();
+      if (!settings) return { assigned: 0, defaulted: 0, errors: 0 };
+      const { username, password } = sippyXmlCreds(settings as any);
+      const portalUrl = sippyPortalUrl(settings) ?? '';
+
+      const products = await db.select().from(productRegistry)
+        .where(inArray(productRegistry.status, ['active', 'commercial']));
+      if (!products.length) return { assigned: 0, defaulted: 0, errors: 0 };
+      const defaultProduct = products.find(p => (p.code ?? '').toUpperCase() === 'BC') ?? products[0];
+
+      // Step 1: build iTariff→productId from Sippy tariff list (1 API call)
+      const tariffIdToProduct = new Map<number, number>();
+      try {
+        const tariffs = await sippy.getTariffsList(username, password);
+        for (const t of tariffs) {
+          if (!t.iTariff) continue;
+          const n = (t.name ?? '').toUpperCase();
+          let matched: typeof products[0] | undefined;
+          for (const p of products) {
+            const code  = (p.code ?? '').toUpperCase();
+            const pname = (p.name ?? '').toUpperCase();
+            const pfx   = (p.trunkPrefix ?? '');
+            if (n.includes(code) ||
+                pname.split(' ').some(w => w.length > 2 && n.includes(w)) ||
+                (pfx && (n === pfx || n.startsWith(pfx + ' ') || n.startsWith(pfx + '-')))) {
+              matched = p; break;
+            }
+          }
+          if (matched) tariffIdToProduct.set(t.iTariff, matched.id);
+        }
+        console.log(`[tariff-sync] ${tariffs.length} tariffs fetched, names: ${tariffs.slice(0, 10).map(t => `"${t.name}"(${t.iTariff})`).join(', ')}`);
+        console.log(`[tariff-sync] ${tariffIdToProduct.size} matched to products`);
+      } catch (e: any) {
+        console.warn('[tariff-sync] getTariffsList failed (using per-account fallback):', e.message);
+      }
+
+      const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+      if (!cache || cache.size === 0) {
+        console.warn('[tariff-sync] account cache empty — deferring');
+        return { assigned: 0, defaulted: 0, errors: 0 };
+      }
+
+      // Step 2: for each account, get its tariff and map to product
+      const newMap = new Map<number, number>();
+      let assigned = 0, defaulted = 0, errors = 0;
+      const accountIds = Array.from(cache.keys());
+      const BATCH = 4;
+      for (let i = 0; i < accountIds.length; i += BATCH) {
+        const batch = accountIds.slice(i, i + BATCH);
+        await Promise.allSettled(batch.map(async (iAccountStr) => {
+          const iAccount = parseInt(iAccountStr, 10);
+          if (!iAccount) return;
+          const name = cache.get(iAccountStr) ?? `Account ${iAccount}`;
+          try {
+            const info = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
+            const iTariff = info?.iTariff;
+            let productId = defaultProduct.id;
+            let resolved = false;
+
+            if (iTariff && tariffIdToProduct.has(iTariff)) {
+              productId = tariffIdToProduct.get(iTariff)!;
+              resolved = true;
+            } else if (iTariff) {
+              // Per-tariff fallback (requires activeSession)
+              try {
+                const tInfo = await sippy.getTariffInfo(username, password, iTariff);
+                const n = (tInfo?.name ?? '').toUpperCase();
+                for (const p of products) {
+                  const code  = (p.code ?? '').toUpperCase();
+                  const pname = (p.name ?? '').toUpperCase();
+                  if (n.includes(code) || pname.split(' ').some(w => w.length > 2 && n.includes(w))) {
+                    productId = p.id; resolved = true;
+                    tariffIdToProduct.set(iTariff, productId);
+                    break;
+                  }
+                }
+              } catch { /* use default */ }
+            }
+
+            newMap.set(iAccount, productId);
+            if (resolved) assigned++; else defaulted++;
+
+            // Upsert: remove old auto-generated row, insert fresh — uses correct column 'created_by'
+            await db.execute(sql`DELETE FROM customer_product_assignments WHERE i_account = ${iAccount} AND created_by IN ('tariff-sync','startup-seed','auto-seed')`);
+            await db.execute(sql`INSERT INTO customer_product_assignments (i_account, product_id, status, created_by, customer_name) VALUES (${iAccount}, ${productId}, 'active', 'tariff-sync', ${name})`);
+          } catch (e: any) {
+            newMap.set(iAccount, defaultProduct.id);
+            errors++;
+            console.warn(`[tariff-sync] account ${iAccount} error: ${e.message.slice(0, 60)}`);
+          }
+        }));
+        if (i + BATCH < accountIds.length) await new Promise(r => setTimeout(r, 80));
+      }
+
+      _tariffProductCache.map    = newMap;
+      _tariffProductCache.builtAt = Date.now();
+      console.log(`[tariff-sync] done — ${assigned} tariff-matched, ${defaulted} defaulted-BC, ${errors} errors`);
+      return { assigned, defaulted, errors };
+    } catch (e: any) {
+      console.warn('[tariff-sync] rebuild failed:', e.message);
+      return { assigned: 0, defaulted: 0, errors: 0 };
+    }
+  }
+
   // GET /api/sippy/accounts-by-product/:productId
-  // Returns only accounts assigned to a specific product
+  // Serves from in-memory tariff map (auto-built from Sippy) — no manual assignment needed
   app.get('/api/sippy/accounts-by-product/:productId', async (req: any, res: any) => {
     try {
       const userId = req.user?.claims?.sub ?? req.user?.id;
@@ -9725,7 +9835,31 @@ export async function registerRoutes(
       const productId = parseInt(req.params.productId, 10);
       if (!productId) return res.status(400).json({ error: 'productId required' });
 
-      // Get all iAccounts assigned to this product
+      const productRows = await db.select().from(productRegistry).where(eq(productRegistry.id, productId));
+      const product = productRows[0];
+      const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+
+      // Serve from in-memory tariff map (auto-built from Sippy on startup)
+      if (_tariffProductCache.map.size > 0 && cache) {
+        const accounts: Array<{ iAccount: number; username: string; balance: null }> = [];
+        for (const [iAccount, pid] of _tariffProductCache.map.entries()) {
+          if (pid === productId) {
+            accounts.push({ iAccount, username: cache.get(String(iAccount)) ?? `Account ${iAccount}`, balance: null });
+          }
+        }
+        return res.json({
+          accounts,
+          productName:  product?.name      ?? null,
+          productCode:  product?.code      ?? null,
+          trunkPrefix:  product?.trunkPrefix ?? null,
+          total:        accounts.length,
+          assignedCount: accounts.length,
+          fromTariffSync: true,
+          syncedAt: _tariffProductCache.builtAt,
+        });
+      }
+
+      // Fallback: query DB (before first tariff sync completes)
       const assignments = await db.select({
         iAccount:    customerProductAssignments.iAccount,
         productName: productRegistry.name,
@@ -9734,31 +9868,23 @@ export async function registerRoutes(
       })
       .from(customerProductAssignments)
       .leftJoin(productRegistry, eq(customerProductAssignments.productId, productRegistry.id))
-      .where(and(
-        eq(customerProductAssignments.productId, productId),
-        eq(customerProductAssignments.status, 'active')
-      ));
+      .where(and(eq(customerProductAssignments.productId, productId), eq(customerProductAssignments.status, 'active')));
 
-      if (assignments.length === 0) return res.json({ accounts: [], productName: null });
-
-      const productName = assignments[0]?.productName ?? null;
-      const productCode = assignments[0]?.productCode ?? null;
-      const trunkPrefix = assignments[0]?.trunkPrefix ?? null;
-
-      // Serve from in-memory accountNameCache — no Sippy API call needed
-      const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+      if (assignments.length === 0) {
+        return res.json({ accounts: [], productName: product?.name ?? null, syncing: true });
+      }
 
       const accounts = assignments.map(a => ({
         iAccount: a.iAccount,
-        username: cache?.get(String(a.iAccount)) || `Account ${a.iAccount}`,
+        username: cache?.get(String(a.iAccount)) ?? `Account ${a.iAccount}`,
         balance: null,
       })).filter(a => a.iAccount);
 
       res.json({
         accounts,
-        productName,
-        productCode,
-        trunkPrefix,
+        productName: assignments[0]?.productName ?? null,
+        productCode: assignments[0]?.productCode ?? null,
+        trunkPrefix: assignments[0]?.trunkPrefix ?? null,
         total: accounts.length,
         assignedCount: assignments.length,
       });
@@ -15084,51 +15210,12 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
   setTimeout(() => refreshAccountCache(),           500);
   setTimeout(() => refreshConnectionVendorCache(),  1500);
 
-  // ── Auto-seed customer_product_assignments if empty ───────────────────────────
-  // Fires 8s after startup (after account cache is warm). Assigns all cached
-  // accounts to BC (Business Class) by default so the Rate Manager carrier
-  // dropdown is never empty. Users can re-run the in-UI Auto-assign to re-map
-  // by tariff name at any time.
+  // ── Auto-build tariff→product map from Sippy (20s after boot, then every 30min) ──
   setTimeout(async () => {
-    try {
-      const [existingAssignment] = await db
-        .select({ id: customerProductAssignments.id })
-        .from(customerProductAssignments)
-        .limit(1);
-      if (existingAssignment) return; // already seeded
-
-      const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
-      if (!cache || cache.size === 0) return; // cache not ready — skip (will be populated next cycle)
-
-      // Find default product: prefer BC, fall back to first commercial product
-      const products = await db.select().from(productRegistry)
-        .where(inArray(productRegistry.status, ['active', 'commercial']))
-        .orderBy(productRegistry.sortOrder);
-      if (!products.length) return;
-
-      const defaultProduct = products.find(p => p.code === 'BC') ?? products[0];
-      const productId = defaultProduct.id;
-      const productName = defaultProduct.name;
-
-      let seeded = 0;
-      for (const [iAccountStr, displayName] of cache.entries()) {
-        const iAccount = parseInt(iAccountStr, 10);
-        if (!iAccount) continue;
-        const safeName = displayName.replace(/'/g, "''");
-        await db.execute(sql.raw(
-          `INSERT INTO customer_product_assignments (i_account, product_id, status, assigned_by, customer_name) ` +
-          `VALUES (${iAccount}, ${productId}, 'active', 'startup-seed', '${safeName}') ` +
-          `ON CONFLICT DO NOTHING`
-        ));
-        seeded++;
-      }
-      if (seeded > 0) {
-        console.log(`[startup] Auto-seeded ${seeded} account→${productName} assignments (use Rate Manager → Auto-assign to remap by tariff)`);
-      }
-    } catch (e: any) {
-      console.warn('[startup] Assignment auto-seed failed (non-fatal):', e.message);
-    }
-  }, 8000);
+    console.log('[tariff-sync] Initial build starting...');
+    await rebuildTariffProductMap();
+  }, 20000);
+  setInterval(async () => { await rebuildTariffProductMap(); }, 30 * 60 * 1000);
   setInterval(() => refreshAccountCache(),          30 * 60 * 1000);
   setInterval(() => refreshConnectionVendorCache(), 30 * 60 * 1000);
 
@@ -27543,84 +27630,26 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── Phase 3: Product → Client Assignments ──────────────────────────────────
 
-
   // POST /api/customer-product-assignments/auto-seed
-  // Reads each Sippy account's tariff and auto-assigns to FC/BC/SB/SC product
+  // Triggers a fresh tariff→product map build from Sippy (same job as the 30-min background refresh)
   app.post('/api/customer-product-assignments/auto-seed', async (req: any, res: any) => {
     try {
       const userId = req.user?.claims?.sub ?? req.user?.id;
       if (!userId) return res.status(401).json({ error: 'Auth required' });
-
-      const settings = await storage.getSettings();
-      if (!settings) return res.status(500).json({ error: 'No settings' });
-      const { username, password } = sippyXmlCreds(settings as any);
-      const portalUrl = sippyPortalUrl(settings) ?? '';
-
-      // Get product map: tariff name keywords → product_id
-      const products = await db.select().from(productRegistry).where(eq(productRegistry.status, 'commercial'));
-      const productMap: Record<string, number> = {};
-      for (const p of products) {
-        const code = (p.code || '').toUpperCase();
-        const name = (p.name || '').toLowerCase();
-        productMap[code] = p.id;
-        if (name.includes('first'))   productMap['FC'] = p.id;
-        if (name.includes('business')) productMap['BC'] = p.id;
-        if (name.includes('bravo'))   productMap['SB'] = p.id;
-        if (name.includes('charlie')) productMap['SC'] = p.id;
-      }
-
-      // Get all accounts from in-memory cache
+      const result = await rebuildTariffProductMap();
       const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
-      if (!cache || cache.size === 0) {
-        return res.status(503).json({ error: 'Account cache empty — wait 30s for cache refresh and retry' });
-      }
-
-      const results: any[] = [];
-      const accountIds = Array.from(cache.keys());
-
-      for (const iAccountStr of accountIds) {
-        const iAccount = parseInt(iAccountStr, 10);
-        const accountName = cache.get(iAccountStr) || '';
-        try {
-          // Get account info to find tariff (correct param order: username, password, portalUrl, iAccount)
-          const info = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
-          const iTariff = info?.iTariff ?? (info as any)?.i_tariff ?? null;
-          let productId = 2; // default BC
-          let matched = 'default-BC';
-
-          if (iTariff) {
-            // Get tariff info to find name
-            const tariff = await sippy.getTariffInfo(username, password, iTariff);
-            const tariffName = (tariff?.name || '').toUpperCase();
-            if (tariffName.includes('FC') || tariffName.includes('FIRST')) { productId = productMap['FC'] || 1; matched = 'FC'; }
-            else if (tariffName.includes('SB') || tariffName.includes('BRAVO')) { productId = productMap['SB'] || 3; matched = 'SB'; }
-            else if (tariffName.includes('SC') || tariffName.includes('CHARLIE')) { productId = productMap['SC'] || 4; matched = 'SC'; }
-            else if (tariffName.includes('BC') || tariffName.includes('BUSINESS')) { productId = productMap['BC'] || 2; matched = 'BC'; }
-          }
-
-          // Upsert company
-          const safeName = accountName.replace(/'/g, "''");
-          await db.execute(sql.raw(
-            "INSERT INTO companies (name, short_code, status, company_type, sippy_i_account) VALUES ('" +
-            safeName + "', '" + iAccountStr + "', 'active', 'client', " + iAccount + ") " +
-            "ON CONFLICT (short_code) DO UPDATE SET sippy_i_account=" + iAccount
-          ));
-
-          // Assign product
-          await db.execute(sql.raw(
-            "INSERT INTO customer_product_assignments (i_account, product_id, status, assigned_by, customer_name) " +
-            "VALUES (" + iAccount + ", " + productId + ", 'active', 'auto-seed', '" + safeName + "') " +
-            "ON CONFLICT DO NOTHING"
-          ));
-
-          results.push({ iAccount, name: accountName, productId, matched, tariff: iTariff });
-        } catch(e: any) {
-          results.push({ iAccount, name: accountName, error: e.message.slice(0, 80) });
-        }
-      }
-
-      const summary = { total: results.length, assigned: results.filter(r => !r.error).length, errors: results.filter(r => r.error).length, results };
-      res.json(summary);
+      const total = cache?.size ?? 0;
+      res.json({
+        total,
+        assigned:  result.assigned,
+        defaulted: result.defaulted,
+        errors:    result.errors,
+        message:   result.assigned > 0
+          ? `${result.assigned} accounts matched by tariff, ${result.defaulted} defaulted to BC`
+          : result.errors > 0
+            ? 'Tariff sync encountered errors — check Sippy connectivity'
+            : 'No accounts found — wait for cache refresh and retry',
+      });
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
 
