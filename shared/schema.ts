@@ -4035,6 +4035,13 @@ export const destinationProductRates = pgTable("destination_product_rates", {
   notes:          text("notes"),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
   updatedAt:      timestamp("updated_at").defaultNow().notNull(),
+  productCode:    varchar("product_code",    { length: 4 }),
+  interval1:      integer("interval_1").default(1),
+  intervalN:      integer("interval_n").default(1),
+  priceStatus:    varchar("price_status",    { length: 32 }),
+  cliEnabled:     boolean("cli_enabled").default(true),
+  activationDate: timestamp("activation_date", { withTimezone: true }),
+  expirationDate: timestamp("expiration_date", { withTimezone: true }),
 });
 export type DestinationProductRate       = typeof destinationProductRates.$inferSelect;
 export type InsertDestinationProductRate = typeof destinationProductRates.$inferInsert;

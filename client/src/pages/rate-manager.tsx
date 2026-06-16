@@ -1480,53 +1480,6 @@ function PricingIntelligenceTab({ products }: { products: Product[] }) {
   );
 }
 
-// ── Auto Seed Button ───────────────────────────────────────────────────────────
-function AutoSeedButton({ onSeeded }: { onSeeded?: () => void }) {
-  const { toast } = useToast();
-  const [loading, setLoading] = useState(false);
-
-  const handleSeed = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/customer-product-assignments/auto-seed", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-        credentials: "include",
-      });
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("application/json")) {
-        throw new Error(`Server returned unexpected response (${res.status}). Check that you are logged in.`);
-      }
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || data.message || `Error ${res.status}`);
-      toast({
-        title: `Sync complete — ${data.assigned}/${data.total} accounts`,
-        description: data.defaulted > 0
-          ? `${data.defaulted} defaulted to BC (no tariff match)`
-          : data.message ?? "All accounts matched to products.",
-      });
-      onSeeded?.();
-    } catch (e: any) {
-      toast({ title: "Sync from Sippy failed", description: e.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <button
-      onClick={handleSeed}
-      disabled={loading}
-      className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium rounded border border-border/60 bg-background hover:bg-muted/40 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-      data-testid="btn-auto-seed"
-      title="Sync carrier→product mapping from Sippy tariff data"
-    >
-      {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <PackageCheck className="w-3 h-3" />}
-      Sync from Sippy
-    </button>
-  );
-}
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function RateManagerPage() {
@@ -1614,7 +1567,6 @@ export default function RateManagerPage() {
               {accountsData.error.length > 60 ? accountsData.error.slice(0, 60) + "…" : accountsData.error}
             </span>
           )}
-          <AutoSeedButton onSeeded={() => qc.invalidateQueries({ queryKey: ["/api/sippy/accounts-by-product"] })} />
           {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
         </div>
       </div>
