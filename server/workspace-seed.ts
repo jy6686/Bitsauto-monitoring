@@ -148,21 +148,33 @@ const CANONICAL_PREFIXES = [
 ] as const;
 
 async function seedProductsIfEmpty(): Promise<void> {
-  const [existing] = await db.select({ id: productRegistry.id }).from(productRegistry).limit(1);
-  if (existing) return;
-
-  console.log('[workspace-seed] Seeding canonical products (FC/BC/SB/SC)...');
+  console.log('[workspace-seed] Upserting canonical products (FC/BC/SB/SC)...');
   for (const p of CANONICAL_PRODUCTS) {
-    await db.insert(productRegistry).values(p).onConflictDoNothing();
+    await db.insert(productRegistry)
+      .values(p)
+      .onConflictDoUpdate({
+        target: productRegistry.code,
+        set: {
+          name:        p.name,
+          description: p.description,
+          status:      p.status,
+          color:       p.color,
+          trunkPrefix: p.trunkPrefix,
+          sortOrder:   p.sortOrder,
+          minMarginPct: p.minMarginPct,
+        },
+      });
   }
 
-  const [prefixExists] = await db.select({ prefix: productPrefixes.prefix }).from(productPrefixes).limit(1);
-  if (!prefixExists) {
-    for (const px of CANONICAL_PREFIXES) {
-      await db.insert(productPrefixes).values({ ...px, active: true }).onConflictDoNothing();
-    }
+  for (const px of CANONICAL_PREFIXES) {
+    await db.insert(productPrefixes)
+      .values({ ...px, active: true })
+      .onConflictDoUpdate({
+        target: productPrefixes.prefix,
+        set: { productCode: px.productCode, productName: px.productName, active: true },
+      });
   }
-  console.log('[workspace-seed] Product seed complete.');
+  console.log('[workspace-seed] Product upsert complete.');
 }
 
 export async function seedWorkspacesIfEmpty(): Promise<void> {
