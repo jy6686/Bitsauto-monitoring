@@ -7975,10 +7975,11 @@ export async function setSippyRateEntry(
   // turns 16:30 local → 11:30 UTC, activating the rate 5 hours too early).
   // The legacy BitsAuto system (which works) sends exactly "YYYY-MM-DD HH:MM" as typed.
   function normaliseSippyDate(raw: string): string {
-    // Replace T separator, strip seconds suffix if present
+    // Replace T separator, strip seconds suffix if present, then re-append :00
+    // Legacy BitsAuto sends "2026-06-17 13:30:00" — Sippy stores & validates with seconds.
     const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return s;               // "YYYY-MM-DD HH:MM"
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))      return `${raw.trim()} 00:00`; // date-only
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;       // "YYYY-MM-DD HH:MM:SS"
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))      return `${raw.trim()} 00:00:00`; // date-only
     return raw; // pass through unchanged if format is unrecognised
   }
   if (entry.effectiveFrom) {
@@ -8139,13 +8140,14 @@ async function pushRateViaPortalUpload(
   // ── Step 3: build the CSV ─────────────────────────────────────────────────
   // Format: Action,i_rate,Prefix,Price1,PriceN,Interval1,IntervalN,ForbiddenFlag,GracePeriodEnable,ActivationDate,ExpirationDate
   // Action AS = add-or-update by prefix (upsert). i_rate left empty for AS action.
-  // Dates: "YYYY-MM-DD HH:MM" — pure string manipulation, NO timezone conversion.
-  // The legacy BitsAuto system (confirmed working) sends exactly this format.
+  // Dates: "YYYY-MM-DD HH:MM:SS" — pure string manipulation, NO timezone conversion.
+  // Legacy BitsAuto (confirmed working) sends "2026-06-17 13:30:00"; Sippy validates format
+  // strictly and returns PARSEERROR01 for an invalid activation date.
   function normDate(raw?: string): string {
     if (!raw) return '';
     const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return s;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))      return `${raw.trim()} 00:00`;
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))      return `${raw.trim()} 00:00:00`;
     return '';
   }
   const csvHeader = 'Action,i_rate,Prefix,Price1,PriceN,Interval1,IntervalN,ForbiddenFlag,GracePeriodEnable,ActivationDate,ExpirationDate';
