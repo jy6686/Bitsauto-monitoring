@@ -186,8 +186,15 @@ async function getAdminPortalSession(
   rateAdminPass?: string,
 ): Promise<CookieJar | null> {
   const now = Date.now();
-  const cached = adminPortalCacheByUrl.get(base);
-  if (cached && cached.expiresAt > now) return cached.cookies;
+  // When dedicated rate-admin credentials are provided, bust the positive cache so the
+  // rate-admin account is actually tried — otherwise the cached ssp-root session is returned
+  // immediately and the rate-admin pairs are never reached.
+  if (rateAdminUser && rateAdminPass) {
+    adminPortalCacheByUrl.delete(base);
+  } else {
+    const cached = adminPortalCacheByUrl.get(base);
+    if (cached && cached.expiresAt > now) return cached.cookies;
+  }
   // Negative cache: if all logins failed recently, don't hammer Sippy again — wait 5 minutes.
   // bypassNegCache=true lets explicit user-triggered actions (e.g. create service plan) retry immediately.
   if (!bypassNegCache) {
@@ -203,6 +210,12 @@ async function getAdminPortalSession(
     const key = `${u}:${p}`;
     if (u && p && !seen.has(key)) { seen.add(key); pairs.push([u, p]); }
   }
+  // Dedicated rate-management admin credentials go FIRST — they are the most likely to have
+  // "Edit Tariff Rates" permission. If they fail, fall back to the other credential pairs.
+  if (rateAdminUser && rateAdminPass) {
+    addPair(rateAdminUser, rateAdminPass);
+    if (adminWebPassword) addPair(rateAdminUser, adminWebPassword);
+  }
   addPair(adminUser, adminPass);
   addPair(portalUser, portalPass);
   if (adminWebPassword) {
@@ -215,12 +228,6 @@ async function getAdminPortalSession(
   if (provUser && provPass) {
     addPair(provUser, provPass);
     if (adminWebPassword) addPair(provUser, adminWebPassword);
-  }
-  // Dedicated rate-management admin credentials (sippyRateAdminUser/sippyRateAdminPass from settings).
-  // This is a SEPARATE Sippy system admin account with "Edit Tariff Rates" permission.
-  if (rateAdminUser && rateAdminPass) {
-    addPair(rateAdminUser, rateAdminPass);
-    if (adminWebPassword) addPair(rateAdminUser, adminWebPassword);
   }
   console.log(`[Sippy] getAdminPortalSession: trying ${pairs.length} cred pair(s) against ${base}`);
   const failures: string[] = [];
