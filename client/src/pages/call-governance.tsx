@@ -474,12 +474,12 @@ function RuleForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-slate-400">Connection Name <span className="text-rose-400">*</span></label>
+          <label className="text-xs text-slate-400">Connection Name <span className="text-slate-500">(optional)</span></label>
           <Input
             data-testid="input-connection-name"
             value={form.connectionName}
             onChange={e => set('connectionName', e.target.value)}
-            placeholder="e.g. Sippy"
+            placeholder="e.g. Sippy (leave blank for any)"
             className="bg-slate-900/50 border-slate-700"
           />
         </div>
@@ -618,7 +618,7 @@ function RuleForm({
             capSec:            Number(form.capSec),
             jitterSec:         Number(form.jitterSec),
           })}
-          disabled={!form.connectionName.trim()}
+          disabled={!form.ruleName.trim() && !form.destinationPrefix.trim()}
           className="bg-emerald-600 hover:bg-emerald-700 text-white"
         >
           Save Rule
