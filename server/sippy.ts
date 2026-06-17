@@ -7961,8 +7961,38 @@ export async function setSippyRateEntry(
     destination: entry.prefix,      // legacy alias
     rate:        r,                 // legacy alias (<double> now fixed)
   };
-  if (entry.effectiveFrom) { params.activation_date = entry.effectiveFrom; params.start_date = entry.effectiveFrom; }
-  if (entry.effectiveTill) { params.expiration_date = entry.effectiveTill; params.end_date   = entry.effectiveTill; }
+  // Normalise dates — HTML datetime-local produces "YYYY-MM-DDTHH:MM" (no seconds, no TZ).
+  // Sippy XML-RPC expects "YYYY-MM-DD HH:MM:SS" (UTC).  Run through fmtSippyDate to standardise.
+  function normaliseSippyDate(raw: string): string {
+    try {
+      // Accept ISO8601 variants: "2026-06-17T15:00", "2026-06-17 15:00:00", "2026-06-17", etc.
+      const d = new Date(raw.includes('T') || raw.includes(' ') ? raw : `${raw}T00:00:00Z`);
+      if (isNaN(d.getTime())) return raw; // pass through if unparseable
+      return fmtSippyDate(d);             // → "YYYY-MM-DD HH:MM:SS"
+    } catch { return raw; }
+  }
+  if (entry.effectiveFrom) {
+    const v = normaliseSippyDate(entry.effectiveFrom);
+    params.activation_date = v;
+    params.start_date      = v;
+  }
+  if (entry.effectiveTill) {
+    const v = normaliseSippyDate(entry.effectiveTill);
+    params.expiration_date = v;
+    params.end_date        = v;
+  }
+
+  // Helper: extract faultCode + faultString from an XML-RPC <fault> block.
+  // Standard XML-RPC wraps them in <member><name>faultString</name><value>...</value></member>,
+  // NOT as direct tags — extractTag(body,'faultString') always returns empty.
+  function extractXmlRpcFault(body: string): { code: string; str: string } {
+    const faultBlock = extractTag(body, 'fault') ?? '';
+    const members    = extractStructMembers(faultBlock || body);
+    return {
+      code: members['faultCode']   ?? extractTag(body, 'faultCode')   ?? '',
+      str:  members['faultString'] ?? extractTag(body, 'faultString') ?? '',
+    };
+  }
 
   // Probe all known + plausible method names — Sippy 2022+ and legacy
   for (const method of [
@@ -7979,9 +8009,10 @@ export async function setSippyRateEntry(
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
         return { success: true, message: `Rate saved via ${method}` };
       }
-      const faultStr = extractTag(resp.body, 'faultString');
-      const faultCode = extractTag(resp.body, 'faultCode');
-      const fault = faultStr ? `${method}: ${faultStr} (code ${faultCode})` : `${method} HTTP ${resp.statusCode}`;
+      const { code, str } = extractXmlRpcFault(resp.body);
+      const fault = str
+        ? `${method}: ${str}${code ? ` (code ${code})` : ''}`
+        : `${method} HTTP ${resp.statusCode}`;
       lastErrors.push(fault);
     } catch (e: any) { lastErrors.push(`${method} exception: ${e.message}`); }
   }
