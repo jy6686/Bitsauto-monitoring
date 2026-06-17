@@ -818,7 +818,7 @@ export async function registerRoutes(
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
 
-    const UNGUARDED = new Set(['/probe/status','/portal/auth/logout','/portal/auth/session','/debug/account-cache']);
+    const UNGUARDED = new Set(['/probe/status','/portal/auth/logout','/portal/auth/session','/debug/account-cache','/sippy/rates/portal-probe']);
   app.use('/api',(req,res,next)=>{
     if(UNGUARDED.has(req.path)||req.path.startsWith('/notifications/acknowledge'))return next();
     const uid=req.user?.claims?.sub??req.user?.id??null;
@@ -9286,7 +9286,16 @@ export async function registerRoutes(
         if (sw?.portalUrl) portalUrl = sw.portalUrl;
       }
       if (!tariffId) return res.status(400).json({ ok: false, error: 'tariffId required' });
-      const result = await sippy.probePortalRatesPage(portalUrl, tariffId);
+      const adminCreds: sippy.RateAdminCreds = {
+        adminUser: (settings as any).apiAdminUsername ?? '',
+        adminPass: (settings as any).apiAdminPassword ?? '',
+        portalUser: (settings as any).portalUsername ?? '',
+        portalPass: (settings as any).portalPassword ?? '',
+        adminWebPassword: (settings as any).adminWebPassword ?? undefined,
+        rateAdminUser: (settings as any).sippyRateAdminUser ?? undefined,
+        rateAdminPass: (settings as any).sippyRateAdminPass ?? undefined,
+      };
+      const result = await sippy.probePortalRatesPage(portalUrl, tariffId, adminCreds);
       res.json(result);
     } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
   });
@@ -9332,7 +9341,16 @@ export async function registerRoutes(
         }
       }
       if (!tariffId || !prefix || rate === undefined) return res.status(400).json({ success: false, message: 'tariffId, prefix, rate required' });
-      const result = await sippy.setSippyRateEntry(u, p, tariffId, { prefix, rate: Number(rate), effectiveFrom, effectiveTill }, portalUrl);
+      const adminCreds: sippy.RateAdminCreds = {
+        adminUser: (settings as any).apiAdminUsername ?? '',
+        adminPass: (settings as any).apiAdminPassword ?? '',
+        portalUser: (settings as any).portalUsername ?? '',
+        portalPass: (settings as any).portalPassword ?? '',
+        adminWebPassword: (settings as any).adminWebPassword ?? undefined,
+        rateAdminUser: (settings as any).sippyRateAdminUser ?? undefined,
+        rateAdminPass: (settings as any).sippyRateAdminPass ?? undefined,
+      };
+      const result = await sippy.setSippyRateEntry(u, p, tariffId, { prefix, rate: Number(rate), effectiveFrom, effectiveTill }, portalUrl, adminCreds);
       res.json(result);
     } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
   });
@@ -20285,7 +20303,15 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
                 rate: entry.ratePerMin,
                 effectiveFrom,
                 effectiveTill,
-              }, portalUrl);
+              }, portalUrl, {
+                adminUser: (settings as any).apiAdminUsername ?? '',
+                adminPass: (settings as any).apiAdminPassword ?? '',
+                portalUser: (settings as any).portalUsername ?? '',
+                portalPass: (settings as any).portalPassword ?? '',
+                adminWebPassword: (settings as any).adminWebPassword ?? undefined,
+                rateAdminUser: (settings as any).sippyRateAdminUser ?? undefined,
+                rateAdminPass: (settings as any).sippyRateAdminPass ?? undefined,
+              });
               if (result.success) job.pushed++; else job.failed++;
             } catch { job.failed++; }
           }
@@ -27603,7 +27629,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           rate:          Number(entry.rate),
           effectiveFrom: entry.effectiveFrom  ? entry.effectiveFrom  : undefined,
           effectiveTill: entry.effectiveTill  ? entry.effectiveTill  : undefined,
-        }, portalUrl);
+        }, portalUrl, {
+          adminUser: (settings as any).apiAdminUsername ?? '',
+          adminPass: (settings as any).apiAdminPassword ?? '',
+          portalUser: (settings as any).portalUsername ?? '',
+          portalPass: (settings as any).portalPassword ?? '',
+          adminWebPassword: (settings as any).adminWebPassword ?? undefined,
+          rateAdminUser: (settings as any).sippyRateAdminUser ?? undefined,
+          rateAdminPass: (settings as any).sippyRateAdminPass ?? undefined,
+        });
         results.push({ prefix: entry.prefix, rate: Number(entry.rate), success: r.success, message: r.message });
       }
       const pushed = results.filter(r => r.success).length;
@@ -35224,7 +35258,15 @@ ${footer}
               const [gd] = await db.select({ dialPrefix: globalDestinations.dialPrefix })
                 .from(globalDestinations).where(eq(globalDestinations.id, d.destinationId ?? 0)).limit(1);
               const prefix = gd?.dialPrefix ?? d.destinationName;
-              const r = await sippy.setSippyRateEntry(username, password, String(tariffId), { prefix, rate }, portalUrl);
+              const r = await sippy.setSippyRateEntry(username, password, String(tariffId), { prefix, rate }, portalUrl, {
+                adminUser: (settings as any).apiAdminUsername ?? '',
+                adminPass: (settings as any).apiAdminPassword ?? '',
+                portalUser: (settings as any).portalUsername ?? '',
+                portalPass: (settings as any).portalPassword ?? '',
+                adminWebPassword: (settings as any).adminWebPassword ?? undefined,
+                rateAdminUser: (settings as any).sippyRateAdminUser ?? undefined,
+                rateAdminPass: (settings as any).sippyRateAdminPass ?? undefined,
+              });
               r.success ? pushed++ : failed++;
               console.log(`[deal-approve] Rate push ${prefix}=${rate}: ${r.success ? 'OK' : r.message}`);
             }
@@ -35529,6 +35571,13 @@ ${footer}
                   effectiveTill: effectiveTill || undefined,
                 },
                 portalUrl,
+                {
+                  adminUser: (settings as any).apiAdminUsername ?? '',
+                  adminPass: (settings as any).apiAdminPassword ?? '',
+                  portalUser: (settings as any).portalUsername ?? '',
+                  portalPass: (settings as any).portalPassword ?? '',
+                  adminWebPassword: (settings as any).adminWebPassword ?? undefined,
+                },
               );
               r = { ...sr, detail: `i_tariff=${iTariff}` };
             } else {

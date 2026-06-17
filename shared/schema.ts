@@ -80,6 +80,11 @@ export const settings = pgTable("settings", {
   apiAdminUsername: varchar("api_admin_username", { length: 128 }),
   apiAdminPassword: varchar("api_admin_password", { length: 255 }),  // XML-RPC API password (My Preferences → Allow API Calls)
   adminWebPassword: varchar("admin_web_password", { length: 255 }),  // Web portal login password (may differ from API password)
+  // Dedicated Sippy rate-management admin credentials — a SEPARATE Sippy system admin account
+  // (not ssp-root/reseller) that has "Edit Tariff Rates" permission in the Sippy admin panel.
+  // Only needed if the primary account (ssp-root) lacks tariff-edit permission.
+  sippyRateAdminUser: varchar("sippy_rate_admin_user", { length: 128 }),
+  sippyRateAdminPass: varchar("sippy_rate_admin_pass", { length: 255 }),
   // SNMP monitoring (Sippy SNMP — docs: support.sippysoft.com/a/solutions/articles/81166)
   // SNMP runs on the Sippy switch host at UDP port 161 (snmpd with SIPPY-MIB).
   // Enterprise OID prefix: .1.3.6.1.4.1.36523

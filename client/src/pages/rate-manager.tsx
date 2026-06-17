@@ -7,7 +7,7 @@ import {
   ChevronDown, Search, X, RefreshCw, Check, AlertTriangle, Send,
   BarChart2, Eye, Clock, ChevronRight, Loader2, CircleCheck, CircleX,
   Plus, Trash2, Bell, BellRing, TrendingUp, TrendingDown, Lightbulb,
-  PackageCheck, Tag, Calendar,
+  PackageCheck, Tag, Calendar, ShieldAlert, ExternalLink,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -431,6 +431,17 @@ function ChangeClientRateModal({
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<{ prefix: string; success: boolean; message: string; method?: string; detail?: string }[] | null>(null);
 
+  // Proactive probe: check if the portal rates page is accessible before the user submits.
+  // This catches the common case where the Sippy account lacks "Edit Tariff Rates" permission.
+  const { data: probe } = useQuery<{ ok: boolean; ratesPageOk: boolean; error?: string }>({
+    queryKey: ['/api/sippy/rates/portal-probe', iTariff],
+    queryFn: () => fetch(`/api/sippy/rates/portal-probe?tariffId=${iTariff}`).then(r => r.json()),
+    enabled: !!iTariff,
+    staleTime: 2 * 60 * 1000,
+    retry: false,
+  });
+  const permissionBlocked = probe && !probe.ratesPageOk && probe.error?.includes('permission');
+
   const handleSubmit = async () => {
     const rateNum = Number(rate);
     if (!rate || isNaN(rateNum)) {
@@ -480,6 +491,19 @@ function ChangeClientRateModal({
           </button>
         </div>
         <div className="p-4 space-y-3">
+          {permissionBlocked && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/[0.08] px-3 py-2.5 text-xs text-amber-300">
+              <ShieldAlert className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-400" />
+              <div className="space-y-1">
+                <p className="font-semibold text-amber-200">Rate push will fail — Sippy permission required</p>
+                <p>The connected Sippy account (<strong>ssp-root</strong>) is a reseller and lacks the <strong>Edit Tariff Rates</strong> permission. To enable rate pushing, do one of:</p>
+                <ol className="list-decimal list-inside space-y-0.5 text-amber-300/80">
+                  <li>In the Sippy Admin Panel, grant <strong>ssp-root</strong> the <em>Edit Tariff Rates</em> permission.</li>
+                  <li>Go to <strong>Settings → Sippy → Rate Admin Credentials</strong> and enter a separate Sippy system admin account.</li>
+                </ol>
+              </div>
+            </div>
+          )}
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Selected destinations ({selectedRates.length})</label>
             <div className="max-h-32 overflow-auto border border-border/50 rounded text-xs divide-y divide-border/30">

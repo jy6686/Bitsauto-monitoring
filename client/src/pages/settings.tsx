@@ -12,7 +12,7 @@ import {
   Radio, Activity, Mail, Bell, Send, MailCheck, MailX, UserCheck, Download, FileText,
   BellRing, BellOff, Smartphone, ShieldAlert, Check, History, ArrowRight, BarChart2,
   Mic, LayoutGrid, Lock, Key, Shield, Navigation, SlidersHorizontal, UserCog,
-  EyeIcon, Layers, Network, Settings2, GitBranch, Fingerprint, ClipboardList,
+  EyeIcon, Layers, Network, Settings2, GitBranch, Fingerprint, ClipboardList, Tag,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -32,6 +32,8 @@ const formSchema = insertSettingsSchema.pick({
   apiAdminUsername: true,
   apiAdminPassword: true,
   adminWebPassword: true,
+  sippyRateAdminUser: true,
+  sippyRateAdminPass: true,
   snmpEnabled: true,
   snmpHost: true,
   snmpPort: true,
@@ -2631,6 +2633,8 @@ export default function SettingsPage() {
       apiAdminUsername: '',
       apiAdminPassword: '',
       adminWebPassword: '',
+      sippyRateAdminUser: '',
+      sippyRateAdminPass: '',
       snmpEnabled: false,
       snmpHost: '',
       snmpPort: 161,
@@ -2958,6 +2962,51 @@ export default function SettingsPage() {
                   Admin API credentials set — will be used for all XML-RPC operations. Click <strong>Save Changes</strong> to store them.
                 </div>
               )}
+
+              {/* ── Rate Admin Credentials ── */}
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <Tag className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-blue-300">Rate Admin Credentials <span className="font-normal text-muted-foreground">(optional)</span></p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Only needed if your primary Sippy account (<strong>{form.watch('apiAdminUsername') || 'ssp-root'}</strong>) is a <em>reseller</em> and lacks
+                      the <strong>Edit Tariff Rates</strong> permission in the Sippy Admin Panel.
+                      Enter a separate Sippy <strong>system admin</strong> account here — it will be used exclusively for Rate Manager push operations.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium">Rate Admin Username</label>
+                    <input
+                      {...form.register("sippyRateAdminUser")}
+                      data-testid="input-rate-admin-user"
+                      type="text"
+                      autoComplete="off"
+                      placeholder="e.g. admin"
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium">Rate Admin Password</label>
+                    <input
+                      {...form.register("sippyRateAdminPass")}
+                      data-testid="input-rate-admin-pass"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="••••••••"
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                  </div>
+                </div>
+                {form.watch('sippyRateAdminUser') && (
+                  <div className="flex items-center gap-2 text-xs text-blue-400">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Rate admin credentials set — will be tried first for all rate push operations.
+                  </div>
+                )}
+              </div>
 
               {/* ── Call Origination Setup Guide (article 106909 / 107448 / 107525) ── */}
               <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">

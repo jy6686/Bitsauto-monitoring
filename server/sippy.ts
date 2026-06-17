@@ -160,6 +160,19 @@ export async function scrapeActiveCallsPortal(
   return getPortalActiveCallsHtml(cookies, base);
 }
 
+// Credentials needed to open an admin-level portal session for rate management pages.
+// Pass these to setSippyRateEntry / pushRateViaPortalUpload / probePortalRatesPage so
+// they can call getAdminPortalSession instead of provisioningLogin (customer-typed).
+export type RateAdminCreds = {
+  adminUser: string; adminPass: string;
+  portalUser: string; portalPass: string;
+  adminWebPassword?: string;
+  // Optional dedicated rate-management admin (a separate Sippy system admin account
+  // that has "Edit Tariff Rates" permission — distinct from the reseller ssp-root account).
+  rateAdminUser?: string;
+  rateAdminPass?: string;
+};
+
 // Get an admin-level portal session (used by getSippyPerAccountStats for vendor cost data)
 // Only accepts admin or reseller login — customer login shows wrong vendor data.
 // Tries ssp-root (apiAdminUsername) first, then portalUsername.
@@ -169,6 +182,8 @@ async function getAdminPortalSession(
   portalUser: string, portalPass: string,
   adminWebPassword?: string,
   bypassNegCache?: boolean,
+  rateAdminUser?: string,
+  rateAdminPass?: string,
 ): Promise<CookieJar | null> {
   const now = Date.now();
   const cached = adminPortalCacheByUrl.get(base);
@@ -193,6 +208,19 @@ async function getAdminPortalSession(
   if (adminWebPassword) {
     addPair(adminUser,  adminWebPassword);
     addPair(portalUser, adminWebPassword);
+  }
+  // Also try SIPPY_PROV env vars — these may be a different (higher-privilege) system admin account
+  const provUser = process.env.SIPPY_PROV_USERNAME?.trim() ?? '';
+  const provPass = process.env.SIPPY_PROV_PASSWORD?.trim() ?? '';
+  if (provUser && provPass) {
+    addPair(provUser, provPass);
+    if (adminWebPassword) addPair(provUser, adminWebPassword);
+  }
+  // Dedicated rate-management admin credentials (sippyRateAdminUser/sippyRateAdminPass from settings).
+  // This is a SEPARATE Sippy system admin account with "Edit Tariff Rates" permission.
+  if (rateAdminUser && rateAdminPass) {
+    addPair(rateAdminUser, rateAdminPass);
+    if (adminWebPassword) addPair(rateAdminUser, adminWebPassword);
   }
   console.log(`[Sippy] getAdminPortalSession: trying ${pairs.length} cred pair(s) against ${base}`);
   const failures: string[] = [];
@@ -7950,6 +7978,7 @@ export async function setSippyRateEntry(
   tariffId: string,
   entry: { prefix: string; rate: number; effectiveFrom?: string; effectiveTill?: string },
   portalUrl?: string,
+  adminCreds?: RateAdminCreds,
 ): Promise<{ success: boolean; message: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
@@ -8057,14 +8086,18 @@ export async function setSippyRateEntry(
   console.log(`[Sippy] setSippyRateEntry: all XML-RPC methods failed — falling back to portal CSV upload`);
   const portalResult = await pushRateViaPortalUpload(
     base, Number(tariffId), entry.prefix, entry.rate,
-    entry.effectiveFrom, entry.effectiveTill,
+    entry.effectiveFrom, entry.effectiveTill, adminCreds,
   );
   if (portalResult.success) return portalResult;
 
   // Surface all errors: XML-RPC errors + portal error
+  const hasPermissionBlock = portalResult.message.includes('login page') || portalResult.message.includes('permission');
+  const actionableHint = hasPermissionBlock
+    ? ' — To fix: either (1) grant the Sippy account "Edit Tariff Rates" permission in Sippy Admin Panel, or (2) add a dedicated Sippy admin account in Settings → Rate Admin Credentials.'
+    : '';
   return {
     success: false,
-    message: `XML-RPC (${lastErrors.length} methods): all 404 | Portal CSV: ${portalResult.message}`,
+    message: `Portal CSV: ${portalResult.message}${actionableHint}`,
   };
 }
 
@@ -8086,11 +8119,30 @@ async function pushRateViaPortalUpload(
   rate: number,
   effectiveFrom?: string,
   effectiveTill?: string,
+  adminCreds?: RateAdminCreds,
 ): Promise<{ success: boolean; message: string }> {
-  // ── Step 1: provisioning session ─────────────────────────────────────────
+  // ── Step 1: obtain portal session ────────────────────────────────────────
+  // Rate management pages (/c1/rates.php) require an admin-level session.
+  // provisioningLogin() logs in as ssp-root/customer — that type is REJECTED
+  // by the rates page. getAdminPortalSession() tries admin/reseller/customer
+  // types with the admin web password, which succeeds.
   let loginCookies: CookieJar;
   try {
-    loginCookies = await provisioningLogin(base);
+    if (adminCreds) {
+      const ac = await getAdminPortalSession(
+        base,
+        adminCreds.adminUser, adminCreds.adminPass,
+        adminCreds.portalUser, adminCreds.portalPass,
+        adminCreds.adminWebPassword,
+        true, // bypassNegCache — user-triggered action, retry immediately
+        adminCreds.rateAdminUser,
+        adminCreds.rateAdminPass,
+      );
+      if (!ac) throw new Error('All admin credential pairs were rejected by the Sippy portal. Check Settings → adminWebPassword.');
+      loginCookies = ac;
+    } else {
+      loginCookies = await provisioningLogin(base);
+    }
   } catch (e: any) {
     return { success: false, message: `Portal login failed: ${e?.message}` };
   }
@@ -8205,6 +8257,7 @@ async function pushRateViaPortalUpload(
 export async function probePortalRatesPage(
   base: string,
   iTariff: number,
+  adminCreds?: RateAdminCreds,
 ): Promise<{
   ok: boolean;
   loginOk: boolean;
@@ -8223,19 +8276,53 @@ export async function probePortalRatesPage(
   let loginOk = false;
   let cookies: CookieJar;
   try {
-    cookies = await provisioningLogin(base);
+    if (adminCreds) {
+      const ac = await getAdminPortalSession(
+        base,
+        adminCreds.adminUser, adminCreds.adminPass,
+        adminCreds.portalUser, adminCreds.portalPass,
+        adminCreds.adminWebPassword,
+        true,
+        adminCreds.rateAdminUser,
+        adminCreds.rateAdminPass,
+      );
+      if (!ac) return fail('All admin credential pairs rejected by Sippy portal');
+      cookies = ac;
+    } else {
+      cookies = await provisioningLogin(base);
+    }
     loginOk = true;
   } catch (e: any) {
     return fail(`Portal login failed: ${e?.message}`);
   }
-  const ratesPageUrl = `${base}/c1/rates.php?i_tariff=${iTariff}`;
+  // Try several URL variants: c1/ (customer portal), root-level (admin portal),
+  // and the older sip_stats/ path. The first one that returns non-login-page HTML wins.
+  const candidateUrls = [
+    `${base}/c1/rates.php?i_tariff=${iTariff}`,
+    `${base}/rates.php?i_tariff=${iTariff}`,
+    `${base}/tariff_rates.php?i_tariff=${iTariff}`,
+    `${base}/c1/tariffs.php?action=edit_rates&i_tariff=${iTariff}`,
+  ];
+  let ratesPageUrl = candidateUrls[0];
+  let resp = await rawRequest('GET', ratesPageUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 3);
+  for (let i = 1; i < candidateUrls.length; i++) {
+    const isLp = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
+    const is404 = resp.body.includes('404 Not Found') || resp.body.includes('<title>404') || (resp.statusCode === 404);
+    const isTooSmall = resp.body.length < 300;
+    if (!isLp && !is404 && !isTooSmall) break;
+    const reason = isLp ? 'login-page' : is404 ? '404' : 'too-small';
+    console.log(`[Sippy] probePortalRatesPage: ${ratesPageUrl} → ${reason} (${resp.body.length}B), trying ${candidateUrls[i]}`);
+    ratesPageUrl = candidateUrls[i];
+    resp = await rawRequest('GET', ratesPageUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 3);
+  }
   try {
-    const resp = await rawRequest('GET', ratesPageUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 3);
     const isLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
     if (isLoginPage) {
+      const loginIdx = Math.max(resp.body.indexOf('value="Login"'), resp.body.indexOf("value='Login'"));
+      const loginCtx = loginIdx >= 0 ? resp.body.slice(Math.max(0, loginIdx - 100), loginIdx + 200).replace(/\s+/g, ' ') : '';
       return { ok: false, loginOk, ratesPageOk: false, formFound: false,
         fileField: '', hiddenFields: [], formAction: ratesPageUrl,
-        bodySnippet: resp.body.slice(0, 300), error: 'Rates page returned login form (session rejected)' };
+        bodySnippet: `[tried ${candidateUrls.length} URLs, all login-page] [body len=${resp.body.length}B, login@${loginIdx}] …${loginCtx}…`, error: `All URL variants returned login page — ssp-root may lack rate-management permissions` };
     }
     // Extract upload form fields
     let fileField = 'rate_file';
