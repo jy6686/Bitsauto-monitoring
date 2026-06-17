@@ -9922,11 +9922,29 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
         } catch { /* try next pair */ }
       }
       if (!info) return res.status(404).json({ error: 'Account not found or Sippy unavailable' });
+
+      // ── Resolve iTariff via Service Plan chain if not directly set ──────────
+      // Some Sippy instances assign tariffs via Service Plans (billing plans)
+      // rather than directly on the account. getAccountInfo's i_tariff comes
+      // back empty in that case, but i_billing_plan is populated.
+      let resolvedTariff = info.iTariff || null;
+      if (!resolvedTariff && info.iBillingPlan) {
+        try {
+          const { plans } = await sippy.listSippyBillingPlans(
+            credPairs[0].username, credPairs[0].password, portalUrl
+          );
+          const plan = plans.find((p: any) => p.id === info.iBillingPlan || p.iBillingPlan === info.iBillingPlan);
+          if (plan?.iTariff) resolvedTariff = plan.iTariff;
+        } catch (e: any) {
+          console.warn(`[sippy/accounts/info] Service plan tariff lookup failed: ${e.message}`);
+        }
+      }
+
       res.json({
         iAccount:      info.iAccount,
         username:      info.username,
         iRoutingGroup: info.iRoutingGroup ?? null,
-        iTariff:       info.iTariff       ?? null,
+        iTariff:       resolvedTariff,
         iBillingPlan:  info.iBillingPlan  ?? null,
         description:   info.description   ?? null,
         blocked:       info.blocked       ?? false,
