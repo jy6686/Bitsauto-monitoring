@@ -254,6 +254,22 @@ function RateDetailPanel({
   }, [tariffData, trunkPrefix, allDests, allowedPrefixes]);
 
   const isLoading = infoLoading || ratesLoading;
+  const [selectedRateKeys, setSelectedRateKeys] = useState<Set<string>>(new Set());
+  const [changeModalOpen, setChangeModalOpen] = useState(false);
+  const rateKey = (r: RateEntry & { rawPrefix?: string }, i: number) => String(r.i_rate ?? `${r.prefix}-${i}`);
+  const allSelected = rates.length > 0 && rates.every((r, i) => selectedRateKeys.has(rateKey(r, i)));
+  const toggleAll = () => {
+    if (allSelected) setSelectedRateKeys(new Set());
+    else setSelectedRateKeys(new Set(rates.map((r, i) => rateKey(r, i))));
+  };
+  const toggleOne = (key: string) => {
+    setSelectedRateKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const selectedRates = rates.filter((r, i) => selectedRateKeys.has(rateKey(r, i)));
 
   return (
     <div className="flex flex-col h-full">
@@ -294,10 +310,27 @@ function RateDetailPanel({
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 bg-muted/10 flex-shrink-0">
+            <span className="text-[11px] text-muted-foreground">
+              {selectedRateKeys.size > 0 ? `${selectedRateKeys.size} selected` : "Select rates to change"}
+            </span>
+            <button
+              onClick={() => setChangeModalOpen(true)}
+              disabled={selectedRateKeys.size === 0}
+              className="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded px-3 py-1.5 font-medium"
+              data-testid="btn-change-client-rates"
+            >
+              Change Client Rates
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto">
           <table className="w-full text-xs border-collapse">
             <thead className="sticky top-0 bg-muted/30 backdrop-blur z-10">
               <tr>
+                <th className="text-left py-2 px-3 border-b border-border w-8">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} data-testid="checkbox-select-all" />
+                </th>
                 {["Code", "Destination", "Client Destination", "Rate (USD)", "Active From", "Active Till", "Status"].map(h => (
                   <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground border-b border-border whitespace-nowrap">
                     {h}
@@ -314,6 +347,14 @@ function RateDetailPanel({
                     r.forbidden ? "opacity-60" : "",
                   )}
                 >
+                  <td className="py-1.5 px-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedRateKeys.has(rateKey(r, i))}
+                      onChange={() => toggleOne(rateKey(r, i))}
+                      data-testid={`checkbox-rate-${i}`}
+                    />
+                  </td>
                   <td className="py-1.5 px-3 font-mono text-[11px]">{r.rawPrefix || "—"}</td>
                   <td className="py-1.5 px-3">{r.destName}</td>
                   <td className="py-1.5 px-3 text-muted-foreground">{r.destName}</td>
@@ -337,7 +378,7 @@ function RateDetailPanel({
               ))}
               {rates.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-muted-foreground">
+                  <td colSpan={8} className="text-center py-10 text-muted-foreground">
                     No rates found with prefix <span className="font-mono text-blue-400">"{trunkPrefix}*"</span> in Tariff #{iTariff}
                   </td>
                 </tr>
@@ -347,6 +388,7 @@ function RateDetailPanel({
           <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border/30">
             {rates.length} rate{rates.length !== 1 ? "s" : ""} shown
             {trunkPrefix ? ` matching prefix "${trunkPrefix}*"` : ""} · Tariff #{iTariff}
+          </div>
           </div>
         </div>
       )}
