@@ -35496,19 +35496,37 @@ ${footer}
         const results: { prefix: string; success: boolean; message: string; method?: string; detail?: string }[] = [];
         for (const prefix of prefixes) {
           try {
-            const r = await sippy.pushRateToSippy(
-              {
-                accountName,
-                iTariff: iTariff ? String(iTariff) : undefined,
-                prefix: String(prefix),
-                ratePerMin: Number(rate),
-                effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
-                effectiveTo:   effectiveTill ? new Date(effectiveTill) : undefined,
-                format: 'full',
-              },
-              { username, password },
-              portalUrl,
-            );
+            let r: { success: boolean; message: string; method?: string; detail?: string };
+            if (iTariff) {
+              // Fast path: we already know the tariff ID — call setSippyRateEntry directly
+              // (tries 9 Sippy method variants including 2022+ addRateToTariff + legacy)
+              const sr = await sippy.setSippyRateEntry(
+                username, password,
+                String(iTariff),
+                {
+                  prefix:        String(prefix),
+                  rate:          Number(rate),
+                  effectiveFrom: effectiveFrom || undefined,
+                  effectiveTill: effectiveTill || undefined,
+                },
+                portalUrl,
+              );
+              r = { ...sr, detail: `i_tariff=${iTariff}` };
+            } else {
+              // Fallback: look up customer by name
+              r = await sippy.pushRateToSippy(
+                {
+                  accountName,
+                  prefix: String(prefix),
+                  ratePerMin: Number(rate),
+                  effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
+                  effectiveTo:   effectiveTill ? new Date(effectiveTill) : undefined,
+                  format: 'full',
+                },
+                { username, password },
+                portalUrl,
+              );
+            }
             results.push({ prefix: String(prefix), ...r });
           } catch (e: any) {
             results.push({ prefix: String(prefix), success: false, message: e.message });
