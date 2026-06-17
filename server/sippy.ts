@@ -7417,14 +7417,21 @@ export async function createSippyServicePlan(
 
       // ── Pre-GET: fetch the Add New form to extract CSRF/hidden tokens ───────
       // Sippy generates hidden form tokens on the GET that must be echoed in the POST.
-      // POSTing cold (without these tokens) causes Sippy to return the login form.
+      // IMPORTANT: use the cookies returned by the GET (getResp.cookies) for the POST,
+      // not the original cookies — Sippy may refresh session tokens on the GET.
       const hiddenFields: Record<string, string> = {};
+      let postCookies = cookies; // default: use login cookies; overwritten if pre-GET succeeds
       try {
         const getUrl = iCustomer
           ? `${base}/c1/service_plans.php?action=add&i_customer=${iCustomer}`
           : `${base}/c1/service_plans.php?action=add`;
         const getResp = await rawRequest('GET', getUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 3);
-        if (getResp.statusCode === 200 && !getResp.body.includes('value="Login"')) {
+        const preGetSnippet = getResp.body.slice(0, 400).replace(/\s+/g, ' ');
+        const hasLoginFormGet = getResp.body.includes('value="Login"') || getResp.body.includes("value='Login'");
+        console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): HTTP ${getResp.statusCode}, ${getResp.body.length}B, loginForm=${hasLoginFormGet}, snippet: ${preGetSnippet}`);
+        if (getResp.statusCode === 200 && !hasLoginFormGet) {
+          // Use cookies from the GET response (session may be refreshed)
+          postCookies = getResp.cookies;
           // Extract all <input type="hidden" name="..." value="..."> fields
           const hiddenRe = /<input[^>]+type=["']?hidden["']?[^>]*>/gi;
           let m: RegExpExecArray | null;
@@ -7434,9 +7441,9 @@ export async function createSippyServicePlan(
             const valueM = tag.match(/value=["']([^"']*)["']/i);
             if (nameM && valueM) hiddenFields[nameM[1]] = valueM[1];
           }
-          console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): extracted ${Object.keys(hiddenFields).length} hidden fields: ${Object.keys(hiddenFields).join(', ')}`);
+          console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): extracted ${Object.keys(hiddenFields).length} hidden fields: ${Object.keys(hiddenFields).join(', ')}, cookies updated=${getResp.cookies.size}`);
         } else {
-          console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): skipped (${getResp.statusCode} or login form)`);
+          console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): skipped — loginForm=${hasLoginFormGet} status=${getResp.statusCode}`);
         }
       } catch (ge: any) {
         console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): error ${ge?.message} — proceeding without tokens`);
@@ -7446,7 +7453,8 @@ export async function createSippyServicePlan(
       const postFields = { ...hiddenFields, ...basePostFields, ...(iCustomer ? { i_customer: iCustomer } : {}) };
       const postBody   = encodeForm(postFields);
       // Use redirectsLeft=5 so a successful POST that redirects to the edit page is followed
-      const r = await rawRequest('POST', postUrl, postBody, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 5);
+      // Use postCookies (updated after pre-GET) so any refreshed session tokens are included
+      const r = await rawRequest('POST', postUrl, postBody, { 'User-Agent': PORTAL_USER_AGENT }, postCookies, 5);
       console.log(`[Sippy] createSippyServicePlan POST (${label}) → HTTP ${r.statusCode}, body: ${r.body.length}B, snippet: ${r.body.slice(0, 200).replace(/\s+/g, ' ')}`);
       const isLoginPage    = r.body.includes('value="Login"') || r.body.includes("value='Login'");
       const hasInsertError = /alert\(['"][^'"]*Cannot insert[^'"]*['"]\)/i.test(r.body);
@@ -7994,14 +8002,39 @@ export async function setSippyRateEntry(
     };
   }
 
-  // Probe all known + plausible method names — Sippy 2022+ and legacy
-  for (const method of [
-    // Sippy 2022+ naming pattern (matching getTariffRatesList / deleteAllRatesInTariff)
+  // ── Discover available methods via system.listMethods ───────────────────────
+  // Filter for any write methods related to "rate" or "tariff" that we haven't tried.
+  const discoveredRateMethods: string[] = [];
+  try {
+    const lmResp = await sippyPost(apiUrl, xmlRpcCall('system.listMethods', {}), username, password, 6000);
+    if (lmResp.statusCode === 200 && !lmResp.body.includes('<fault>')) {
+      const strRe = /<string>([^<]+)<\/string>/g;
+      let sm: RegExpExecArray | null;
+      while ((sm = strRe.exec(lmResp.body)) !== null) {
+        const name = sm[1].trim();
+        // Keep write-style rate/tariff methods (exclude get/list/fetch/describe)
+        if (/rate|tariff/i.test(name) && !/^(get|list|fetch|describe|show)/i.test(name.split('.').pop() ?? name)) {
+          discoveredRateMethods.push(name);
+        }
+      }
+      console.log(`[Sippy] setSippyRateEntry: system.listMethods found ${discoveredRateMethods.length} write rate/tariff methods: ${discoveredRateMethods.join(', ')}`);
+    }
+  } catch (lme: any) {
+    console.log(`[Sippy] setSippyRateEntry: system.listMethods error: ${lme.message}`);
+  }
+
+  // Probe discovered methods first, then fall back to known candidates
+  const knownMethods = [
     'addRateToTariff', 'addRateInTariff', 'addRatesToTariff',
     'setRateInTariff', 'setRateToTariff', 'updateRateInTariff',
-    // Original guesses — confirmed 404 but keeping for completeness
     'addRateTariff', 'tariff.setRate', 'tariff.addDestination', 'rate.setRate',
-  ]) {
+    // Simpler legacy names
+    'addRate', 'setRate', 'updateRate', 'insertRate',
+  ];
+  const methodsToTry = Array.from(new Set([...discoveredRateMethods, ...knownMethods]));
+
+  // Probe all known + plausible method names — Sippy 2022+ and legacy
+  for (const method of methodsToTry) {
     try {
       const body = xmlRpcCall(method, params);
       const resp = await sippyPost(apiUrl, body, username, password);
