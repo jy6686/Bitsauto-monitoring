@@ -7409,13 +7409,42 @@ export async function createSippyServicePlan(
   let usedSession = '';
   for (const { cookies, label, iCustomer } of allSessions) {
     try {
-      const postFields = iCustomer ? { ...basePostFields, i_customer: iCustomer } : basePostFields;
-      const postBody   = encodeForm(postFields);
       // Service plans live under /c1/ (customer self-care portal), not root.
       // Root /service_plans.php requires an admin-panel session which we cannot obtain.
-      const postUrl    = iCustomer
+      const postUrl = iCustomer
         ? `${base}/c1/service_plans.php?i_customer=${iCustomer}`
         : `${base}/c1/service_plans.php`;
+
+      // ── Pre-GET: fetch the Add New form to extract CSRF/hidden tokens ───────
+      // Sippy generates hidden form tokens on the GET that must be echoed in the POST.
+      // POSTing cold (without these tokens) causes Sippy to return the login form.
+      const hiddenFields: Record<string, string> = {};
+      try {
+        const getUrl = iCustomer
+          ? `${base}/c1/service_plans.php?action=add&i_customer=${iCustomer}`
+          : `${base}/c1/service_plans.php?action=add`;
+        const getResp = await rawRequest('GET', getUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 3);
+        if (getResp.statusCode === 200 && !getResp.body.includes('value="Login"')) {
+          // Extract all <input type="hidden" name="..." value="..."> fields
+          const hiddenRe = /<input[^>]+type=["']?hidden["']?[^>]*>/gi;
+          let m: RegExpExecArray | null;
+          while ((m = hiddenRe.exec(getResp.body)) !== null) {
+            const tag = m[0];
+            const nameM  = tag.match(/name=["']([^"']+)["']/i);
+            const valueM = tag.match(/value=["']([^"']*)["']/i);
+            if (nameM && valueM) hiddenFields[nameM[1]] = valueM[1];
+          }
+          console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): extracted ${Object.keys(hiddenFields).length} hidden fields: ${Object.keys(hiddenFields).join(', ')}`);
+        } else {
+          console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): skipped (${getResp.statusCode} or login form)`);
+        }
+      } catch (ge: any) {
+        console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): error ${ge?.message} — proceeding without tokens`);
+      }
+
+      // Merge hidden fields first so our explicit fields take precedence
+      const postFields = { ...hiddenFields, ...basePostFields, ...(iCustomer ? { i_customer: iCustomer } : {}) };
+      const postBody   = encodeForm(postFields);
       // Use redirectsLeft=5 so a successful POST that redirects to the edit page is followed
       const r = await rawRequest('POST', postUrl, postBody, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 5);
       console.log(`[Sippy] createSippyServicePlan POST (${label}) → HTTP ${r.statusCode}, body: ${r.body.length}B, snippet: ${r.body.slice(0, 200).replace(/\s+/g, ' ')}`);
