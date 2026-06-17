@@ -392,6 +392,165 @@ function RateDetailPanel({
           </div>
         </div>
       )}
+      {changeModalOpen && (
+        <ChangeClientRateModal
+          account={account}
+          iTariff={iTariff ?? null}
+          selectedRates={selectedRates}
+          onClose={() => setChangeModalOpen(false)}
+          onSuccess={() => {
+            setChangeModalOpen(false);
+            setSelectedRateKeys(new Set());
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+
+// ── Change Client Rate Modal ────────────────────────────────────────────────────
+function ChangeClientRateModal({
+  account,
+  iTariff,
+  selectedRates,
+  onClose,
+  onSuccess,
+}: {
+  account: SippyAccount;
+  iTariff: number | null;
+  selectedRates: (RateEntry & { rawPrefix?: string; destName?: string })[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [rate, setRate] = useState("");
+  const [effectiveFrom, setEffectiveFrom] = useState("");
+  const [effectiveTill, setEffectiveTill] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [results, setResults] = useState<{ prefix: string; success: boolean; message: string; method?: string }[] | null>(null);
+
+  const handleSubmit = async () => {
+    const rateNum = Number(rate);
+    if (!rate || isNaN(rateNum)) {
+      toast({ title: "Enter a valid rate", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    setResults(null);
+    try {
+      const prefixes = selectedRates.map(r => String(r.rawPrefix ?? r.prefix));
+      const res = await apiRequest("POST", "/api/rate-manager/change-client-rates", {
+        accountName: account.username,
+        prefixes,
+        rate: rateNum,
+        effectiveFrom: effectiveFrom || undefined,
+        effectiveTill: effectiveTill || undefined,
+      });
+      const data = await res.json();
+      setResults(data.results ?? []);
+      if (data.ok === prefixes.length) {
+        toast({ title: `Updated ${data.ok} rate(s) successfully` });
+        queryClient.invalidateQueries({ queryKey: [`/api/sippy/tariffs/${iTariff}/rates?limit=500`] });
+        setTimeout(() => onSuccess(), 1200);
+      } else {
+        toast({ title: `${data.ok}/${prefixes.length} rate(s) updated`, description: "Some pushes failed \u2014 see details below.", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Failed to change rates", description: e.message, variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-background border border-border rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] overflow-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <span className="text-sm font-semibold">Change Client Rates \u2014 {account.username}</span>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Selected destinations ({selectedRates.length})</label>
+            <div className="max-h-32 overflow-auto border border-border/50 rounded text-xs divide-y divide-border/30">
+              {selectedRates.map((r, i) => (
+                <div key={i} className="px-2 py-1 flex justify-between">
+                  <span className="font-mono">{String(r.rawPrefix ?? r.prefix)}</span>
+                  <span className="text-muted-foreground">{r.destName ?? ""}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">New Rate (USD / min)</label>
+            <input
+              type="number"
+              step="0.0001"
+              value={rate}
+              onChange={(e) => setRate(e.target.value)}
+              placeholder="0.0100"
+              className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"
+              data-testid="input-change-rate"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Active From</label>
+              <input
+                type="datetime-local"
+                value={effectiveFrom}
+                onChange={(e) => setEffectiveFrom(e.target.value)}
+                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Active Till</label>
+              <input
+                type="datetime-local"
+                value={effectiveTill}
+                onChange={(e) => setEffectiveTill(e.target.value)}
+                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"
+              />
+            </div>
+          </div>
+          {results && (
+            <div className="border border-border/50 rounded text-xs divide-y divide-border/30 max-h-40 overflow-auto">
+              {results.map((r, i) => (
+                <div key={i} className="px-2 py-1 flex items-center justify-between">
+                  <span className="font-mono">{r.prefix}</span>
+                  <span className="flex items-center gap-1">
+                    {r.success ? <Check className="w-3 h-3 text-emerald-400" /> : <X className="w-3 h-3 text-red-400" />}
+                    <span className={cn("text-[10px]", r.success ? "text-emerald-400" : "text-red-400")}>
+                      {r.method ?? r.message}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
+          <button onClick={onClose} className="text-xs px-3 py-1.5 rounded border border-border hover:bg-muted/30">
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || !rate}
+            className="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded px-3 py-1.5 font-medium flex items-center gap-1.5"
+            data-testid="btn-submit-change-rate"
+          >
+            {submitting && <Loader2 className="w-3 h-3 animate-spin" />}
+            Submit
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
