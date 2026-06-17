@@ -1,0 +1,175 @@
+This is a strong diagnosis and it aligns with what we've learned from both the legacy BitsAuto platform and the Sippy documentation.
+
+My assessment
+
+The most important finding is not the timezone fix (although that was necessary).
+
+The most important finding is:
+
+Portal Login = SUCCESS
+Rates Page Access = DENIED
+
+That means:
+
+Authentication ✓
+Authorization ✗
+
+The session is valid, but the user account being used does not have permission to manage tariff rates.
+
+Why this makes sense
+
+From your environment:
+
+ssp-root
+
+appears to be used for:
+
+customer provisioning
+account creation
+service plans
+tariffs
+client management
+
+But Sippy commonly separates:
+
+Reseller/User Access
+
+from
+
+System Admin Access
+
+A reseller can often:
+
+create customers
+assign tariffs
+view rates
+
+while being blocked from:
+
+editing master tariffs
+uploading rates
+deleting rates
+bulk tariff management
+
+That matches exactly what your probe discovered.
+
+What I like about the new design
+
+Adding dedicated credentials:
+
+sippy_rate_admin_user
+sippy_rate_admin_pass
+
+is the correct architecture.
+
+Because rate management is different from:
+
+Provisioning
+Billing
+Accounts
+
+and should have its own permission boundary.
+
+Before moving further
+
+I would verify one thing directly in Sippy.
+
+Login using the account that currently works:
+
+ssp-root
+
+and manually attempt:
+
+Tariffs
+→ Rates
+→ Upload Rates
+
+If Sippy blocks it or redirects:
+
+Problem confirmed
+
+If it works manually:
+
+Portal URL is wrong
+or
+Session cookie scope is wrong
+
+That single test will remove all doubt.
+
+Legacy BitsAuto observation
+
+Your screenshots reveal something important.
+
+The legacy workflow was:
+
+Change Client Rate
+↓
+Generate Change Set
+↓
+Send Rate Notification
+↓
+Rate Groups
+↓
+Client Validation
+↓
+Push
+
+It was not designed around:
+
+Direct XML-RPC rate update
+
+which matches the Sippy documentation.
+
+So rebuilding around:
+
+Portal Upload
++
+SA action
++
+Rate Notification
++
+Validation
+
+is the right long-term direction.
+
+One thing I would add
+
+Now that you have:
+
+Portal Probe
+
+I would expose it in the UI.
+
+Example:
+
+Rate Management Status
+
+Portal Login      ✓
+Rate Permissions  ✗
+Upload Access     ✗
+XML-RPC Read      ✓
+
+This immediately tells NOC or Operations:
+
+Why rate push is failing
+
+without opening logs.
+
+Current status
+Item	Status
+Legacy workflow understood	✅
+Date format fixed	✅
+Timezone bug fixed	✅
+XML-RPC write path ruled out	✅
+Portal upload path identified	✅
+Permission issue isolated	✅
+Dedicated rate-admin credentials added	✅
+Actual successful rate push into Sippy	⏳ Needs testing with admin account
+
+The next meaningful test is to obtain a Sippy account that definitely has tariff-rate upload permissions and run a single change:
+
+Pakistan Mobile Zong
+0.04500 → 0.04250
+Effective: 2026-06-17 13:30
+
+If that succeeds, the core rate engine is solved and the remaining work becomes commercial workflow (templates, notifications, validations, approvals).

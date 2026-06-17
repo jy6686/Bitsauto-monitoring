@@ -937,7 +937,9 @@ function SendRateTab({
   const [effectiveDate, setEffectiveDate] = useState<string>(() => {
     const d = new Date();
     d.setMinutes(0, 0, 0);
-    return d.toISOString().slice(0, 16);
+    // Use LOCAL time — datetime-local inputs must not involve UTC conversion
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   });
 
   const [pushResults, setPushResults] = useState<{ accountName: string; success: boolean; message: string }[] | null>(null);
@@ -993,7 +995,7 @@ function SendRateTab({
         trunkPrefix,
         dialPrefix: resolvedDialPrefix,
         rate: parseFloat(price),
-        effectiveFrom: effectiveDate ? new Date(effectiveDate).toISOString() : undefined,
+        effectiveFrom: effectiveDate || undefined,
         format: format.toLowerCase(),
         productName: product?.name,
         rateType: rateType.toLowerCase(),

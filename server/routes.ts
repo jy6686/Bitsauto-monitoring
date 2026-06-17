@@ -2600,8 +2600,8 @@ export async function registerRoutes(
     accountName: string;
     prefix: string;
     ratePerMin: number;
-    effectiveFrom?: Date;
-    effectiveTo?: Date;
+    effectiveFrom?: string | Date;
+    effectiveTo?: string | Date;
     format?: 'full' | 'partial' | 'default';
   }
 
@@ -3191,8 +3191,8 @@ export async function registerRoutes(
         accountName,
         prefix,
         ratePerMin: Number(ratePerMin),
-        effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
-        effectiveTo:   effectiveTo   ? new Date(effectiveTo)   : undefined,
+        effectiveFrom: effectiveFrom || undefined,
+        effectiveTo:   effectiveTo   || undefined,
         format,
       };
 
@@ -35493,8 +35493,8 @@ ${footer}
                 accountName,
                 prefix: fullPrefix,
                 ratePerMin: Number(rate),
-                effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
-                effectiveTo:   effectiveTill ? new Date(effectiveTill) : undefined,
+                effectiveFrom: effectiveFrom || undefined,
+                effectiveTo:   effectiveTill || undefined,
                 format: format ?? 'full',
               },
               { username, password },
@@ -35587,8 +35587,8 @@ ${footer}
                   accountName,
                   prefix: String(prefix),
                   ratePerMin: Number(rate),
-                  effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,
-                  effectiveTo:   effectiveTill ? new Date(effectiveTill) : undefined,
+                  effectiveFrom: effectiveFrom || undefined,
+                  effectiveTo:   effectiveTill || undefined,
                   format: 'full',
                 },
                 { username, password },

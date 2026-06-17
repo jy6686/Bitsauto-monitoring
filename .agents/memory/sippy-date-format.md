@@ -1,35 +1,33 @@
 ---
 name: Sippy date format for rate activation
-description: How to format activation/expiration dates for Sippy rate push — pure string manipulation, NO timezone conversion.
+description: How to format activation/expiration dates for Sippy rate push — pure string manipulation, NO timezone conversion. normSippyDate() is the canonical helper.
 ---
 
 ## Rule
-**Never use `new Date()` for datetime-local values sent to Sippy.** Use pure string manipulation only.
+**NEVER use `new Date()` or `.toISOString()` for datetime-local inputs going to Sippy rate push.**
+
+Sippy treats `ActivationDate`/`ExpirationDate` in CSV as wall-clock time (no timezone).
+Any UTC conversion silently shifts the rate effective time by the server's UTC offset.
+
+## Canonical helper: `normSippyDate(raw?: string | Date): string`
+Defined in `server/sippy.ts` (just above `pushRateToSippy`).
+
+- `undefined` → current local wall-clock time (`YYYY-MM-DD HH:MM:00`)
+- `string` → pure `T`→space replace + clip millis/Z (no Date(), no UTC)
+- `Date` → use local time components (`.getFullYear()` etc., not `.toISOString()`)
+
+Used by `pushRateToSippy` for `effectiveFrom`/`effectiveTo`.
+The `pushRateViaPortalUpload` CSV builder uses its own inline `normDate(raw)` — same principle.
+
+## Client-side rules
+- Default value for datetime-local inputs: build string from `new Date()` local components
+  (`getFullYear`, `getMonth`, `getDate`, `getHours`, `getMinutes`) — NOT `.toISOString()`
+- Send datetime-local value as raw string to server — no `new Date(val).toISOString()` conversion
+
+## What NOT to fix
+- DB timestamp columns (`rateEffectiveFrom`, tariff snapshot `effectiveFrom`) — these are
+  real UTC timestamps from PostgreSQL; `new Date()` on them is correct.
 
 ## Why
-HTML `datetime-local` inputs produce `"YYYY-MM-DDTHH:MM"` which is LOCAL time with no timezone marker. Passing it to `new Date()` treats it as local time, then `.toISOString()` converts to UTC. On a PKT (+5) server, `16:30 local` becomes `11:30 UTC` — the rate activates 5 hours too early with no error message.
-
-The legacy BitsAuto system (confirmed working against the same Sippy instance) sends dates as `"YYYY-MM-DD HH:MM"` — exactly as typed, no conversion.
-
-## Correct format
-```
-YYYY-MM-DD HH:MM
-```
-Examples: `2026-06-17 13:30`, `2026-06-17 00:00`
-
-## How to apply
-```typescript
-function normDate(raw?: string): string {
-  if (!raw) return '';
-  const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return s;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) return `${raw.trim()} 00:00`;
-  return '';
-}
-```
-
-Applied to:
-- `normaliseSippyDate()` in `setSippyRateEntry()` — for XML-RPC `activation_date`/`expiration_date` params
-- `normDate()` inside `pushRateViaPortalUpload()` — for CSV `ActivationDate`/`ExpirationDate` columns
-
-`fmtSippyDate(d: Date)` itself is correct for timestamps already in UTC (e.g. `new Date()` for "now"), just not for user-typed local times.
+A server/browser in UTC+5 would shift "17:30" → "12:30" through toISOString(),
+resulting in rates activating 5 hours earlier than intended with no visible error.

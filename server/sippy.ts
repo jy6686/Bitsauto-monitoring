@@ -6153,20 +6153,43 @@ async function findSippyCustomer(
   return null;
 }
 
+// Normalise a raw datetime-local string ("2026-06-17T13:30" or "2026-06-17 13:30:00") to
+// Sippy's expected format "YYYY-MM-DD HH:MM:SS" with NO timezone conversion.
+// Also accepts a Date object for legacy callers (uses local-wall-clock, not UTC).
+function normSippyDate(raw?: string | Date): string {
+  if (!raw) {
+    // Default = now in local wall-clock time (no UTC conversion)
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+  }
+  if (raw instanceof Date) {
+    // Legacy Date path: use local time components (not UTC)
+    const d = raw;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+  // String path: pure replace, never touch timezone
+  const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
+  return s;
+}
+
 export async function pushRateToSippy(opts: {
   accountName: string;
   iTariff?: string;
   prefix: string;
   ratePerMin: number;
-  effectiveFrom?: Date;
-  effectiveTo?: Date;
+  effectiveFrom?: string | Date;
+  effectiveTo?: string | Date;
   format?: 'full' | 'partial' | 'default';
 }, credentials: { username: string; password: string }, targetUrl?: string): Promise<SippyPushResult> {
   const baseUrl = targetUrl ?? activeSession?.portalUrl;
   if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
 
   const apiUrl  = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
-  const effFrom = opts.effectiveFrom ? fmtSippyDate(opts.effectiveFrom) : fmtSippyDate(new Date());
+  const effFrom = normSippyDate(opts.effectiveFrom);
   const lastErrors: string[] = [];
 
   // Step 1 — find the customer + their tariff ID
@@ -6188,7 +6211,7 @@ export async function pushRateToSippy(opts: {
         destination: opts.prefix,
         rate:        opts.ratePerMin,
         start_date:  effFrom,
-        ...(opts.effectiveTo ? { end_date: fmtSippyDate(opts.effectiveTo) } : {}),
+        ...(opts.effectiveTo ? { end_date: normSippyDate(opts.effectiveTo) } : {}),
       });
       const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
@@ -6208,7 +6231,7 @@ export async function pushRateToSippy(opts: {
         destination: opts.prefix,
         rate:        opts.ratePerMin,
         start_date:  effFrom,
-        ...(opts.effectiveTo ? { end_date: fmtSippyDate(opts.effectiveTo) } : {}),
+        ...(opts.effectiveTo ? { end_date: normSippyDate(opts.effectiveTo) } : {}),
       });
       const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
