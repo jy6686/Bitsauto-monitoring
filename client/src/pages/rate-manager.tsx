@@ -440,7 +440,7 @@ function ChangeClientRateModal({
     staleTime: 2 * 60 * 1000,
     retry: false,
   });
-  const permissionBlocked = probe && !probe.ratesPageOk && probe.error?.includes('permission');
+  const permissionBlocked = probe && probe.ok === false && !probe.ratesPageOk;
 
   const handleSubmit = async () => {
     const rateNum = Number(rate);
