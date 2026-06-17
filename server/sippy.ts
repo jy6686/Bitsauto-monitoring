@@ -298,6 +298,10 @@ async function findRatesCapableSession(
   }
 
   const candidateUrls = [
+    // Admin portal paths (system admin accounts like RTST1 land here)
+    `${base}/admin/tariffs.php?action=edit_rates&i_tariff=${iTariff}`,
+    `${base}/admin/rates.php?i_tariff=${iTariff}`,
+    // Customer/reseller portal paths (ssp-root lands here)
     `${base}/c1/rates.php?i_tariff=${iTariff}`,
     `${base}/rates.php?i_tariff=${iTariff}`,
     `${base}/c1/tariffs.php?action=edit_rates&i_tariff=${iTariff}`,
@@ -671,19 +675,31 @@ async function portalLogin(
       // Following the redirect causes the session to appear invalid in the next request.
       const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
 
-      // ── Success: Sippy redirects to /c1/ on successful customer login ───────
-      // Only a redirect to /c1/ (the customer self-care portal) means auth succeeded.
-      // A redirect to /index.php means auth failed (Sippy bounces back to login page).
+      // ── Success: Sippy redirects to a portal path on successful login ────────
+      // /c1/ = customer/reseller portal (ssp-root)
+      // /admin/ = system admin portal (e.g. RTST1 with full tariff permissions)
+      // /r1/ = reseller portal (some builds)
+      // A redirect back to /index.php means auth FAILED — Sippy bounces to login.
       const locHeader = (resp as any).location as string | undefined;
-      const redirectedToPortal = locHeader && (locHeader.includes('/c1/') || locHeader.startsWith('c1/'));
-      if ((resp.statusCode === 301 || resp.statusCode === 302 || resp.statusCode === 303)
-          && resp.cookies.size > 0 && redirectedToPortal) {
-        // Verify the session is truly authenticated by checking the /c1/ portal page
-        const check = await rawRequest('GET', `${base}/c1/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies, 0);
-        if (check.statusCode === 200 && check.body.length > 500 && !check.body.includes('value="Login"')) {
-          console.log(`[Sippy] portalLogin: success via 302→/c1/ for ${username}/${acctType}`);
+      const isFailRedirect = !locHeader
+        || locHeader.includes('/index.php')
+        || locHeader.includes('/main.php')
+        || locHeader === '/'
+        || locHeader === '';
+      const redirectedToPortal = !isFailRedirect && (resp.statusCode === 301 || resp.statusCode === 302 || resp.statusCode === 303) && resp.cookies.size > 0;
+      if (redirectedToPortal) {
+        // Determine which portal landed and pick the right verification URL
+        const isAdminPortal = locHeader?.includes('/admin');
+        const verifyUrl = isAdminPortal
+          ? `${base}/admin/tariffs.php`
+          : `${base}/c1/service_plans.php`;
+        const check = await rawRequest('GET', verifyUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies, 3);
+        if (check.statusCode === 200 && check.body.length > 300 && !check.body.includes('value="Login"')) {
+          const portalPath = isAdminPortal ? '/admin/' : '/c1/';
+          console.log(`[Sippy] portalLogin: success via 302→${portalPath} for ${username}/${acctType}`);
           return { success: true, cookies: resp.cookies, message: `Authenticated via web portal as ${acctType}` };
         }
+        // redirect to known portal path but verification failed — try next acctType
       }
 
       if (resp.statusCode === 401) continue;

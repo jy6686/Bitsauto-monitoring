@@ -1,30 +1,51 @@
 ---
 name: Sippy Rate Push Permissions
-description: Why rate push fails for ssp-root and the fix architecture
+description: How to get portal sessions that can access /admin/tariffs.php for rate editing — all root causes found and fixed.
 ---
 
-## Root Cause
-`ssp-root` is a Sippy **reseller** account — Sippy's portal ACL denies `/c1/rates.php?i_tariff=N` to resellers. The portal returns a full login-page HTML (2099B, `value="Login"` at byte 1998) instead of redirecting. This is NOT a session problem (session IS valid, proven by other pages working); it's a permission-level block.
+## Root Cause (original)
+`ssp-root` is a Sippy **reseller** — Sippy's portal ACL denies `/c1/rates.php?i_tariff=N` to resellers. Session IS valid; it's a permission-level block.
 
 ## Key Facts
-- Sippy has **zero XML-RPC rate write methods** (`system.listMethods` confirmed on this instance)
-- Portal CSV upload (Action=AS multipart POST) is the only rate-push mechanism
-- All 4 URL variants return login page for ssp-root: `/c1/rates.php`, `/rates.php`, `/tariff_rates.php`, `/c1/tariffs.php?action=edit_rates`
-- `ssp-root` session works for: CDRs, ASR/ACD, service_plans, active calls — but NOT rate management
-- SIPPY_PROV_USERNAME env var = same user as ssp-root (deduplicated via Set)
+- Sippy has **zero XML-RPC rate write methods** — portal CSV upload (Action=AS multipart POST) is the only mechanism
+- ssp-root session works for CDRs, ASR/ACD, service_plans, active calls — NOT `/c1/rates.php`
+- BUT: `/admin/tariffs.php?action=edit_rates&i_tariff=N` IS accessible to ssp-root (different ACL path)
+- SIPPY_PROV_USERNAME env var = same user as ssp-root (deduplicated)
 
-## Fix Architecture
-`settings` table has two new columns: `sippy_rate_admin_user` / `sippy_rate_admin_pass`  
-`RateAdminCreds` type extended with optional `rateAdminUser?` / `rateAdminPass?`  
-`getAdminPortalSession` accepts these as additional credential pairs tried last  
-All 5 `adminCreds` construction sites in `routes.ts` inject the new fields from settings
+## Three Bugs Fixed to Reach `ok:true` on Probe
 
-**Why:** `getAdminPortalSession` builds a deduplicated list of (username, password) pairs and tries each with admin/reseller/customer acct_types. By appending the rate admin pair, a true system admin account (separate from ssp-root) can be used for rate management without touching any other credential flow.
+### Bug 1 — getAdminPortalSession positive-cache short-circuits credential trials
+5-min positive session cache returned ssp-root's cookies immediately; new rate-admin creds were never tried.
+**Fix**: bust cache when `rateAdminUser` is provided.
 
-## Fix Instructions for User
-Either:
-1. Sippy Admin Panel → grant `ssp-root` "Edit Tariff Rates" permission, OR
-2. Settings → Sippy → Rate Admin Credentials → enter a Sippy system admin account
+### Bug 2 — portalLogin only accepted /c1/ redirects
+Hardcoded `locHeader.includes('/c1/')` as only valid success. System admin accounts redirect to `/admin/` — silently treated as failed login.
+**Fix**: accept any non-failure redirect. Failures = `/index.php`, `/main.php`, `/`, empty. All others attempt verification.
+Verify URL: `/admin/` → `admin/tariffs.php`; `/c1/` → `c1/service_plans.php`.
+
+### Bug 3 — Only /c1/ rate URL variants were tried
+`probePortalRatesPage` never tried `/admin/tariffs.php?action=edit_rates&i_tariff=N`.
+**Fix**: add admin URL variants as first candidates in `findRatesCapableSession`.
+
+## Solved Architecture
+
+### findRatesCapableSession (sippy.ts, after getAdminPortalSession)
+Tries each credential pair **individually against the rates page** (not just portal login):
+- Order: `rateAdminUser/Pass` → SIPPY_PROV env → ssp-root pairs
+- Admin-portal URLs tried first: `/admin/tariffs.php?action=edit_rates&i_tariff=N`, `/admin/rates.php`
+- Returns `{ cookies, ratesPageUrl, ratesBody, rateCookies, user }` for the first pair that succeeds on BOTH login AND rates-page access
+- Both `probePortalRatesPage` and `pushRateViaPortalUpload` use this instead of `getAdminPortalSession`
+
+## Working State
+- Probe: `GET /api/sippy/rates/portal-probe?tariffId=33` → `ok:true, ratesPageOk:true`
+- Working URL: `https://191.101.30.107/admin/tariffs.php?action=edit_rates&i_tariff=33`
+- Session: ssp-root (admin acct_type) — RTST1/abcd@1234 stored as priority rate-admin fallback in settings
+- `formFound:false` (ExtJS page, no `enctype=multipart/form-data` tag) — upload uses defaults: fileField=`rate_file`, POST to formAction
 
 ## Probe Endpoint
-`GET /api/sippy/rates/portal-probe?tariffId=N` — probes 4 URL variants, skips 404/too-small responses, returns `{ ok, loginOk, ratesPageOk, error }`. Used by ChangeClientRateModal to show a proactive warning banner.
+`GET /api/sippy/rates/portal-probe?tariffId=N` — returns `{ ok, loginOk, ratesPageOk, error }`.
+Used by ChangeClientRateModal for proactive amber warning banner.
+
+## Settings
+`settings.sippy_rate_admin_user` / `sippy_rate_admin_pass` — stored as RTST1/abcd@1234.
+All 5 `adminCreds` construction sites in `routes.ts` inject these fields.
