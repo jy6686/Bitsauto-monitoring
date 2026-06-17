@@ -531,19 +531,21 @@ function ChangeClientRateModal({
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Active From</label>
               <input
-                type="datetime-local"
+                type="text"
                 value={effectiveFrom}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
-                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"
+                placeholder="YYYY-MM-DD HH:mm"
+                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm font-mono"
               />
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Active Till</label>
               <input
-                type="datetime-local"
+                type="text"
                 value={effectiveTill}
                 onChange={(e) => setEffectiveTill(e.target.value)}
-                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"
+                placeholder="YYYY-MM-DD HH:mm"
+                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm font-mono"
               />
             </div>
           </div>
@@ -937,9 +939,9 @@ function SendRateTab({
   const [effectiveDate, setEffectiveDate] = useState<string>(() => {
     const d = new Date();
     d.setMinutes(0, 0, 0);
-    // Use LOCAL time — datetime-local inputs must not involve UTC conversion
+    // Format as "YYYY-MM-DD HH:mm" — Sippy wall-clock format, no UTC conversion, no T separator
     const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   });
 
   const [pushResults, setPushResults] = useState<{ accountName: string; success: boolean; message: string }[] | null>(null);
@@ -1188,10 +1190,11 @@ function SendRateTab({
             <div className="space-y-1">
               <label className="text-[10px] text-muted-foreground font-medium">Effective Date / Time</label>
               <input
-                type="datetime-local"
+                type="text"
                 value={effectiveDate}
                 onChange={e => setEffectiveDate(e.target.value)}
-                className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background"
+                placeholder="YYYY-MM-DD HH:mm"
+                className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background font-mono"
                 data-testid="notif-date"
               />
             </div>
@@ -1571,7 +1574,7 @@ function NotificationsTab({ products }: { products: Product[] }) {
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-muted-foreground">Schedule For (optional)</label>
-              <input data-testid="input-notif-schedule" type="datetime-local" className="bg-muted border border-border rounded px-2 py-1 text-xs w-44"
+              <input data-testid="input-notif-schedule" type="text" placeholder="YYYY-MM-DD HH:mm" className="bg-muted border border-border rounded px-2 py-1 text-xs w-44 font-mono"
                 value={form.scheduledFor} onChange={e => setForm(f => ({ ...f, scheduledFor: e.target.value }))} />
             </div>
           </div>
