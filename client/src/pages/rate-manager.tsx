@@ -201,18 +201,16 @@ function RateDetailPanel({
 
   const iTariff = acctInfo?.iTariff;
 
-  const { data: tariffData, isLoading: ratesLoading } = useQuery<{
-    rates: RateEntry[];
-  }>({
+  const { data: tariffData, isLoading: ratesLoading } = useQuery<RateEntry[]>({
     queryKey: [`/api/sippy/tariffs/${iTariff}/rates?limit=500`],
     enabled: !!iTariff,
   });
 
   const rates = useMemo(() => {
-    if (!tariffData?.rates) return [];
+    if (!tariffData || !Array.isArray(tariffData)) return [];
     const filtered = trunkPrefix
-      ? tariffData.rates.filter(r => String(r.prefix ?? "").startsWith(trunkPrefix))
-      : tariffData.rates;
+      ? tariffData.filter(r => String(r.prefix ?? "").startsWith(trunkPrefix))
+      : tariffData;
     return filtered.map(r => {
       const rawPrefix = trunkPrefix
         ? String(r.prefix).slice(trunkPrefix.length)
