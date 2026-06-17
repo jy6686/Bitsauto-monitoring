@@ -35492,7 +35492,7 @@ ${footer}
         }
         const { username, password } = sippyXmlCreds(settings);
         const portalUrl = sippyPortalUrl(settings);
-        const results: { prefix: string; success: boolean; message: string; method?: string }[] = [];
+        const results: { prefix: string; success: boolean; message: string; method?: string; detail?: string }[] = [];
         for (const prefix of prefixes) {
           try {
             const r = await sippy.pushRateToSippy(

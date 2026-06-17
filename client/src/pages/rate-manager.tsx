@@ -429,7 +429,7 @@ function ChangeClientRateModal({
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const [effectiveTill, setEffectiveTill] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [results, setResults] = useState<{ prefix: string; success: boolean; message: string; method?: string }[] | null>(null);
+  const [results, setResults] = useState<{ prefix: string; success: boolean; message: string; method?: string; detail?: string }[] | null>(null);
 
   const handleSubmit = async () => {
     const rateNum = Number(rate);
@@ -455,7 +455,7 @@ function ChangeClientRateModal({
         queryClient.invalidateQueries({ queryKey: [`/api/sippy/tariffs/${iTariff}/rates?limit=500`] });
         setTimeout(() => onSuccess(), 1200);
       } else {
-        toast({ title: `${data.ok}/${prefixes.length} rate(s) updated`, description: "Some pushes failed \u2014 see details below.", variant: "destructive" });
+        toast({ title: `${data.ok}/${prefixes.length} rate(s) updated`, description: "Some pushes failed — see details below.", variant: "destructive" });
       }
     } catch (e: any) {
       toast({ title: "Failed to change rates", description: e.message, variant: "destructive" });
@@ -471,7 +471,7 @@ function ChangeClientRateModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <span className="text-sm font-semibold">Change Client Rates \u2014 {account.username}</span>
+          <span className="text-sm font-semibold">Change Client Rates — {account.username}</span>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="w-4 h-4" />
           </button>
@@ -523,14 +523,19 @@ function ChangeClientRateModal({
           {results && (
             <div className="border border-border/50 rounded text-xs divide-y divide-border/30 max-h-40 overflow-auto">
               {results.map((r, i) => (
-                <div key={i} className="px-2 py-1 flex items-center justify-between">
-                  <span className="font-mono">{r.prefix}</span>
-                  <span className="flex items-center gap-1">
-                    {r.success ? <Check className="w-3 h-3 text-emerald-400" /> : <X className="w-3 h-3 text-red-400" />}
-                    <span className={cn("text-[10px]", r.success ? "text-emerald-400" : "text-red-400")}>
-                      {r.method ?? r.message}
+                <div key={i} className="px-2 py-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono">{r.prefix}</span>
+                    <span className="flex items-center gap-1">
+                      {r.success ? <Check className="w-3 h-3 text-emerald-400" /> : <X className="w-3 h-3 text-red-400" />}
+                      <span className={cn("text-[10px]", r.success ? "text-emerald-400" : "text-red-400")}>
+                        {r.method ?? r.message}
+                      </span>
                     </span>
-                  </span>
+                  </div>
+                  {!r.success && r.detail && (
+                    <div className="text-[10px] text-muted-foreground mt-0.5">{r.detail}</div>
+                  )}
                 </div>
               ))}
             </div>

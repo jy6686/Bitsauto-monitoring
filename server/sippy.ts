@@ -6216,12 +6216,12 @@ export async function pushRateToSippy(opts: {
     } catch (e: any) { lastErrors.push(e.message); }
   }
 
-  const reason = lastErrors.length > 0 ? lastErrors[0] : 'No compatible Sippy rate API found.';
+  const reason = lastErrors.length > 0 ? lastErrors.join(' | ') : 'No compatible Sippy rate API found.';
   console.error(`[Sippy] pushRateToSippy ALL attempts failed for "${opts.accountName}". Errors:`, lastErrors);
   return {
     success: false,
     message: reason,
-    detail: lastErrors.slice(1).join(' | ') || 'Check Sippy API permissions and account configuration.',
+    detail: customer ? `i_account=${customer.i_account ?? 'none'} i_tariff=${customer.i_tariff ?? 'none'}` : 'No matching Sippy customer found for this account name.',
   };
 }
 
