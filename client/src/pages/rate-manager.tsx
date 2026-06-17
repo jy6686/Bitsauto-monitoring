@@ -440,7 +440,9 @@ function ChangeClientRateModal({
     setSubmitting(true);
     setResults(null);
     try {
-      const prefixes = selectedRates.map(r => String(r.rawPrefix ?? r.prefix));
+      // Always send the full Sippy prefix (r.prefix = e.g. "192"), NOT rawPrefix ("92").
+      // rawPrefix strips the trunk prefix for display only — Sippy rate keys use the full prefix.
+      const prefixes = selectedRates.map(r => String(r.prefix));
       const res = await apiRequest("POST", "/api/rate-manager/change-client-rates", {
         accountName: account.username,
         iTariff: iTariff ?? undefined,
