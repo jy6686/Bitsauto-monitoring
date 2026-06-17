@@ -9272,6 +9272,25 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ ok: false, message: e.message }); }
   });
 
+  // GET /api/sippy/rates/portal-probe?tariffId=N&switchId=Y
+  // READ-ONLY diagnostic: verifies portal login + rates-page reachability.
+  // Reports form fields found WITHOUT uploading anything. Safe to call anytime.
+  app.get('/api/sippy/rates/portal-probe', async (req, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const tariffId = Number(req.query.tariffId || 0);
+      const switchId = req.query.switchId ? Number(req.query.switchId) : null;
+      let portalUrl = sippyPortalUrl(settings);
+      if (switchId) {
+        const sw = (await storage.getSwitches()).find(s => s.id === switchId && s.type === 'sippy');
+        if (sw?.portalUrl) portalUrl = sw.portalUrl;
+      }
+      if (!tariffId) return res.status(400).json({ ok: false, error: 'tariffId required' });
+      const result = await sippy.probePortalRatesPage(portalUrl, tariffId);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ ok: false, error: e.message }); }
+  });
+
   // GET /api/sippy/rates?tariffId=xxx&switchId=yyy
   app.get('/api/sippy/rates', async (req, res) => {
     try {

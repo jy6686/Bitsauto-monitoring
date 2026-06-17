@@ -8198,6 +8198,76 @@ async function pushRateViaPortalUpload(
   }
 }
 
+// ── probePortalRatesPage ──────────────────────────────────────────────────────
+// READ-ONLY diagnostic: verifies portal login works and the tariff rates page
+// is reachable, then reports what upload form fields it found.
+// Does NOT modify any rate. Use GET /api/sippy/rates/portal-probe?tariffId=N.
+export async function probePortalRatesPage(
+  base: string,
+  iTariff: number,
+): Promise<{
+  ok: boolean;
+  loginOk: boolean;
+  ratesPageOk: boolean;
+  formFound: boolean;
+  fileField: string;
+  hiddenFields: string[];
+  formAction: string;
+  bodySnippet: string;
+  error?: string;
+}> {
+  const fail = (error: string) => ({
+    ok: false, loginOk: false, ratesPageOk: false, formFound: false,
+    fileField: '', hiddenFields: [], formAction: '', bodySnippet: '', error,
+  });
+  let loginOk = false;
+  let cookies: CookieJar;
+  try {
+    cookies = await provisioningLogin(base);
+    loginOk = true;
+  } catch (e: any) {
+    return fail(`Portal login failed: ${e?.message}`);
+  }
+  const ratesPageUrl = `${base}/c1/rates.php?i_tariff=${iTariff}`;
+  try {
+    const resp = await rawRequest('GET', ratesPageUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 3);
+    const isLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
+    if (isLoginPage) {
+      return { ok: false, loginOk, ratesPageOk: false, formFound: false,
+        fileField: '', hiddenFields: [], formAction: ratesPageUrl,
+        bodySnippet: resp.body.slice(0, 300), error: 'Rates page returned login form (session rejected)' };
+    }
+    // Extract upload form fields
+    let fileField = 'rate_file';
+    let formAction = ratesPageUrl;
+    const hiddenFields: string[] = [];
+    const formMatch = resp.body.match(/<form[^>]+enctype=["']multipart\/form-data["'][^>]*>/i)
+                   ?? resp.body.match(/<form[^>]+id=["'][^"']*upload[^"']*["'][^>]*>/i);
+    const formFound = !!formMatch;
+    if (formMatch) {
+      const aM = formMatch[0].match(/action=["']([^"']+)["']/i);
+      if (aM) formAction = new URL(aM[1], ratesPageUrl).toString();
+    }
+    const fileM = resp.body.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
+    if (fileM) { const nM = fileM[0].match(/name=["']([^"']+)["']/i); if (nM) fileField = nM[1]; }
+    const hidRe = /<input[^>]+type=["']?hidden["']?[^>]*>/gi;
+    let hm: RegExpExecArray | null;
+    while ((hm = hidRe.exec(resp.body)) !== null) {
+      const nM = hm[0].match(/name=["']([^"']+)["']/i);
+      if (nM) hiddenFields.push(nM[1]);
+    }
+    return {
+      ok: true, loginOk, ratesPageOk: true, formFound,
+      fileField, hiddenFields, formAction,
+      bodySnippet: resp.body.slice(0, 500).replace(/\s+/g, ' '),
+    };
+  } catch (e: any) {
+    return { ok: false, loginOk, ratesPageOk: false, formFound: false,
+      fileField: '', hiddenFields: [], formAction: ratesPageUrl,
+      bodySnippet: '', error: `Rates page fetch error: ${e?.message}` };
+  }
+}
+
 export async function deleteSippyRateEntry(
   username: string,
   password: string,
