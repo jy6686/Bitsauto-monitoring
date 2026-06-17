@@ -32,3 +32,4 @@
 - [scrapePortalCDRsAll iAccount filter](scrape-portal-cdrs-all-iaccount.md) — added iAccount opt (caller=N_N); use for account-specific invoice CDR fetch instead of client-side user-field matching.
 - [Sippy account→tariff chain](sippy-account-tariff-chain.md) — accounts use Service Plans (iBillingPlan), NOT direct iTariff; resolve via listSippyBillingPlans→iTariff, never keyword-match tariff names.
 - [Sippy Rate Push API](sippy-rate-push-api.md) — NO XML-RPC write methods for rates; only portal CSV upload (Action=AS); getSippyRateEntry must fall back to multipart POST.
+- [Sippy date format for rate activation](sippy-date-format.md) — NEVER use new Date() for datetime-local; pure string replace T→space, no UTC conversion.

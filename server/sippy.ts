@@ -7970,14 +7970,16 @@ export async function setSippyRateEntry(
     rate:        r,                 // legacy alias (<double> now fixed)
   };
   // Normalise dates — HTML datetime-local produces "YYYY-MM-DDTHH:MM" (no seconds, no TZ).
-  // Sippy XML-RPC expects "YYYY-MM-DD HH:MM:SS" (UTC).  Run through fmtSippyDate to standardise.
+  // Sippy expects "YYYY-MM-DD HH:MM" — pure string manipulation, NO timezone conversion.
+  // Using new Date() would silently shift the time by the server's UTC offset (e.g. PKT+5
+  // turns 16:30 local → 11:30 UTC, activating the rate 5 hours too early).
+  // The legacy BitsAuto system (which works) sends exactly "YYYY-MM-DD HH:MM" as typed.
   function normaliseSippyDate(raw: string): string {
-    try {
-      // Accept ISO8601 variants: "2026-06-17T15:00", "2026-06-17 15:00:00", "2026-06-17", etc.
-      const d = new Date(raw.includes('T') || raw.includes(' ') ? raw : `${raw}T00:00:00Z`);
-      if (isNaN(d.getTime())) return raw; // pass through if unparseable
-      return fmtSippyDate(d);             // → "YYYY-MM-DD HH:MM:SS"
-    } catch { return raw; }
+    // Replace T separator, strip seconds suffix if present
+    const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return s;               // "YYYY-MM-DD HH:MM"
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))      return `${raw.trim()} 00:00`; // date-only
+    return raw; // pass through unchanged if format is unrecognised
   }
   if (entry.effectiveFrom) {
     const v = normaliseSippyDate(entry.effectiveFrom);
@@ -8137,13 +8139,14 @@ async function pushRateViaPortalUpload(
   // ── Step 3: build the CSV ─────────────────────────────────────────────────
   // Format: Action,i_rate,Prefix,Price1,PriceN,Interval1,IntervalN,ForbiddenFlag,GracePeriodEnable,ActivationDate,ExpirationDate
   // Action AS = add-or-update by prefix (upsert). i_rate left empty for AS action.
-  // Dates must be "YYYY-MM-DD HH:MM:SS" UTC (Sippy's dateTime.iso8601 format).
+  // Dates: "YYYY-MM-DD HH:MM" — pure string manipulation, NO timezone conversion.
+  // The legacy BitsAuto system (confirmed working) sends exactly this format.
   function normDate(raw?: string): string {
     if (!raw) return '';
-    try {
-      const d = new Date(raw.includes('T') || raw.includes(' ') ? raw : `${raw}T00:00:00Z`);
-      return isNaN(d.getTime()) ? '' : fmtSippyDate(d);
-    } catch { return ''; }
+    const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return s;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))      return `${raw.trim()} 00:00`;
+    return '';
   }
   const csvHeader = 'Action,i_rate,Prefix,Price1,PriceN,Interval1,IntervalN,ForbiddenFlag,GracePeriodEnable,ActivationDate,ExpirationDate';
   const csvRow    = `AS,,${prefix},${rate},${rate},1,1,,,${normDate(effectiveFrom)},${normDate(effectiveTill)}`;
