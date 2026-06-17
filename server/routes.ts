@@ -35474,8 +35474,9 @@ ${footer}
     async (req: any, res) => {
       try {
         const settings = await storage.getSettings();
-        const { accountName, prefixes, rate, effectiveFrom, effectiveTill } = req.body as {
+        const { accountName, iTariff, prefixes, rate, effectiveFrom, effectiveTill } = req.body as {
           accountName: string;
+          iTariff?: number;
           prefixes: string[];
           rate: number;
           effectiveFrom?: string;
@@ -35498,6 +35499,7 @@ ${footer}
             const r = await sippy.pushRateToSippy(
               {
                 accountName,
+                iTariff: iTariff ? String(iTariff) : undefined,
                 prefix: String(prefix),
                 ratePerMin: Number(rate),
                 effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : undefined,

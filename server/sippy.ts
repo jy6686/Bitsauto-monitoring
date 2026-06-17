@@ -6127,6 +6127,7 @@ async function findSippyCustomer(
 
 export async function pushRateToSippy(opts: {
   accountName: string;
+  iTariff?: string;
   prefix: string;
   ratePerMin: number;
   effectiveFrom?: Date;
@@ -6137,12 +6138,19 @@ export async function pushRateToSippy(opts: {
   if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
 
   const apiUrl  = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
-    const effFrom = opts.effectiveFrom ? fmtSippyDate(opts.effectiveFrom) : fmtSippyDate(new Date());
+  const effFrom = opts.effectiveFrom ? fmtSippyDate(opts.effectiveFrom) : fmtSippyDate(new Date());
   const lastErrors: string[] = [];
 
   // Step 1 — find the customer + their tariff ID
-  const customer = await findSippyCustomer(apiUrl, credentials.username, credentials.password, opts.accountName);
-  console.log(`[Sippy] pushRate customer lookup for "${opts.accountName}":`, customer);
+  // If iTariff was passed directly from the UI, skip the expensive customer lookup
+  let customer: { i_account: string; i_tariff: string } | null = null;
+  if (opts.iTariff) {
+    customer = { i_account: '', i_tariff: opts.iTariff };
+    console.log(`[Sippy] pushRate using provided iTariff=${opts.iTariff} for "${opts.accountName}"`);
+  } else {
+    customer = await findSippyCustomer(apiUrl, credentials.username, credentials.password, opts.accountName);
+    console.log(`[Sippy] pushRate customer lookup for "${opts.accountName}":`, customer);
+  }
 
   // Step 2a — if we have a tariff ID, call tariff.setRate with i_tariff
   if (customer?.i_tariff) {

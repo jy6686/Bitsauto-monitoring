@@ -443,6 +443,7 @@ function ChangeClientRateModal({
       const prefixes = selectedRates.map(r => String(r.rawPrefix ?? r.prefix));
       const res = await apiRequest("POST", "/api/rate-manager/change-client-rates", {
         accountName: account.username,
+        iTariff: iTariff ?? undefined,
         prefixes,
         rate: rateNum,
         effectiveFrom: effectiveFrom || undefined,
