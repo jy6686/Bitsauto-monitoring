@@ -185,11 +185,19 @@ function RateDetailPanel({
   account,
   trunkPrefix,
   allDests,
+  selectedCountries,
+  selectedOperators,
+  selectedCategories,
+  selectedDetails,
   onClose,
 }: {
   account: SippyAccount;
   trunkPrefix: string;
   allDests: DestNode[];
+  selectedCountries: string[];
+  selectedOperators: string[];
+  selectedCategories: string[];
+  selectedDetails: string[];
   onClose: () => void;
 }) {
   const { data: acctInfo, isLoading: infoLoading } = useQuery<{
@@ -206,11 +214,36 @@ function RateDetailPanel({
     enabled: !!iTariff,
   });
 
+  // Determine which destination filter (if any) is active, deepest level wins
+  const activeDestIds = selectedDetails.length > 0 ? selectedDetails
+    : selectedCategories.length > 0 ? selectedCategories
+    : selectedOperators.length > 0 ? selectedOperators
+    : selectedCountries.length > 0 ? selectedCountries
+    : [];
+  // Walk the tree to collect every dialPrefix under the active selection (any level)
+  const allowedPrefixes = useMemo(() => {
+    if (activeDestIds.length === 0) return null; // null = no destination filter, show all
+    const idSet = new Set(activeDestIds.map(Number));
+    const collect = (nodeId: number, acc: Set<string>) => {
+      const node = allDests.find(d => d.id === nodeId);
+      if (node?.dialPrefix) acc.add(node.dialPrefix);
+      allDests.filter(d => d.parentId === nodeId).forEach(child => collect(child.id, acc));
+    };
+    const acc = new Set<string>();
+    idSet.forEach(id => collect(id, acc));
+    return acc;
+  }, [activeDestIds, allDests]);
   const rates = useMemo(() => {
     if (!tariffData || !Array.isArray(tariffData)) return [];
-    const filtered = trunkPrefix
+    let filtered = trunkPrefix
       ? tariffData.filter(r => String(r.prefix ?? "").startsWith(trunkPrefix))
       : tariffData;
+    if (allowedPrefixes) {
+      filtered = filtered.filter(r => {
+        const rawPrefix = trunkPrefix ? String(r.prefix).slice(trunkPrefix.length) : String(r.prefix ?? "");
+        return Array.from(allowedPrefixes).some(p => rawPrefix.startsWith(p) || p.startsWith(rawPrefix));
+      });
+    }
     return filtered.map(r => {
       const rawPrefix = trunkPrefix
         ? String(r.prefix).slice(trunkPrefix.length)
@@ -218,7 +251,7 @@ function RateDetailPanel({
       const dest = allDests.find(d => d.dialPrefix && (d.dialPrefix === rawPrefix || d.dialPrefix === r.prefix));
       return { ...r, rawPrefix, destName: dest?.name ?? rawPrefix };
     });
-  }, [tariffData, trunkPrefix, allDests]);
+  }, [tariffData, trunkPrefix, allDests, allowedPrefixes]);
 
   const isLoading = infoLoading || ratesLoading;
 
@@ -557,6 +590,10 @@ function AnalysisTab({
             account={detailAccount}
             trunkPrefix={trunkPrefix}
             allDests={allDests}
+            selectedCountries={selectedCountries}
+            selectedOperators={selectedOperators}
+            selectedCategories={selectedCategories}
+            selectedDetails={selectedDetails}
             onClose={() => setDetailAccount(null)}
           />
         ) : (
