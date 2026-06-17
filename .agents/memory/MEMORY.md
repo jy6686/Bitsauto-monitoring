@@ -31,3 +31,4 @@
 - [On-demand CDR endpoint portal fallback](cdr-ondemand-portal-fallback.md) — /api/sippy/cdr must use scrapePortalCDRsAll (not scrapePortalCDRs/scrapeAdminPortalCDRs) with adminWebPassword for ssp-root; mirrors refreshCdrCache credential strategy.
 - [scrapePortalCDRsAll iAccount filter](scrape-portal-cdrs-all-iaccount.md) — added iAccount opt (caller=N_N); use for account-specific invoice CDR fetch instead of client-side user-field matching.
 - [Sippy account→tariff chain](sippy-account-tariff-chain.md) — accounts use Service Plans (iBillingPlan), NOT direct iTariff; resolve via listSippyBillingPlans→iTariff, never keyword-match tariff names.
+- [Sippy Rate Push API](sippy-rate-push-api.md) — NO XML-RPC write methods for rates; only portal CSV upload (Action=AS); getSippyRateEntry must fall back to multipart POST.

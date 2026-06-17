@@ -8049,7 +8049,148 @@ export async function setSippyRateEntry(
       lastErrors.push(fault);
     } catch (e: any) { lastErrors.push(`${method} exception: ${e.message}`); }
   }
-  return { success: false, message: lastErrors.join(' | ') || 'Could not save rate.' };
+  // ── All XML-RPC methods failed (Sippy has no rate write API) ────────────────
+  // Fall back to portal CSV upload — the only reliable rate-push mechanism.
+  console.log(`[Sippy] setSippyRateEntry: all XML-RPC methods failed — falling back to portal CSV upload`);
+  const portalResult = await pushRateViaPortalUpload(
+    base, Number(tariffId), entry.prefix, entry.rate,
+    entry.effectiveFrom, entry.effectiveTill,
+  );
+  if (portalResult.success) return portalResult;
+
+  // Surface all errors: XML-RPC errors + portal error
+  return {
+    success: false,
+    message: `XML-RPC (${lastErrors.length} methods): all 404 | Portal CSV: ${portalResult.message}`,
+  };
+}
+
+// ── pushRateViaPortalUpload ───────────────────────────────────────────────────
+// Pushes a single rate to a Sippy tariff via portal CSV upload (multipart POST).
+// This is the ONLY way to add/update rates in Sippy — there are no XML-RPC write
+// methods for rates (only getTariffRatesList + deleteAllRatesInTariff exist).
+//
+// Uses Action=AS (add-or-update by prefix) which behaves like an upsert:
+//   • if a rate already exists for this prefix → updates price/dates
+//   • if no rate exists → adds it as a new entry
+//
+// Sippy docs: https://support.sippysoft.com/a/solutions/articles/84153 (Actions)
+//             https://support.sippysoft.com/a/solutions/articles/3000118878 (Rates API)
+async function pushRateViaPortalUpload(
+  base: string,
+  iTariff: number,
+  prefix: string,
+  rate: number,
+  effectiveFrom?: string,
+  effectiveTill?: string,
+): Promise<{ success: boolean; message: string }> {
+  // ── Step 1: provisioning session ─────────────────────────────────────────
+  let loginCookies: CookieJar;
+  try {
+    loginCookies = await provisioningLogin(base);
+  } catch (e: any) {
+    return { success: false, message: `Portal login failed: ${e?.message}` };
+  }
+
+  // ── Step 2: GET the tariff rates page to extract upload form details ──────
+  // Use the fresher cookies returned by this GET for the subsequent POST.
+  const ratesPageUrl = `${base}/c1/rates.php?i_tariff=${iTariff}`;
+  const hiddenFields: Record<string, string> = {};
+  let fileFieldName = 'rate_file';   // common Sippy default; overridden if found in form
+  let formAction    = ratesPageUrl;
+  let postCookies   = loginCookies;
+
+  try {
+    const pageResp = await rawRequest('GET', ratesPageUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, loginCookies, 3);
+    postCookies = pageResp.cookies; // always use refreshed cookies for POST
+    const hasLoginForm = pageResp.body.includes('value="Login"') || pageResp.body.includes("value='Login'");
+    console.log(`[Sippy] pushRateViaPortalUpload GET (${ratesPageUrl}): HTTP ${pageResp.statusCode}, ${pageResp.body.length}B, loginForm=${hasLoginForm}`);
+
+    if (pageResp.statusCode === 200 && !hasLoginForm) {
+      // ── Extract upload form: action URL ────────────────────────────────
+      const formMatch = pageResp.body.match(/<form[^>]+enctype=["']multipart\/form-data["'][^>]*>/i)
+                     ?? pageResp.body.match(/<form[^>]+id=["'][^"']*upload[^"']*["'][^>]*>/i);
+      if (formMatch) {
+        const actionM = formMatch[0].match(/action=["']([^"']+)["']/i);
+        if (actionM) formAction = new URL(actionM[1], ratesPageUrl).toString();
+      }
+      // ── Extract file input name ─────────────────────────────────────────
+      const fileInputM = pageResp.body.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
+      if (fileInputM) {
+        const nameM = fileInputM[0].match(/name=["']([^"']+)["']/i);
+        if (nameM) fileFieldName = nameM[1];
+      }
+      // ── Extract all hidden fields ──────────────────────────────────────
+      const hiddenRe = /<input[^>]+type=["']?hidden["']?[^>]*>/gi;
+      let hm: RegExpExecArray | null;
+      while ((hm = hiddenRe.exec(pageResp.body)) !== null) {
+        const nM = hm[0].match(/name=["']([^"']+)["']/i);
+        const vM = hm[0].match(/value=["']([^"']*)["']/i);
+        if (nM && vM) hiddenFields[nM[1]] = vM[1];
+      }
+      console.log(`[Sippy] pushRateViaPortalUpload: formAction=${formAction}, fileField=${fileFieldName}, hidden=${Object.keys(hiddenFields).join(',')}`);
+    }
+  } catch (ge: any) {
+    console.log(`[Sippy] pushRateViaPortalUpload: GET rates page error: ${ge?.message} — proceeding with defaults`);
+  }
+
+  // ── Step 3: build the CSV ─────────────────────────────────────────────────
+  // Format: Action,i_rate,Prefix,Price1,PriceN,Interval1,IntervalN,ForbiddenFlag,GracePeriodEnable,ActivationDate,ExpirationDate
+  // Action AS = add-or-update by prefix (upsert). i_rate left empty for AS action.
+  // Dates must be "YYYY-MM-DD HH:MM:SS" UTC (Sippy's dateTime.iso8601 format).
+  function normDate(raw?: string): string {
+    if (!raw) return '';
+    try {
+      const d = new Date(raw.includes('T') || raw.includes(' ') ? raw : `${raw}T00:00:00Z`);
+      return isNaN(d.getTime()) ? '' : fmtSippyDate(d);
+    } catch { return ''; }
+  }
+  const csvHeader = 'Action,i_rate,Prefix,Price1,PriceN,Interval1,IntervalN,ForbiddenFlag,GracePeriodEnable,ActivationDate,ExpirationDate';
+  const csvRow    = `AS,,${prefix},${rate},${rate},1,1,,,${normDate(effectiveFrom)},${normDate(effectiveTill)}`;
+  const csvContent = `${csvHeader}\r\n${csvRow}`;
+  console.log(`[Sippy] pushRateViaPortalUpload: CSV row: ${csvRow}`);
+
+  // ── Step 4: multipart/form-data POST ─────────────────────────────────────
+  // rawRequest supports multipart when the body is pre-built and Content-Type
+  // is overridden via extraHeaders (extraHeaders wins over the hardcoded header).
+  const boundary = `----SippyRateBoundary${Date.now().toString(36)}`;
+  const parts: string[] = [];
+
+  // Include hidden fields (CSRF tokens etc.) first
+  for (const [k, v] of Object.entries(hiddenFields)) {
+    parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}`);
+  }
+  // File field with the CSV content
+  parts.push(
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="${fileFieldName}"; filename="rates.csv"\r\n` +
+    `Content-Type: text/csv\r\n\r\n${csvContent}`
+  );
+  const multipartBody = parts.join('\r\n') + `\r\n--${boundary}--`;
+
+  try {
+    const uploadResp = await rawRequest(
+      'POST', formAction, multipartBody,
+      { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      postCookies, 5,
+    );
+    const body         = uploadResp.body;
+    const isLoginPage  = body.includes('value="Login"') || body.includes("value='Login'");
+    const hasError     = /class=["']err[^"']*["']/i.test(body) || /upload.*fail|fail.*upload/i.test(body);
+    const hasSuccess   = /success|updated|processed|OK/i.test(body) || uploadResp.statusCode === 200;
+    console.log(`[Sippy] pushRateViaPortalUpload POST: HTTP ${uploadResp.statusCode}, ${body.length}B, login=${isLoginPage}, err=${hasError}, success=${hasSuccess}, snippet=${body.slice(0, 300).replace(/\s+/g, ' ')}`);
+
+    if (isLoginPage) return { success: false, message: 'Portal CSV upload: session rejected (login page returned)' };
+    if (hasError) {
+      const errM = body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
+      return { success: false, message: `Portal CSV error: ${errM ? errM[1].trim() : 'Sippy returned an error response'}` };
+    }
+    if (hasSuccess) return { success: true, message: `Rate pushed via portal CSV upload (Action=AS, prefix=${prefix})` };
+
+    return { success: false, message: `Portal CSV upload: unexpected response (HTTP ${uploadResp.statusCode}, ${body.length}B)` };
+  } catch (e: any) {
+    return { success: false, message: `Portal CSV upload exception: ${e?.message}` };
+  }
 }
 
 export async function deleteSippyRateEntry(
