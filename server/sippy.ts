@@ -251,6 +251,92 @@ async function getAdminPortalSession(
   return null;
 }
 
+// ── findRatesCapableSession ───────────────────────────────────────────────────
+// Unlike getAdminPortalSession (which stops at the first portal login success),
+// this function tries each credential pair against the actual rates page and
+// returns the first one that can BOTH login AND access /c1/rates.php.
+//
+// This is critical because ssp-root (reseller) CAN log into the portal but is
+// ACL-blocked from /c1/rates.php. A dedicated rate-admin account (e.g. RTST1)
+// or the SIPPY_PROV env var account may have the necessary permission.
+//
+// Order: rateAdminUser → SIPPY_PROV env vars → ssp-root (fallback)
+async function findRatesCapableSession(
+  base: string,
+  iTariff: number,
+  adminCreds?: RateAdminCreds,
+): Promise<{ cookies: CookieJar; ratesPageUrl: string; ratesBody: string; rateCookies: CookieJar; user: string } | null> {
+  const seen = new Set<string>();
+  const pairs: [string, string][] = [];
+  function addPair(u: string, p: string) {
+    const key = `${u}:${p}`;
+    if (u && p && !seen.has(key)) { seen.add(key); pairs.push([u, p]); }
+  }
+
+  const adminWebPassword = adminCreds?.adminWebPassword;
+
+  // 1. Dedicated rate-admin credentials first (most likely to have "Edit Tariff Rates" permission)
+  if (adminCreds?.rateAdminUser && adminCreds?.rateAdminPass) {
+    addPair(adminCreds.rateAdminUser, adminCreds.rateAdminPass);
+    if (adminWebPassword) addPair(adminCreds.rateAdminUser, adminWebPassword);
+  }
+  // 2. SIPPY_PROV env vars — may be a separate higher-privilege account (e.g. RTST1)
+  const provUser = process.env.SIPPY_PROV_USERNAME?.trim() ?? '';
+  const provPass = process.env.SIPPY_PROV_PASSWORD?.trim() ?? '';
+  if (provUser && provPass) {
+    addPair(provUser, provPass);
+    if (adminWebPassword) addPair(provUser, adminWebPassword);
+  }
+  // 3. ssp-root pairs as fallback
+  if (adminCreds) {
+    addPair(adminCreds.adminUser, adminCreds.adminPass);
+    addPair(adminCreds.portalUser, adminCreds.portalPass);
+    if (adminWebPassword) {
+      addPair(adminCreds.adminUser, adminWebPassword);
+      addPair(adminCreds.portalUser, adminWebPassword);
+    }
+  }
+
+  const candidateUrls = [
+    `${base}/c1/rates.php?i_tariff=${iTariff}`,
+    `${base}/rates.php?i_tariff=${iTariff}`,
+    `${base}/c1/tariffs.php?action=edit_rates&i_tariff=${iTariff}`,
+    `${base}/tariff_rates.php?i_tariff=${iTariff}`,
+  ];
+
+  console.log(`[Sippy] findRatesCapableSession: testing ${pairs.length} cred pair(s) against rates page @ ${base}`);
+
+  for (const [u, p] of pairs) {
+    for (const acctType of ['admin', 'reseller', 'customer'] as const) {
+      const loginRes = await portalLogin(base, u, p, acctType);
+      if (!loginRes.success) continue;
+
+      // Login succeeded — now check if this session can reach the rates page
+      let ratesOk = false;
+      for (const ratesUrl of candidateUrls) {
+        try {
+          const resp = await rawRequest('GET', ratesUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, loginRes.cookies, 3);
+          const isLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
+          const is404 = resp.statusCode === 404 || resp.body.length < 300;
+          if (!isLoginPage && !is404) {
+            console.log(`[Sippy] findRatesCapableSession: ✓ ${u}/${acctType} has rates access → ${ratesUrl}`);
+            adminPortalCacheByUrl.set(base, { cookies: loginRes.cookies, expiresAt: Date.now() + PORTAL_SESSION_TTL_MS });
+            adminPortalNegCacheByUrl.delete(base);
+            return { cookies: loginRes.cookies, ratesPageUrl: ratesUrl, ratesBody: resp.body, rateCookies: resp.cookies, user: u };
+          }
+        } catch { /* try next URL */ }
+      }
+      if (!ratesOk) {
+        console.log(`[Sippy] findRatesCapableSession: ${u}/${acctType} logged in but rates page ACL-blocked — trying next pair`);
+        break; // acct_type doesn't change ACL permissions for same user; skip to next user/pass
+      }
+    }
+  }
+
+  console.log(`[Sippy] findRatesCapableSession: no credential pair has rates access @ ${base}`);
+  return null;
+}
+
 export function getSippySessionStatus() {
   if (!activeSession) return { active: false };
   return {
@@ -8151,64 +8237,61 @@ async function pushRateViaPortalUpload(
   effectiveTill?: string,
   adminCreds?: RateAdminCreds,
 ): Promise<{ success: boolean; message: string }> {
-  // ── Step 1: obtain portal session ────────────────────────────────────────
-  // Rate management pages (/c1/rates.php) require an admin-level session.
-  // provisioningLogin() logs in as ssp-root/customer — that type is REJECTED
-  // by the rates page. getAdminPortalSession() tries admin/reseller/customer
-  // types with the admin web password, which succeeds.
-  let loginCookies: CookieJar;
-  try {
-    if (adminCreds) {
-      const ac = await getAdminPortalSession(
-        base,
-        adminCreds.adminUser, adminCreds.adminPass,
-        adminCreds.portalUser, adminCreds.portalPass,
-        adminCreds.adminWebPassword,
-        true, // bypassNegCache — user-triggered action, retry immediately
-        adminCreds.rateAdminUser,
-        adminCreds.rateAdminPass,
-      );
-      if (!ac) throw new Error('All admin credential pairs were rejected by the Sippy portal. Check Settings → adminWebPassword.');
-      loginCookies = ac;
-    } else {
-      loginCookies = await provisioningLogin(base);
-    }
-  } catch (e: any) {
-    return { success: false, message: `Portal login failed: ${e?.message}` };
+  // ── Step 1: find a session that can BOTH login AND access the rates page ──
+  // findRatesCapableSession tries each credential pair (rateAdminUser → SIPPY_PROV → ssp-root)
+  // against the actual rates URL, not just the portal login. This handles the case where
+  // ssp-root (reseller) can login but is ACL-blocked from /c1/rates.php.
+  const ratesSession = adminCreds
+    ? await findRatesCapableSession(base, iTariff, adminCreds)
+    : null;
+
+  if (adminCreds && !ratesSession) {
+    return { success: false, message: 'No credential pair has access to the Sippy rates page. Grant "Edit Tariff Rates" permission to RTST1 (or the configured Rate Admin account) in the Sippy admin panel.' };
   }
 
-  // ── Step 2: GET the tariff rates page to extract upload form details ──────
-  // Use the fresher cookies returned by this GET for the subsequent POST.
-  const ratesPageUrl = `${base}/c1/rates.php?i_tariff=${iTariff}`;
   const hiddenFields: Record<string, string> = {};
-  let fileFieldName = 'rate_file';   // common Sippy default; overridden if found in form
-  let formAction    = ratesPageUrl;
-  let postCookies   = loginCookies;
+  let fileFieldName = 'rate_file';
+  let formAction    = `${base}/c1/rates.php?i_tariff=${iTariff}`;
+  let postCookies   = ratesSession?.rateCookies ?? ratesSession?.cookies;
+
+  if (!adminCreds) {
+    // Fallback: provisioningLogin for non-admin paths
+    try {
+      postCookies = await provisioningLogin(base);
+    } catch (e: any) {
+      return { success: false, message: `Portal login failed: ${e?.message}` };
+    }
+  }
+
+  // ── Step 2: extract upload form details from the rates page body ──────────
+  // findRatesCapableSession already fetched the rates page — reuse that body.
+  const ratesPageBody = ratesSession?.ratesBody ?? '';
+  const ratesPageUrl  = ratesSession?.ratesPageUrl ?? formAction;
 
   try {
-    const pageResp = await rawRequest('GET', ratesPageUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, loginCookies, 3);
-    postCookies = pageResp.cookies; // always use refreshed cookies for POST
-    const hasLoginForm = pageResp.body.includes('value="Login"') || pageResp.body.includes("value='Login'");
-    console.log(`[Sippy] pushRateViaPortalUpload GET (${ratesPageUrl}): HTTP ${pageResp.statusCode}, ${pageResp.body.length}B, loginForm=${hasLoginForm}`);
+    const pageBody = ratesPageBody || (() => {
+      // If no body from findRatesCapableSession (provisioningLogin path), fetch now
+      return '';
+    })();
+    const hasLoginForm = pageBody.includes('value="Login"') || pageBody.includes("value='Login'");
+    console.log(`[Sippy] pushRateViaPortalUpload: rates page body ${pageBody.length}B, loginForm=${hasLoginForm}, user=${ratesSession?.user ?? 'prov'}`);
 
-    if (pageResp.statusCode === 200 && !hasLoginForm) {
-      // ── Extract upload form: action URL ────────────────────────────────
-      const formMatch = pageResp.body.match(/<form[^>]+enctype=["']multipart\/form-data["'][^>]*>/i)
-                     ?? pageResp.body.match(/<form[^>]+id=["'][^"']*upload[^"']*["'][^>]*>/i);
+    if (pageBody.length > 300 && !hasLoginForm) {
+      formAction = ratesPageUrl;
+      const formMatch = pageBody.match(/<form[^>]+enctype=["']multipart\/form-data["'][^>]*>/i)
+                     ?? pageBody.match(/<form[^>]+id=["'][^"']*upload[^"']*["'][^>]*>/i);
       if (formMatch) {
         const actionM = formMatch[0].match(/action=["']([^"']+)["']/i);
         if (actionM) formAction = new URL(actionM[1], ratesPageUrl).toString();
       }
-      // ── Extract file input name ─────────────────────────────────────────
-      const fileInputM = pageResp.body.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
+      const fileInputM = pageBody.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
       if (fileInputM) {
         const nameM = fileInputM[0].match(/name=["']([^"']+)["']/i);
         if (nameM) fileFieldName = nameM[1];
       }
-      // ── Extract all hidden fields ──────────────────────────────────────
       const hiddenRe = /<input[^>]+type=["']?hidden["']?[^>]*>/gi;
       let hm: RegExpExecArray | null;
-      while ((hm = hiddenRe.exec(pageResp.body)) !== null) {
+      while ((hm = hiddenRe.exec(pageBody)) !== null) {
         const nM = hm[0].match(/name=["']([^"']+)["']/i);
         const vM = hm[0].match(/value=["']([^"']*)["']/i);
         if (nM && vM) hiddenFields[nM[1]] = vM[1];
@@ -8216,7 +8299,7 @@ async function pushRateViaPortalUpload(
       console.log(`[Sippy] pushRateViaPortalUpload: formAction=${formAction}, fileField=${fileFieldName}, hidden=${Object.keys(hiddenFields).join(',')}`);
     }
   } catch (ge: any) {
-    console.log(`[Sippy] pushRateViaPortalUpload: GET rates page error: ${ge?.message} — proceeding with defaults`);
+    console.log(`[Sippy] pushRateViaPortalUpload: rates page parse error: ${ge?.message} — proceeding with defaults`);
   }
 
   // ── Step 3: build the CSV ─────────────────────────────────────────────────
@@ -8299,60 +8382,24 @@ export async function probePortalRatesPage(
   bodySnippet: string;
   error?: string;
 }> {
-  const fail = (error: string) => ({
-    ok: false, loginOk: false, ratesPageOk: false, formFound: false,
+  const fail = (error: string, loginOk = false) => ({
+    ok: false, loginOk, ratesPageOk: false, formFound: false,
     fileField: '', hiddenFields: [], formAction: '', bodySnippet: '', error,
   });
-  let loginOk = false;
-  let cookies: CookieJar;
-  try {
-    if (adminCreds) {
-      const ac = await getAdminPortalSession(
-        base,
-        adminCreds.adminUser, adminCreds.adminPass,
-        adminCreds.portalUser, adminCreds.portalPass,
-        adminCreds.adminWebPassword,
-        true,
-        adminCreds.rateAdminUser,
-        adminCreds.rateAdminPass,
-      );
-      if (!ac) return fail('All admin credential pairs rejected by Sippy portal');
-      cookies = ac;
-    } else {
-      cookies = await provisioningLogin(base);
-    }
-    loginOk = true;
-  } catch (e: any) {
-    return fail(`Portal login failed: ${e?.message}`);
+  // findRatesCapableSession tries each credential pair (rateAdminUser → SIPPY_PROV → ssp-root)
+  // against the actual rates URL. It only returns a session if that credential can BOTH
+  // login AND reach the rates page — ssp-root (reseller) is tried last as a fallback.
+  const ratesSession = await findRatesCapableSession(base, iTariff, adminCreds);
+  if (!ratesSession) {
+    return fail('No credential pair has rates-page access. Check Settings → Rate Admin User/Pass (RTST1) or grant ssp-root "Edit Tariff Rates" permission in the Sippy admin panel.', true);
   }
-  // Try several URL variants: c1/ (customer portal), root-level (admin portal),
-  // and the older sip_stats/ path. The first one that returns non-login-page HTML wins.
-  const candidateUrls = [
-    `${base}/c1/rates.php?i_tariff=${iTariff}`,
-    `${base}/rates.php?i_tariff=${iTariff}`,
-    `${base}/tariff_rates.php?i_tariff=${iTariff}`,
-    `${base}/c1/tariffs.php?action=edit_rates&i_tariff=${iTariff}`,
-  ];
-  let ratesPageUrl = candidateUrls[0];
-  let resp = await rawRequest('GET', ratesPageUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 3);
-  for (let i = 1; i < candidateUrls.length; i++) {
-    const isLp = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
-    const is404 = resp.body.includes('404 Not Found') || resp.body.includes('<title>404') || (resp.statusCode === 404);
-    const isTooSmall = resp.body.length < 300;
-    if (!isLp && !is404 && !isTooSmall) break;
-    const reason = isLp ? 'login-page' : is404 ? '404' : 'too-small';
-    console.log(`[Sippy] probePortalRatesPage: ${ratesPageUrl} → ${reason} (${resp.body.length}B), trying ${candidateUrls[i]}`);
-    ratesPageUrl = candidateUrls[i];
-    resp = await rawRequest('GET', ratesPageUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 3);
-  }
+  const { ratesBody, ratesPageUrl, user: sessionUser } = ratesSession;
+  const resp = { body: ratesBody };
+  console.log(`[Sippy] probePortalRatesPage: rates page reached as ${sessionUser} @ ${ratesPageUrl} (${ratesBody.length}B)`);
   try {
     const isLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
     if (isLoginPage) {
-      const loginIdx = Math.max(resp.body.indexOf('value="Login"'), resp.body.indexOf("value='Login'"));
-      const loginCtx = loginIdx >= 0 ? resp.body.slice(Math.max(0, loginIdx - 100), loginIdx + 200).replace(/\s+/g, ' ') : '';
-      return { ok: false, loginOk, ratesPageOk: false, formFound: false,
-        fileField: '', hiddenFields: [], formAction: ratesPageUrl,
-        bodySnippet: `[tried ${candidateUrls.length} URLs, all login-page] [body len=${resp.body.length}B, login@${loginIdx}] …${loginCtx}…`, error: `All URL variants returned login page — ssp-root may lack rate-management permissions` };
+      return fail('Rates page returned login form even after findRatesCapableSession — unexpected.', true);
     }
     // Extract upload form fields
     let fileField = 'rate_file';
@@ -8374,12 +8421,12 @@ export async function probePortalRatesPage(
       if (nM) hiddenFields.push(nM[1]);
     }
     return {
-      ok: true, loginOk, ratesPageOk: true, formFound,
+      ok: true, loginOk: true, ratesPageOk: true, formFound,
       fileField, hiddenFields, formAction,
       bodySnippet: resp.body.slice(0, 500).replace(/\s+/g, ' '),
     };
   } catch (e: any) {
-    return { ok: false, loginOk, ratesPageOk: false, formFound: false,
+    return { ok: false, loginOk: true, ratesPageOk: false, formFound: false,
       fileField: '', hiddenFields: [], formAction: ratesPageUrl,
       bodySnippet: '', error: `Rates page fetch error: ${e?.message}` };
   }
