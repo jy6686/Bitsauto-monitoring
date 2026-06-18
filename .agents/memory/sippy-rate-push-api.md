@@ -44,3 +44,17 @@ Hidden fields include CSRF tokens — scrape from the same form.
 
 ## Implementation location
 server/sippy.ts: pushRateViaPortalUpload() called as final fallback in setSippyRateEntry() after all XML-RPC method probes fail.
+
+## CSV Format (CONFIRMED from Sippy rate template XLSX)
+Correct column order and action codes — extracted from actual Sippy tariff export:
+
+```
+Action,Id,Prefix,Country,Interval 1,Interval N,Price 1,Price N,Forbidden,Grace Period,Activation Date,Expiration Date
+SA,,{prefix},,1,1,{rate},{rate},0,1,{effectiveFrom},{effectiveTill}
+```
+
+Valid Action values: `A` (Add), `D` (Delete), `U` (Update), `S` (Same/no change), `SA` (add-or-update upsert).
+- `SA` is the correct upsert action — NOT `AS` (which is invalid and silently rejected).
+- Country column: required but can be empty string for prefix-only rows.
+- Interval before Price — NOT Price before Interval.
+- Column names differ from older docs: `Id` not `i_rate`, `Forbidden` not `ForbiddenFlag`, `Grace Period` not `GracePeriodEnable`.
