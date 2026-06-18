@@ -907,6 +907,14 @@ function AnalysisTab({
 }
 
 // ── Send Rate Tab ──────────────────────────────────────────────────────────────
+type QueuedDest = {
+  qid: string;
+  destLabel: string;
+  dialPrefix: string;  // normalized (no leading +)
+  fullPrefix: string;  // trunkPrefix + dialPrefix
+  rate: string;
+};
+
 function SendRateTab({
   products,
   accounts,
@@ -927,7 +935,7 @@ function SendRateTab({
   const [format, setFormat] = useState("Default");
   const [rateType, setRateType] = useState("Current");
 
-  // Notification detail
+  // Destination picker state
   const [notifCountry, setNotifCountry] = useState<string>("");
   const [notifOperator, setNotifOperator] = useState<string>("");
   const [notifCategory, setNotifCategory] = useState<string>("");
@@ -936,16 +944,18 @@ function SendRateTab({
   const [effectiveDate, setEffectiveDate] = useState<string>(() => {
     const d = new Date();
     d.setMinutes(0, 0, 0);
-    // Format as "YYYY-MM-DD HH:mm" — Sippy wall-clock format, no UTC conversion, no T separator
     const pad = (n: number) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   });
 
-  const [pushResults, setPushResults] = useState<{ accountName: string; success: boolean; message: string }[] | null>(null);
+  // Multi-destination queue
+  const [destQueue, setDestQueue] = useState<QueuedDest[]>([]);
+  const [pushResults, setPushResults] = useState<{ accountName: string; prefix: string; rate: number; success: boolean; message: string }[] | null>(null);
   const [pushing, setPushing] = useState(false);
 
   const product = products.find(p => String(p.id) === selectedProduct);
   const trunkPrefix = product?.trunkPrefix ?? "";
+  const stripPlus = (s: string) => s.replace(/^\+/, '');
 
   const countries = useMemo(() => allDests.filter(d => d.level === 1), [allDests]);
   const operators = useMemo(
@@ -961,28 +971,50 @@ function SendRateTab({
     [allDests, notifCategory],
   );
 
-  // Resolve the most specific dialPrefix selected
+  // Resolve the most specific dialPrefix — normalize "+" away
   const resolvedDialPrefix = useMemo(() => {
     const detailNode = allDests.find(d => String(d.id) === notifDetail);
-    if (detailNode?.dialPrefix) return detailNode.dialPrefix;
+    if (detailNode?.dialPrefix) return stripPlus(detailNode.dialPrefix);
     const catNode = allDests.find(d => String(d.id) === notifCategory);
-    if (catNode?.dialPrefix) return catNode.dialPrefix;
+    if (catNode?.dialPrefix) return stripPlus(catNode.dialPrefix);
     const opNode = allDests.find(d => String(d.id) === notifOperator);
-    if (opNode?.dialPrefix) return opNode.dialPrefix;
+    if (opNode?.dialPrefix) return stripPlus(opNode.dialPrefix);
     const cNode = allDests.find(d => String(d.id) === notifCountry);
-    if (cNode?.dialPrefix) return cNode.dialPrefix;
+    if (cNode?.dialPrefix) return stripPlus(cNode.dialPrefix);
     return "";
   }, [allDests, notifCountry, notifOperator, notifCategory, notifDetail]);
 
-  const fullPrefix = trunkPrefix + resolvedDialPrefix;
+  const previewFullPrefix = trunkPrefix + resolvedDialPrefix;
 
   const selectedClientAccounts = useMemo(
     () => accounts.filter(a => selectedClients.includes(String(a.iAccount))),
     [accounts, selectedClients],
   );
 
-  const canSubmit =
-    selectedProduct && selectedClients.length > 0 && price && resolvedDialPrefix && !pushing;
+  const canAddToQueue = !!(resolvedDialPrefix && price && parseFloat(price) > 0);
+  const canSubmit = !!(selectedProduct && selectedClients.length > 0 && destQueue.length > 0 && !pushing);
+
+  const handleAddToQueue = () => {
+    if (!canAddToQueue) return;
+    const computedFull = trunkPrefix + resolvedDialPrefix;
+    if (destQueue.some(q => q.fullPrefix === computedFull)) {
+      toast({ title: "Duplicate prefix", description: `${computedFull} is already in the queue`, variant: "destructive" });
+      return;
+    }
+    const countryName  = allDests.find(d => String(d.id) === notifCountry)?.name  ?? "";
+    const operatorName = allDests.find(d => String(d.id) === notifOperator)?.name ?? "";
+    const categoryName = allDests.find(d => String(d.id) === notifCategory)?.name ?? "";
+    const detailName   = allDests.find(d => String(d.id) === notifDetail)?.name   ?? "";
+    const destLabel = [countryName, operatorName, categoryName, detailName].filter(Boolean).join(" \u203a ");
+    setDestQueue(prev => [...prev, {
+      qid: `${Date.now()}-${Math.random()}`,
+      destLabel,
+      dialPrefix: resolvedDialPrefix,
+      fullPrefix: computedFull,
+      rate: price,
+    }]);
+    setNotifCountry(""); setNotifOperator(""); setNotifCategory(""); setNotifDetail(""); setPrice("");
+  };
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -992,8 +1024,7 @@ function SendRateTab({
       const body = {
         accountNames: selectedClientAccounts.map(a => a.username),
         trunkPrefix,
-        dialPrefix: resolvedDialPrefix,
-        rate: parseFloat(price),
+        destinations: destQueue.map(q => ({ dialPrefix: q.dialPrefix, rate: parseFloat(q.rate) })),
         effectiveFrom: effectiveDate || undefined,
         format: format.toLowerCase(),
         productName: product?.name,
@@ -1005,7 +1036,7 @@ function SendRateTab({
       qc.invalidateQueries({ queryKey: ["/api/rate-manager/jobs"] });
       toast({
         title: `Rate Push — ${data.ok}/${data.total} succeeded`,
-        description: `Prefix: ${fullPrefix} @ $${price}/min`,
+        description: `${destQueue.length} destination${destQueue.length > 1 ? "s" : ""} × ${selectedClients.length} client${selectedClients.length > 1 ? "s" : ""}`,
         variant: data.ok === data.total ? "default" : "destructive",
       });
     } catch (e: any) {
@@ -1018,7 +1049,8 @@ function SendRateTab({
   const handleReset = () => {
     setSelectedProduct(""); setSelectedClients([]); setFormat("Default"); setRateType("Current");
     setNotifCountry(""); setNotifOperator(""); setNotifCategory(""); setNotifDetail("");
-    setPrice(""); setPushResults(null);
+    setPrice(""); setDestQueue([]); setPushResults(null);
+    onProductChange?.("");
   };
 
   return (
@@ -1090,17 +1122,22 @@ function SendRateTab({
             data-testid="btn-submit-send"
           >
             {pushing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-            Submit
+            {pushing ? "Pushing…" : "Submit"}
           </button>
         </div>
-        {!canSubmit && (selectedProduct || selectedClients.length > 0) && (
-          <div className="text-[10px] text-amber-400/80 px-1 pt-0.5 space-y-0.5">
-            {!selectedProduct && <div>· Select a product</div>}
-            {selectedClients.length === 0 && <div>· Select at least one client</div>}
-            {!resolvedDialPrefix && <div>· Select Country → Operator in detail panel →</div>}
-            {resolvedDialPrefix && !price && <div>· Enter rate price in detail panel →</div>}
+
+        {/* Readiness checklist */}
+        <div className="text-[10px] space-y-0.5 px-1 pt-0.5">
+          <div className={selectedProduct ? "text-green-400/70" : "text-amber-400/80"}>
+            {selectedProduct ? "✓ Product selected" : "· Select a product"}
           </div>
-        )}
+          <div className={selectedClients.length > 0 ? "text-green-400/70" : "text-amber-400/80"}>
+            {selectedClients.length > 0 ? `✓ ${selectedClients.length} client${selectedClients.length > 1 ? "s" : ""}` : "· Select clients"}
+          </div>
+          <div className={destQueue.length > 0 ? "text-green-400/70" : "text-amber-400/80"}>
+            {destQueue.length > 0 ? `✓ ${destQueue.length} destination${destQueue.length > 1 ? "s" : ""} queued` : "· Add destinations →"}
+          </div>
+        </div>
 
         {/* Selected Clients List */}
         {selectedClientAccounts.length > 0 && (
@@ -1117,15 +1154,83 @@ function SendRateTab({
         )}
       </div>
 
-      {/* Right Panel — Notification Detail */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-auto p-5">
-        <div className="text-sm font-semibold mb-4 flex items-center gap-2">
-          <Send className="w-4 h-4 text-green-400" />
-          Notification Detail
+      {/* Right Panel */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-auto p-5 gap-4">
+
+        {/* ── Destination Queue ── */}
+        <div>
+          <div className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Send className="w-4 h-4 text-green-400" />
+            Destination Queue
+            {destQueue.length > 0 && (
+              <span className="ml-1 px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 text-[10px] font-medium border border-green-500/20">
+                {destQueue.length} destination{destQueue.length > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+
+          {destQueue.length > 0 ? (
+            <div className="border border-border/50 rounded-lg overflow-hidden mb-3">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/30 bg-muted/10">
+                    <th className="text-left py-2 px-3 text-muted-foreground font-medium">Destination</th>
+                    <th className="text-left py-2 px-3 text-muted-foreground font-medium w-28">Sippy Prefix</th>
+                    <th className="text-left py-2 px-3 text-muted-foreground font-medium w-28">Rate ($/min)</th>
+                    <th className="py-2 px-3 w-8" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {destQueue.map(q => (
+                    <tr key={q.qid} className="border-b border-border/20 hover:bg-muted/5">
+                      <td className="py-2 px-3 text-foreground/80">{q.destLabel}</td>
+                      <td className="py-2 px-3 font-mono text-blue-400">{q.fullPrefix}</td>
+                      <td className="py-2 px-3 font-mono text-green-400">{parseFloat(q.rate).toFixed(5)}</td>
+                      <td className="py-2 px-3">
+                        <button
+                          onClick={() => setDestQueue(prev => prev.filter(x => x.qid !== q.qid))}
+                          className="text-muted-foreground hover:text-red-400 transition-colors"
+                          title="Remove"
+                          data-testid={`btn-remove-dest-${q.qid}`}
+                        >
+                          <CircleX className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="border border-dashed border-border/40 rounded-lg p-4 mb-3 text-xs text-muted-foreground text-center">
+              No destinations queued — use the picker below to add destinations
+            </div>
+          )}
+
+          {/* Push All button row */}
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] text-muted-foreground">
+              {canSubmit
+                ? `Will push ${destQueue.length} destination${destQueue.length > 1 ? "s" : ""} to ${selectedClients.length} client${selectedClients.length > 1 ? "s" : ""} (${destQueue.length * selectedClients.length} total ops)`
+                : "Complete the checklist on the left, then add at least one destination"}
+            </div>
+            <button
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className="shrink-0 px-5 py-1.5 text-xs bg-green-600 hover:bg-green-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded font-semibold flex items-center gap-1.5"
+              data-testid="btn-submit-notification"
+            >
+              {pushing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+              {pushing ? "Pushing…" : "Push All"}
+            </button>
+          </div>
         </div>
 
-        {/* Destination Selector Row */}
-        <div className="bg-muted/10 border border-border/50 rounded-lg p-4 mb-4 space-y-3">
+        {/* ── Add Destination Picker ── */}
+        <div className="bg-muted/10 border border-border/50 rounded-lg p-4 space-y-3">
+          <div className="text-xs font-semibold text-foreground/70 mb-1 flex items-center gap-2">
+            Add Destination
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-[10px] text-muted-foreground font-medium">Country</label>
@@ -1140,7 +1245,7 @@ function SendRateTab({
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground font-medium">Operator Type</label>
+              <label className="text-[10px] text-muted-foreground font-medium">Network / Type</label>
               <select
                 value={notifOperator}
                 onChange={e => { setNotifOperator(e.target.value); setNotifCategory(""); setNotifDetail(""); }}
@@ -1148,23 +1253,32 @@ function SendRateTab({
                 className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background disabled:opacity-50"
                 data-testid="notif-operator"
               >
-                <option value="">Select operator</option>
-                {operators.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
+                <option value="">Select network</option>
+                {operators.map(d => (
+                  <option key={d.id} value={String(d.id)}>
+                    {d.name}{d.dialPrefix ? ` (${stripPlus(d.dialPrefix)})` : ""}
+                  </option>
+                ))}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground font-medium">Operator</label>
-              <select
-                value={notifCategory}
-                onChange={e => { setNotifCategory(e.target.value); setNotifDetail(""); }}
-                disabled={!notifOperator || categories.length === 0}
-                className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background disabled:opacity-50"
-                data-testid="notif-category"
-              >
-                <option value="">Select operator</option>
-                {categories.map(d => <option key={d.id} value={String(d.id)}>{d.name} {d.dialPrefix ? `(${d.dialPrefix})` : ""}</option>)}
-              </select>
-            </div>
+            {categories.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] text-muted-foreground font-medium">Operator</label>
+                <select
+                  value={notifCategory}
+                  onChange={e => { setNotifCategory(e.target.value); setNotifDetail(""); }}
+                  className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background"
+                  data-testid="notif-category"
+                >
+                  <option value="">Select operator</option>
+                  {categories.map(d => (
+                    <option key={d.id} value={String(d.id)}>
+                      {d.name}{d.dialPrefix ? ` (${stripPlus(d.dialPrefix)})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {details.length > 0 && (
               <div className="space-y-1">
                 <label className="text-[10px] text-muted-foreground font-medium">Detail</label>
@@ -1175,7 +1289,11 @@ function SendRateTab({
                   data-testid="notif-detail"
                 >
                   <option value="">Select detail</option>
-                  {details.map(d => <option key={d.id} value={String(d.id)}>{d.name} {d.dialPrefix ? `(${d.dialPrefix})` : ""}</option>)}
+                  {details.map(d => (
+                    <option key={d.id} value={String(d.id)}>
+                      {d.name}{d.dialPrefix ? ` (${stripPlus(d.dialPrefix)})` : ""}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}
@@ -1205,29 +1323,30 @@ function SendRateTab({
             </div>
           </div>
 
-          {/* Preview */}
-          {resolvedDialPrefix && (
-            <div className="mt-2 p-3 bg-blue-500/5 border border-blue-500/20 rounded text-xs flex items-start gap-3">
-              <div className="text-muted-foreground min-w-0">
-                <span className="text-foreground/70">Full prefix pushed to Sippy: </span>
-                <span className="font-mono text-blue-400 font-semibold">{fullPrefix || "—"}</span>
-                <span className="text-foreground/50 ml-2">
+          {/* Prefix preview + Add button */}
+          <div className="flex items-center justify-between gap-3 pt-1">
+            {resolvedDialPrefix ? (
+              <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+                <span>Sippy prefix:</span>
+                <span className="font-mono text-blue-400 font-semibold">{previewFullPrefix}</span>
+                <span className="text-foreground/40 text-[10px]">
                   (trunk <span className="font-mono text-amber-400">{trunkPrefix || "?"}</span>
-                  {" + "}dial <span className="font-mono text-green-400">{resolvedDialPrefix}</span>)
+                  {" + "}<span className="font-mono text-green-400">{resolvedDialPrefix}</span>)
                 </span>
               </div>
-            </div>
-          )}
-
-          <div className="flex justify-end pt-1">
+            ) : (
+              <div className="text-xs text-muted-foreground/50 italic">
+                Select country → network to resolve Sippy prefix
+              </div>
+            )}
             <button
-              onClick={handleSubmit}
-              disabled={!canSubmit}
-              className="px-6 py-1.5 text-xs bg-green-600 hover:bg-green-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded font-semibold flex items-center gap-1.5"
-              data-testid="btn-submit-notification"
+              onClick={handleAddToQueue}
+              disabled={!canAddToQueue}
+              className="shrink-0 px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded font-semibold flex items-center gap-1.5"
+              data-testid="btn-add-to-queue"
             >
-              {pushing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-              {pushing ? "Pushing…" : "Submit"}
+              <CircleCheck className="w-3 h-3" />
+              Add to Queue
             </button>
           </div>
         </div>
@@ -1238,50 +1357,42 @@ function SendRateTab({
             <div className="px-4 py-2 bg-muted/20 border-b border-border/50 text-xs font-medium flex items-center gap-2">
               <CircleCheck className="w-3.5 h-3.5 text-green-400" />
               Push Results
+              <span className="ml-auto text-muted-foreground">
+                {pushResults.filter(r => r.success).length}/{pushResults.length} succeeded
+              </span>
             </div>
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border/30 bg-muted/10">
-                  <th className="text-left py-2 px-4 text-muted-foreground font-medium">Client</th>
-                  <th className="text-left py-2 px-4 text-muted-foreground font-medium">Status</th>
-                  <th className="text-left py-2 px-4 text-muted-foreground font-medium">Message</th>
+                  <th className="text-left py-2 px-3 text-muted-foreground font-medium">Client</th>
+                  <th className="text-left py-2 px-3 text-muted-foreground font-medium">Prefix</th>
+                  <th className="text-left py-2 px-3 text-muted-foreground font-medium">Rate</th>
+                  <th className="text-left py-2 px-3 text-muted-foreground font-medium">Status</th>
+                  <th className="text-left py-2 px-3 text-muted-foreground font-medium">Message</th>
                 </tr>
               </thead>
               <tbody>
                 {pushResults.map((r, i) => (
                   <tr key={i} className="border-b border-border/20 hover:bg-muted/10">
-                    <td className="py-2 px-4 font-medium">{r.accountName}</td>
-                    <td className="py-2 px-4">
+                    <td className="py-2 px-3 font-medium">{r.accountName}</td>
+                    <td className="py-2 px-3 font-mono text-blue-400">{r.prefix}</td>
+                    <td className="py-2 px-3 font-mono">{Number(r.rate).toFixed(5)}</td>
+                    <td className="py-2 px-3">
                       {r.success
-                        ? <span className="flex items-center gap-1 text-green-400"><CircleCheck className="w-3 h-3" /> Success</span>
-                        : <span className="flex items-center gap-1 text-red-400"><CircleX className="w-3 h-3" /> Failed</span>}
+                        ? <span className="flex items-center gap-1 text-green-400"><CircleCheck className="w-3 h-3" /> OK</span>
+                        : <span className="flex items-center gap-1 text-red-400"><CircleX className="w-3 h-3" /> Fail</span>}
                     </td>
-                    <td className="py-2 px-4 text-muted-foreground truncate max-w-xs">{r.message}</td>
+                    <td className="py-2 px-3 text-muted-foreground truncate max-w-xs">{r.message}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-
-        {/* Validation hints */}
-        {!selectedProduct && (
-          <div className="text-xs text-amber-400 flex items-center gap-1.5 mt-2">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            Select a product from the left panel
-          </div>
-        )}
-        {selectedProduct && selectedClients.length === 0 && (
-          <div className="text-xs text-amber-400 flex items-center gap-1.5 mt-2">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            Select at least one client from the left panel
-          </div>
-        )}
       </div>
     </div>
   );
 }
-
 // ── Jobs Tab ───────────────────────────────────────────────────────────────────
 function JobsTab() {
   const { data: jobs = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/rate-manager/jobs"] });

@@ -8739,13 +8739,12 @@ function parseXlsxForRateEdit(
   const ws   = wb.Sheets[wb.SheetNames[0]];
   const aoa  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as any[][];
 
-  for (let i = 1; i < aoa.length; i++) {
-    const row = aoa[i];
-    if (!row || row.length < 3) continue;
-    if (String(row[2] ?? '').trim() !== targetPrefix) continue;
+  // Normalize: strip leading '+' so "+9230" and "9230" compare equal
+  const normTarget = targetPrefix.replace(/^\+/, '');
 
-    const iRate             = Number(row[1]) || 0;
-    if (!iRate) continue;
+  const extractFields = (row: any[]) => {
+    const iRate = Number(row[1]) || 0;
+    if (!iRate) return null;
     const interval1         = Number(row[4]) || 1;
     const intervalN         = Number(row[5]) || 1;
     const forbidden         = Number(row[8]) || 0;
@@ -8758,8 +8757,35 @@ function parseXlsxForRateEdit(
     const expirationDate    = (typeof expSerial === 'number' && expSerial > 0)
                               ? excelSerialToDateStr(expSerial) : '';
     return { iRate, interval1, intervalN, forbidden, gracePeriodEnable, activationDate, expirationDate };
+  };
+
+  // Pass 1: exact match (normalized)
+  for (let i = 1; i < aoa.length; i++) {
+    const row = aoa[i];
+    if (!row || row.length < 3) continue;
+    const rowPrefix = String(row[2] ?? '').trim().replace(/^\+/, '');
+    if (rowPrefix !== normTarget) continue;
+    const fields = extractFields(row);
+    if (fields) return fields;
   }
-  return null;
+
+  // Pass 2: longest-prefix match
+  // Telecom prefix tables use hierarchy: a tariff entry "19230" covers all
+  // numbers starting with "19230" (including "192300", "192301", etc.).
+  // If the exact prefix isn't in the tariff, find the most specific ancestor.
+  let bestFields: ReturnType<typeof extractFields> = null;
+  let bestLen = 0;
+  for (let i = 1; i < aoa.length; i++) {
+    const row = aoa[i];
+    if (!row || row.length < 3) continue;
+    const rowPrefix = String(row[2] ?? '').trim().replace(/^\+/, '');
+    if (!rowPrefix) continue;
+    if (normTarget.startsWith(rowPrefix) && rowPrefix.length > bestLen) {
+      const fields = extractFields(row);
+      if (fields) { bestFields = fields; bestLen = rowPrefix.length; }
+    }
+  }
+  return bestFields;
 }
 
 // ── pushRateViaPortalUpload ───────────────────────────────────────────────────

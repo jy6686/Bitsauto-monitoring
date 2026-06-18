@@ -35459,30 +35459,50 @@ ${footer}
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // POST /api/rate-manager/push-batch — push one rate prefix to multiple Sippy accounts
-  // Body: { accountNames: string[], trunkPrefix: string, dialPrefix: string, rate: number,
-  //         effectiveFrom?: string, effectiveTill?: string, format?: 'full'|'partial'|'default' }
+  // POST /api/rate-manager/push-batch — push rates to multiple accounts × destinations
+  // Body (multi-dest): { accountNames, trunkPrefix, destinations:[{dialPrefix,rate}], effectiveFrom?, format? }
+  // Body (legacy):     { accountNames, trunkPrefix, dialPrefix, rate, effectiveFrom?, format? }
   app.post('/api/rate-manager/push-batch',
     (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
     async (req: any, res) => {
       try {
         const settings = await storage.getSettings();
-        const { accountNames, trunkPrefix, dialPrefix, rate, effectiveFrom, effectiveTill, format } = req.body as {
+        const {
+          accountNames, trunkPrefix,
+          destinations,
+          dialPrefix, rate,
+          effectiveFrom, effectiveTill, format,
+        } = req.body as {
           accountNames: string[];
           trunkPrefix: string;
-          dialPrefix: string;
-          rate: number;
+          destinations?: Array<{ dialPrefix: string; rate: number }>;
+          dialPrefix?: string;
+          rate?: number;
           effectiveFrom?: string;
           effectiveTill?: string;
           format?: 'full' | 'partial' | 'default';
         };
+
         if (!Array.isArray(accountNames) || accountNames.length === 0) {
           return res.status(400).json({ error: 'accountNames array required' });
         }
-        if (!dialPrefix || rate === undefined) {
-          return res.status(400).json({ error: 'dialPrefix and rate required' });
+
+        const stripPlus = (s: string) => s.replace(/^\+/, '');
+        const destList: Array<{ fullPrefix: string; dialPrefix: string; rate: number }> =
+          Array.isArray(destinations) && destinations.length > 0
+            ? destinations.map(d => ({
+                dialPrefix: stripPlus(d.dialPrefix),
+                fullPrefix:  (trunkPrefix ?? '') + stripPlus(d.dialPrefix),
+                rate: Number(d.rate),
+              }))
+            : dialPrefix
+              ? [{ dialPrefix: stripPlus(dialPrefix), fullPrefix: (trunkPrefix ?? '') + stripPlus(dialPrefix), rate: Number(rate) }]
+              : [];
+
+        if (destList.length === 0) {
+          return res.status(400).json({ error: 'destinations or dialPrefix+rate required' });
         }
-        const fullPrefix = (trunkPrefix ?? '') + dialPrefix;
+
         const { username, password } = sippyXmlCreds(settings);
         const portalUrl = sippyPortalUrl(settings);
         const adminCreds = {
@@ -35493,31 +35513,42 @@ ${footer}
           adminWebPassword: (settings as any).adminWebPassword   ?? undefined,
         };
         const switchName = (settings as any).sippyUrl ?? (settings as any).sippy_url ?? 'primary';
-        const results: { accountName: string; success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }[] = [];
-        for (const accountName of accountNames) {
-          try {
-            const r = await sippy.pushRateToSippy(
-              {
-                accountName,
-                prefix: fullPrefix,
-                ratePerMin: Number(rate),
-                effectiveFrom: effectiveFrom || undefined,
-                effectiveTo:   effectiveTill || undefined,
-                format: format ?? 'full',
-              },
-              { username, password },
-              portalUrl,
-              adminCreds,
-            );
-            results.push({ accountName, ...r });
-          } catch (e: any) {
-            results.push({ accountName, success: false, message: e.message });
+
+        const results: {
+          accountName: string; prefix: string; rate: number;
+          success: boolean; message: string; method?: string;
+          uploadToken?: string; uploadStatus?: string; verificationResult?: string;
+        }[] = [];
+
+        for (const dest of destList) {
+          for (const accountName of accountNames) {
+            try {
+              const r = await sippy.pushRateToSippy(
+                {
+                  accountName,
+                  prefix:      dest.fullPrefix,
+                  ratePerMin:  dest.rate,
+                  effectiveFrom: effectiveFrom || undefined,
+                  effectiveTo:   effectiveTill || undefined,
+                  format: format ?? 'full',
+                },
+                { username, password },
+                portalUrl,
+                adminCreds,
+              );
+              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, ...r });
+            } catch (e: any) {
+              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, success: false, message: e.message });
+            }
           }
         }
-        const ok = results.filter(r => r.success).length;
+
+        const ok    = results.filter(r => r.success).length;
+        const total = results.length;
         const firstR = results[0];
         const methods = Array.from(new Set(results.map(r => r.method).filter(Boolean)));
-        // Record job summary with full diagnostic fields
+        const prefixSummary = destList.map(d => `${d.fullPrefix}@${d.rate}`).join(', ');
+
         try {
           await db.insert(ratePushJobs).values({
             jobId:              `job-${Date.now()}`,
@@ -35527,22 +35558,23 @@ ${footer}
             rateType:           req.body.rateType ?? 'current',
             totalClients:       accountNames.length,
             pushedClients:      ok,
-            failedClients:      accountNames.length - ok,
-            status:             ok === accountNames.length ? 'completed' : ok > 0 ? 'partial' : 'failed',
+            failedClients:      total - ok,
+            status:             ok === total ? 'completed' : ok > 0 ? 'partial' : 'failed',
             switchName:         String(switchName).substring(0, 128),
-            fullPrefix:         fullPrefix,
-            newRate:            String(rate),
+            fullPrefix:         destList.map(d => d.fullPrefix).join(', ').substring(0, 255),
+            newRate:            destList.length === 1 ? String(destList[0].rate) : prefixSummary.substring(0, 255),
             effectiveAt:        effectiveFrom ?? null,
             pushMethod:         firstR?.method ?? null,
             uploadToken:        firstR?.uploadToken ?? null,
             uploadStatus:       firstR?.uploadStatus ?? null,
             verificationResult: firstR?.verificationResult ?? null,
-            notes:              `Pushed prefix ${fullPrefix} @ ${rate} — ok=${ok}/${accountNames.length} method=${methods.join(',') || 'n/a'}`,
+            notes:              `Batch: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'}`,
             createdBy:          (req as any).user?.claims?.sub ?? 'system',
             completedAt:        new Date(),
           });
-        } catch { /* non-critical — don't fail the response */ }
-        res.json({ results, ok, total: accountNames.length });
+        } catch { /* non-critical */ }
+
+        res.json({ results, ok, total });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     },
   );
