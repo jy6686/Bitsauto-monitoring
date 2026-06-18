@@ -8499,18 +8499,21 @@ async function pushRateViaPortalUpload(
         const actionM = formMatch[0].match(/action=["']([^"']+)["']/i);
         if (actionM) formAction = new URL(actionM[1], ratesPageUrl).toString();
       }
+      // ── Diagnostic: log exactly what the parser sees (confirms correct page reached) ──
+      const allFileInputs = pageBody.match(/<input[^>]+type=["']?file["']?[^>]*>/gi) ?? [];
+      console.log(`[Sippy] rates_tariff page — length=${pageBody.length} fileInputs=${allFileInputs.length} url=${ratesPageUrl} first500=${pageBody.replace(/\s+/g,' ').slice(0, 500)}`);
+
       // Check if the page has a file input — if not, it's a display-only page and we cannot upload
-      const fileInputM = pageBody.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
+      const fileInputM = allFileInputs[0] ?? null;
       if (!fileInputM) {
         // No file input found — this is an ExtJS display page (admin portal viewer).
         // Posting to a display page always returns HTTP 200 but changes nothing in Sippy.
         console.log(`[Sippy] pushRateViaPortalUpload: no file input detected at ${formAction} — likely admin display page, aborting POST`);
         return { success: false, message: `Portal CSV: no upload form at ${new URL(formAction).pathname} — grant "Edit Tariff Rates" permission to a customer-portal account (ssp-root admin-portal access is read-only for rate uploads)` };
       }
-      if (fileInputM) {
-        const nameM = fileInputM[0].match(/name=["']([^"']+)["']/i);
-        if (nameM) fileFieldName = nameM[1];
-      }
+      const nameM = fileInputM.match(/name=["']([^"']+)["']/i);
+      if (nameM) fileFieldName = nameM[1];
+
       const hiddenRe = /<input[^>]+type=["']?hidden["']?[^>]*>/gi;
       let hm: RegExpExecArray | null;
       while ((hm = hiddenRe.exec(pageBody)) !== null) {
