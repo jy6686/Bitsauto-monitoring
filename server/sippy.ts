@@ -8179,6 +8179,77 @@ export function buildRateXlsx(
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
 
+/**
+ * Build a full-tariff XLSX with every existing rate plus one modification.
+ *
+ * Sippy portal upload can operate in REPLACE mode (wipes rows not in the file),
+ * so we MUST include all current rows.  Each existing row uses Action=U + its
+ * existing i_rate ID so Sippy updates in-place.  The target prefix gets the new
+ * price/dates; all other rows keep their current values.  If the target prefix
+ * does not yet exist it is appended with Action=A.
+ *
+ * @param allRates      Full rate list fetched from getTariffRatesListFull()
+ * @param targetPrefix  The prefix being modified
+ * @param newRate       New price for targetPrefix
+ * @param newFrom       New activation date string ("YYYY-MM-DD HH:MM:SS") or undefined
+ * @param newTill       New expiration date string or undefined
+ */
+export function buildFullTariffXlsx(
+  allRates: SippyTariffRate[],
+  targetPrefix: string,
+  newRate: number,
+  newFrom?: string,
+  newTill?: string,
+): Buffer {
+  const headers = [
+    'Action [A|D|U|S|SA]', 'Id', 'Prefix', 'Country',
+    'Interval 1', 'Interval N', 'Price 1', 'Price N',
+    'Forbidden', 'Grace Period', 'Activation Date', 'Expiration Date',
+  ];
+
+  // Normalise a date from Sippy (ISO/UTC) to Sippy upload format (YYYY-MM-DD HH:MM:SS)
+  function fmtDate(d?: string): string | null {
+    if (!d) return null;
+    // strip trailing Z, fractional seconds, or timezone offset
+    const s = d.replace('T', ' ').replace(/\.\d+/, '').replace(/Z$/, '').trim();
+    // ensure seconds are present
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
+    return s || null;
+  }
+
+  const rows: any[][] = [headers];
+  let targetFound = false;
+
+  for (const r of allRates) {
+    const isTarget = r.prefix === targetPrefix;
+    if (isTarget) targetFound = true;
+    rows.push([
+      isTarget ? 'U' : 'U',        // always U — updates existing row in-place
+      r.iRate || null,
+      r.prefix,
+      null,                         // Country — not stored by XML-RPC; Sippy keeps its own value
+      r.interval1 ?? 1,
+      r.intervalN ?? 1,
+      isTarget ? newRate : r.price1,
+      isTarget ? newRate : r.priceN,
+      r.forbidden ? 1 : 0,
+      r.gracePeriodEnable ? 1 : 1,  // preserve — default 1 if unknown
+      isTarget ? (newFrom ?? fmtDate(r.activationDate)) : fmtDate(r.activationDate),
+      isTarget ? (newTill  ?? fmtDate(r.expirationDate)) : fmtDate(r.expirationDate),
+    ]);
+  }
+
+  // Target prefix not found — append as new row
+  if (!targetFound) {
+    rows.push(['A', null, targetPrefix, null, 1, 1, newRate, newRate, 0, 1, newFrom ?? null, newTill ?? null]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+}
+
 export async function setSippyRateEntry(
   username: string,
   password: string,
@@ -8410,6 +8481,7 @@ export async function setSippyRateEntry(
   const portalResult = await pushRateViaPortalUpload(
     base, Number(tariffId), entry.prefix, entry.rate,
     entry.effectiveFrom, entry.effectiveTill, adminCreds, entry.iRate,
+    username, password,
   );
   if (portalResult.success) {
     // Phase E: verify the rate actually changed in Sippy (portal may return 200 for display pages)
@@ -8459,6 +8531,8 @@ async function pushRateViaPortalUpload(
   effectiveTill?: string,
   adminCreds?: RateAdminCreds,
   iRate?: number,
+  xmlUsername?: string,
+  xmlPassword?: string,
 ): Promise<{ success: boolean; message: string }> {
   // ── Step 1: find a session that can BOTH login AND access the rates page ──
   // findRatesCapableSession tries each credential pair (rateAdminUser → SIPPY_PROV → ssp-root)
@@ -8548,12 +8622,14 @@ async function pushRateViaPortalUpload(
     console.log(`[Sippy] pushRateViaPortalUpload: rates page parse error: ${ge?.message} — proceeding with defaults`);
   }
 
-  // ── Step 3: build the CSV ─────────────────────────────────────────────────
-  // Format: Action,i_rate,Prefix,Price1,PriceN,Interval1,IntervalN,ForbiddenFlag,GracePeriodEnable,ActivationDate,ExpirationDate
-  // Action AS = add-or-update by prefix (upsert). i_rate left empty for AS action.
-  // Dates: "YYYY-MM-DD HH:MM:SS" — pure string manipulation, NO timezone conversion.
-  // Legacy BitsAuto (confirmed working) sends "2026-06-17 13:30:00"; Sippy validates format
-  // strictly and returns PARSEERROR01 for an invalid activation date.
+  // ── Step 3: build the full-tariff XLSX ──────────────────────────────────────
+  // CONFIRMED from manual test (2026-06-18):
+  //   • Action=A fails for existing prefixes — Sippy ignores them
+  //   • Action=U + existing i_rate ID works correctly
+  //   • Sippy may operate in REPLACE mode — uploading a single row can wipe all others
+  //   → Must upload ALL rows (full tariff), using U + existing ID for every row.
+  //
+  // Dates: "YYYY-MM-DD HH:MM:SS" — pure string, NO timezone conversion.
   function normDate(raw?: string): string {
     if (!raw) return '';
     const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
@@ -8561,13 +8637,30 @@ async function pushRateViaPortalUpload(
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))      return `${raw.trim()} 00:00:00`;
     return '';
   }
-  const xlsxAction = 'A'; // 'A' = add-or-update (most Sippy versions treat it as upsert by prefix)
-  const xlsxBuf = buildRateXlsx(
-    xlsxAction, null, prefix, '',
-    rate, normDate(effectiveFrom), normDate(effectiveTill),
-  );
-  // Log the exact CSV rows we are sending (readable debug — helps spot column/value issues)
-  console.log(`[Sippy] pushRateViaPortalUpload: XLSX rows — action=${xlsxAction} prefix=${prefix} rate=${rate} from="${normDate(effectiveFrom)||'(none)'}" till="${normDate(effectiveTill)||'(none)'}" bytes=${xlsxBuf.length}`);
+
+  // Fetch all current rates so we can build a complete file
+  let allRates: SippyTariffRate[] = [];
+  const u = xmlUsername ?? activeSession?.xmlRpcUsername ?? '';
+  const p = xmlPassword ?? activeSession?.xmlRpcPassword ?? '';
+  if (u && p) {
+    try {
+      allRates = await getTariffRatesListFull(u, p, iTariff, undefined, 1000);
+      console.log(`[Sippy] pushRateViaPortalUpload: fetched ${allRates.length} existing rates for full-tariff upload`);
+    } catch (fe: any) {
+      console.log(`[Sippy] pushRateViaPortalUpload: rate pre-fetch failed (${fe?.message}) — will upload single row`);
+    }
+  }
+
+  let xlsxBuf: Buffer;
+  if (allRates.length > 0) {
+    xlsxBuf = buildFullTariffXlsx(allRates, prefix, rate, normDate(effectiveFrom), normDate(effectiveTill));
+    console.log(`[Sippy] pushRateViaPortalUpload: full-tariff XLSX — ${allRates.length} rows, target=${prefix} newRate=${rate} from="${normDate(effectiveFrom)||'(none)'}" bytes=${xlsxBuf.length}`);
+  } else {
+    // Fallback: single-row with U + known iRate, or A for new prefix
+    const action = iRate ? 'U' : 'A';
+    xlsxBuf = buildRateXlsx(action, iRate ?? null, prefix, '', rate, normDate(effectiveFrom), normDate(effectiveTill));
+    console.log(`[Sippy] pushRateViaPortalUpload: single-row fallback — action=${action} iRate=${iRate ?? 'none'} prefix=${prefix} rate=${rate} bytes=${xlsxBuf.length}`);
+  }
 
   // ── Step 4: multipart/form-data POST (binary XLSX) ─────────────────────────
   const boundary    = `----SippyRateBoundary${Date.now().toString(36)}`;
