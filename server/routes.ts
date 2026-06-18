@@ -35554,13 +35554,58 @@ ${footer}
         }
         const { username, password } = sippyXmlCreds(settings);
         const portalUrl = sippyPortalUrl(settings);
-        const results: { prefix: string; success: boolean; message: string; method?: string; detail?: string }[] = [];
+
+        // ── Phase B: log prefix mapping (UI prefix vs full Sippy prefix) ─────────
+        // The modal sends r.prefix (full Sippy prefix e.g. "19230"), not the raw display prefix.
+        // Logging here proves that reaching Sippy with the correct prefix.
+        console.log(`[RateManager] change-client-rates request — account=${accountName} iTariff=${iTariff ?? 'unknown'} prefixes=[${prefixes.join(',')}] newRate=${rate} effective=${effectiveFrom ?? 'immediate'}`);
+
+        // ── Phase A: pre-fetch old rates for diagnostic logging ───────────────────
+        const oldRateMap: Record<string, number> = {};
+        if (iTariff) {
+          try {
+            const rateList = await sippy.getSippyRateList(username, password, String(iTariff), portalUrl);
+            for (const p of prefixes) {
+              const match = rateList.rates.find(r => r.prefix === String(p));
+              if (match) oldRateMap[String(p)] = match.rate;
+            }
+            console.log(`[RateManager] Pre-push old rates: ${JSON.stringify(oldRateMap)}`);
+          } catch (e: any) {
+            console.log(`[RateManager] Pre-push rate fetch failed (non-critical): ${e.message}`);
+          }
+        }
+
+        // ── Create job BEFORE push (status=pending) ───────────────────────────────
+        const jobId = `change-${Date.now()}`;
+        const switchName = (settings as any).sippyUrl ?? (settings as any).sippy_url ?? 'primary';
+        try {
+          await db.insert(ratePushJobs).values({
+            jobId,
+            productName:  null,
+            trunkPrefix:  null,
+            format:       'full',
+            rateType:     'change-client-rate',
+            totalClients: 1,
+            pushedClients: 0,
+            failedClients: 0,
+            status:       'pending',
+            switchName:   String(switchName).substring(0, 128),
+            iTariff:      iTariff ?? null,
+            fullPrefix:   prefixes[0] ? String(prefixes[0]) : null,
+            oldRate:      prefixes[0] && oldRateMap[String(prefixes[0])] !== undefined ? String(oldRateMap[String(prefixes[0])]) : null,
+            newRate:      String(rate),
+            effectiveAt:  effectiveFrom ?? null,
+            createdBy:    (req as any).user?.claims?.sub ?? 'system',
+            notes:        `Pending: changing ${prefixes.length} rate(s) for ${accountName} to ${rate}`,
+          });
+        } catch { /* non-critical */ }
+
+        // ── Push loop ─────────────────────────────────────────────────────────────
+        const results: { prefix: string; success: boolean; message: string; method?: string; detail?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }[] = [];
         for (const prefix of prefixes) {
           try {
-            let r: { success: boolean; message: string; method?: string; detail?: string };
+            let r: { success: boolean; message: string; method?: string; detail?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string };
             if (iTariff) {
-              // Fast path: we already know the tariff ID — call setSippyRateEntry directly
-              // (tries 9 Sippy method variants including 2022+ addRateToTariff + legacy)
               const sr = await sippy.setSippyRateEntry(
                 username, password,
                 String(iTariff),
@@ -35581,12 +35626,11 @@ ${footer}
               );
               r = { ...sr, detail: `i_tariff=${iTariff}` };
             } else {
-              // Fallback: look up customer by name
               r = await sippy.pushRateToSippy(
                 {
                   accountName,
-                  prefix: String(prefix),
-                  ratePerMin: Number(rate),
+                  prefix:        String(prefix),
+                  ratePerMin:    Number(rate),
                   effectiveFrom: effectiveFrom || undefined,
                   effectiveTo:   effectiveTill || undefined,
                   format: 'full',
@@ -35600,24 +35644,27 @@ ${footer}
             results.push({ prefix: String(prefix), success: false, message: e.message });
           }
         }
-        const ok = results.filter(r => r.success).length;
+
+        const ok      = results.filter(r => r.success).length;
         const methods = Array.from(new Set(results.map(r => r.method).filter(Boolean)));
+        const firstR  = results[0];
+
+        // ── Update job after push ─────────────────────────────────────────────────
         try {
-          await db.insert(ratePushJobs).values({
-            jobId:        `change-${Date.now()}`,
-            productName:  null,
-            trunkPrefix:  null,
-            format:       'full',
-            rateType:     'change-client-rate',
-            totalClients: 1,
-            pushedClients: ok === prefixes.length ? 1 : 0,
-            failedClients: ok === prefixes.length ? 0 : 1,
-            status:       ok === prefixes.length ? 'completed' : ok > 0 ? 'partial' : 'failed',
-            notes:        `Changed ${prefixes.length} rate(s) for ${accountName} to ${rate}. Methods: ${methods.join(', ') || 'n/a'}`,
-            createdBy:    req.user?.claims?.sub ?? 'system',
-            completedAt:  new Date(),
-          });
-        } catch { /* non-critical — don't fail the response */ }
+          await db.update(ratePushJobs).set({
+            pushedClients:      ok === prefixes.length ? 1 : 0,
+            failedClients:      ok === prefixes.length ? 0 : 1,
+            status:             ok === prefixes.length ? 'completed' : ok > 0 ? 'partial' : 'failed',
+            pushMethod:         firstR?.method ?? null,
+            uploadToken:        firstR?.uploadToken ?? null,
+            uploadStatus:       firstR?.uploadStatus ?? null,
+            verificationResult: firstR?.verificationResult ?? null,
+            completedAt:        new Date(),
+            notes:              `${accountName}: ${prefixes.length} prefix(es), newRate=${rate}, method=${methods.join(',') || 'n/a'}, ok=${ok}/${prefixes.length}`,
+          }).where(eq(ratePushJobs.jobId, jobId));
+        } catch { /* non-critical */ }
+
+        console.log(`[RateManager] Push complete — ok=${ok}/${prefixes.length} method=${methods.join(',')} verificationResult=${firstR?.verificationResult ?? 'n/a'}`);
         res.json({ results, ok, total: prefixes.length, methods });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     },

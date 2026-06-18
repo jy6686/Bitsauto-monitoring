@@ -1,0 +1,92 @@
+The updated #327 plan looks solid and is now structured in the correct order.
+
+I would make two additional adjustments before assigning it:
+
+1. Add a "Baseline Verification" phase before Phase A
+
+Call it Phase 0 — Manual Proof
+
+Before changing any code:
+
+Pick one test tariff.
+Pick one unused test prefix.
+Change rate manually in Sippy UI.
+Verify:
+How long cache refresh takes.
+Which page actually reflects the change.
+Whether activation dates are immediate or scheduled.
+Export/download the tariff if possible.
+
+This gives you a known-good reference before touching the upload path.
+
+2. Add "Multi-Switch Validation" after Phase E
+
+Because BitsAuto is not a single-switch system.
+
+Add:
+
+Phase E2 — Multi-Switch Validation
+
+Test on:
+
+DID Management Sippy
+Testing Route Sippy
+Live Traffic Sippy
+
+Verify:
+
+Upload Token Supported
+Upload Status Supported
+Rate Update Successful
+Verification Successful
+
+per switch.
+
+Some Sippy builds may behave differently.
+
+One More Commercial Requirement
+
+For the future Rate Sheet Engine, add this note now:
+
+When a rate is changed:
+
+Old Rate
+New Rate
+Change %
+Effective Date
+
+must be stored at the moment of submission.
+
+Not later.
+
+Otherwise you lose the commercial audit trail needed for:
+
+Customer disputes
+Rate notifications
+Approval workflows
+Future #326 implementation
+
+Even if #326 is blocked, #327 should already capture:
+
+prefix
+old_rate
+new_rate
+effective_at
+push_method
+
+in logs or a lightweight audit table.
+
+Final Recommended Order
+Phase 0  Manual Proof
+Phase A  Logging
+Phase B  Prefix Mapping
+Phase C  Upload Token Flow
+Phase D  Remove False Success
+Phase E  Verification
+Phase E2 Multi-Switch Validation
+Phase F  Calendar + Time Picker
+Phase G  Sippy Diagnostics
+
+After Phase E passes on a real tariff and the rate visibly changes in Sippy, then reopen #326 (Rate Notification Jobs).
+
+One other note: some previously uploaded files/images referenced earlier in the discussion are no longer available in the session. If you want me to re-check any of those screenshots or documents while working through #327/#326 planning, please upload them again.

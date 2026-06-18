@@ -8104,6 +8104,36 @@ export async function getSippyRateList(
   return { rates: [], error: 'Could not fetch rates from this Sippy instance.' };
 }
 
+// ── verifySippyRate ───────────────────────────────────────────────────────────
+// Phase E: re-read tariff rates from Sippy after a push and confirm the prefix
+// now carries the expected rate value. Waits 1.5s for async Sippy processing.
+async function verifySippyRate(
+  username: string,
+  password: string,
+  tariffId: string,
+  prefix: string,
+  expectedRate: number,
+  base: string,
+): Promise<{ confirmed: boolean; foundRate?: number; message: string }> {
+  try {
+    await new Promise(r => setTimeout(r, 1500));
+    const result = await getSippyRateList(username, password, tariffId, base);
+    if (result.error) return { confirmed: false, message: result.error };
+    const match = result.rates.find(r => r.prefix === prefix);
+    if (!match) return { confirmed: false, message: `prefix ${prefix} not found in tariff after push` };
+    const ok = Math.abs(match.rate - expectedRate) < 0.000001;
+    return {
+      confirmed: ok,
+      foundRate: match.rate,
+      message: ok
+        ? `✓ prefix=${prefix} rate=${match.rate} (expected=${expectedRate})`
+        : `✗ prefix=${prefix} found=${match.rate} expected=${expectedRate}`,
+    };
+  } catch (e: any) {
+    return { confirmed: false, message: `verification error: ${e.message}` };
+  }
+}
+
 export async function setSippyRateEntry(
   username: string,
   password: string,
@@ -8111,11 +8141,99 @@ export async function setSippyRateEntry(
   entry: { prefix: string; rate: number; effectiveFrom?: string; effectiveTill?: string },
   portalUrl?: string,
   adminCreds?: RateAdminCreds,
-): Promise<{ success: boolean; message: string }> {
+): Promise<{ success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const lastErrors: string[] = [];
+
+  // ── Phase A: structured diagnostic logging ──────────────────────────────────
+  console.log(`[RateManager] Push — tariff=${tariffId} prefix=${entry.prefix} rate=${entry.rate} effective=${entry.effectiveFrom ?? 'immediate'} till=${entry.effectiveTill ?? 'never'}`);
+
+  // ── Phase C: getUploadToken (official Sippy bulk upload API, docs 3000073011) ─
+  // Uses buildGetUploadTokenXml + sippyPost directly with base URL (multi-switch safe).
+  // Falls through on any failure so XML-RPC / portal fallbacks still run.
+  try {
+    const normDateLocal = (raw?: string): string => {
+      if (!raw) return '';
+      const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
+      return '';
+    };
+    const tokenXml  = buildGetUploadTokenXml(1, undefined, undefined, { i_tariff: Number(tariffId) });
+    const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
+    console.log(`[RateManager] getUploadToken: HTTP ${tokenResp.statusCode} body=${tokenResp.body.substring(0, 300)}`);
+
+    if (tokenResp.statusCode === 200 && !tokenResp.body.includes('faultCode')) {
+      const tokenMembers = extractStructMembers(extractAllTags(tokenResp.body, 'struct')[0] ?? '');
+      const uploadToken  = tokenMembers['token'];
+      const uploadUrl    = tokenMembers['url'];
+
+      if (uploadToken && uploadUrl) {
+        console.log(`[RateManager] Upload token: ${uploadToken} | URL: ${uploadUrl}`);
+
+        const csvHeader  = 'Action,i_rate,Prefix,Price1,PriceN,Interval1,IntervalN,ForbiddenFlag,GracePeriodEnable,ActivationDate,ExpirationDate';
+        const csvRow     = `AS,,${entry.prefix},${entry.rate},${entry.rate},1,1,,,${normDateLocal(entry.effectiveFrom)},${normDateLocal(entry.effectiveTill)}`;
+        const csvContent = `${csvHeader}\r\n${csvRow}`;
+        console.log(`[RateManager] Upload CSV row: ${csvRow}`);
+
+        const uploadResult = await uploadBinaryFile(uploadUrl, Buffer.from(csvContent, 'utf-8'), 'rates.csv');
+        console.log(`[RateManager] File upload: success=${uploadResult.success} body=${uploadResult.body.substring(0, 200)}`);
+
+        if (uploadResult.success) {
+          let finalStatus = 'FILE_UPLOADED';
+          for (let poll = 1; poll <= 15; poll++) {
+            await new Promise(res => setTimeout(res, 2000));
+            try {
+              const statusXml  = xmlRpcCall('getUploadStatus', { token: uploadToken });
+              const statusResp = await sippyPost(apiUrl, statusXml, username, password, 8000);
+              if (statusResp.statusCode === 200 && !statusResp.body.includes('faultCode')) {
+                const sm = extractStructMembers(extractAllTags(statusResp.body, 'struct')[0] ?? '');
+                if (sm['status']) finalStatus = sm['status'];
+              }
+            } catch { /* keep polling */ }
+            console.log(`[RateManager] Upload status poll #${poll}: ${finalStatus}`);
+            if (finalStatus === 'DONE' || finalStatus === 'FAIL') break;
+          }
+
+          if (finalStatus === 'DONE') {
+            const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
+            console.log(`[RateManager] Verification (upload_token): ${verifyResult.message}`);
+            if (verifyResult.confirmed) {
+              return {
+                success: true,
+                message: `Rate updated — upload token DONE, verified (prefix=${entry.prefix} rate=${entry.rate})`,
+                method: 'upload_token',
+                uploadToken,
+                uploadStatus: finalStatus,
+                verificationResult: 'confirmed',
+              };
+            }
+            return {
+              success: false,
+              message: `Upload token DONE but rate unchanged: ${verifyResult.message} — check tariff permissions or prefix mapping`,
+              method: 'upload_token',
+              uploadToken,
+              uploadStatus: finalStatus,
+              verificationResult: 'mismatch',
+            };
+          }
+          lastErrors.push(`upload_token: status=${finalStatus}`);
+          console.log(`[RateManager] Upload token finalStatus=${finalStatus} — falling through`);
+        } else {
+          lastErrors.push(`upload_token file upload failed: ${uploadResult.body.substring(0, 200)}`);
+        }
+      }
+    } else {
+      const hint = tokenResp.body.includes('faultCode') ? 'fault' : `HTTP ${tokenResp.statusCode}`;
+      console.log(`[RateManager] getUploadToken not available (${hint}) — falling through to XML-RPC`);
+      lastErrors.push(`upload_token: ${hint}`);
+    }
+  } catch (tokenErr: any) {
+    console.log(`[RateManager] getUploadToken exception: ${tokenErr.message} — falling through`);
+    lastErrors.push(`upload_token exception: ${tokenErr.message}`);
+  }
 
   // Sippy 2022+: uses prefix / price_1 / price_n / interval_1 / interval_n (<double> types)
   // Legacy:      uses destination / rate
@@ -8220,16 +8338,31 @@ export async function setSippyRateEntry(
     base, Number(tariffId), entry.prefix, entry.rate,
     entry.effectiveFrom, entry.effectiveTill, adminCreds,
   );
-  if (portalResult.success) return portalResult;
+  if (portalResult.success) {
+    // Phase E: verify the rate actually changed in Sippy (portal may return 200 for display pages)
+    const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
+    console.log(`[RateManager] Verification (portal_csv): ${verifyResult.message}`);
+    if (verifyResult.confirmed) {
+      return { ...portalResult, method: 'portal_csv', verificationResult: 'confirmed' };
+    }
+    return {
+      success: false,
+      message: `Portal CSV accepted but rate unchanged: ${verifyResult.message} — check tariff permissions or prefix mapping`,
+      method: 'portal_csv',
+      verificationResult: 'mismatch',
+    };
+  }
 
   // Surface all errors: XML-RPC errors + portal error
-  const hasPermissionBlock = portalResult.message.includes('login page') || portalResult.message.includes('permission');
+  const hasPermissionBlock = portalResult.message.includes('login page') || portalResult.message.includes('permission') || portalResult.message.includes('no upload form');
   const actionableHint = hasPermissionBlock
-    ? ' — To fix: either (1) grant the Sippy account "Edit Tariff Rates" permission in Sippy Admin Panel, or (2) add a dedicated Sippy admin account in Settings → Rate Admin Credentials.'
+    ? ' — To fix: add a dedicated Sippy customer-portal account with "Edit Tariff Rates" permission in Settings → Rate Admin Credentials.'
     : '';
   return {
     success: false,
     message: `Portal CSV: ${portalResult.message}${actionableHint}`,
+    method: 'portal_csv',
+    verificationResult: 'skip',
   };
 }
 
@@ -8299,6 +8432,12 @@ async function pushRateViaPortalUpload(
       if (formMatch) {
         const actionM = formMatch[0].match(/action=["']([^"']+)["']/i);
         if (actionM) formAction = new URL(actionM[1], ratesPageUrl).toString();
+      } else {
+        // No multipart upload form found — this is an ExtJS display page (admin portal viewer).
+        // Posting to a display page always returns HTTP 200 but changes nothing in Sippy.
+        // Fail fast instead of producing a false-positive success.
+        console.log(`[Sippy] pushRateViaPortalUpload: no upload form detected at ${formAction} — likely admin display page, aborting POST`);
+        return { success: false, message: `Portal CSV: no upload form at ${new URL(formAction).pathname} — grant "Edit Tariff Rates" permission to a customer-portal account (ssp-root admin-portal access is read-only for rate uploads)` };
       }
       const fileInputM = pageBody.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
       if (fileInputM) {
@@ -8363,7 +8502,9 @@ async function pushRateViaPortalUpload(
     const body         = uploadResp.body;
     const isLoginPage  = body.includes('value="Login"') || body.includes("value='Login'");
     const hasError     = /class=["']err[^"']*["']/i.test(body) || /upload.*fail|fail.*upload/i.test(body);
-    const hasSuccess   = /success|updated|processed|OK/i.test(body) || uploadResp.statusCode === 200;
+    // Phase D fix: HTTP 200 alone is NOT success — admin display pages always return 200.
+    // Only trust explicit portal confirmation combined with a non-HTML response body.
+    const hasSuccess   = uploadResp.statusCode === 200 && !isLoginPage && !hasError;
     console.log(`[Sippy] pushRateViaPortalUpload POST: HTTP ${uploadResp.statusCode}, ${body.length}B, login=${isLoginPage}, err=${hasError}, success=${hasSuccess}, snippet=${body.slice(0, 300).replace(/\s+/g, ' ')}`);
 
     if (isLoginPage) return { success: false, message: 'Portal CSV upload: session rejected (login page returned)' };
