@@ -8561,18 +8561,22 @@ async function pushRateViaPortalUpload(
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))      return `${raw.trim()} 00:00:00`;
     return '';
   }
+  const xlsxAction = 'A'; // 'A' = add-or-update (most Sippy versions treat it as upsert by prefix)
   const xlsxBuf = buildRateXlsx(
-    'SA', null, prefix, '',
+    xlsxAction, null, prefix, '',
     rate, normDate(effectiveFrom), normDate(effectiveTill),
   );
-  console.log(`[Sippy] pushRateViaPortalUpload: XLSX upload prefix=${prefix} rate=${rate} bytes=${xlsxBuf.length}`);
+  // Log the exact CSV rows we are sending (readable debug — helps spot column/value issues)
+  console.log(`[Sippy] pushRateViaPortalUpload: XLSX rows — action=${xlsxAction} prefix=${prefix} rate=${rate} from="${normDate(effectiveFrom)||'(none)'}" till="${normDate(effectiveTill)||'(none)'}" bytes=${xlsxBuf.length}`);
 
   // ── Step 4: multipart/form-data POST (binary XLSX) ─────────────────────────
   const boundary    = `----SippyRateBoundary${Date.now().toString(36)}`;
   const bufParts: Buffer[] = [];
 
-  // Hidden form fields (text)
-  for (const [k, v] of Object.entries(hiddenFields)) {
+  // Always include i_tariff as an explicit form field — ExtJS pages don't have static hidden
+  // inputs but Sippy may still require i_tariff in the POST body (not just the query string).
+  const extraFields: Record<string, string> = { i_tariff: String(iTariff), ...hiddenFields };
+  for (const [k, v] of Object.entries(extraFields)) {
     bufParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`));
   }
   // XLSX file field (binary — cannot use string-based rawRequest)
@@ -8597,14 +8601,16 @@ async function pushRateViaPortalUpload(
     // Phase D fix: HTTP 200 alone is NOT success — admin display pages always return 200.
     // Only trust explicit portal confirmation combined with a non-HTML response body.
     const hasSuccess   = uploadResp.statusCode === 200 && !isLoginPage && !hasError;
-    console.log(`[Sippy] pushRateViaPortalUpload POST: HTTP ${uploadResp.statusCode}, ${body.length}B, login=${isLoginPage}, err=${hasError}, success=${hasSuccess}, snippet=${body.slice(0, 300).replace(/\s+/g, ' ')}`);
+    // Log first 2000 chars so we can see Sippy's actual response in deployment logs
+    console.log(`[Sippy] pushRateViaPortalUpload POST: HTTP ${uploadResp.statusCode}, ${body.length}B, login=${isLoginPage}, err=${hasError}, success=${hasSuccess}`);
+    console.log(`[Sippy] pushRateViaPortalUpload RESPONSE: ${body.slice(0, 2000).replace(/\s+/g, ' ')}`);
 
     if (isLoginPage) return { success: false, message: 'Portal CSV upload: session rejected (login page returned)' };
     if (hasError) {
       const errM = body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
       return { success: false, message: `Portal CSV error: ${errM ? errM[1].trim() : 'Sippy returned an error response'}` };
     }
-    if (hasSuccess) return { success: true, message: `Rate pushed via portal XLSX upload (Action=SA, prefix=${prefix})` };
+    if (hasSuccess) return { success: true, message: `Rate pushed via portal XLSX upload (Action=${xlsxAction}, prefix=${prefix})` };
 
     return { success: false, message: `Portal CSV upload: unexpected response (HTTP ${uploadResp.statusCode}, ${body.length}B)` };
   } catch (e: any) {
