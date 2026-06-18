@@ -89,6 +89,9 @@ interface SippySession {
 
 let activeSession: SippySession | null = null;
 
+/** Returns the current active Sippy session (read-only). */
+export function getActiveSession(): SippySession | null { return activeSession; }
+
 /** Returns the portal URL of the current active Sippy session, if any. */
 export function getActivePortalUrl(): string | undefined {
   return activeSession?.portalUrl ?? undefined;
@@ -8484,7 +8487,10 @@ export async function setSippyRateEntry(
     username, password,
   );
   if (portalResult.success) {
-    // Phase E: verify the rate actually changed in Sippy (portal may return 200 for display pages)
+    // Phase E: verify the rate actually changed in Sippy.
+    // Wait 3 seconds first — Sippy's portal import runs as a background job on the server;
+    // reading the tariff immediately after upload returns the pre-upload value.
+    await new Promise(r => setTimeout(r, 3000));
     const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
     console.log(`[RateManager] Verification (portal_csv): ${verifyResult.message}`);
     if (verifyResult.confirmed) {
@@ -8668,6 +8674,16 @@ async function pushRateViaPortalUpload(
     xlsxBuf = buildRateXlsx(action, iRate ?? null, prefix, '', rate, normDate(effectiveFrom), normDate(effectiveTill));
     console.log(`[Sippy] pushRateViaPortalUpload: single-row fallback — action=${action} iRate=${iRate ?? 'none'} prefix=${prefix} rate=${rate} bytes=${xlsxBuf.length}`);
   }
+
+  // ── Step 3b: save XLSX to disk for inspection ───────────────────────────────
+  // Lets you download and open the exact bytes Sippy received.
+  // File: /tmp/rate-push-<tariff>-<prefix>-<ts>.xlsx
+  try {
+    const { writeFileSync } = await import('fs');
+    const dumpPath = `/tmp/rate-push-${iTariff}-${prefix}-${Date.now()}.xlsx`;
+    writeFileSync(dumpPath, xlsxBuf);
+    console.log(`[RateManager] XLSX saved for inspection: ${dumpPath}`);
+  } catch (_) { /* non-fatal */ }
 
   // ── Step 4: multipart/form-data POST (binary XLSX) ─────────────────────────
   const boundary    = `----SippyRateBoundary${Date.now().toString(36)}`;

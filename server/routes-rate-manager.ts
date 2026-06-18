@@ -53,17 +53,17 @@ async function getSippyCreds() {
 
 export function registerRateManagerRoutes(app: Express) {
 
-  // ── Debug: download the exact XLSX BitsAuto would upload ──────────────────
+  // ── Debug: generate the exact full-tariff XLSX BitsAuto would upload ────────
   // GET /api/rate-manager/download-test-xlsx?tariffId=33&prefix=19230&rate=0.027&from=2026-06-18+01:30
-  // Returns the raw XLSX file so it can be manually uploaded to Sippy to verify format.
+  // Fetches all current rates via XML-RPC then builds the complete multi-row XLSX.
+  // Returns the raw file so it can be inspected in Excel or manually uploaded to Sippy.
   app.get('/api/rate-manager/download-test-xlsx', async (req: any, res) => {
     try {
-      const { tariffId, prefix, rate, from: effectiveFrom, till: effectiveTill, action = 'A' } = req.query as Record<string, string>;
-      if (!prefix || !rate) return res.status(400).json({ error: 'prefix and rate are required' });
+      const { tariffId, prefix, rate, from: effectiveFrom, till: effectiveTill } = req.query as Record<string, string>;
+      if (!prefix || !rate || !tariffId) return res.status(400).json({ error: 'tariffId, prefix and rate are required' });
       const rateNum = parseFloat(rate);
       if (isNaN(rateNum)) return res.status(400).json({ error: 'rate must be a number' });
 
-      // Normalise date: "2026-06-18 01:30" → "2026-06-18 01:30:00"
       function normDate(raw?: string): string {
         if (!raw) return '';
         const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
@@ -72,15 +72,55 @@ export function registerRateManagerRoutes(app: Express) {
         return '';
       }
 
-      const xlsxBuf = sippy.buildRateXlsx(
-        action, null, prefix, '',
-        rateNum, normDate(effectiveFrom), normDate(effectiveTill),
-      );
+      const session = sippy.getActiveSession?.();
+      const u = session?.xmlRpcUsername ?? '';
+      const p = session?.xmlRpcPassword ?? '';
+      let allRates: any[] = [];
+      if (u && p) {
+        allRates = await sippy.getTariffRatesListFull(u, p, Number(tariffId), undefined, 1000);
+      }
 
-      const filename = `sippy_tariff${tariffId ?? 'XX'}_${prefix}_${Date.now()}.xlsx`;
+      let xlsxBuf: Buffer;
+      if (allRates.length > 0) {
+        xlsxBuf = sippy.buildFullTariffXlsx(allRates, prefix, rateNum, normDate(effectiveFrom), normDate(effectiveTill));
+      } else {
+        xlsxBuf = sippy.buildRateXlsx('A', null, prefix, '', rateNum, normDate(effectiveFrom), normDate(effectiveTill));
+      }
+
+      const filename = `sippy_tariff${tariffId}_${prefix}_full_${Date.now()}.xlsx`;
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(xlsxBuf);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Debug: list and download auto-saved rate-push XLSX files ─────────────
+  // GET /api/rate-manager/push-xlsx-list   → lists files in /tmp/rate-push-*.xlsx
+  // GET /api/rate-manager/push-xlsx-download?file=<name>  → downloads one file
+  app.get('/api/rate-manager/push-xlsx-list', async (_req: any, res) => {
+    try {
+      const { readdirSync, statSync } = await import('fs');
+      const files = readdirSync('/tmp')
+        .filter(f => f.startsWith('rate-push-') && f.endsWith('.xlsx'))
+        .map(f => ({
+          name: f,
+          size: statSync(`/tmp/${f}`).size,
+          mtime: statSync(`/tmp/${f}`).mtime,
+        }))
+        .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+      res.json(files);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/rate-manager/push-xlsx-download', async (req: any, res) => {
+    try {
+      const { readFileSync } = await import('fs');
+      const name = String(req.query.file ?? '').replace(/[^a-zA-Z0-9._-]/g, '');
+      if (!name.startsWith('rate-push-') || !name.endsWith('.xlsx')) return res.status(400).json({ error: 'invalid filename' });
+      const buf = readFileSync(`/tmp/${name}`);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+      res.send(buf);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
