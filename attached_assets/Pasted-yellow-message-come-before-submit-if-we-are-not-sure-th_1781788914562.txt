@@ -1,0 +1,208 @@
+yellow message come before submit, if we are not sure that rate will be pushed sucessfully then why we are wasitng time?? you are fetching correct rates from sippy but not have permission to ammend rates??? how this is possible 
+
+Your question is exactly the right one:
+
+"If BitsAuto can fetch rates from Sippy, how can it not have permission to modify rates?"
+
+Because read permissions and write permissions are separate in Sippy.
+
+Your screenshot actually proves this.
+
+What the screenshot proves
+
+You are logged in as:
+
+ssp-root
+
+You can open:
+
+/c1/rates_tariff.php?i_tariff=33
+
+You can see:
+
+Download Rates ✅
+Upload Rates button ✅
+Add Rate button ✅
+Delete Rate button ✅
+
+So from a human browser perspective, ssp-root appears to have access to the rate editor page.
+
+That is why I do not fully trust the yellow warning message.
+
+Why the warning is suspicious
+
+The yellow box says:
+
+Rate push will fail
+Sippy permission required
+ssp-root lacks Edit Tariff Rates permission
+
+But your Sippy screenshot shows:
+
+Upload Rates
+Add Rate
+Delete All
+Delete Row
+
+If the account truly lacked rate-edit permission, usually Sippy would:
+
+hide Upload button
+hide Add button
+hide Delete buttons
+
+or redirect away.
+
+Instead, the page is fully editable.
+
+That means one of three things is happening:
+
+Scenario 1 (most likely)
+
+BitsAuto is checking the wrong page and assuming failure.
+
+Example:
+
+/admin/tariffs.php
+
+returns:
+
+read-only
+
+BitsAuto shows warning.
+
+But actual upload page:
+
+/c1/rates_tariff.php
+
+is writable.
+
+This is very possible.
+
+Scenario 2
+
+Upload succeeds but POST format is wrong.
+
+Meaning:
+
+GET /c1/rates_tariff.php
+
+works
+
+but
+
+POST upload
+
+fails because:
+
+wrong field name
+wrong hidden token
+wrong form action
+wrong XLSX structure
+
+In this case the permission warning is misleading.
+
+Scenario 3
+
+RTS1 account configured in Settings is different from browser account.
+
+The warning text mentions:
+
+configured Rate Admin account
+
+If BitsAuto uses:
+
+RTS1
+
+for uploads
+
+while browser uses:
+
+ssp-root
+
+then:
+
+ssp-root can edit manually
+RTS1 cannot
+
+This would explain everything.
+
+What I would check next
+
+Before any more coding:
+
+Manual upload test
+
+Using the exact Sippy page from your screenshot:
+
+/c1/rates_tariff.php?i_tariff=33
+Download rates.
+Change:
+19230
+0.02750
+
+to
+
+0.02760
+Upload back.
+
+If Sippy accepts it:
+
+✅ Account can write rates.
+
+Then the problem is 100% in BitsAuto upload logic.
+
+Check Settings → Sippy
+
+Verify which account BitsAuto is actually using:
+
+Username?
+Password?
+Rate Admin Credentials?
+
+Compare with:
+
+ssp-root
+
+shown in Sippy.
+
+Looking at the old BitsAuto screenshots
+
+The legacy system did not show a warning before submit.
+
+Instead it:
+
+Let you create the job.
+Sent rate to SBC.
+Created Job ID.
+Showed:
+SBC Mapping Available ✓
+Updated Tariff ✓
+Successful ✓/✗
+
+after execution.
+
+That's actually a better workflow.
+
+The current yellow warning is premature because we haven't conclusively proven the upload will fail.
+
+My conclusion
+
+Based on your Sippy screenshot, I am not convinced this is a permission problem.
+
+The evidence currently suggests:
+
+BitsAuto can authenticate.
+BitsAuto can read tariffs.
+ssp-root can open the upload page.
+Upload controls are visible.
+Legacy BitsAuto performed the same workflow successfully.
+
+So the more likely issue is:
+
+Wrong upload POST format,
+Wrong form field names,
+Missing hidden token,
+Wrong upload action URL,
+Or BitsAuto is using a different credential (RTS1) than the browser session.
+
+I would stop treating this as a permission issue until the deployment logs prove that the upload POST is actually reaching /c1/rates_tariff.php and receiving a rejection from Sippy. Right now the screenshots suggest the warning may simply be wrong.

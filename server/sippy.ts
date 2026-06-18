@@ -331,14 +331,19 @@ async function findRatesCapableSession(
           const isLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
           const is404 = resp.statusCode === 404 || resp.body.length < 300;
           const hasFileInput = resp.body.includes('type="file"') || resp.body.includes("type='file'") || resp.body.toLowerCase().includes('type=file');
-          if (!isLoginPage && !is404 && hasFileInput) {
-            console.log(`[Sippy] findRatesCapableSession: ✓ ${u}/${acctType} has upload form at ${ratesUrl} (${resp.body.length}B)`);
+          // /c1/ pages use ExtJS which renders the upload button client-side — the static HTML
+          // never contains <input type="file">. Accept /c1/ pages that aren't login/404.
+          // Only reject /admin/ pages without a file input (those are truly read-only display pages).
+          const isAdminPath = ratesUrl.includes('/admin/');
+          const isAcceptable = !isLoginPage && !is404 && (hasFileInput || !isAdminPath);
+          if (isAcceptable) {
+            console.log(`[Sippy] findRatesCapableSession: ✓ ${u}/${acctType} accepted ${ratesUrl} (${resp.body.length}B, fileInput=${hasFileInput})`);
             adminPortalCacheByUrl.set(base, { cookies: loginRes.cookies, expiresAt: Date.now() + PORTAL_SESSION_TTL_MS });
             adminPortalNegCacheByUrl.delete(base);
             return { cookies: loginRes.cookies, ratesPageUrl: ratesUrl, ratesBody: resp.body, rateCookies: resp.cookies, user: u };
           }
-          if (!isLoginPage && !is404 && !hasFileInput) {
-            console.log(`[Sippy] findRatesCapableSession: ${u}/${acctType} reached ${ratesUrl} (${resp.body.length}B) but no file input — display page, skipping`);
+          if (!isLoginPage && !is404 && isAdminPath && !hasFileInput) {
+            console.log(`[Sippy] findRatesCapableSession: ${u}/${acctType} reached admin display page ${ratesUrl} (${resp.body.length}B, no file input) — skipping`);
           }
         } catch { /* try next URL */ }
       }
@@ -8512,16 +8517,23 @@ async function pushRateViaPortalUpload(
       const allFileInputs = pageBody.match(/<input[^>]+type=["']?file["']?[^>]*>/gi) ?? [];
       console.log(`[Sippy] rates_tariff page — length=${pageBody.length} fileInputs=${allFileInputs.length} url=${ratesPageUrl} first500=${pageBody.replace(/\s+/g,' ').slice(0, 500)}`);
 
-      // Check if the page has a file input — if not, it's a display-only page and we cannot upload
+      // Check if the page has a file input.
+      // /c1/ pages use ExtJS which renders the upload button client-side — the static HTML
+      // never contains <input type="file">, but the page IS the correct upload page.
+      // Only hard-abort for /admin/ paths where no file input means it's truly a display page.
       const fileInputM = allFileInputs[0] ?? null;
       if (!fileInputM) {
-        // No file input found — this is an ExtJS display page (admin portal viewer).
-        // Posting to a display page always returns HTTP 200 but changes nothing in Sippy.
-        console.log(`[Sippy] pushRateViaPortalUpload: no file input detected at ${formAction} — likely admin display page, aborting POST`);
-        return { success: false, message: `Portal CSV: no upload form at ${new URL(formAction).pathname} — grant "Edit Tariff Rates" permission to a customer-portal account (ssp-root admin-portal access is read-only for rate uploads)` };
+        const isAdminPath = new URL(formAction).pathname.includes('/admin/');
+        if (isAdminPath) {
+          console.log(`[Sippy] pushRateViaPortalUpload: no file input at admin path ${formAction} — display page, aborting POST`);
+          return { success: false, message: `Portal CSV: no upload form at ${new URL(formAction).pathname} — this is a read-only admin display page` };
+        }
+        // /c1/ page: ExtJS renders the file input client-side. Proceed with default field name.
+        console.log(`[Sippy] pushRateViaPortalUpload: no static file input on /c1/ page (ExtJS) — proceeding with default field name "${fileFieldName}"`);
+      } else {
+        const nameM = fileInputM.match(/name=["']([^"']+)["']/i);
+        if (nameM) fileFieldName = nameM[1];
       }
-      const nameM = fileInputM.match(/name=["']([^"']+)["']/i);
-      if (nameM) fileFieldName = nameM[1];
 
       const hiddenRe = /<input[^>]+type=["']?hidden["']?[^>]*>/gi;
       let hm: RegExpExecArray | null;
