@@ -558,11 +558,14 @@ function ChangeClientRateModal({
                     <span className="flex items-center gap-1">
                       {r.success ? <Check className="w-3 h-3 text-emerald-400" /> : <X className="w-3 h-3 text-red-400" />}
                       <span className={cn("text-[10px]", r.success ? "text-emerald-400" : "text-red-400")}>
-                        {r.method ?? r.message}
+                        {r.success ? (r.method ?? r.message) : (r.message ?? r.method ?? "push failed")}
                       </span>
                     </span>
                   </div>
-                  {!r.success && r.detail && (
+                  {!r.success && r.method && (
+                    <div className="text-[10px] text-muted-foreground mt-0.5">via {r.method}{r.detail ? ` · ${r.detail}` : ""}</div>
+                  )}
+                  {!r.success && !r.method && r.detail && (
                     <div className="text-[10px] text-muted-foreground mt-0.5">{r.detail}</div>
                   )}
                 </div>
@@ -1090,6 +1093,14 @@ function SendRateTab({
             Submit
           </button>
         </div>
+        {!canSubmit && (selectedProduct || selectedClients.length > 0) && (
+          <div className="text-[10px] text-amber-400/80 px-1 pt-0.5 space-y-0.5">
+            {!selectedProduct && <div>· Select a product</div>}
+            {selectedClients.length === 0 && <div>· Select at least one client</div>}
+            {!resolvedDialPrefix && <div>· Select Country → Operator in detail panel →</div>}
+            {resolvedDialPrefix && !price && <div>· Enter rate price in detail panel →</div>}
+          </div>
+        )}
 
         {/* Selected Clients List */}
         {selectedClientAccounts.length > 0 && (
