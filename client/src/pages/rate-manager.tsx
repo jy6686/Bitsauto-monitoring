@@ -362,10 +362,10 @@ function RateDetailPanel({
                     {r.price1 != null ? Number(r.price1).toFixed(5) : "—"}
                   </td>
                   <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">
-                    {r.activationDate ? new Date(r.activationDate).toLocaleDateString() : "—"}
+                    {r.activationDate ? (() => { const d = new Date(String(r.activationDate).replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T')); return isNaN(d.getTime()) ? String(r.activationDate).slice(0,10) : d.toLocaleDateString(); })() : "—"}
                   </td>
                   <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">
-                    {r.expirationDate ? new Date(r.expirationDate).toLocaleDateString() : "None"}
+                    {r.expirationDate ? (() => { const d = new Date(String(r.expirationDate).replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T')); return isNaN(d.getTime()) ? String(r.expirationDate).slice(0,10) : d.toLocaleDateString(); })() : "None"}
                   </td>
                   <td className="py-1.5 px-3">
                     {r.forbidden ? (

@@ -299,14 +299,16 @@ async function findRatesCapableSession(
   }
 
   const candidateUrls = [
+    // Confirmed working path on this Sippy build (rates_tariff.php — customer portal)
+    `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`,
+    // Customer/reseller portal paths (ssp-root lands here)
+    `${base}/c1/rates.php?i_tariff=${iTariff}`,
+    `${base}/c1/tariffs.php?action=edit_rates&i_tariff=${iTariff}`,
+    `${base}/rates.php?i_tariff=${iTariff}`,
+    `${base}/tariff_rates.php?i_tariff=${iTariff}`,
     // Admin portal paths (system admin accounts like RTST1 land here)
     `${base}/admin/tariffs.php?action=edit_rates&i_tariff=${iTariff}`,
     `${base}/admin/rates.php?i_tariff=${iTariff}`,
-    // Customer/reseller portal paths (ssp-root lands here)
-    `${base}/c1/rates.php?i_tariff=${iTariff}`,
-    `${base}/rates.php?i_tariff=${iTariff}`,
-    `${base}/c1/tariffs.php?action=edit_rates&i_tariff=${iTariff}`,
-    `${base}/tariff_rates.php?i_tariff=${iTariff}`,
   ];
 
   console.log(`[Sippy] findRatesCapableSession: testing ${pairs.length} cred pair(s) against rates page @ ${base}`);
@@ -8458,7 +8460,9 @@ async function pushRateViaPortalUpload(
 
   const hiddenFields: Record<string, string> = {};
   let fileFieldName = 'rate_file';
-  let formAction    = `${base}/c1/rates.php?i_tariff=${iTariff}`;
+  // Default to the confirmed working path on this Sippy build; findRatesCapableSession
+  // will override this with whichever candidateUrl actually responded with the upload form.
+  let formAction    = `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`;
   let postCookies   = ratesSession?.rateCookies ?? ratesSession?.cookies;
 
   if (!adminCreds) {
@@ -8485,19 +8489,24 @@ async function pushRateViaPortalUpload(
 
     if (pageBody.length > 300 && !hasLoginForm) {
       formAction = ratesPageUrl;
+      // Try explicit multipart form first, then any form containing a file input.
+      // Sippy's /c1/rates_tariff.php uses a plain <form> tag without enctype attribute
+      // but does have a <input type="file"> — so we must not abort on missing enctype.
       const formMatch = pageBody.match(/<form[^>]+enctype=["']multipart\/form-data["'][^>]*>/i)
-                     ?? pageBody.match(/<form[^>]+id=["'][^"']*upload[^"']*["'][^>]*>/i);
+                     ?? pageBody.match(/<form[^>]+id=["'][^"']*upload[^"']*["'][^>]*>/i)
+                     ?? pageBody.match(/<form[^>]*>/i); // fallback: any form (Sippy /c1/ pages)
       if (formMatch) {
         const actionM = formMatch[0].match(/action=["']([^"']+)["']/i);
         if (actionM) formAction = new URL(actionM[1], ratesPageUrl).toString();
-      } else {
-        // No multipart upload form found — this is an ExtJS display page (admin portal viewer).
+      }
+      // Check if the page has a file input — if not, it's a display-only page and we cannot upload
+      const fileInputM = pageBody.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
+      if (!fileInputM) {
+        // No file input found — this is an ExtJS display page (admin portal viewer).
         // Posting to a display page always returns HTTP 200 but changes nothing in Sippy.
-        // Fail fast instead of producing a false-positive success.
-        console.log(`[Sippy] pushRateViaPortalUpload: no upload form detected at ${formAction} — likely admin display page, aborting POST`);
+        console.log(`[Sippy] pushRateViaPortalUpload: no file input detected at ${formAction} — likely admin display page, aborting POST`);
         return { success: false, message: `Portal CSV: no upload form at ${new URL(formAction).pathname} — grant "Edit Tariff Rates" permission to a customer-portal account (ssp-root admin-portal access is read-only for rate uploads)` };
       }
-      const fileInputM = pageBody.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
       if (fileInputM) {
         const nameM = fileInputM[0].match(/name=["']([^"']+)["']/i);
         if (nameM) fileFieldName = nameM[1];
