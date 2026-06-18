@@ -8581,6 +8581,9 @@ export async function downloadTariffXlsxFromPortal(
   cookies: CookieJar,
 ): Promise<Buffer | null> {
   const candidates = [
+    // ✓ CONFIRMED working: Sippy download() JS submits navform with action=download (lowercase)
+    `${base}/c1/rates_tariff.php?i_tariff=${iTariff}&action=download`,
+    // Legacy fallback variants (tried and failed on SB-1, kept for other Sippy versions)
     `${base}/c1/rates_tariff.php?i_tariff=${iTariff}&action=Export`,
     `${base}/c1/rates_tariff.php?i_tariff=${iTariff}&action=export`,
     `${base}/c1/rates_tariff.php?i_tariff=${iTariff}&export=xlsx`,
@@ -8628,7 +8631,7 @@ export function patchDownloadedTariffXlsx(
   const wb    = XLSX.read(srcBuf, { type: 'buffer' });
   const wsName = wb.SheetNames[0];
   const ws    = wb.Sheets[wsName];
-  const aoa   = XLSX.utils.sheet_to_aoa(ws) as any[][];
+  const aoa   = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
 
   if (aoa.length < 2) {
     log.push('WARN: sheet has fewer than 2 rows — nothing to patch');
@@ -8706,19 +8709,73 @@ export function patchDownloadedTariffXlsx(
   };
 }
 
+// ── excelSerialToDateStr ──────────────────────────────────────────────────────
+// Convert an Excel date serial (float stored in XLSX numeric cells with date style)
+// to a "YYYY-MM-DD HH:MM:SS" string Sippy's form accepts.
+// Excel epoch: December 30, 1899 (accounts for the spurious 1900 leap year).
+function excelSerialToDateStr(serial: number): string {
+  const EXCEL_EPOCH_MS = Date.UTC(1899, 11, 30); // 1899-12-30
+  const ms = EXCEL_EPOCH_MS + serial * 86400000;
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ` +
+         `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+
+// ── parseXlsxForRateEdit ──────────────────────────────────────────────────────
+// Extract iRate and all form field values needed for the action=change request
+// from a downloaded Sippy tariff XLSX.
+// Columns: [Action, Id, Prefix, Country, Interval1, IntervalN, Price1, PriceN,
+//           Forbidden, GracePeriod, ActivationDate, ExpirationDate]
+// Indexes:  [0,      1,  2,      3,       4,         5,         6,      7,
+//            8,        9,           10,             11]
+function parseXlsxForRateEdit(
+  buf: Buffer,
+  targetPrefix: string,
+): { iRate: number; interval1: number; intervalN: number; forbidden: number;
+    gracePeriodEnable: number; activationDate: string; expirationDate: string } | null {
+  const XLSX = require('xlsx') as typeof import('xlsx');
+  const wb   = XLSX.read(buf, { type: 'buffer' });
+  const ws   = wb.Sheets[wb.SheetNames[0]];
+  const aoa  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as any[][];
+
+  for (let i = 1; i < aoa.length; i++) {
+    const row = aoa[i];
+    if (!row || row.length < 3) continue;
+    if (String(row[2] ?? '').trim() !== targetPrefix) continue;
+
+    const iRate             = Number(row[1]) || 0;
+    if (!iRate) continue;
+    const interval1         = Number(row[4]) || 1;
+    const intervalN         = Number(row[5]) || 1;
+    const forbidden         = Number(row[8]) || 0;
+    const graceNum          = Number(row[9]) || 0;
+    const gracePeriodEnable = graceNum > 0 ? 1 : 0;
+    const actSerial         = row[10];
+    const expSerial         = row[11];
+    const activationDate    = (typeof actSerial === 'number' && actSerial > 0)
+                              ? excelSerialToDateStr(actSerial) : '';
+    const expirationDate    = (typeof expSerial === 'number' && expSerial > 0)
+                              ? excelSerialToDateStr(expSerial) : '';
+    return { iRate, interval1, intervalN, forbidden, gracePeriodEnable, activationDate, expirationDate };
+  }
+  return null;
+}
+
 // ── pushRateViaPortalUpload ───────────────────────────────────────────────────
-// Pushes a single rate to a Sippy tariff via portal CSV upload (multipart POST).
-// This is the ONLY way to add/update rates in Sippy — there are no XML-RPC write
-// methods for rates (only getTariffRatesList + deleteAllRatesInTariff exist).
+// Pushes a single rate to a Sippy tariff via the portal's individual rate edit form.
+// This is the ONLY reliable write path for Sippy rates:
+//   - XML-RPC has no write methods for rates.
+//   - Bulk XLSX upload via Resumable.js fails HTTP 500 (server-side temp dir crash).
+//   - Plain action=import POST is silently ignored (Sippy requires Resumable.js chunks).
+//   - action=change GET on a single rate: CONFIRMED WORKING (tested 2026-06-18).
 //
-// Strategy (in order):
-//   1. Download the existing tariff XLSX from Sippy portal (preserves Country etc.)
-//      → Patch the target row(s) in-place → Re-upload
-//   2. If download fails: build full-tariff XLSX from XML-RPC data (loses Country)
-//   3. If XML-RPC also fails: single-row fallback with Action=U/A
-//
-// Sippy docs: https://support.sippysoft.com/a/solutions/articles/84153 (Actions)
-//             https://support.sippysoft.com/a/solutions/articles/3000118878 (Rates API)
+// Algorithm:
+//   1. Login to portal (provisioningLogin or findRatesCapableSession)
+//   2. Download tariff XLSX → parseXlsxForRateEdit → get iRate + field values
+//   3. If XLSX parse fails: scrape HTML rates table for iRate link
+//   4. GET rates_tariff.php?action=change&i_rate=N&price_1=NEW&... (form submission)
+//   5. Verify: HTTP 200 + full HTML rates page (not login page, not error)
 async function pushRateViaPortalUpload(
   base: string,
   iTariff: number,
@@ -8731,104 +8788,7 @@ async function pushRateViaPortalUpload(
   xmlUsername?: string,
   xmlPassword?: string,
 ): Promise<{ success: boolean; message: string }> {
-  // ── Step 1: find a session that can BOTH login AND access the rates page ──
-  // findRatesCapableSession tries each credential pair (rateAdminUser → SIPPY_PROV → ssp-root)
-  // against the actual rates URL, not just the portal login. This handles the case where
-  // ssp-root (reseller) can login but is ACL-blocked from /c1/rates.php.
-  const ratesSession = adminCreds
-    ? await findRatesCapableSession(base, iTariff, adminCreds)
-    : null;
 
-  if (adminCreds && !ratesSession) {
-    return { success: false, message: 'No credential pair has access to the Sippy rates page. Grant "Edit Tariff Rates" permission to RTST1 (or the configured Rate Admin account) in the Sippy admin panel.' };
-  }
-
-  const hiddenFields: Record<string, string> = {};
-  let fileFieldName = 'rate_file';
-  // Default to the confirmed working path on this Sippy build; findRatesCapableSession
-  // will override this with whichever candidateUrl actually responded with the upload form.
-  let formAction    = `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`;
-  let postCookies   = ratesSession?.rateCookies ?? ratesSession?.cookies;
-
-  if (!adminCreds) {
-    // Fallback: provisioningLogin for non-admin paths
-    try {
-      postCookies = await provisioningLogin(base);
-    } catch (e: any) {
-      return { success: false, message: `Portal login failed: ${e?.message}` };
-    }
-  }
-
-  // ── Step 2: extract upload form details from the rates page body ──────────
-  // findRatesCapableSession already fetched the rates page — reuse that body.
-  const ratesPageBody = ratesSession?.ratesBody ?? '';
-  const ratesPageUrl  = ratesSession?.ratesPageUrl ?? formAction;
-
-  try {
-    const pageBody = ratesPageBody || (() => {
-      // If no body from findRatesCapableSession (provisioningLogin path), fetch now
-      return '';
-    })();
-    const hasLoginForm = pageBody.includes('value="Login"') || pageBody.includes("value='Login'");
-    console.log(`[Sippy] pushRateViaPortalUpload: rates page body ${pageBody.length}B, loginForm=${hasLoginForm}, user=${ratesSession?.user ?? 'prov'}`);
-
-    if (pageBody.length > 300 && !hasLoginForm) {
-      formAction = ratesPageUrl;
-      // Try explicit multipart form first, then any form containing a file input.
-      // Sippy's /c1/rates_tariff.php uses a plain <form> tag without enctype attribute
-      // but does have a <input type="file"> — so we must not abort on missing enctype.
-      const formMatch = pageBody.match(/<form[^>]+enctype=["']multipart\/form-data["'][^>]*>/i)
-                     ?? pageBody.match(/<form[^>]+id=["'][^"']*upload[^"']*["'][^>]*>/i)
-                     ?? pageBody.match(/<form[^>]*>/i); // fallback: any form (Sippy /c1/ pages)
-      if (formMatch) {
-        const actionM = formMatch[0].match(/action=["']([^"']+)["']/i);
-        if (actionM) formAction = new URL(actionM[1], ratesPageUrl).toString();
-      }
-      // ── Diagnostic: log exactly what the parser sees (confirms correct page reached) ──
-      const allFileInputs = pageBody.match(/<input[^>]+type=["']?file["']?[^>]*>/gi) ?? [];
-      console.log(`[Sippy] rates_tariff page — length=${pageBody.length} fileInputs=${allFileInputs.length} url=${ratesPageUrl} first500=${pageBody.replace(/\s+/g,' ').slice(0, 500)}`);
-
-      // Check if the page has a file input.
-      // /c1/ pages use ExtJS which renders the upload button client-side — the static HTML
-      // never contains <input type="file">, but the page IS the correct upload page.
-      // Only hard-abort for /admin/ paths where no file input means it's truly a display page.
-      const fileInputM = allFileInputs[0] ?? null;
-      if (!fileInputM) {
-        const isAdminPath = new URL(formAction).pathname.includes('/admin/');
-        if (isAdminPath) {
-          console.log(`[Sippy] pushRateViaPortalUpload: no file input at admin path ${formAction} — display page, aborting POST`);
-          return { success: false, message: `Portal CSV: no upload form at ${new URL(formAction).pathname} — this is a read-only admin display page` };
-        }
-        // /c1/ page: ExtJS renders the file input client-side. Proceed with default field name.
-        console.log(`[Sippy] pushRateViaPortalUpload: no static file input on /c1/ page (ExtJS) — proceeding with default field name "${fileFieldName}"`);
-      } else {
-        const nameM = fileInputM.match(/name=["']([^"']+)["']/i);
-        if (nameM) fileFieldName = nameM[1];
-      }
-
-      const hiddenRe = /<input[^>]+type=["']?hidden["']?[^>]*>/gi;
-      let hm: RegExpExecArray | null;
-      while ((hm = hiddenRe.exec(pageBody)) !== null) {
-        const nM = hm[0].match(/name=["']([^"']+)["']/i);
-        const vM = hm[0].match(/value=["']([^"']*)["']/i);
-        if (nM && vM) hiddenFields[nM[1]] = vM[1];
-      }
-      console.log(`[Sippy] pushRateViaPortalUpload: formAction=${formAction}, fileField=${fileFieldName}, hidden=${Object.keys(hiddenFields).join(',')}`);
-    }
-  } catch (ge: any) {
-    console.log(`[Sippy] pushRateViaPortalUpload: rates page parse error: ${ge?.message} — proceeding with defaults`);
-  }
-
-  // ── Step 3: build the upload XLSX ─────────────────────────────────────────
-  // Strategy (download-patch first, fallbacks below):
-  //   P1 (preferred): Download real tariff XLSX from Sippy portal → patch in-place
-  //       ✓ Preserves Country, intervals, hidden metadata — matches manual upload exactly
-  //   P2 (fallback):  Reconstruct from XML-RPC data → buildFullTariffXlsx
-  //       ✗ Country=null — may cause silent ignore by Sippy
-  //   P3 (last resort): Single-row XLSX with known iRate
-  //       ✗ May wipe other rows if Sippy operates in replace mode
-  //
-  // Dates: "YYYY-MM-DD HH:MM:SS" — pure string, NO timezone conversion.
   function normDate(raw?: string): string {
     if (!raw) return '';
     const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
@@ -8837,130 +8797,129 @@ async function pushRateViaPortalUpload(
     return '';
   }
 
-  let xlsxBuf: Buffer;
-  let uploadMethod = 'unknown';
+  // ── Step 1: obtain a portal session ──────────────────────────────────────
+  const ratesSession = adminCreds
+    ? await findRatesCapableSession(base, iTariff, adminCreds)
+    : null;
 
-  // ── P1: Download the real tariff XLSX from Sippy portal ───────────────────
-  const downloadCookies = ratesSession?.cookies ?? postCookies;
-  let downloadedBuf: Buffer | null = null;
-  if (downloadCookies) {
+  if (adminCreds && !ratesSession) {
+    return { success: false, message: 'No credential pair has access to the Sippy rates page. Grant "Edit Tariff Rates" permission to RTST1 (or the configured Rate Admin account) in the Sippy admin panel.' };
+  }
+
+  let cookies: CookieJar | undefined = ratesSession?.cookies ?? ratesSession?.rateCookies;
+  if (!adminCreds) {
     try {
-      downloadedBuf = await downloadTariffXlsxFromPortal(base, iTariff, downloadCookies);
-    } catch (de: any) {
-      console.log(`[Sippy] pushRateViaPortalUpload: portal download threw: ${de?.message}`);
+      cookies = await provisioningLogin(base);
+    } catch (e: any) {
+      return { success: false, message: `Portal login failed: ${e?.message}` };
     }
   }
-
-  if (downloadedBuf) {
-    // ── Patch the downloaded workbook in-place ─────────────────────────────
-    const { buf, patchedRows, log } = patchDownloadedTariffXlsx(
-      downloadedBuf, prefix, rate, normDate(effectiveFrom), normDate(effectiveTill),
-    );
-    xlsxBuf      = buf;
-    uploadMethod = 'download-patch-reupload';
-    console.log(`[Sippy] pushRateViaPortalUpload: ✓ P1 download-patch — tariff=${iTariff} patchedRows=${patchedRows} target=${prefix} newRate=${rate} bytes=${xlsxBuf.length}`);
-    console.log(`[RateManager] ═══ PATCH PREVIEW — tariff=${iTariff} target=${prefix} newRate=${rate} ═══`);
-    for (const line of log) console.log(`[RateManager] ${line}`);
-    console.log(`[RateManager] ═══ END PATCH PREVIEW ═══`);
-  } else {
-    // ── P2: Reconstruct from XML-RPC data ──────────────────────────────────
-    console.log(`[Sippy] pushRateViaPortalUpload: P1 download failed — falling back to XML-RPC reconstruction (Country=null warning)`);
-    let allRates: SippyTariffRate[] = [];
-    const u = xmlUsername ?? activeSession?.xmlRpcUsername ?? '';
-    const p = xmlPassword ?? activeSession?.xmlRpcPassword ?? '';
-    if (u && p) {
-      try {
-        allRates = await getTariffRatesListFull(u, p, iTariff, undefined, 1000);
-        console.log(`[Sippy] pushRateViaPortalUpload: fetched ${allRates.length} existing rates for full-tariff upload`);
-      } catch (fe: any) {
-        console.log(`[Sippy] pushRateViaPortalUpload: rate pre-fetch failed (${fe?.message}) — will upload single row`);
-      }
-    }
-
-    if (allRates.length > 0) {
-      xlsxBuf      = buildFullTariffXlsx(allRates, prefix, rate, normDate(effectiveFrom), normDate(effectiveTill));
-      uploadMethod = 'xmlrpc-reconstruct';
-      // Pre-upload dual dump so we can compare against manual upload
-      console.log(`[RateManager] ═══ FULL TARIFF UPLOAD PREVIEW — tariff=${iTariff} rows=${allRates.length} target=${prefix} newRate=${rate} ═══`);
-      for (const r of allRates) {
-        const isTarget = r.prefix === prefix;
-        const int1   = (r.interval1 && r.interval1 > 0) ? r.interval1 : 1;
-        const intN   = (r.intervalN && r.intervalN > 0) ? r.intervalN : 1;
-        const grace  = r.gracePeriodEnable === false ? 0 : 1;
-        const forbid = r.forbidden === true ? 1 : 0;
-        const outRate  = isTarget ? rate : r.price1;
-        const outFrom  = isTarget ? (normDate(effectiveFrom) || fmtDate(r.activationDate)) : fmtDate(r.activationDate);
-        const tag = isTarget ? ' ← CHANGED' : '';
-        console.log(`[RateManager] [SRC] ID=${r.iRate} Prefix=${r.prefix} Country=(none-xml-rpc) Int1=${r.interval1} IntN=${r.intervalN} Price1=${r.price1} PriceN=${r.priceN} Forbidden=${r.forbidden} GracePeriodEnable=${r.gracePeriodEnable} ActivationDate=${r.activationDate ?? '(none)'}`);
-        console.log(`[RateManager] [OUT] Action=U ID=${r.iRate} Prefix=${r.prefix} Country=null Int1=${int1} IntN=${intN} Price1=${outRate} PriceN=${outRate} Forbidden=${forbid} Grace=${grace} ActivationDate=${outFrom ?? '(none)'}${tag}`);
-      }
-      console.log(`[RateManager] ═══ END PREVIEW ═══`);
-      console.log(`[Sippy] pushRateViaPortalUpload: full-tariff XLSX — ${allRates.length} rows, target=${prefix} newRate=${rate} from="${normDate(effectiveFrom)||'(none)'}" bytes=${xlsxBuf.length}`);
-    } else {
-      // ── P3: single-row last resort ────────────────────────────────────────
-      const action = iRate ? 'U' : 'A';
-      xlsxBuf      = buildRateXlsx(action, iRate ?? null, prefix, '', rate, normDate(effectiveFrom), normDate(effectiveTill));
-      uploadMethod = 'single-row-fallback';
-      console.log(`[Sippy] pushRateViaPortalUpload: single-row fallback — action=${action} iRate=${iRate ?? 'none'} prefix=${prefix} rate=${rate} bytes=${xlsxBuf.length}`);
-    }
+  if (!cookies) {
+    return { success: false, message: 'Failed to obtain portal session cookies' };
   }
 
-  // ── Step 3b: save XLSX to disk for inspection ───────────────────────────────
-  // Lets you download and open the exact bytes Sippy received.
-  // File: /tmp/rate-push-<tariff>-<prefix>-<ts>.xlsx
-  try {
-    const { writeFileSync } = await import('fs');
-    const dumpPath = `/tmp/rate-push-${iTariff}-${prefix}-${Date.now()}.xlsx`;
-    writeFileSync(dumpPath, xlsxBuf);
-    console.log(`[RateManager] XLSX saved for inspection: ${dumpPath}`);
-  } catch (_) { /* non-fatal */ }
-
-  // ── Step 4: multipart/form-data POST (binary XLSX) ─────────────────────────
-  const boundary    = `----SippyRateBoundary${Date.now().toString(36)}`;
-  const bufParts: Buffer[] = [];
-
-  // Always include i_tariff as an explicit form field — ExtJS pages don't have static hidden
-  // inputs but Sippy may still require i_tariff in the POST body (not just the query string).
-  const extraFields: Record<string, string> = { i_tariff: String(iTariff), ...hiddenFields };
-  for (const [k, v] of Object.entries(extraFields)) {
-    bufParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`));
-  }
-  // XLSX file field (binary — cannot use string-based rawRequest)
-  bufParts.push(Buffer.from(
-    `--${boundary}\r\n` +
-    `Content-Disposition: form-data; name="${fileFieldName}"; filename="rates.xlsx"\r\n` +
-    `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`
-  ));
-  bufParts.push(xlsxBuf);
-  bufParts.push(Buffer.from(`\r\n--${boundary}--`));
-  const multipartBuffer = Buffer.concat(bufParts);
+  // ── Step 2: download XLSX → find iRate and current field values ───────────
+  let targetIRate          = iRate ?? 0;
+  let interval1            = 1;
+  let intervalN            = 1;
+  let forbidden            = 0;
+  let gracePeriodEnable    = 1;
+  let activationDateStr    = '';
+  let expirationDateStr    = '';
 
   try {
-    const uploadResp = await rawRequestBuf(
-      formAction, multipartBuffer,
-      { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-      postCookies ?? undefined,
-    );
-    const body         = uploadResp.body;
-    const isLoginPage  = body.includes('value="Login"') || body.includes("value='Login'");
-    const hasError     = /class=["']err[^"']*["']/i.test(body) || /upload.*fail|fail.*upload/i.test(body);
-    // Phase D fix: HTTP 200 alone is NOT success — admin display pages always return 200.
-    // Only trust explicit portal confirmation combined with a non-HTML response body.
-    const hasSuccess   = uploadResp.statusCode === 200 && !isLoginPage && !hasError;
-    // Log first 2000 chars so we can see Sippy's actual response in deployment logs
-    console.log(`[Sippy] pushRateViaPortalUpload POST: HTTP ${uploadResp.statusCode}, ${body.length}B, login=${isLoginPage}, err=${hasError}, success=${hasSuccess}`);
-    console.log(`[Sippy] pushRateViaPortalUpload RESPONSE: ${body.slice(0, 2000).replace(/\s+/g, ' ')}`);
+    const xlsxBuf = await downloadTariffXlsxFromPortal(base, iTariff, cookies);
+    if (xlsxBuf) {
+      const parsed = parseXlsxForRateEdit(xlsxBuf, prefix);
+      if (parsed) {
+        targetIRate       = parsed.iRate;
+        interval1         = parsed.interval1;
+        intervalN         = parsed.intervalN;
+        forbidden         = parsed.forbidden;
+        gracePeriodEnable = parsed.gracePeriodEnable;
+        activationDateStr = parsed.activationDate;
+        expirationDateStr = parsed.expirationDate;
+        console.log(`[Sippy] pushRateViaPortalUpload: XLSX → iRate=${targetIRate} prefix=${prefix} interval1=${interval1} intervalN=${intervalN} act="${activationDateStr}"`);
+      } else {
+        console.log(`[Sippy] pushRateViaPortalUpload: prefix ${prefix} not found in XLSX — will try HTML scrape`);
+      }
+    }
+  } catch (de: any) {
+    console.log(`[Sippy] pushRateViaPortalUpload: XLSX download/parse failed: ${de?.message}`);
+  }
 
-    if (isLoginPage) return { success: false, message: 'Portal CSV upload: session rejected (login page returned)' };
+  // ── Step 3: fallback — scrape HTML rates table for iRate link ─────────────
+  if (!targetIRate) {
+    try {
+      const htmlResp = await rawRequest(
+        'GET', `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`, null, {}, cookies,
+      );
+      const iRateM = htmlResp.body.match(
+        new RegExp(`action=edit&i_rate=(\\d+)&i_tariff=${iTariff}[^"]*"[^>]*>${prefix}<`, 'i'),
+      );
+      if (iRateM) {
+        targetIRate = parseInt(iRateM[1], 10);
+        console.log(`[Sippy] pushRateViaPortalUpload: HTML scrape → iRate=${targetIRate} for prefix=${prefix}`);
+      }
+    } catch (he: any) {
+      console.log(`[Sippy] pushRateViaPortalUpload: HTML iRate scrape failed: ${he?.message}`);
+    }
+  }
+
+  if (!targetIRate) {
+    return { success: false, message: `Cannot find iRate for prefix ${prefix} in tariff ${iTariff} — rate entry may not exist yet` };
+  }
+
+  // ── Step 4: apply effectiveFrom/Till overrides ────────────────────────────
+  if (effectiveFrom) activationDateStr = normDate(effectiveFrom);
+  if (effectiveTill) expirationDateStr = normDate(effectiveTill);
+
+  // ── Step 5: submit action=change GET (individual rate edit form) ──────────
+  // Sippy's rates_tariff.php edit form uses method="GET" and action="change".
+  // This is a direct single-rate update — no file upload, no Resumable.js required.
+  const params: Record<string, string> = {
+    action:              'change',
+    i_tariff:            String(iTariff),
+    i_rate:              String(targetIRate),
+    prefix,
+    interval_1:          String(interval1),
+    interval_n:          String(intervalN),
+    price_1:             String(rate),
+    price_n:             String(rate),
+    'filter_clause[0]':  '',
+    save_and_close:      'Save & Close',
+  };
+  if (forbidden)         params.forbidden           = '1';
+  if (gracePeriodEnable) params.grace_period_enable = '1';
+  if (activationDateStr) params.activation_date      = activationDateStr;
+  if (expirationDateStr) params.expiration_date      = expirationDateStr;
+
+  const qs        = new URLSearchParams(params).toString();
+  const changeUrl = `${base}/c1/rates_tariff.php?${qs}`;
+  console.log(`[Sippy] pushRateViaPortalUpload: action=change iRate=${targetIRate} prefix=${prefix} rate=${rate} act="${activationDateStr}"`);
+
+  try {
+    const resp = await rawRequest('GET', changeUrl, null, {
+      Referer: `${base}/c1/rates_tariff.php?action=edit&i_rate=${targetIRate}&i_tariff=${iTariff}`,
+    }, cookies);
+
+    const body        = resp.body;
+    const isLoginPage = body.includes('value="Login"') || body.includes("value='Login'");
+    const hasError    = /class=["']err[^"']*["']/i.test(body.slice(0, 8000));
+    console.log(`[Sippy] pushRateViaPortalUpload: action=change → HTTP ${resp.statusCode} ${body.length}B login=${isLoginPage} err=${hasError}`);
+
+    if (isLoginPage) return { success: false, message: 'Rate edit: session rejected (login page returned)' };
     if (hasError) {
       const errM = body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
-      return { success: false, message: `Portal CSV error: ${errM ? errM[1].trim() : 'Sippy returned an error response'}` };
+      return { success: false, message: `Rate edit error: ${errM ? errM[1].trim() : 'Sippy returned error response'}` };
     }
-    if (hasSuccess) return { success: true, message: `Rate pushed via portal XLSX upload (full-tariff U, prefix=${prefix})` };
+    if (resp.statusCode === 200 && body.length > 5000) {
+      return { success: true, message: `Rate pushed via portal edit (action=change, iRate=${targetIRate}, prefix=${prefix}, rate=${rate})` };
+    }
 
-    return { success: false, message: `Portal CSV upload: unexpected response (HTTP ${uploadResp.statusCode}, ${body.length}B)` };
+    return { success: false, message: `Rate edit: unexpected response (HTTP ${resp.statusCode}, ${body.length}B)` };
   } catch (e: any) {
-    return { success: false, message: `Portal CSV upload exception: ${e?.message}` };
+    return { success: false, message: `Rate edit exception: ${e?.message}` };
   }
 }
 
