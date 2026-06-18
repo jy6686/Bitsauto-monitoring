@@ -1,0 +1,125 @@
+are we uploading same name convension which already exist in sippy ??
+attached destiantion are uploaded in sippy dstinations, code, name convension etc
+
+The uploaded Destinations.xlsx is very useful because it answers your question.
+
+What Sippy Destinations file contains
+
+Columns:
+
+Column	Meaning
+Action [A|D|U|S|SA]	Import action
+Id	Sippy destination ID
+Prefix	Destination prefix
+Country ISO	Country code
+Description	Destination name
+Area Name	Area/Operator
+Min. Length	Dial length
+Max. Length	Dial length
+
+Example rows:
+
+Id	Prefix	Description
+1924	11	USA
+2676	11201	USA
+2791	11202	USA
+Important finding
+
+This file is Destination Definitions, not Tariff Rates.
+
+Sippy separates:
+
+Destinations
+   ↓
+Prefix → Name Mapping
+
+from
+
+Tariff Rates
+   ↓
+Prefix → Price Mapping
+
+Your rate upload uses:
+
+19230
+19232
+19233
+
+and Sippy already knows the destination names because they exist in the destination database.
+
+Therefore the upload file only needs:
+
+Prefix
+Price
+Intervals
+Activation Date
+
+It does not need to upload destination descriptions again.
+
+Your question: Are we uploading the same naming convention?
+
+Based on the files you've shown:
+
+Destinations
+Prefix = 19230
+Description = Pakistan Mobile Mobilink
+Tariff Rates
+Prefix = 19230
+Price = 0.02750
+
+The critical matching key is:
+
+Prefix
+
+not:
+
+Description
+Country Name
+Operator Name
+
+So BitsAuto must upload:
+
+19230
+
+exactly as Sippy stores it.
+
+Bigger issue I see from your screenshots
+
+Your grid currently shows:
+
+Active From = Invalid Date
+
+for every row.
+
+That suggests the parser is still not correctly reading:
+
+activationDate
+expirationDate
+
+from Sippy.
+
+Before building more upload logic, I would fix:
+
+Invalid Date rendering
+Verify prefix 19230 maps to Sippy prefix 19230
+Verify tariff #33 actually contains rate IDs (41, 44, 45, etc.)
+
+Then test a single upload again.
+
+Conclusion
+
+From the destination file, I do not see a naming-convention mismatch problem.
+
+The upload should be driven by:
+
+Prefix = 19230
+
+and Sippy already resolves that prefix to the correct destination name internally.
+
+The current failure still looks much more like:
+
+Permission / upload endpoint issue
+
+than:
+
+Destination naming issue
