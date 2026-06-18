@@ -8654,6 +8654,13 @@ async function pushRateViaPortalUpload(
   let xlsxBuf: Buffer;
   if (allRates.length > 0) {
     xlsxBuf = buildFullTariffXlsx(allRates, prefix, rate, normDate(effectiveFrom), normDate(effectiveTill));
+    // ── Pre-upload dump — proves every row and ID before Sippy receives the file ──
+    console.log(`[RateManager] Full Tariff Upload Preview — tariff=${iTariff} rows=${allRates.length} target=${prefix} newRate=${rate}`);
+    for (const r of allRates) {
+      const isTarget = r.prefix === prefix;
+      const displayRate = isTarget ? rate : r.price1;
+      console.log(`[RateManager]   Action=U  ID=${r.iRate ?? '??'}  Prefix=${r.prefix}  Rate=${displayRate}${isTarget ? '  ← CHANGED' : ''}`);
+    }
     console.log(`[Sippy] pushRateViaPortalUpload: full-tariff XLSX — ${allRates.length} rows, target=${prefix} newRate=${rate} from="${normDate(effectiveFrom)||'(none)'}" bytes=${xlsxBuf.length}`);
   } else {
     // Fallback: single-row with U + known iRate, or A for new prefix
