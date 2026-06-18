@@ -314,28 +314,37 @@ async function findRatesCapableSession(
   console.log(`[Sippy] findRatesCapableSession: testing ${pairs.length} cred pair(s) against rates page @ ${base}`);
 
   for (const [u, p] of pairs) {
-    for (const acctType of ['admin', 'reseller', 'customer'] as const) {
+    // Try customer first — ssp-root is a reseller/customer account that lands at /c1/ on login.
+    // Trying 'admin' first caused the old code to accept /admin/tariffs.php (ExtJS display page,
+    // no file input) as "rates capable", then fail with "no upload form".
+    for (const acctType of ['customer', 'reseller', 'admin'] as const) {
       const loginRes = await portalLogin(base, u, p, acctType);
       if (!loginRes.success) continue;
 
-      // Login succeeded — now check if this session can reach the rates page
+      // Login succeeded — now check if this session can reach the rates page WITH an upload form.
+      // We require a file input to be present — ExtJS admin display pages return 200 but have no
+      // file input and cannot accept uploads. Accepting them caused false-positive "capable" results.
       let ratesOk = false;
       for (const ratesUrl of candidateUrls) {
         try {
           const resp = await rawRequest('GET', ratesUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, loginRes.cookies, 3);
           const isLoginPage = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
           const is404 = resp.statusCode === 404 || resp.body.length < 300;
-          if (!isLoginPage && !is404) {
-            console.log(`[Sippy] findRatesCapableSession: ✓ ${u}/${acctType} has rates access → ${ratesUrl}`);
+          const hasFileInput = resp.body.includes('type="file"') || resp.body.includes("type='file'") || resp.body.toLowerCase().includes('type=file');
+          if (!isLoginPage && !is404 && hasFileInput) {
+            console.log(`[Sippy] findRatesCapableSession: ✓ ${u}/${acctType} has upload form at ${ratesUrl} (${resp.body.length}B)`);
             adminPortalCacheByUrl.set(base, { cookies: loginRes.cookies, expiresAt: Date.now() + PORTAL_SESSION_TTL_MS });
             adminPortalNegCacheByUrl.delete(base);
             return { cookies: loginRes.cookies, ratesPageUrl: ratesUrl, ratesBody: resp.body, rateCookies: resp.cookies, user: u };
           }
+          if (!isLoginPage && !is404 && !hasFileInput) {
+            console.log(`[Sippy] findRatesCapableSession: ${u}/${acctType} reached ${ratesUrl} (${resp.body.length}B) but no file input — display page, skipping`);
+          }
         } catch { /* try next URL */ }
       }
       if (!ratesOk) {
-        console.log(`[Sippy] findRatesCapableSession: ${u}/${acctType} logged in but rates page ACL-blocked — trying next pair`);
-        break; // acct_type doesn't change ACL permissions for same user; skip to next user/pass
+        console.log(`[Sippy] findRatesCapableSession: ${u}/${acctType} — no URL with upload form found`);
+        // Don't break — a different acctType for the same user might yield a different session type
       }
     }
   }
