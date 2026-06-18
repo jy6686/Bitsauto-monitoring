@@ -8131,8 +8131,7 @@ export async function setSippyRateEntry(
         console.log(`[RateManager] Upload token: ${uploadToken} | URL: ${uploadUrl}`);
 
         const csvHeader  = 'Action,Id,Prefix,Country,Interval 1,Interval N,Price 1,Price N,Forbidden,Grace Period,Activation Date,Expiration Date';
-        const action     = entry.iRate && entry.iRate > 0 ? `U,${entry.iRate}` : 'SA,';
-        const csvRow     = `${action},${entry.prefix},,1,1,${entry.rate},${entry.rate},0,1,${normDateLocal(entry.effectiveFrom)},${normDateLocal(entry.effectiveTill)}`;
+        const csvRow     = `SA,,${entry.prefix},,1,1,${entry.rate},${entry.rate},0,1,${normDateLocal(entry.effectiveFrom)},${normDateLocal(entry.effectiveTill)}`;
         const csvContent = `${csvHeader}\r\n${csvRow}`;
         console.log(`[RateManager] Upload CSV row: ${csvRow}`);
 
@@ -8430,8 +8429,7 @@ async function pushRateViaPortalUpload(
     return '';
   }
   const csvHeader = 'Action,Id,Prefix,Country,Interval 1,Interval N,Price 1,Price N,Forbidden,Grace Period,Activation Date,Expiration Date';
-  const action    = iRate && iRate > 0 ? `U,${iRate}` : 'SA,';
-  const csvRow    = `${action},${prefix},,1,1,${rate},${rate},0,1,${normDate(effectiveFrom)},${normDate(effectiveTill)}`;
+  const csvRow    = `SA,,${prefix},,1,1,${rate},${rate},0,1,${normDate(effectiveFrom)},${normDate(effectiveTill)}`;
   const csvContent = `${csvHeader}\r\n${csvRow}`;
   console.log(`[Sippy] pushRateViaPortalUpload: CSV row: ${csvRow}`);
 
