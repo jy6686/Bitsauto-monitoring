@@ -47,6 +47,7 @@ import https from 'node:https';
 import tls from 'node:tls';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
+import * as XLSX from 'xlsx';
 
 // ── Cookie jar type ───────────────────────────────────────────────────────────
 
@@ -632,6 +633,43 @@ function rawRequest(
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
     if (body != null) req.write(body);
+    req.end();
+  });
+}
+
+// Buffer-body POST — identical to rawRequest but accepts a pre-built Buffer.
+// Required for binary XLSX multipart uploads (rawRequest only accepts string bodies).
+async function rawRequestBuf(
+  url: string,
+  body: Buffer,
+  extraHeaders: Record<string, string>,
+  jar?: CookieJar,
+): Promise<{ statusCode: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed    = new URL(url);
+    const isHttps   = parsed.protocol === 'https:';
+    const mod: any  = isHttps ? https : http;
+    const cookieStr = jar ? serializeCookies(jar) : '';
+    const opts: any = {
+      hostname: parsed.hostname,
+      port:     parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80),
+      path:     parsed.pathname + parsed.search,
+      method:   'POST',
+      headers:  {
+        ...(cookieStr ? { Cookie: cookieStr } : {}),
+        'Content-Length': body.length,
+        'User-Agent':     'Mozilla/5.0 (compatible; VoIPMonitor/1.0)',
+        ...extraHeaders,
+      },
+      ...(isHttps ? { agent: lenientHttpsAgent } : {}),
+    };
+    const req = mod.request(opts, (res: any) => {
+      let data = '';
+      res.on('data', (c: any) => { data += c; });
+      res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, body: data }));
+    });
+    req.on('error', reject);
+    req.write(body);
     req.end();
   });
 }
@@ -8091,6 +8129,40 @@ async function verifySippyRate(
   }
 }
 
+// Build a Sippy-compatible XLSX workbook for a single rate row.
+// Column layout matches Sippy's own export template exactly (confirmed from
+// internal tariff XLSX: internal-ptcl_Rates.xlsx).
+function buildRateXlsx(
+  action: string,
+  iRateId: number | null,
+  prefix: string,
+  country: string,
+  rate: number,
+  effectiveFrom?: string,
+  effectiveTill?: string,
+): Buffer {
+  const headers = [
+    'Action [A|D|U|S|SA]', 'Id', 'Prefix', 'Country',
+    'Interval 1', 'Interval N', 'Price 1', 'Price N',
+    'Forbidden', 'Grace Period', 'Activation Date', 'Expiration Date',
+  ];
+  const row = [
+    action,
+    iRateId ?? null,
+    prefix,
+    country || null,
+    1, 1,
+    rate, rate,
+    0, 1,
+    effectiveFrom  || null,
+    effectiveTill  || null,
+  ];
+  const ws = XLSX.utils.aoa_to_sheet([headers, row]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+}
+
 export async function setSippyRateEntry(
   username: string,
   password: string,
@@ -8130,12 +8202,15 @@ export async function setSippyRateEntry(
       if (uploadToken && uploadUrl) {
         console.log(`[RateManager] Upload token: ${uploadToken} | URL: ${uploadUrl}`);
 
-        const csvHeader  = 'Action,Id,Prefix,Country,Interval 1,Interval N,Price 1,Price N,Forbidden,Grace Period,Activation Date,Expiration Date';
-        const csvRow     = `SA,,${entry.prefix},,1,1,${entry.rate},${entry.rate},0,1,${normDateLocal(entry.effectiveFrom)},${normDateLocal(entry.effectiveTill)}`;
-        const csvContent = `${csvHeader}\r\n${csvRow}`;
-        console.log(`[RateManager] Upload CSV row: ${csvRow}`);
+        const xlsxBuffer = buildRateXlsx(
+          'SA', null, entry.prefix, '',
+          entry.rate,
+          normDateLocal(entry.effectiveFrom),
+          normDateLocal(entry.effectiveTill),
+        );
+        console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} effective=${normDateLocal(entry.effectiveFrom) || 'immediate'} till=${normDateLocal(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
 
-        const uploadResult = await uploadBinaryFile(uploadUrl, Buffer.from(csvContent, 'utf-8'), 'rates.csv');
+        const uploadResult = await uploadBinaryFile(uploadUrl, xlsxBuffer, 'rates.xlsx');
         console.log(`[RateManager] File upload: success=${uploadResult.success} body=${uploadResult.body.substring(0, 200)}`);
 
         if (uploadResult.success) {
@@ -8428,34 +8503,35 @@ async function pushRateViaPortalUpload(
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))      return `${raw.trim()} 00:00:00`;
     return '';
   }
-  const csvHeader = 'Action,Id,Prefix,Country,Interval 1,Interval N,Price 1,Price N,Forbidden,Grace Period,Activation Date,Expiration Date';
-  const csvRow    = `SA,,${prefix},,1,1,${rate},${rate},0,1,${normDate(effectiveFrom)},${normDate(effectiveTill)}`;
-  const csvContent = `${csvHeader}\r\n${csvRow}`;
-  console.log(`[Sippy] pushRateViaPortalUpload: CSV row: ${csvRow}`);
-
-  // ── Step 4: multipart/form-data POST ─────────────────────────────────────
-  // rawRequest supports multipart when the body is pre-built and Content-Type
-  // is overridden via extraHeaders (extraHeaders wins over the hardcoded header).
-  const boundary = `----SippyRateBoundary${Date.now().toString(36)}`;
-  const parts: string[] = [];
-
-  // Include hidden fields (CSRF tokens etc.) first
-  for (const [k, v] of Object.entries(hiddenFields)) {
-    parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}`);
-  }
-  // File field with the CSV content
-  parts.push(
-    `--${boundary}\r\n` +
-    `Content-Disposition: form-data; name="${fileFieldName}"; filename="rates.csv"\r\n` +
-    `Content-Type: text/csv\r\n\r\n${csvContent}`
+  const xlsxBuf = buildRateXlsx(
+    'SA', null, prefix, '',
+    rate, normDate(effectiveFrom), normDate(effectiveTill),
   );
-  const multipartBody = parts.join('\r\n') + `\r\n--${boundary}--`;
+  console.log(`[Sippy] pushRateViaPortalUpload: XLSX upload prefix=${prefix} rate=${rate} bytes=${xlsxBuf.length}`);
+
+  // ── Step 4: multipart/form-data POST (binary XLSX) ─────────────────────────
+  const boundary    = `----SippyRateBoundary${Date.now().toString(36)}`;
+  const bufParts: Buffer[] = [];
+
+  // Hidden form fields (text)
+  for (const [k, v] of Object.entries(hiddenFields)) {
+    bufParts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`));
+  }
+  // XLSX file field (binary — cannot use string-based rawRequest)
+  bufParts.push(Buffer.from(
+    `--${boundary}\r\n` +
+    `Content-Disposition: form-data; name="${fileFieldName}"; filename="rates.xlsx"\r\n` +
+    `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`
+  ));
+  bufParts.push(xlsxBuf);
+  bufParts.push(Buffer.from(`\r\n--${boundary}--`));
+  const multipartBuffer = Buffer.concat(bufParts);
 
   try {
-    const uploadResp = await rawRequest(
-      'POST', formAction, multipartBody,
+    const uploadResp = await rawRequestBuf(
+      formAction, multipartBuffer,
       { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-      postCookies, 5,
+      postCookies ?? undefined,
     );
     const body         = uploadResp.body;
     const isLoginPage  = body.includes('value="Login"') || body.includes("value='Login'");
@@ -8470,7 +8546,7 @@ async function pushRateViaPortalUpload(
       const errM = body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
       return { success: false, message: `Portal CSV error: ${errM ? errM[1].trim() : 'Sippy returned an error response'}` };
     }
-    if (hasSuccess) return { success: true, message: `Rate pushed via portal CSV upload (Action=AS, prefix=${prefix})` };
+    if (hasSuccess) return { success: true, message: `Rate pushed via portal XLSX upload (Action=SA, prefix=${prefix})` };
 
     return { success: false, message: `Portal CSV upload: unexpected response (HTTP ${uploadResp.statusCode}, ${body.length}B)` };
   } catch (e: any) {
