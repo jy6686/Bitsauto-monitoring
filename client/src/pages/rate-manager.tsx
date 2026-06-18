@@ -331,7 +331,7 @@ function RateDetailPanel({
                 <th className="text-left py-2 px-3 border-b border-border w-8">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} data-testid="checkbox-select-all" />
                 </th>
-                {["Code", "Destination", "Client Destination", "Rate (USD)", "Active From", "Active Till", "Status"].map(h => (
+                {["Code", "Destination", "Sippy Prefix", "Rate (USD)", "Active From", "Active Till", "Status"].map(h => (
                   <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground border-b border-border whitespace-nowrap">
                     {h}
                   </th>
@@ -357,7 +357,7 @@ function RateDetailPanel({
                   </td>
                   <td className="py-1.5 px-3 font-mono text-[11px]">{r.rawPrefix || "—"}</td>
                   <td className="py-1.5 px-3">{r.destName}</td>
-                  <td className="py-1.5 px-3 text-muted-foreground">{r.destName}</td>
+                  <td className="py-1.5 px-3 font-mono text-[11px] text-blue-400/80">{String(r.prefix ?? "—")}</td>
                   <td className="py-1.5 px-3 text-right font-mono tabular-nums">
                     {r.price_1 != null ? Number(r.price_1).toFixed(5) : "—"}
                   </td>
@@ -841,13 +841,7 @@ function AnalysisTab({
                   {countryNames ? ` · ${countryNames}` : ""}
                   {product ? ` · ${product.name}` : ""}
                 </div>
-                <button
-                  onClick={() => setDetailAccount(null)}
-                  className="text-xs px-3 py-1 bg-primary text-primary-foreground rounded hover:bg-primary/90"
-                  data-testid="btn-change-rates"
-                >
-                  Change Client Rates
-                </button>
+                <span className="text-[10px] text-muted-foreground italic">Click "View Details" on a carrier to change rates</span>
               </div>
             )}
 
@@ -1305,33 +1299,48 @@ function JobsTab() {
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="border-b border-border/50 bg-muted/20">
-              {["Job ID", "Product Name", "Product Code", "Trunk Prefix", "Format", "Clients", "Status", "Completed", "Notes"].map(h => (
+              {["Job ID", "Product", "Full Prefix", "New Rate", "Method", "Verified", "Clients", "Status", "Completed"].map(h => (
                 <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {jobs.map((j: any) => (
-              <tr key={j.id} className="border-b border-border/20 hover:bg-muted/10">
-                <td className="py-2 px-3 font-mono text-[10px] text-muted-foreground">{j.jobId}</td>
-                <td className="py-2 px-3">{j.productName ?? "—"}</td>
-                <td className="py-2 px-3 font-mono text-amber-400">{j.trunkPrefix ?? "—"}</td>
-                <td className="py-2 px-3">{j.format ?? "—"}</td>
-                <td className="py-2 px-3 tabular-nums">
-                  {j.pushedClients ?? 0}/{j.totalClients ?? 0}
-                  {(j.failedClients ?? 0) > 0 && (
-                    <span className="text-red-400 ml-1">({j.failedClients} failed)</span>
-                  )}
-                </td>
-                <td className={cn("py-2 px-3 font-medium capitalize", STATUS_COLOR[j.status] ?? "text-muted-foreground")}>
-                  {j.status}
-                </td>
-                <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
-                  {j.completedAt ? new Date(j.completedAt).toLocaleString() : "—"}
-                </td>
-                <td className="py-2 px-3 text-muted-foreground truncate max-w-xs">{j.notes ?? "—"}</td>
-              </tr>
-            ))}
+            {jobs.map((j: any) => {
+              const verColor = j.verificationResult === 'confirmed' ? 'text-green-400'
+                : j.verificationResult === 'mismatch' ? 'text-red-400'
+                : 'text-muted-foreground';
+              const methodColor = j.pushMethod === 'upload_token' ? 'text-blue-400'
+                : j.pushMethod === 'portal_csv' ? 'text-amber-400'
+                : j.pushMethod ? 'text-muted-foreground' : 'text-muted-foreground/50';
+              return (
+                <tr key={j.id} className="border-b border-border/20 hover:bg-muted/10">
+                  <td className="py-2 px-3 font-mono text-[10px] text-muted-foreground">{j.jobId}</td>
+                  <td className="py-2 px-3">{j.productName ?? "—"}</td>
+                  <td className="py-2 px-3 font-mono text-amber-400">{j.fullPrefix || j.trunkPrefix || "—"}</td>
+                  <td className="py-2 px-3 font-mono tabular-nums">
+                    {j.newRate != null ? `$${Number(j.newRate).toFixed(5)}` : "—"}
+                  </td>
+                  <td className={cn("py-2 px-3 font-mono text-[10px]", methodColor)}>
+                    {j.pushMethod ?? "—"}
+                  </td>
+                  <td className={cn("py-2 px-3 font-medium capitalize text-[11px]", verColor)}>
+                    {j.verificationResult ?? "—"}
+                  </td>
+                  <td className="py-2 px-3 tabular-nums">
+                    {j.pushedClients ?? 0}/{j.totalClients ?? 0}
+                    {(j.failedClients ?? 0) > 0 && (
+                      <span className="text-red-400 ml-1">({j.failedClients} failed)</span>
+                    )}
+                  </td>
+                  <td className={cn("py-2 px-3 font-medium capitalize", STATUS_COLOR[j.status] ?? "text-muted-foreground")}>
+                    {j.status}
+                  </td>
+                  <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
+                    {j.completedAt ? new Date(j.completedAt).toLocaleString() : "—"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
