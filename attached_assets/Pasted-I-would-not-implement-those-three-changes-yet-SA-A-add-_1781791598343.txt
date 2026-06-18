@@ -1,0 +1,146 @@
+I would not implement those three changes yet (SA → A, add i_tariff field, expand logs) until we verify what Sippy actually expects.
+
+Your latest screenshot already tells us something important:
+
+Portal CSV accepted but rate unchanged:
+prefix=19230
+found=0.0275
+expected=0.027
+
+This means:
+
+BitsAuto reached the correct tariff page.
+BitsAuto found prefix 19230.
+BitsAuto uploaded something.
+BitsAuto re-read the tariff.
+Tariff still contains 0.0275.
+
+The question is why Sippy ignored the uploaded file.
+
+What concerns me
+
+The proposed change:
+
+SA → A
+
+is risky.
+
+Your own Sippy template shows:
+
+Action [A|D|U|S|SA]
+
+Historically in Sippy:
+
+A = Add
+U = Update
+D = Delete
+SA = Add or Update (safe upsert)
+
+For an existing prefix like:
+
+19230 = 0.0275
+
+switching from SA to A may actually make things worse because A may refuse existing rows.
+
+I would not change action codes until we see the actual upload result.
+
+The bigger clue
+
+Your screenshot of Sippy tariff page shows:
+
+Upload Rates
+Format: .csv or MS-Office 2007 .xlsx
+
+and
+
+Select File
+
+There is no indication that Sippy requires:
+
+rate_file
+
+or
+
+upload_file
+
+or
+
+i_tariff in POST body
+
+Those are assumptions.
+
+What I think is missing
+
+The fastest way to solve this is not more guessing.
+
+Use browser developer tools on Sippy:
+
+Open tariff 33.
+Click Upload Rates.
+Upload a working XLSX manually.
+Press Upload.
+Capture the Network request.
+
+Then compare:
+
+Item	Manual Sippy Upload	BitsAuto Upload
+URL	?	?
+Form field name	?	rate_file?
+Hidden fields	?	none?
+Content-Type	?	multipart?
+XLSX filename	?	rates.xlsx?
+Response body	?	unknown
+
+One manual upload trace will probably reveal the difference in 5 minutes.
+
+Regarding your earlier idea
+
+Your suggestion:
+
+Use the stored customer web login, enter customer portal automatically, download tariff, modify it, upload it back, verify it, then send notifications.
+
+Architecturally, that is actually closer to how the old BitsAuto screenshots appear to work.
+
+The old system seems to have been:
+
+Rate Manager
+    ↓
+Create Job
+    ↓
+Customer Portal Login
+    ↓
+Tariff Upload
+    ↓
+Verify Tariff
+    ↓
+Update SBC
+    ↓
+Send Email
+    ↓
+Job Detail
+
+rather than trying multiple XML-RPC methods and fallback chains.
+
+My recommendation
+
+Before implementing anything else:
+
+Stop changing:
+action codes
+upload methods
+permissions messages
+job flows
+Do one thing:
+
+Capture a successful manual Sippy upload request.
+
+Once we know:
+
+POST URL
+field name
+hidden fields
+response body
+
+we can make BitsAuto generate exactly the same request.
+
+At that point the rate push problem usually becomes a straightforward replication exercise instead of guessing between XML-RPC, portal upload, ExtJS behavior, action codes, and permissions.
