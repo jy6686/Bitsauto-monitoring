@@ -6293,12 +6293,11 @@ export async function pushRateToSippy(opts: {
   effectiveFrom?: string | Date;
   effectiveTo?: string | Date;
   format?: 'full' | 'partial' | 'default';
-}, credentials: { username: string; password: string }, targetUrl?: string): Promise<SippyPushResult> {
+}, credentials: { username: string; password: string }, targetUrl?: string, adminCreds?: RateAdminCreds): Promise<SippyPushResult> {
   const baseUrl = targetUrl ?? activeSession?.portalUrl;
   if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
 
   const apiUrl  = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
-  const effFrom = normSippyDate(opts.effectiveFrom);
   const lastErrors: string[] = [];
 
   // Step 1 — find the customer + their tariff ID
@@ -6312,63 +6311,21 @@ export async function pushRateToSippy(opts: {
     console.log(`[Sippy] pushRate customer lookup for "${opts.accountName}":`, customer);
   }
 
-  // Step 2a — if we have a tariff ID, call tariff.setRate with i_tariff
+  // Step 2 — delegate to setSippyRateEntry (upload-token + portal CSV path)
+  // Converts Date objects to strings so setSippyRateEntry's normDateLocal() handles them.
   if (customer?.i_tariff) {
-    try {
-      const body = xmlRpcCall('tariff.setRate', {
-        i_tariff:    customer.i_tariff,
-        destination: opts.prefix,
-        rate:        opts.ratePerMin,
-        start_date:  effFrom,
-        ...(opts.effectiveTo ? { end_date: normSippyDate(opts.effectiveTo) } : {}),
-      });
-      const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
-      if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
-        return { success: true, message: `Rate ${opts.prefix}=${opts.ratePerMin} pushed to Sippy tariff`, method: 'tariff.setRate' };
-      }
-      const fault = extractTag(resp.body, 'faultString') || 'tariff.setRate rejected';
-      lastErrors.push(fault);
-      console.warn('[Sippy] tariff.setRate (i_tariff):', fault);
-    } catch (e: any) { lastErrors.push(e.message); }
+    const toStr = (d?: string | Date) => !d ? undefined : (d instanceof Date ? normSippyDate(d) : d);
+    console.log(`[Sippy] pushRateToSippy: delegating to setSippyRateEntry for iTariff=${customer.i_tariff}`);
+    return setSippyRateEntry(
+      credentials.username, credentials.password,
+      customer.i_tariff,
+      { prefix: opts.prefix, rate: opts.ratePerMin, effectiveFrom: toStr(opts.effectiveFrom), effectiveTill: toStr(opts.effectiveTo) },
+      baseUrl,
+      adminCreds,
+    );
   }
 
-  // Step 2b — tariff.setRate with account i_account
-  if (customer?.i_account) {
-    try {
-      const body = xmlRpcCall('tariff.setRate', {
-        i_account:   customer.i_account,
-        destination: opts.prefix,
-        rate:        opts.ratePerMin,
-        start_date:  effFrom,
-        ...(opts.effectiveTo ? { end_date: normSippyDate(opts.effectiveTo) } : {}),
-      });
-      const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
-      if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
-        return { success: true, message: `Rate ${opts.prefix}=${opts.ratePerMin} pushed to account tariff`, method: 'tariff.setRate(i_account)' };
-      }
-      const fault = extractTag(resp.body, 'faultString') || 'tariff.setRate(i_account) rejected';
-      lastErrors.push(fault);
-    } catch (e: any) { lastErrors.push(e.message); }
-  }
-
-  // Step 3 — tariff.addDestination (some Sippy versions)
-  try {
-    const params: Record<string, string | number> = {
-      destination: opts.prefix,
-      rate:        opts.ratePerMin,
-      start_date:  effFrom,
-    };
-    if (customer?.i_tariff) params.i_tariff = customer.i_tariff;
-    const body = xmlRpcCall('tariff.addDestination', params);
-    const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
-    if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
-      return { success: true, message: `Destination ${opts.prefix} added via tariff.addDestination`, method: 'tariff.addDestination' };
-    }
-    const fault = extractTag(resp.body, 'faultString') || 'tariff.addDestination rejected';
-    lastErrors.push(fault);
-  } catch (e: any) { lastErrors.push(e.message); }
-
-  // Step 4 — customer.updateAccount with flat rate
+  // Step 3 — iTariff not found; last-ditch attempt via customer.updateAccount (flat rate, no prefix)
   if (customer?.i_account) {
     try {
       const body = xmlRpcCall('customer.updateAccount', {

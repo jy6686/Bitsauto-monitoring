@@ -21,8 +21,8 @@ interface DestNode {
   countryCode: string | null; dialPrefix: string | null; commercialStatus: string;
 }
 interface RateEntry {
-  i_rate: number; prefix: string; price_1: number | null;
-  activation_date: string | null; expiration_date: string | null; forbidden: number | null;
+  iRate: number; prefix: string; price1: number | null;
+  activationDate: string | null; expirationDate: string | null; forbidden: boolean | null;
 }
 
 // ── MultiSelect Dropdown ───────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ function RateDetailPanel({
   const isLoading = infoLoading || ratesLoading;
   const [selectedRateKeys, setSelectedRateKeys] = useState<Set<string>>(new Set());
   const [changeModalOpen, setChangeModalOpen] = useState(false);
-  const rateKey = (r: RateEntry & { rawPrefix?: string }, i: number) => String(r.i_rate ?? `${r.prefix}-${i}`);
+  const rateKey = (r: RateEntry & { rawPrefix?: string }, i: number) => String(r.iRate ?? `${r.prefix}-${i}`);
   const allSelected = rates.length > 0 && rates.every((r, i) => selectedRateKeys.has(rateKey(r, i)));
   const toggleAll = () => {
     if (allSelected) setSelectedRateKeys(new Set());
@@ -341,7 +341,7 @@ function RateDetailPanel({
             <tbody>
               {rates.map((r, i) => (
                 <tr
-                  key={r.i_rate ?? i}
+                  key={r.iRate ?? i}
                   className={cn(
                     "border-b border-border/30 hover:bg-muted/20 transition-colors",
                     r.forbidden ? "opacity-60" : "",
@@ -359,13 +359,13 @@ function RateDetailPanel({
                   <td className="py-1.5 px-3">{r.destName}</td>
                   <td className="py-1.5 px-3 font-mono text-[11px] text-blue-400/80">{String(r.prefix ?? "—")}</td>
                   <td className="py-1.5 px-3 text-right font-mono tabular-nums">
-                    {r.price_1 != null ? Number(r.price_1).toFixed(5) : "—"}
+                    {r.price1 != null ? Number(r.price1).toFixed(5) : "—"}
                   </td>
                   <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">
-                    {r.activation_date ? new Date(r.activation_date).toLocaleDateString() : "—"}
+                    {r.activationDate ? new Date(r.activationDate).toLocaleDateString() : "—"}
                   </td>
                   <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">
-                    {r.expiration_date ? new Date(r.expiration_date).toLocaleDateString() : "None"}
+                    {r.expirationDate ? new Date(r.expirationDate).toLocaleDateString() : "None"}
                   </td>
                   <td className="py-1.5 px-3">
                     {r.forbidden ? (

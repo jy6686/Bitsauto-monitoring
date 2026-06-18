@@ -35485,7 +35485,15 @@ ${footer}
         const fullPrefix = (trunkPrefix ?? '') + dialPrefix;
         const { username, password } = sippyXmlCreds(settings);
         const portalUrl = sippyPortalUrl(settings);
-        const results: { accountName: string; success: boolean; message: string }[] = [];
+        const adminCreds = {
+          adminUser:        (settings as any).apiAdminUsername   ?? '',
+          adminPass:        (settings as any).apiAdminPassword   ?? '',
+          portalUser:       (settings as any).portalUsername     ?? '',
+          portalPass:       (settings as any).portalPassword     ?? '',
+          adminWebPassword: (settings as any).adminWebPassword   ?? undefined,
+        };
+        const switchName = (settings as any).sippyUrl ?? (settings as any).sippy_url ?? 'primary';
+        const results: { accountName: string; success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }[] = [];
         for (const accountName of accountNames) {
           try {
             const r = await sippy.pushRateToSippy(
@@ -35499,6 +35507,7 @@ ${footer}
               },
               { username, password },
               portalUrl,
+              adminCreds,
             );
             results.push({ accountName, ...r });
           } catch (e: any) {
@@ -35506,21 +35515,31 @@ ${footer}
           }
         }
         const ok = results.filter(r => r.success).length;
-        // Record job summary
+        const firstR = results[0];
+        const methods = Array.from(new Set(results.map(r => r.method).filter(Boolean)));
+        // Record job summary with full diagnostic fields
         try {
           await db.insert(ratePushJobs).values({
-            jobId:        `job-${Date.now()}`,
-            productName:  req.body.productName ?? null,
-            trunkPrefix:  trunkPrefix ?? null,
-            format:       format ?? 'full',
-            rateType:     req.body.rateType ?? 'current',
-            totalClients: accountNames.length,
-            pushedClients: ok,
-            failedClients: accountNames.length - ok,
-            status:       ok === accountNames.length ? 'completed' : ok > 0 ? 'partial' : 'failed',
-            notes:        `Pushed prefix ${fullPrefix} @ ${rate}`,
-            createdBy:    req.user?.claims?.sub ?? 'system',
-            completedAt:  new Date(),
+            jobId:              `job-${Date.now()}`,
+            productName:        req.body.productName ?? null,
+            trunkPrefix:        trunkPrefix ?? null,
+            format:             format ?? 'full',
+            rateType:           req.body.rateType ?? 'current',
+            totalClients:       accountNames.length,
+            pushedClients:      ok,
+            failedClients:      accountNames.length - ok,
+            status:             ok === accountNames.length ? 'completed' : ok > 0 ? 'partial' : 'failed',
+            switchName:         String(switchName).substring(0, 128),
+            fullPrefix:         fullPrefix,
+            newRate:            String(rate),
+            effectiveAt:        effectiveFrom ?? null,
+            pushMethod:         firstR?.method ?? null,
+            uploadToken:        firstR?.uploadToken ?? null,
+            uploadStatus:       firstR?.uploadStatus ?? null,
+            verificationResult: firstR?.verificationResult ?? null,
+            notes:              `Pushed prefix ${fullPrefix} @ ${rate} — ok=${ok}/${accountNames.length} method=${methods.join(',') || 'n/a'}`,
+            createdBy:          (req as any).user?.claims?.sub ?? 'system',
+            completedAt:        new Date(),
           });
         } catch { /* non-critical — don't fail the response */ }
         res.json({ results, ok, total: accountNames.length });
