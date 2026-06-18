@@ -1,0 +1,104 @@
+You're correct. Based on the Sippy documentation and the XLSX export/import workflow you've shown, Sippy's native workflow is Excel/XLSX upload, not direct CSV upload by users.
+
+The important distinction is:
+
+What Sippy Users See
+
+They export/import:
+
+internal-ptcl_Rates.xlsx
+
+with columns:
+
+Action
+Id
+Prefix
+Country
+Interval 1
+Interval N
+Price 1
+Price N
+Forbidden
+Grace Period
+Activation Date
+Expiration Date
+
+and upload the Excel file back through the Sippy UI.
+
+What BitsAuto Is Doing Internally
+
+BitsAuto is currently generating a CSV payload because:
+
+Sippy's upload backend ultimately processes tabular data.
+The upload-token / upload endpoint often accepts CSV-formatted content.
+It's easier programmatically to generate one row than build an XLSX workbook.
+
+But from a telecom operations perspective, your point is valid:
+
+If Sippy's proven working path is XLSX, then BitsAuto should eventually generate the exact same XLSX structure that Sippy exports.
+
+My recommendation
+
+For now:
+
+✅ Keep:
+
+SA
+
+✅ Keep:
+
+Prefix = 19230
+
+✅ Keep:
+
+Exact Sippy column order
+
+❌ Don't spend time on U vs SA.
+
+❌ Don't spend time on rate notification jobs.
+
+❌ Don't spend time on calendar enhancements.
+
+What I would prove next
+
+Before changing anything else:
+
+Export a tariff from Sippy.
+Change one rate manually in the XLSX.
+Upload the XLSX through Sippy.
+Verify the rate changes.
+
+If that succeeds:
+
+Then BitsAuto should mimic that exact workbook format:
+
+<TariffName>_Rates.xlsx
+
+same columns,
+same worksheet name,
+same date format,
+same action codes.
+
+That becomes the gold standard.
+
+Strategic view
+
+I think you're now down to a single question:
+
+Does this Sippy build actually accept automated uploads?
+
+Everything else (SA/U, notification jobs, audit history, templates) is secondary.
+
+The next successful test should be:
+
+BitsAuto
+↓
+Upload
+↓
+Sippy Tariff #33
+↓
+Rate visibly changes
+↓
+Verification = TRUE
+
+Until that happens, I would focus 100% on proving the write path rather than adding any additional functionality.
