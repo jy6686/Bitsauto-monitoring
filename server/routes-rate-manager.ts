@@ -53,10 +53,16 @@ async function getSippyCreds() {
 
 export function registerRateManagerRoutes(app: Express) {
 
-  // ── Debug: generate the exact full-tariff XLSX BitsAuto would upload ────────
+  // ── Debug: generate & download the exact XLSX BitsAuto would upload ─────────
   // GET /api/rate-manager/download-test-xlsx?tariffId=33&prefix=19230&rate=0.027&from=2026-06-18+01:30
-  // Fetches all current rates via XML-RPC then builds the complete multi-row XLSX.
-  // Returns the raw file so it can be inspected in Excel or manually uploaded to Sippy.
+  //
+  // Strategy (mirrors pushRateViaPortalUpload):
+  //   P1 (preferred): Download real tariff XLSX from Sippy portal → patch in-place
+  //       Filename suffix: _download-patch
+  //   P2 (fallback):  Reconstruct from XML-RPC rates → buildFullTariffXlsx
+  //       Filename suffix: _xmlrpc-reconstruct  (Country=null — may fail on Sippy)
+  //
+  // Open BOTH files beside manual internal-ptcl_Rates.xlsx to spot mismatches.
   app.get('/api/rate-manager/download-test-xlsx', async (req: any, res) => {
     try {
       const { tariffId, prefix, rate, from: effectiveFrom, till: effectiveTill } = req.query as Record<string, string>;
@@ -73,24 +79,69 @@ export function registerRateManagerRoutes(app: Express) {
       }
 
       const session = sippy.getActiveSession?.();
-      const u = session?.xmlRpcUsername ?? '';
-      const p = session?.xmlRpcPassword ?? '';
-      let allRates: any[] = [];
-      if (u && p) {
-        allRates = await sippy.getTariffRatesListFull(u, p, Number(tariffId), undefined, 1000);
-      }
+      const base    = session?.portalUrl ?? '';
 
       let xlsxBuf: Buffer;
-      if (allRates.length > 0) {
-        xlsxBuf = sippy.buildFullTariffXlsx(allRates, prefix, rateNum, normDate(effectiveFrom), normDate(effectiveTill));
-      } else {
-        xlsxBuf = sippy.buildRateXlsx('A', null, prefix, '', rateNum, normDate(effectiveFrom), normDate(effectiveTill));
+      let method = 'xmlrpc-reconstruct';
+
+      // ── P1: Download from Sippy portal → patch in-place ─────────────────
+      if (base && session) {
+        try {
+          // Get a portal session with the same credentials used for uploads
+          const { findRatesCapableSession } = sippy as any;
+          let downloadCookies: any = null;
+          if (typeof findRatesCapableSession === 'function') {
+            const rSess = await findRatesCapableSession(base, Number(tariffId), undefined);
+            downloadCookies = rSess?.cookies;
+          }
+          if (!downloadCookies) {
+            // Fall back to current portal session cookies if available
+            const { getPortalCookies } = sippy as any;
+            if (typeof getPortalCookies === 'function') downloadCookies = await getPortalCookies(base);
+          }
+          if (downloadCookies) {
+            const downloaded = await sippy.downloadTariffXlsxFromPortal(base, Number(tariffId), downloadCookies);
+            if (downloaded) {
+              const { buf, patchedRows, log } = sippy.patchDownloadedTariffXlsx(
+                downloaded, prefix, rateNum, normDate(effectiveFrom), normDate(effectiveTill),
+              );
+              xlsxBuf = buf;
+              method  = 'download-patch';
+              console.log(`[RateManager] download-test-xlsx: P1 success — tariff=${tariffId} patchedRows=${patchedRows}`);
+              for (const line of log) console.log(`[RateManager] ${line}`);
+            } else {
+              console.log(`[RateManager] download-test-xlsx: P1 download returned null — check logs for probed URLs`);
+            }
+          } else {
+            console.log(`[RateManager] download-test-xlsx: P1 skip — no portal cookies available`);
+          }
+        } catch (p1e: any) {
+          console.log(`[RateManager] download-test-xlsx: P1 error: ${p1e?.message}`);
+        }
       }
 
-      const filename = `sippy_tariff${tariffId}_${prefix}_full_${Date.now()}.xlsx`;
+      // ── P2: XML-RPC reconstruct (fallback) ──────────────────────────────
+      if (!xlsxBuf!) {
+        const u = session?.xmlRpcUsername ?? '';
+        const p = session?.xmlRpcPassword ?? '';
+        let allRates: any[] = [];
+        if (u && p && base) {
+          allRates = await sippy.getTariffRatesListFull(u, p, Number(tariffId), undefined, 1000);
+          console.log(`[RateManager] download-test-xlsx: P2 XML-RPC — ${allRates.length} rates fetched`);
+        }
+        if (allRates.length > 0) {
+          xlsxBuf = sippy.buildFullTariffXlsx(allRates, prefix, rateNum, normDate(effectiveFrom), normDate(effectiveTill));
+        } else {
+          xlsxBuf = sippy.buildRateXlsx('A', null, prefix, '', rateNum, normDate(effectiveFrom), normDate(effectiveTill));
+          method  = 'single-row-fallback';
+        }
+      }
+
+      const filename = `sippy_tariff${tariffId}_${prefix}_${method}_${Date.now()}.xlsx`;
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.send(xlsxBuf);
+      res.setHeader('X-Upload-Method', method);
+      res.send(xlsxBuf!);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

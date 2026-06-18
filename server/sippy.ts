@@ -265,7 +265,7 @@ async function getAdminPortalSession(
 // or the SIPPY_PROV env var account may have the necessary permission.
 //
 // Order: rateAdminUser → SIPPY_PROV env vars → ssp-root (fallback)
-async function findRatesCapableSession(
+export async function findRatesCapableSession(
   base: string,
   iTariff: number,
   adminCreds?: RateAdminCreds,
@@ -8528,14 +8528,194 @@ export async function setSippyRateEntry(
   };
 }
 
+// ── rawGetBinary ─────────────────────────────────────────────────────────────
+// Binary-safe HTTP GET — collects Buffer chunks so XLSX bytes are not corrupted.
+// rawRequest uses string concat which mangles non-UTF8 bytes in binary files.
+export function rawGetBinary(
+  url: string,
+  jar: CookieJar,
+): Promise<{ statusCode: number; body: Buffer; contentType: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed   = new URL(url);
+    const isHttps  = parsed.protocol === 'https:';
+    const mod: any = isHttps ? https : http;
+    const cookieStr = serializeCookies(jar);
+    const opts: any = {
+      hostname: parsed.hostname,
+      port:     parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80),
+      path:     parsed.pathname + parsed.search,
+      method:   'GET',
+      headers:  {
+        ...(cookieStr ? { Cookie: cookieStr } : {}),
+        'User-Agent': 'Mozilla/5.0 (compatible; VoIPMonitor/1.0)',
+        'Accept':     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*',
+      },
+      timeout: 20000,
+      ...(isHttps ? { agent: lenientHttpsAgent } : {}),
+    };
+    const req = mod.request(opts, (res: any) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve({
+        statusCode:  res.statusCode ?? 0,
+        body:        Buffer.concat(chunks),
+        contentType: String(res.headers['content-type'] ?? ''),
+      }));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('rawGetBinary timed out')); });
+    req.end();
+  });
+}
+
+// ── downloadTariffXlsxFromPortal ─────────────────────────────────────────────
+// Downloads the tariff as an XLSX workbook directly from Sippy portal.
+// This is the GOLD-STANDARD source — it includes Country, hidden metadata,
+// and the exact Sippy-generated format we must re-upload unchanged.
+//
+// Probes multiple Sippy export URL patterns (version-dependent).
+// Returns null if no URL responds with an XLSX content-type.
+export async function downloadTariffXlsxFromPortal(
+  base: string,
+  iTariff: number,
+  cookies: CookieJar,
+): Promise<Buffer | null> {
+  const candidates = [
+    `${base}/c1/rates_tariff.php?i_tariff=${iTariff}&action=Export`,
+    `${base}/c1/rates_tariff.php?i_tariff=${iTariff}&action=export`,
+    `${base}/c1/rates_tariff.php?i_tariff=${iTariff}&export=xlsx`,
+    `${base}/c1/rates_tariff.php?i_tariff=${iTariff}&export=1`,
+    `${base}/c1/rates_tariff.php?i_tariff=${iTariff}&output=xlsx`,
+    `${base}/c1/rates.php?i_tariff=${iTariff}&action=Export`,
+  ];
+  for (const url of candidates) {
+    try {
+      const resp = await rawGetBinary(url, cookies);
+      const ct   = resp.contentType.toLowerCase();
+      const isXlsx = ct.includes('spreadsheet') || ct.includes('excel') ||
+                     ct.includes('openxml') || ct.includes('octet-stream');
+      // XLSX magic bytes: PK\x03\x04 (ZIP header)
+      const hasXlsxMagic = resp.body.length > 4 &&
+                           resp.body[0] === 0x50 && resp.body[1] === 0x4b &&
+                           resp.body[2] === 0x03 && resp.body[3] === 0x04;
+      if (resp.statusCode === 200 && resp.body.length > 200 && (isXlsx || hasXlsxMagic)) {
+        console.log(`[Sippy] downloadTariffXlsx: ✓ ${url} → ${resp.body.length}B ct="${resp.contentType}"`);
+        return resp.body;
+      }
+      console.log(`[Sippy] downloadTariffXlsx: ${url} → HTTP ${resp.statusCode} ${resp.body.length}B ct="${resp.contentType}" — not XLSX`);
+    } catch (e: any) {
+      console.log(`[Sippy] downloadTariffXlsx: ${url} → error: ${e.message}`);
+    }
+  }
+  return null;
+}
+
+// ── patchDownloadedTariffXlsx ─────────────────────────────────────────────────
+// Loads the downloaded Sippy tariff workbook and patches it in-place:
+//   • Sets Action=U on every row (required for Sippy to process in-place)
+//   • Changes Price 1, Price N, Activation Date on the target prefix row(s)
+//   • Everything else (Country, Intervals, Grace Period, IDs, other rows) is untouched
+//
+// Returns the modified Buffer + a per-row log for comparison with the manual file.
+export function patchDownloadedTariffXlsx(
+  srcBuf: Buffer,
+  targetPrefix: string,
+  newRate: number,
+  newFrom?: string,
+  newTill?: string,
+): { buf: Buffer; patchedRows: number; log: string[] } {
+  const log: string[] = [];
+  const wb    = XLSX.read(srcBuf, { type: 'buffer' });
+  const wsName = wb.SheetNames[0];
+  const ws    = wb.Sheets[wsName];
+  const aoa   = XLSX.utils.sheet_to_aoa(ws) as any[][];
+
+  if (aoa.length < 2) {
+    log.push('WARN: sheet has fewer than 2 rows — nothing to patch');
+    return { buf: srcBuf, patchedRows: 0, log };
+  }
+
+  // ── Detect column positions from header row ─────────────────────────────
+  const hdr = aoa[0].map((h: any) => String(h ?? '').toLowerCase().replace(/[^a-z0-9]/g, ''));
+  const col  = (...pats: RegExp[]) => {
+    for (const p of pats) {
+      const i = hdr.findIndex((h: string) => p.test(h));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const C_ACTION  = col(/^action/);
+  const C_ID      = col(/^id$/);
+  const C_PREFIX  = col(/^prefix/);
+  const C_COUNTRY = col(/^country/);
+  const C_INT1    = col(/^interval1/, /^interval_1/, /^int1/);
+  const C_INTN    = col(/^intervaln/, /^interval_n/, /^intn/);
+  const C_PRICE1  = col(/^price1/, /^price_1/);
+  const C_PRICEN  = col(/^pricen/, /^price_n/);
+  const C_FORBID  = col(/^forbidden/);
+  const C_GRACE   = col(/^grace/);
+  const C_FROM    = col(/^activation/);
+  const C_TILL    = col(/^expiration/);
+
+  log.push(`[COLS] action=${C_ACTION} id=${C_ID} prefix=${C_PREFIX} country=${C_COUNTRY} int1=${C_INT1} intN=${C_INTN} price1=${C_PRICE1} priceN=${C_PRICEN} forbid=${C_FORBID} grace=${C_GRACE} from=${C_FROM} till=${C_TILL}`);
+  if (C_PREFIX < 0 || C_PRICE1 < 0) {
+    log.push('ERROR: required columns (prefix, price1) not found in sheet header');
+    return { buf: srcBuf, patchedRows: 0, log };
+  }
+
+  let patchedRows = 0;
+
+  for (let i = 1; i < aoa.length; i++) {
+    const row = aoa[i];
+    if (!row || row[C_PREFIX] == null) continue;
+    const rowPrefix  = String(row[C_PREFIX] ?? '').trim();
+    const isTarget   = rowPrefix === targetPrefix;
+
+    // Set Action=U — preserves ID-based in-place update for all rows
+    if (C_ACTION >= 0) row[C_ACTION] = 'U';
+
+    if (isTarget) {
+      const oldRate = row[C_PRICE1];
+      const oldFrom = row[C_FROM];
+      if (C_PRICE1 >= 0) row[C_PRICE1] = newRate;
+      if (C_PRICEN >= 0) row[C_PRICEN] = newRate;
+      if (C_FROM   >= 0 && newFrom) row[C_FROM] = newFrom;
+      if (C_TILL   >= 0 && newTill !== undefined) row[C_TILL] = newTill || '';
+      log.push(`[PATCH] Prefix=${rowPrefix} Price1: ${oldRate}→${newRate}  From: ${oldFrom}→${newFrom ?? '(unchanged)'}`);
+      patchedRows++;
+    }
+
+    // Per-row dump so we can compare against manual file
+    log.push(
+      `[OUT] Action=${row[C_ACTION] ?? '?'} ID=${C_ID >= 0 ? row[C_ID] : '?'} ` +
+      `Prefix=${rowPrefix} Country=${C_COUNTRY >= 0 ? row[C_COUNTRY] : '(nocol)'} ` +
+      `Int1=${C_INT1 >= 0 ? row[C_INT1] : '?'} IntN=${C_INTN >= 0 ? row[C_INTN] : '?'} ` +
+      `Price1=${C_PRICE1 >= 0 ? row[C_PRICE1] : '?'} PriceN=${C_PRICEN >= 0 ? row[C_PRICEN] : '?'} ` +
+      `Forbidden=${C_FORBID >= 0 ? row[C_FORBID] : '?'} Grace=${C_GRACE >= 0 ? row[C_GRACE] : '?'} ` +
+      `From=${C_FROM >= 0 ? row[C_FROM] : '?'}${isTarget ? '  ← CHANGED' : ''}`
+    );
+  }
+
+  // Write back
+  const newWs = XLSX.utils.aoa_to_sheet(aoa);
+  wb.Sheets[wsName] = newWs;
+  return {
+    buf:         XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer,
+    patchedRows,
+    log,
+  };
+}
+
 // ── pushRateViaPortalUpload ───────────────────────────────────────────────────
 // Pushes a single rate to a Sippy tariff via portal CSV upload (multipart POST).
 // This is the ONLY way to add/update rates in Sippy — there are no XML-RPC write
 // methods for rates (only getTariffRatesList + deleteAllRatesInTariff exist).
 //
-// Uses Action=AS (add-or-update by prefix) which behaves like an upsert:
-//   • if a rate already exists for this prefix → updates price/dates
-//   • if no rate exists → adds it as a new entry
+// Strategy (in order):
+//   1. Download the existing tariff XLSX from Sippy portal (preserves Country etc.)
+//      → Patch the target row(s) in-place → Re-upload
+//   2. If download fails: build full-tariff XLSX from XML-RPC data (loses Country)
+//   3. If XML-RPC also fails: single-row fallback with Action=U/A
 //
 // Sippy docs: https://support.sippysoft.com/a/solutions/articles/84153 (Actions)
 //             https://support.sippysoft.com/a/solutions/articles/3000118878 (Rates API)
@@ -8639,12 +8819,14 @@ async function pushRateViaPortalUpload(
     console.log(`[Sippy] pushRateViaPortalUpload: rates page parse error: ${ge?.message} — proceeding with defaults`);
   }
 
-  // ── Step 3: build the full-tariff XLSX ──────────────────────────────────────
-  // CONFIRMED from manual test (2026-06-18):
-  //   • Action=A fails for existing prefixes — Sippy ignores them
-  //   • Action=U + existing i_rate ID works correctly
-  //   • Sippy may operate in REPLACE mode — uploading a single row can wipe all others
-  //   → Must upload ALL rows (full tariff), using U + existing ID for every row.
+  // ── Step 3: build the upload XLSX ─────────────────────────────────────────
+  // Strategy (download-patch first, fallbacks below):
+  //   P1 (preferred): Download real tariff XLSX from Sippy portal → patch in-place
+  //       ✓ Preserves Country, intervals, hidden metadata — matches manual upload exactly
+  //   P2 (fallback):  Reconstruct from XML-RPC data → buildFullTariffXlsx
+  //       ✗ Country=null — may cause silent ignore by Sippy
+  //   P3 (last resort): Single-row XLSX with known iRate
+  //       ✗ May wipe other rows if Sippy operates in replace mode
   //
   // Dates: "YYYY-MM-DD HH:MM:SS" — pure string, NO timezone conversion.
   function normDate(raw?: string): string {
@@ -8655,46 +8837,72 @@ async function pushRateViaPortalUpload(
     return '';
   }
 
-  // Fetch all current rates so we can build a complete file
-  let allRates: SippyTariffRate[] = [];
-  const u = xmlUsername ?? activeSession?.xmlRpcUsername ?? '';
-  const p = xmlPassword ?? activeSession?.xmlRpcPassword ?? '';
-  if (u && p) {
+  let xlsxBuf: Buffer;
+  let uploadMethod = 'unknown';
+
+  // ── P1: Download the real tariff XLSX from Sippy portal ───────────────────
+  const downloadCookies = ratesSession?.cookies ?? postCookies;
+  let downloadedBuf: Buffer | null = null;
+  if (downloadCookies) {
     try {
-      allRates = await getTariffRatesListFull(u, p, iTariff, undefined, 1000);
-      console.log(`[Sippy] pushRateViaPortalUpload: fetched ${allRates.length} existing rates for full-tariff upload`);
-    } catch (fe: any) {
-      console.log(`[Sippy] pushRateViaPortalUpload: rate pre-fetch failed (${fe?.message}) — will upload single row`);
+      downloadedBuf = await downloadTariffXlsxFromPortal(base, iTariff, downloadCookies);
+    } catch (de: any) {
+      console.log(`[Sippy] pushRateViaPortalUpload: portal download threw: ${de?.message}`);
     }
   }
 
-  let xlsxBuf: Buffer;
-  if (allRates.length > 0) {
-    xlsxBuf = buildFullTariffXlsx(allRates, prefix, rate, normDate(effectiveFrom), normDate(effectiveTill));
-    // ── Pre-upload dual dump: Sippy source → XLSX output, row by row ─────────
-    // Paste this into chat so we can spot any field mismatch vs the manual upload.
-    console.log(`[RateManager] ═══ FULL TARIFF UPLOAD PREVIEW — tariff=${iTariff} rows=${allRates.length} target=${prefix} newRate=${rate} ═══`);
-    for (const r of allRates) {
-      const isTarget = r.prefix === prefix;
-      const int1   = (r.interval1 && r.interval1 > 0) ? r.interval1 : 1;
-      const intN   = (r.intervalN && r.intervalN > 0) ? r.intervalN : 1;
-      const grace  = r.gracePeriodEnable === false ? 0 : 1;
-      const forbid = r.forbidden === true ? 1 : 0;
-      const outRate  = isTarget ? rate : r.price1;
-      const outFrom  = isTarget ? (normDate(effectiveFrom) || fmtDate(r.activationDate)) : fmtDate(r.activationDate);
-      const tag = isTarget ? ' ← CHANGED' : '';
-      // SIPPY SOURCE — raw values returned by XML-RPC
-      console.log(`[RateManager] [SRC] ID=${r.iRate} Prefix=${r.prefix} Country=(none-xml-rpc) Int1=${r.interval1} IntN=${r.intervalN} Price1=${r.price1} PriceN=${r.priceN} Forbidden=${r.forbidden} GracePeriodEnable=${r.gracePeriodEnable} ActivationDate=${r.activationDate ?? '(none)'}`);
-      // XLSX OUTPUT — what actually goes into the uploaded file
-      console.log(`[RateManager] [OUT] Action=U ID=${r.iRate} Prefix=${r.prefix} Country=null Int1=${int1} IntN=${intN} Price1=${outRate} PriceN=${outRate} Forbidden=${forbid} Grace=${grace} ActivationDate=${outFrom ?? '(none)'}${tag}`);
-    }
-    console.log(`[RateManager] ═══ END PREVIEW ═══`);
-    console.log(`[Sippy] pushRateViaPortalUpload: full-tariff XLSX — ${allRates.length} rows, target=${prefix} newRate=${rate} from="${normDate(effectiveFrom)||'(none)'}" bytes=${xlsxBuf.length}`);
+  if (downloadedBuf) {
+    // ── Patch the downloaded workbook in-place ─────────────────────────────
+    const { buf, patchedRows, log } = patchDownloadedTariffXlsx(
+      downloadedBuf, prefix, rate, normDate(effectiveFrom), normDate(effectiveTill),
+    );
+    xlsxBuf      = buf;
+    uploadMethod = 'download-patch-reupload';
+    console.log(`[Sippy] pushRateViaPortalUpload: ✓ P1 download-patch — tariff=${iTariff} patchedRows=${patchedRows} target=${prefix} newRate=${rate} bytes=${xlsxBuf.length}`);
+    console.log(`[RateManager] ═══ PATCH PREVIEW — tariff=${iTariff} target=${prefix} newRate=${rate} ═══`);
+    for (const line of log) console.log(`[RateManager] ${line}`);
+    console.log(`[RateManager] ═══ END PATCH PREVIEW ═══`);
   } else {
-    // Fallback: single-row with U + known iRate, or A for new prefix
-    const action = iRate ? 'U' : 'A';
-    xlsxBuf = buildRateXlsx(action, iRate ?? null, prefix, '', rate, normDate(effectiveFrom), normDate(effectiveTill));
-    console.log(`[Sippy] pushRateViaPortalUpload: single-row fallback — action=${action} iRate=${iRate ?? 'none'} prefix=${prefix} rate=${rate} bytes=${xlsxBuf.length}`);
+    // ── P2: Reconstruct from XML-RPC data ──────────────────────────────────
+    console.log(`[Sippy] pushRateViaPortalUpload: P1 download failed — falling back to XML-RPC reconstruction (Country=null warning)`);
+    let allRates: SippyTariffRate[] = [];
+    const u = xmlUsername ?? activeSession?.xmlRpcUsername ?? '';
+    const p = xmlPassword ?? activeSession?.xmlRpcPassword ?? '';
+    if (u && p) {
+      try {
+        allRates = await getTariffRatesListFull(u, p, iTariff, undefined, 1000);
+        console.log(`[Sippy] pushRateViaPortalUpload: fetched ${allRates.length} existing rates for full-tariff upload`);
+      } catch (fe: any) {
+        console.log(`[Sippy] pushRateViaPortalUpload: rate pre-fetch failed (${fe?.message}) — will upload single row`);
+      }
+    }
+
+    if (allRates.length > 0) {
+      xlsxBuf      = buildFullTariffXlsx(allRates, prefix, rate, normDate(effectiveFrom), normDate(effectiveTill));
+      uploadMethod = 'xmlrpc-reconstruct';
+      // Pre-upload dual dump so we can compare against manual upload
+      console.log(`[RateManager] ═══ FULL TARIFF UPLOAD PREVIEW — tariff=${iTariff} rows=${allRates.length} target=${prefix} newRate=${rate} ═══`);
+      for (const r of allRates) {
+        const isTarget = r.prefix === prefix;
+        const int1   = (r.interval1 && r.interval1 > 0) ? r.interval1 : 1;
+        const intN   = (r.intervalN && r.intervalN > 0) ? r.intervalN : 1;
+        const grace  = r.gracePeriodEnable === false ? 0 : 1;
+        const forbid = r.forbidden === true ? 1 : 0;
+        const outRate  = isTarget ? rate : r.price1;
+        const outFrom  = isTarget ? (normDate(effectiveFrom) || fmtDate(r.activationDate)) : fmtDate(r.activationDate);
+        const tag = isTarget ? ' ← CHANGED' : '';
+        console.log(`[RateManager] [SRC] ID=${r.iRate} Prefix=${r.prefix} Country=(none-xml-rpc) Int1=${r.interval1} IntN=${r.intervalN} Price1=${r.price1} PriceN=${r.priceN} Forbidden=${r.forbidden} GracePeriodEnable=${r.gracePeriodEnable} ActivationDate=${r.activationDate ?? '(none)'}`);
+        console.log(`[RateManager] [OUT] Action=U ID=${r.iRate} Prefix=${r.prefix} Country=null Int1=${int1} IntN=${intN} Price1=${outRate} PriceN=${outRate} Forbidden=${forbid} Grace=${grace} ActivationDate=${outFrom ?? '(none)'}${tag}`);
+      }
+      console.log(`[RateManager] ═══ END PREVIEW ═══`);
+      console.log(`[Sippy] pushRateViaPortalUpload: full-tariff XLSX — ${allRates.length} rows, target=${prefix} newRate=${rate} from="${normDate(effectiveFrom)||'(none)'}" bytes=${xlsxBuf.length}`);
+    } else {
+      // ── P3: single-row last resort ────────────────────────────────────────
+      const action = iRate ? 'U' : 'A';
+      xlsxBuf      = buildRateXlsx(action, iRate ?? null, prefix, '', rate, normDate(effectiveFrom), normDate(effectiveTill));
+      uploadMethod = 'single-row-fallback';
+      console.log(`[Sippy] pushRateViaPortalUpload: single-row fallback — action=${action} iRate=${iRate ?? 'none'} prefix=${prefix} rate=${rate} bytes=${xlsxBuf.length}`);
+    }
   }
 
   // ── Step 3b: save XLSX to disk for inspection ───────────────────────────────
