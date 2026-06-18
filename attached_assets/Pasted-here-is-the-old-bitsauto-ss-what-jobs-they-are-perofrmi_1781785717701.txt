@@ -1,0 +1,661 @@
+here is the old bitsauto ss
+
+
+what jobs they are perofrming to implement rates, date, time format is matching with sippy soft format 
+
+These old BitsAuto screenshots are actually very useful because they show the complete workflow, not just the rate upload.
+
+What the legacy BitsAuto was doing
+
+From the screenshots, the process was:
+
+Step 1 — User selects destinations
+
+Example:
+
+9230 Mobilink
+9232 Warid
+
+Then clicks:
+
+Change Client Rate
+Step 2 — Rate Change Staging
+
+The popup contains:
+
+Field	Purpose
+Active From	Sippy Activation Date
+Active Till	Sippy Expiration Date
+Rate	New Price 1 / Price N
+Selected Rates Grid	Existing destinations and current rates
+
+Notice the date format:
+
+2026-06-18 11:15
+
+This matches exactly what Sippy expects:
+
+YYYY-MM-DD HH:mm
+
+No timezone conversion.
+
+No ISO format.
+
+No UTC.
+
+No milliseconds.
+
+Step 3 — Build Rate Sheet
+
+Legacy BitsAuto was almost certainly generating a tariff upload sheet containing:
+
+Action	Id	Prefix	Country	Interval1	IntervalN	Price1	PriceN	Forbidden	Grace	Activation Date	Expiration Date
+
+For your example:
+
+SA,,19230,,1,1,0.0274,0.0274,0,1,2026-06-18 11:15,
+SA,,19232,,1,1,0.0274,0.0274,0,1,2026-06-18 11:15,
+
+Exactly the same format Sippy downloads.
+
+Step 4 — Upload into Sippy
+
+Looking at the old job status screen:
+
+SBC Mapping Available ✓
+Updated Tariff ✓
+Successful ✓
+
+This indicates BitsAuto was not calling XML-RPC rate methods.
+
+It was:
+
+Generate rate file
+Upload rate file
+Wait for Sippy import
+Verify tariff changed
+Mark Updated Tariff ✓
+Step 5 — Create Job
+
+Only AFTER upload succeeded:
+
+Job:
+
+5104995
+
+was created with:
+
+Client
+Product
+Notification Type
+Created By
+Job Status
+Remarks
+
+and process tracking:
+
+Email Sent
+SBC Mapping Available
+Updated Tariff
+Violated Rules
+Approval Required
+Successful
+What I would copy from the legacy system
+1. Keep uploaded rate sheets
+
+This is probably the biggest missing piece today.
+
+Every generated rate sheet should be stored:
+
+Rate Sheet Archive
+
+5104995.xlsx
+5104996.xlsx
+5104997.xlsx
+
+with:
+
+Created
+Client
+Product
+User
+Effective Date
+
+Retention:
+
+90 days
+
+minimum.
+
+This gives:
+
+rollback
+audit
+dispute handling
+proof of upload
+2. Version every sheet
+
+Instead of overwriting:
+
+tariff33.xlsx
+
+store:
+
+tariff33_20260618_1115_v1.xlsx
+tariff33_20260618_1145_v2.xlsx
+tariff33_20260619_0900_v3.xlsx
+
+This is how telecom operators normally audit tariff changes.
+
+3. Download existing tariff first
+
+Before changing rates:
+
+Download current tariff
+
+from Sippy.
+
+Save as:
+
+tariff33_original.xlsx
+
+Then:
+
+Modify only affected rows
+
+Then upload back.
+
+This is safer than generating a sheet from scratch.
+
+4. Job should store uploaded file
+
+Job 5104995 should contain:
+
+Original Sheet
+Modified Sheet
+Upload Result
+Verification Result
+
+so later you can open the exact file that was uploaded.
+
+Most important observation
+
+Your screenshot proves something very important:
+
+You are logged in as:
+
+ssp-root
+
+and you can see:
+
+Upload Rates
+Select File
+Format: .csv or MS-Office 2007 .xlsx
+
+Therefore:
+
+ssp-root DOES have access
+
+to the tariff upload page.
+
+The old error:
+
+grant Edit Tariff Rates permission
+
+is probably misleading.
+
+The real problem is more likely:
+
+wrong upload URL
+wrong form parsing
+wrong field name
+wrong multipart upload
+upload not submitted correctly
+
+because the page itself is clearly accessible.
+
+So before building any more features, I would focus on proving:
+
+BitsAuto
+→ opens /c1/rates_tariff.php?i_tariff=33
+→ detects file input
+→ uploads same XLSX format as Sippy download
+→ verifies tariff changed
+
+Once that works, then implement:
+
+Rate Notification Jobs
+Sheet Archive (90 days)
+Version history
+Rollback
+
+because those are all built on top of a working upload engine.
+
+here is the pending/failed to upload  rates in sippy SS
+
+
+This screenshot is actually very revealing.
+
+What the legacy job tells us
+
+Job 5105266 shows:
+
+Check	Status
+SBC Mapping Available	✅
+Updated Tariff	✅
+Successful	❌
+Email Sent	❌
+Violated Rules	❌
+Approval Required	❌
+
+And remarks:
+
+Successfully Send Rate To Sbc
+Most important observation
+
+Legacy BitsAuto did not require every step to pass.
+
+It recorded:
+
+Sbc Updated
+
+even when:
+
+Successful = ❌
+
+This means the workflow was:
+
+Build Rate Sheet
+↓
+Upload To SBC/Sippy
+↓
+Verify Tariff Updated
+↓
+Mark Updated Tariff ✓
+↓
+Create Job
+
+and only later:
+
+Email
+Rules
+Approvals
+Notifications
+
+were evaluated.
+
+The real workflow we should replicate
+Before push
+
+Capture:
+
+Client
+Product
+Tariff
+User
+Old Rate
+New Rate
+Effective Date
+Effective Time
+Generate file
+
+Keep exact copy:
+
+5105266.xlsx
+
+Store:
+
+Original
+Modified
+Uploaded
+
+for:
+
+90 days
+Upload
+
+Push to:
+
+/c1/rates_tariff.php?i_tariff=33
+
+using exactly the same sheet format Sippy downloads.
+
+Verify
+
+Re-read tariff.
+
+Example:
+
+Before:
+
+19230 = 0.02750
+
+After:
+
+19230 = 0.02740
+
+If changed:
+
+Updated Tariff = ✓
+Job Status = SBC Updated
+Create Job
+
+Exactly like your screenshot:
+
+Status Summary:
+
+Client
+Product
+Notification Type
+Job Created By
+Job Creation Time
+Job Status
+Remarks
+
+Process Status:
+
+Email Sent
+SBC Mapping Available
+Updated Tariff
+Violated Rules
+Approval Required
+Successful
+
+Rate Changes:
+
+Country
+Destination
+Old Rate
+New Rate
+Time Band
+Effective Date
+Effective Time
+Status
+Applied Rules
+What I think is wrong today
+
+From your current screenshots:
+
+Portal CSV: no upload form at /admin/tariffs.php
+
+while your Sippy screenshot clearly shows:
+
+/c1/rates_tariff.php?i_tariff=33
+
+with:
+
+Upload Rates
+Select File
+Format: .csv or MS-Office 2007 .xlsx
+
+So the current issue is not job tracking.
+
+The current issue is still:
+
+BitsAuto
+→ finding wrong page
+OR
+→ parsing wrong form
+OR
+→ posting to wrong action URL
+
+because the upload form clearly exists.
+
+Another thing the old system proves
+
+The old job stored:
+
+Old Rate = 0.04500
+New Rate = 0.04250
+Effective Date = 17-Jun-2026
+Effective Time = 13:30:00
+
+That means legacy BitsAuto was keeping a full rate change history, not just sending rates to Sippy.
+
+This supports your earlier requirement:
+
+Keep every uploaded tariff sheet
+Version it
+Store for 90 days+
+
+because that is exactly how the old platform could show this history later.
+
+Recommendation
+
+Do not build more UI right now.
+
+Next target should be:
+
+BitsAuto
+↓
+Generate exact Sippy XLSX
+↓
+Open /c1/rates_tariff.php?i_tariff=33
+↓
+Upload file
+↓
+Verify tariff changed
+↓
+Create Job
+
+Only after one rate successfully changes in Sippy should we implement:
+
+Rate Notification Jobs (#326)
+Sheet Archive (90-day retention)
+Versioned tariff history
+Rollback from previous tariff sheet
+
+The legacy screenshots strongly suggest that was the architecture of the original BitsAuto.
+
+top 2 i have share screen shots
+
+
+
+Yes, and these last screenshots are actually the strongest evidence yet of how the original BitsAuto architecture worked.
+
+Looking at the top two jobs:
+
+Job ID	Client	Module	Status
+5105266	Oman-Tel	Rate Editor	SBC Updated
+5104995	Yahya-Talk	Send Rate Notification	Successful
+
+And when we open Job 5105266, we see:
+
+Module           : Rate Editor
+Status           : SBC Updated
+Updated Tariff   : ✓
+Successful       : ✗
+
+This tells us something very important.
+
+Legacy System Had Two Different Workflows
+Workflow A — Rate Editor
+
+Used when:
+
+Rate Analysis
+→ Change Client Rate
+→ Push to SBC
+
+Result:
+
+Module = Rate Editor
+Status = SBC Updated
+
+Meaning:
+
+Build tariff sheet
+↓
+Upload to Sippy
+↓
+Verify tariff updated
+↓
+Create Job
+
+No email required.
+
+No notification required.
+
+No PDF required.
+
+No approval required.
+
+Exactly like your current test.
+
+Workflow B — Send Rate Notification
+
+Used when:
+
+Send Rate
+↓
+Generate notification
+↓
+Email client
+
+Result:
+
+Module = Send Rate Notification
+Status = Successful
+
+Meaning:
+
+Generate rate notification
+↓
+Generate PDF
+↓
+Email client
+↓
+Create Job
+
+This is a completely separate workflow.
+
+What this means for current development
+
+Your current testing is:
+
+Rate Analysis
+↓
+Change Client Rates
+
+Therefore the target should be:
+
+Module = Rate Editor
+Status = SBC Updated
+
+NOT:
+
+Successful
+
+The old system itself proves this.
+
+Another critical observation
+
+Look at the timestamps.
+
+Job:
+
+5105266
+17-Jun-2026 17:38:11
+
+contains:
+
+Old Rate
+New Rate
+Effective Date
+Effective Time
+
+This means the old system stored the rate change BEFORE the notification layer.
+
+Which supports exactly what you requested earlier:
+
+Rate Sheet Archive
+Version History
+90 Day Retention
+
+because otherwise it could never display historical rate changes.
+
+What I would copy from legacy BitsAuto
+Rate Editor Job
+
+Store:
+
+Job ID
+Client
+Tariff
+Product
+Old Rate
+New Rate
+Effective Date
+Effective Time
+Upload Method
+Upload Result
+Verification Result
+Uploaded File
+
+Status:
+
+Pending
+Uploading
+SBC Updated
+Failed
+Rate Sheet Archive
+
+Every upload:
+
+5105266.xlsx
+
+Store:
+
+Job ID
+Version
+Created By
+Created At
+
+Retention:
+
+90 days minimum
+Versioning
+
+Example:
+
+tariff33_v1.xlsx
+tariff33_v2.xlsx
+tariff33_v3.xlsx
+
+or
+
+tariff33_20260617_173811.xlsx
+
+This matches telecom operational practice.
+
+Most important conclusion from all screenshots
+
+The legacy system never tried to directly edit rates one by one.
+
+It behaved like:
+
+Read Tariff
+↓
+Generate Tariff Sheet
+↓
+Upload Tariff Sheet
+↓
+Verify SBC Updated
+↓
+Create Job
+
+That is almost certainly why the old platform was stable.
+
+So before building Rate Notification Jobs (#326), I would focus on making the current Rate Editor path behave exactly like Job 5105266:
+
+Change Client Rate
+↓
+Generate identical Sippy XLSX
+↓
+Upload to /c1/rates_tariff.php
+↓
+Verify tariff changed
+↓
+Create "SBC Updated" job
+
+Once that single flow works, the rest of the legacy job architecture becomes straightforward to reproduce.
