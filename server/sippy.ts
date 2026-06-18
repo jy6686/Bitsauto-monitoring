@@ -8671,20 +8671,24 @@ async function pushRateViaPortalUpload(
   let xlsxBuf: Buffer;
   if (allRates.length > 0) {
     xlsxBuf = buildFullTariffXlsx(allRates, prefix, rate, normDate(effectiveFrom), normDate(effectiveTill));
-    // ── Pre-upload dump — full row-by-row view before Sippy receives the file ──
-    // Compare this against the manually uploaded file to find any discrepancy.
-    console.log(`[RateManager] Full Tariff Upload Preview — tariff=${iTariff} rows=${allRates.length} target=${prefix} newRate=${rate}`);
-    console.log(`[RateManager]   ${'Action'.padEnd(6)} ${'ID'.padEnd(6)} ${'Prefix'.padEnd(8)} ${'Int1'.padEnd(5)} ${'IntN'.padEnd(5)} ${'Price1'.padEnd(8)} ${'PriceN'.padEnd(8)} ${'Forb'.padEnd(5)} ${'Grace'.padEnd(6)} ActivationDate`);
+    // ── Pre-upload dual dump: Sippy source → XLSX output, row by row ─────────
+    // Paste this into chat so we can spot any field mismatch vs the manual upload.
+    console.log(`[RateManager] ═══ FULL TARIFF UPLOAD PREVIEW — tariff=${iTariff} rows=${allRates.length} target=${prefix} newRate=${rate} ═══`);
     for (const r of allRates) {
       const isTarget = r.prefix === prefix;
       const int1   = (r.interval1 && r.interval1 > 0) ? r.interval1 : 1;
       const intN   = (r.intervalN && r.intervalN > 0) ? r.intervalN : 1;
       const grace  = r.gracePeriodEnable === false ? 0 : 1;
       const forbid = r.forbidden === true ? 1 : 0;
-      const displayRate = isTarget ? rate : r.price1;
-      const tag = isTarget ? '  ← CHANGED' : '';
-      console.log(`[RateManager]   ${'U'.padEnd(6)} ${String(r.iRate ?? '??').padEnd(6)} ${r.prefix.padEnd(8)} ${String(int1).padEnd(5)} ${String(intN).padEnd(5)} ${String(displayRate).padEnd(8)} ${String(displayRate).padEnd(8)} ${String(forbid).padEnd(5)} ${String(grace).padEnd(6)} ${r.activationDate ?? '(none)'}${tag}`);
+      const outRate  = isTarget ? rate : r.price1;
+      const outFrom  = isTarget ? (normDate(effectiveFrom) || fmtDate(r.activationDate)) : fmtDate(r.activationDate);
+      const tag = isTarget ? ' ← CHANGED' : '';
+      // SIPPY SOURCE — raw values returned by XML-RPC
+      console.log(`[RateManager] [SRC] ID=${r.iRate} Prefix=${r.prefix} Country=(none-xml-rpc) Int1=${r.interval1} IntN=${r.intervalN} Price1=${r.price1} PriceN=${r.priceN} Forbidden=${r.forbidden} GracePeriodEnable=${r.gracePeriodEnable} ActivationDate=${r.activationDate ?? '(none)'}`);
+      // XLSX OUTPUT — what actually goes into the uploaded file
+      console.log(`[RateManager] [OUT] Action=U ID=${r.iRate} Prefix=${r.prefix} Country=null Int1=${int1} IntN=${intN} Price1=${outRate} PriceN=${outRate} Forbidden=${forbid} Grace=${grace} ActivationDate=${outFrom ?? '(none)'}${tag}`);
     }
+    console.log(`[RateManager] ═══ END PREVIEW ═══`);
     console.log(`[Sippy] pushRateViaPortalUpload: full-tariff XLSX — ${allRates.length} rows, target=${prefix} newRate=${rate} from="${normDate(effectiveFrom)||'(none)'}" bytes=${xlsxBuf.length}`);
   } else {
     // Fallback: single-row with U + known iRate, or A for new prefix
