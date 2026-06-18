@@ -1,0 +1,262 @@
+would not implement this yet, but I do think your idea is the correct long-term architecture.
+
+What I agree with
+
+When a rate change is submitted, BitsAuto should eventually behave like this:
+
+Change Client Rates
+        ↓
+Create Job #5105268
+        ↓
+Save uploaded rate sheet snapshot
+        ↓
+Attempt Sippy upload
+        ↓
+Track every step
+        ↓
+Open Push History automatically
+        ↓
+Show final result
+
+And yes, for safety/commercial audit purposes:
+
+Rate Sheet Version 1
+Rate Sheet Version 2
+Rate Sheet Version 3
+...
+
+should be retained for at least 90 days.
+
+That gives you:
+
+Rollback capability
+Commercial audit trail
+Proof of what was sent
+Ability to compare old vs new rates
+Recovery if Sippy import partially fails
+What I would store
+
+For every push job:
+
+Original rate sheet
+internal-ptcl_Rates_20260618_1020.xlsx
+Modified rate sheet
+internal-ptcl_Rates_20260618_1020_push.xlsx
+Metadata
+Job ID
+Client
+Tariff
+Prefixes changed
+Old rates
+New rates
+Effective date
+Upload method
+Verification result
+
+Retention:
+
+90 days
+
+Automatic cleanup:
+
+Delete after 90 days
+
+or configurable.
+
+What I would NOT do right now
+
+Do not build:
+
+Rate sheet archive
+Job timeline
+Auto redirect to Push History
+Rollback workflow
+
+yet.
+
+Because your latest logs show:
+
+Upload token generated
+XLSX uploaded
+Status = FILE_UPLOADED
+
+but we still have not proven:
+
+Rate actually changed in tariff #33
+
+The write engine is still under investigation.
+
+What should happen next
+Priority 1
+
+Fix and prove:
+
+FILE_UPLOADED
+      ↓
+Verification
+      ↓
+Rate changed in Sippy
+Priority 2
+
+Once a single rate successfully changes:
+
+Then implement:
+
+Rate Sheet Archive
+Job Tracking
+90-day retention
+Auto-open Push History
+Step timeline
+
+because then the jobs are tracking a proven workflow instead of a failing one.
+
+One thing I would add to the plan
+
+When the push starts:
+
+Download current tariff rates
+Save snapshot
+Apply modifications
+Generate new XLSX
+Upload new XLSX
+
+This gives you:
+
+Before.xlsx
+After.xlsx
+
+for every job.
+
+For a telecom billing/routing platform, that is much more valuable than only storing individual old/new rate values.
+
+So my recommendation is:
+
+✅ Keep the idea in the roadmap.
+
+❌ Do not implement it before the Sippy write path is confirmed working.
+
+The screenshots still indicate the current blocker is the upload processing/verification stage, not the job tracking stage.
+
+not rate sheet version wise date wise 
+
+I agree with your idea, but I would adjust it slightly.
+
+Not version-wise. Date-wise and tariff-wise.
+
+Instead of:
+
+Version 1
+Version 2
+Version 3
+Version 4
+
+store:
+
+Tariff 33
+2026-06-18 10:20
+Before.xlsx
+After.xlsx
+
+Tariff 33
+2026-06-19 14:30
+Before.xlsx
+After.xlsx
+
+Tariff 33
+2026-06-22 09:00
+Before.xlsx
+After.xlsx
+
+Because in telecom operations nobody searches:
+
+Version 17
+
+People search:
+
+What rates were active on 18-Jun?
+What was pushed to internal-ptcl yesterday?
+Show me tariff 33 changes last week.
+Who changed prefix 19230?
+Better structure
+Rate Push Archive
+ ├── 2026
+ │    ├── June
+ │    │     ├── Tariff_33
+ │    │     │      ├── 2026-06-18_1020_Before.xlsx
+ │    │     │      ├── 2026-06-18_1020_After.xlsx
+ │    │     │      └── Metadata.json
+ │    │     │
+ │    │     └── Tariff_45
+ │    │
+ │    └── July
+Database
+
+A simple table:
+
+rate_push_archive
+-----------------
+id
+job_id
+switch_name
+client_name
+tariff_id
+product
+before_file
+after_file
+created_by
+created_at
+retention_until
+status
+Push History
+
+Then Push History becomes:
+
+Job ID     Client         Tariff   Date/Time         Status
+5105266    internal-ptcl  33       18-Jun 10:20      Success
+5105267    internal-ptcl  33       19-Jun 14:30      Failed
+5105268    Jazz           45       20-Jun 09:10      Success
+
+Clicking a job:
+
+Before.xlsx
+After.xlsx
+
+Prefixes Changed
+Old Rate
+New Rate
+
+Upload Method
+Verification Result
+
+Sippy Response
+For the current failure
+
+I would not build this yet.
+
+The latest screenshots still show:
+
+0/2 rate(s) updated
+
+and
+
+Portal CSV:
+no upload form at /admin/tariffs.php
+
+So first we need to prove:
+
+Rate Manager
+      ↓
+Upload XLSX
+      ↓
+Sippy Tariff #33
+      ↓
+Rate actually changes
+
+Once that works, then archive:
+
+Before.xlsx
+After.xlsx
+Job Details
+90-day retention
+
+because those archives become extremely valuable for commercial disputes, routing audits, and rollback operations. Right now the write engine itself is still failing, so I would keep the archive design ready but not implement it until the first successful rate update is confirmed in Sippy.

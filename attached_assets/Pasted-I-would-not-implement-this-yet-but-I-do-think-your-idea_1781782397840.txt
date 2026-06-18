@@ -1,0 +1,138 @@
+I would not implement this yet, but I do think your idea is the correct long-term architecture.
+
+What I agree with
+
+When a rate change is submitted, BitsAuto should eventually behave like this:
+
+Change Client Rates
+        ↓
+Create Job #5105268
+        ↓
+Save uploaded rate sheet snapshot
+        ↓
+Attempt Sippy upload
+        ↓
+Track every step
+        ↓
+Open Push History automatically
+        ↓
+Show final result
+
+And yes, for safety/commercial audit purposes:
+
+Rate Sheet Version 1
+Rate Sheet Version 2
+Rate Sheet Version 3
+...
+
+should be retained for at least 90 days.
+
+That gives you:
+
+Rollback capability
+Commercial audit trail
+Proof of what was sent
+Ability to compare old vs new rates
+Recovery if Sippy import partially fails
+What I would store
+
+For every push job:
+
+Original rate sheet
+internal-ptcl_Rates_20260618_1020.xlsx
+Modified rate sheet
+internal-ptcl_Rates_20260618_1020_push.xlsx
+Metadata
+Job ID
+Client
+Tariff
+Prefixes changed
+Old rates
+New rates
+Effective date
+Upload method
+Verification result
+
+Retention:
+
+90 days
+
+Automatic cleanup:
+
+Delete after 90 days
+
+or configurable.
+
+What I would NOT do right now
+
+Do not build:
+
+Rate sheet archive
+Job timeline
+Auto redirect to Push History
+Rollback workflow
+
+yet.
+
+Because your latest logs show:
+
+Upload token generated
+XLSX uploaded
+Status = FILE_UPLOADED
+
+but we still have not proven:
+
+Rate actually changed in tariff #33
+
+The write engine is still under investigation.
+
+What should happen next
+Priority 1
+
+Fix and prove:
+
+FILE_UPLOADED
+      ↓
+Verification
+      ↓
+Rate changed in Sippy
+Priority 2
+
+Once a single rate successfully changes:
+
+Then implement:
+
+Rate Sheet Archive
+Job Tracking
+90-day retention
+Auto-open Push History
+Step timeline
+
+because then the jobs are tracking a proven workflow instead of a failing one.
+
+One thing I would add to the plan
+
+When the push starts:
+
+Download current tariff rates
+Save snapshot
+Apply modifications
+Generate new XLSX
+Upload new XLSX
+
+This gives you:
+
+Before.xlsx
+After.xlsx
+
+for every job.
+
+For a telecom billing/routing platform, that is much more valuable than only storing individual old/new rate values.
+
+So my recommendation is:
+
+✅ Keep the idea in the roadmap.
+
+❌ Do not implement it before the Sippy write path is confirmed working.
+
+The screenshots still indicate the current blocker is the upload processing/verification stage, not the job tracking stage.

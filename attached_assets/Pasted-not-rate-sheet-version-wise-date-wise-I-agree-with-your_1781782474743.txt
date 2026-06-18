@@ -1,0 +1,123 @@
+not rate sheet version wise date wise 
+
+I agree with your idea, but I would adjust it slightly.
+
+Not version-wise. Date-wise and tariff-wise.
+
+Instead of:
+
+Version 1
+Version 2
+Version 3
+Version 4
+
+store:
+
+Tariff 33
+2026-06-18 10:20
+Before.xlsx
+After.xlsx
+
+Tariff 33
+2026-06-19 14:30
+Before.xlsx
+After.xlsx
+
+Tariff 33
+2026-06-22 09:00
+Before.xlsx
+After.xlsx
+
+Because in telecom operations nobody searches:
+
+Version 17
+
+People search:
+
+What rates were active on 18-Jun?
+What was pushed to internal-ptcl yesterday?
+Show me tariff 33 changes last week.
+Who changed prefix 19230?
+Better structure
+Rate Push Archive
+ ├── 2026
+ │    ├── June
+ │    │     ├── Tariff_33
+ │    │     │      ├── 2026-06-18_1020_Before.xlsx
+ │    │     │      ├── 2026-06-18_1020_After.xlsx
+ │    │     │      └── Metadata.json
+ │    │     │
+ │    │     └── Tariff_45
+ │    │
+ │    └── July
+Database
+
+A simple table:
+
+rate_push_archive
+-----------------
+id
+job_id
+switch_name
+client_name
+tariff_id
+product
+before_file
+after_file
+created_by
+created_at
+retention_until
+status
+Push History
+
+Then Push History becomes:
+
+Job ID     Client         Tariff   Date/Time         Status
+5105266    internal-ptcl  33       18-Jun 10:20      Success
+5105267    internal-ptcl  33       19-Jun 14:30      Failed
+5105268    Jazz           45       20-Jun 09:10      Success
+
+Clicking a job:
+
+Before.xlsx
+After.xlsx
+
+Prefixes Changed
+Old Rate
+New Rate
+
+Upload Method
+Verification Result
+
+Sippy Response
+For the current failure
+
+I would not build this yet.
+
+The latest screenshots still show:
+
+0/2 rate(s) updated
+
+and
+
+Portal CSV:
+no upload form at /admin/tariffs.php
+
+So first we need to prove:
+
+Rate Manager
+      ↓
+Upload XLSX
+      ↓
+Sippy Tariff #33
+      ↓
+Rate actually changes
+
+Once that works, then archive:
+
+Before.xlsx
+After.xlsx
+Job Details
+90-day retention
+
+because those archives become extremely valuable for commercial disputes, routing audits, and rollback operations. Right now the write engine itself is still failing, so I would keep the archive design ready but not implement it until the first successful rate update is confirmed in Sippy.
