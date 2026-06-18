@@ -8703,7 +8703,7 @@ async function pushRateViaPortalUpload(
       const errM = body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
       return { success: false, message: `Portal CSV error: ${errM ? errM[1].trim() : 'Sippy returned an error response'}` };
     }
-    if (hasSuccess) return { success: true, message: `Rate pushed via portal XLSX upload (Action=${xlsxAction}, prefix=${prefix})` };
+    if (hasSuccess) return { success: true, message: `Rate pushed via portal XLSX upload (full-tariff U, prefix=${prefix})` };
 
     return { success: false, message: `Portal CSV upload: unexpected response (HTTP ${uploadResp.statusCode}, ${body.length}B)` };
   } catch (e: any) {
