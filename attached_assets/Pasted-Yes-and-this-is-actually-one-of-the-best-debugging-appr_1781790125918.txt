@@ -1,0 +1,575 @@
+Yes — and this is actually one of the best debugging approaches for your situation.
+
+Instead of guessing whether:
+
+upload token API is failing,
+XLSX format is wrong,
+hidden form fields are missing,
+session cookies are wrong,
+Sippy permissions are wrong,
+
+you can build a temporary "Sippy Interactive Session" page inside BitsAuto.
+
+How it would work
+Step 1 — Login through BitsAuto
+
+Create:
+
+Settings → Sippy Debug Login
+
+Fields:
+
+Sippy URL
+Username
+Password
+
+Login and store the session cookie server-side.
+
+Step 2 — Open Tariff Editor inside BitsAuto
+
+Example:
+
+Tariff #33
+
+BitsAuto loads:
+
+/c1/rates_tariff.php?i_tariff=33
+
+using the authenticated session.
+
+Now we can prove:
+
+✅ same account
+✅ same cookies
+✅ same permissions
+
+Step 3 — Test Upload Manually
+
+Inside BitsAuto:
+
+Download Current Rate Sheet
+
+Modify:
+
+19230
+0.02750
+→
+0.02760
+
+Upload back through the same session.
+
+Capture:
+
+POST URL
+hidden fields
+form field names
+cookies
+response HTML
+redirects
+
+and store everything in logs.
+
+Step 4 — Compare With Existing Engine
+
+Then compare:
+
+Manual page upload
+POST:
+/c1/rates_tariff.php?i_tariff=33
+
+field:
+rate_file
+
+hidden:
+csrf=abc123
+
+vs
+
+BitsAuto automation
+POST:
+/c1/rates_tariff.php?i_tariff=33
+
+field:
+upload
+
+Immediately reveals the mismatch.
+
+Even Better
+
+Build a temporary page:
+
+Settings
+ └── Sippy Upload Lab
+
+Functions:
+
+Test 1
+Open tariff upload page
+
+Shows:
+
+URL found
+file input name
+hidden fields
+Test 2
+Download tariff XLSX
+
+Saves exact Sippy file.
+
+Test 3
+Modify one rate
+
+Change:
+
+19230
+0.02750
+→
+0.02760
+Test 4
+Upload exact file back
+Test 5
+Verify rate changed
+
+Read tariff again.
+
+Why this is valuable
+
+Right now you're spending time interpreting logs.
+
+With a Sippy Upload Lab page you can see:
+
+Login
+↓
+Open tariff
+↓
+Download file
+↓
+Edit file
+↓
+Upload file
+↓
+Verify
+
+using the exact same session and permissions that the browser uses.
+
+If that succeeds, then:
+
+Permission problem = NO
+
+and we know the automation path is wrong.
+
+If that fails:
+
+Permission problem = YES
+
+and we stop changing upload code.
+
+My recommendation: build a temporary Sippy Upload Lab / Sippy Session Debugger page before implementing Rate Notification Jobs (#326). It will quickly answer whether the issue is permissions, form submission, hidden fields, XLSX structure, or session handling, and it will be useful for all future Sippy integrations across your multiple Sippy environments.
+
+we have weblogin of all account seprately in sippy can we ammend from that login page??
+
+Yes, and that's actually a much better approach than continuing to guess.
+
+Based on your setup, every client/vendor account already has its own Sippy Web Login. If BitsAuto can:
+
+Login as that account
+
+Open the same page you showed:
+
+/c1/rates_tariff.php?i_tariff=33
+Download the current rate sheet
+Modify the rate
+Upload the same sheet back
+
+then we immediately prove:
+
+Session works ✅
+Account permissions work ✅
+Upload page works ✅
+XLSX format works ✅
+Hidden form fields are correct ✅
+
+At that point, whatever is failing in the automation layer becomes obvious.
+
+What I would build
+
+A temporary admin-only page:
+
+Settings
+ └── Sippy Session Manager
+
+Features:
+
+Login as Sippy User
+Sippy URL
+Username
+Password
+[ Login ]
+After Login
+
+Show:
+
+Current User: ssp-root
+Portal Type: Customer (/c1)
+Tariff Access: YES
+Upload Form Found: YES
+Tariff Tools
+Tariff: 33
+
+[ Open Rates ]
+[ Download XLSX ]
+[ Upload XLSX ]
+[ Verify Prefix ]
+Upload Test
+
+Download the exact Sippy file:
+
+internal-ptcl-tariff33.xlsx
+
+Change:
+
+19230
+0.02750
+→
+0.02760
+
+Upload the same file.
+
+If it succeeds, BitsAuto stores:
+
+Upload URL
+Form Action
+File Field Name
+Hidden Fields
+Response HTML
+
+for debugging.
+
+Even better for your architecture
+
+Since you manage:
+
+DID Sippy
+Testing Sippy
+Production Sippy
+Other environments
+
+you can save:
+
+Sippy Session Profiles
+
+and switch between them.
+
+Why this is important
+
+Right now the system says:
+
+Permission denied
+
+but your screenshot shows:
+
+Upload Rates
+Download Rates
+Add Rate
+Delete Rate
+
+Those two facts don't align.
+
+The fastest way to find the truth is:
+
+BitsAuto Login
+→ Open same tariff page
+→ Download same XLSX
+→ Upload same XLSX
+→ Watch response
+
+That will tell us within minutes whether:
+
+the permission warning is wrong,
+the upload URL is wrong,
+the form parser is wrong,
+the hidden fields are missing,
+or the account genuinely lacks write rights.
+
+For your environment, I would prioritize this "Sippy Session / Upload Lab" page before Rate Notification Jobs, because it becomes a permanent troubleshooting tool for all 3–4 Sippy systems you operate.
+
+Is it possible to manage client tariff updates through our BitsAuto platform instead of accessing theSippy platform directly?
+
+The proposed workflow would be as follows:
+
+1. Navigate to the Client List within BitsAuto.
+2. Search and select the desired  account.
+3. Access the customer’s web login credentials, which are already stored in the platform.
+4. Log in to the  account directly from BitsAuto.
+5. Navigate to the  tariff section within the Sippy .
+6. Download the existing tariff.
+7. Make the required rate amendments.
+8. Upload the updated tariff back to the Sippy .
+9. Validate and verify that the changes have been applied successfully.
+
+The objective is to avoid manually logging into the Sippy  for each customer. Instead, the workflow should start by selecting the Product and Customer within BitsAuto. When rates are submitted, the system should automatically access the selected Sippy account through the stored web login, navigate directly to the tariff section, apply the rate changes, upload the updated tariff, and verify the result.
+
+This would provide a centralized workflow where all  tariff management activities are initiated and controlled from BitsAuto rather than requiring users to access each Sippy account separately.
+
+1: rate manager
+2: Select Product
+3: Select account/carrier
+4: Country/Destination
+5: Operator
+6: rate to be change manually 
+7: select date time
+8: click Submit button
+9: go t o company List search selected account/carrier
+10: weblogin as a account 
+11: download tariff
+12: ammend rates as per rate manager instruction 
+14: save sheet in bitsauto excel format
+15: upload in account tariff 
+16: uploaded sucussfullly in sippy and effective then send email to all email ids which are in send email list 
+
+
+Yes, this is absolutely possible, and based on everything you've shown from the legacy BitsAuto screenshots, I suspect this is actually how the old system worked.
+
+However, I would make one important architectural adjustment.
+
+Recommended Workflow
+User Workflow (BitsAuto)
+Rate Manager
+Select Product
+Select Client/Carrier
+Select Country
+Select Destination
+Enter New Rate
+Select Effective Date/Time
+Click Submit
+
+Then BitsAuto automatically performs:
+
+Backend Workflow
+Phase 1 – Create Job
+
+Create Job ID:
+
+5105267
+
+Status:
+
+Pending
+
+Store:
+
+Client
+Product
+Destination
+Old Rate
+New Rate
+Effective Date
+Effective Time
+Created By
+
+Exactly like the legacy screenshots.
+
+Phase 2 – Sippy Web Login
+
+Using stored credentials:
+
+Customer Web Login
+Username
+Password
+
+BitsAuto logs into Sippy.
+
+Not XML-RPC.
+
+Not Upload Token.
+
+Actual web session.
+
+Phase 3 – Open Tariff
+
+BitsAuto navigates:
+
+/c1/rates_tariff.php?i_tariff=33
+
+Determine tariff automatically from:
+
+Client
+→ Service Plan
+→ Tariff
+Phase 4 – Download Existing Tariff
+
+Download the current Sippy file.
+
+Example:
+
+internal-ptcl-tariff33.xlsx
+
+Store locally.
+
+Phase 5 – Version Archive
+
+Before modifying:
+
+Save:
+
+Tariff_33_2026-06-18_1300.xlsx
+
+Archive retention:
+
+90 days
+
+This is something I strongly recommend.
+
+You mentioned:
+
+keep it for at least 3 months for safe side
+
+I agree.
+
+Every uploaded tariff should be archived.
+
+Phase 6 – Modify Existing File
+
+Do NOT generate a brand-new XLSX.
+
+Instead:
+
+Open downloaded Sippy file.
+Find prefix:
+19230
+Update:
+0.02750
+→
+0.02740
+Keep every other row untouched.
+
+This guarantees:
+
+Column order matches Sippy
+Formatting matches Sippy
+Hidden workbook settings preserved
+Future Sippy upgrades less likely to break upload
+Phase 7 – Upload Same File Back
+
+Upload:
+
+internal-ptcl-tariff33.xlsx
+
+(or archived working copy)
+
+back through the same page.
+
+Phase 8 – Verification
+
+After upload:
+
+Reload:
+
+/c1/rates_tariff.php?i_tariff=33
+
+Check:
+
+19230 = 0.02740
+
+If yes:
+
+Updated Tariff ✓
+
+If no:
+
+Failed
+Phase 9 – Notifications
+
+Only after verification succeeds:
+
+Generate Rate Notification Job
+Generate PDF
+Email distribution list
+Update Job Status
+
+Like the legacy system.
+
+Why I Prefer This
+
+Instead of:
+
+BitsAuto
+→ Generate new XLSX
+→ Upload
+
+Do:
+
+BitsAuto
+→ Download existing tariff
+→ Modify same tariff
+→ Upload same tariff
+
+Advantages:
+
+1. Exact Sippy Format
+
+No guessing.
+
+No column mapping issues.
+
+No CSV/XLSX debates.
+
+2. Version Control
+
+You asked for:
+
+date wise / version wise
+
+Perfect use case.
+
+Store:
+
+Tariff33_v001.xlsx
+Tariff33_v002.xlsx
+Tariff33_v003.xlsx
+
+or
+
+Tariff33_20260618_1300.xlsx
+Tariff33_20260618_1415.xlsx
+3. Rollback
+
+One-click rollback:
+
+Restore Version
+
+Upload previous file.
+
+4. Audit Trail
+
+Job detail page can show:
+
+Downloaded Tariff
+Modified By
+Uploaded By
+Upload Time
+Verification Time
+Previous Version
+Current Version
+
+Exactly matching the old BitsAuto operational model.
+
+One thing I would NOT do
+
+I would not automatically assume:
+
+Customer Web Login
+=
+Rate Upload Permission
+
+The system should still verify:
+
+Upload Form Found
+Upload Successful
+Rate Verified
+
+before marking:
+
+Updated Tariff ✓
+
+My recommendation is to stop trying to manufacture tariff files from scratch and move to a "Download Existing Tariff → Modify → Version → Re-upload → Verify" model. It aligns much more closely with the legacy BitsAuto workflow shown in your screenshots and gives you the 90-day audit/version history you want.
