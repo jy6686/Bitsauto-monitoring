@@ -53,6 +53,37 @@ async function getSippyCreds() {
 
 export function registerRateManagerRoutes(app: Express) {
 
+  // ── Debug: download the exact XLSX BitsAuto would upload ──────────────────
+  // GET /api/rate-manager/download-test-xlsx?tariffId=33&prefix=19230&rate=0.027&from=2026-06-18+01:30
+  // Returns the raw XLSX file so it can be manually uploaded to Sippy to verify format.
+  app.get('/api/rate-manager/download-test-xlsx', async (req: any, res) => {
+    try {
+      const { tariffId, prefix, rate, from: effectiveFrom, till: effectiveTill, action = 'A' } = req.query as Record<string, string>;
+      if (!prefix || !rate) return res.status(400).json({ error: 'prefix and rate are required' });
+      const rateNum = parseFloat(rate);
+      if (isNaN(rateNum)) return res.status(400).json({ error: 'rate must be a number' });
+
+      // Normalise date: "2026-06-18 01:30" → "2026-06-18 01:30:00"
+      function normDate(raw?: string): string {
+        if (!raw) return '';
+        const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) return `${raw.trim()} 00:00:00`;
+        return '';
+      }
+
+      const xlsxBuf = sippy.buildRateXlsx(
+        action, null, prefix, '',
+        rateNum, normDate(effectiveFrom), normDate(effectiveTill),
+      );
+
+      const filename = `sippy_tariff${tariffId ?? 'XX'}_${prefix}_${Date.now()}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(xlsxBuf);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Product Rates ──────────────────────────────────────────────────────────
 
   app.get('/api/product-rates', async (req: any, res) => {

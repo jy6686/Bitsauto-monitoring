@@ -1,0 +1,118 @@
+same error again, looks we are adding/missing some field can you share me ammended file which you are trying to upload in sippy, i wil upload manually in sippy and then see what error sippy can give 
+
+Yes, that's actually the best next step.
+
+From your screenshot, we have moved beyond authentication and page access problems. The error is now:
+
+Portal CSV accepted but rate unchanged
+prefix=19230
+found=0.0275
+expected=0.027
+
+That strongly suggests one of these:
+
+XLSX structure is slightly wrong.
+Action field is wrong (A vs SA vs U).
+Missing hidden form field.
+Missing tariff identifier.
+Sippy imported the file but ignored the row.
+Date format is causing the row to be skipped.
+
+Before changing more code, we should inspect the exact file being generated.
+
+What I need
+
+Ask the developer to expose one of these temporarily:
+
+Option A (preferred)
+Add a button:
+
+Generate XLSX Only
+
+instead of uploading.
+
+Then download the exact XLSX that BitsAuto is trying to send.
+
+Option B
+
+Save every generated upload file locally:
+
+uploads/rates/
+tariff33_19230_20260618_133000.xlsx
+
+and provide a download link in Push History.
+
+Option C
+
+Log the generated XLSX as a downloadable artifact in Replit.
+
+Then we do this test
+Generate file from BitsAuto.
+Download file.
+Login to Sippy manually.
+Open:
+/c1/rates_tariff.php?i_tariff=33
+Upload the exact same file manually.
+Observe Sippy response.
+
+Then we'll know immediately:
+
+Result	Meaning
+Manual upload succeeds	BitsAuto POST/process is wrong
+Manual upload fails with error	XLSX structure/content is wrong
+Manual upload succeeds but rate unchanged	Action/date/row format is wrong
+Sippy shows validation error	We finally get the real error message
+Another thing I noticed
+
+The message says:
+
+expected=0.027
+found=0.0275
+
+but your screenshot shows:
+
+New Rate = 0.027
+
+while the old rate is:
+
+0.02750
+
+I would test something more obvious:
+
+0.05000
+
+or
+
+0.10000
+
+for one destination.
+
+That removes any possibility of decimal formatting or rounding logic interfering with verification.
+
+About keeping uploaded files
+
+Your earlier idea is correct and I would implement it later:
+
+Rate History
+ ├─ tariff33_v1.xlsx
+ ├─ tariff33_v2.xlsx
+ ├─ tariff33_v3.xlsx
+ ...
+
+Store every generated/uploaded sheet for at least:
+
+90 days
+
+with:
+
+Tariff ID
+Customer
+Product
+Effective Date
+Uploaded By
+Upload Result
+Verification Result
+
+That gives you rollback capability and an audit trail.
+
+For now, I would stop changing upload logic and get the exact XLSX file that BitsAuto generated. That single file will probably reveal the issue faster than another 10 code changes.

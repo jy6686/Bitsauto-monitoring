@@ -8148,7 +8148,7 @@ async function verifySippyRate(
 // Build a Sippy-compatible XLSX workbook for a single rate row.
 // Column layout matches Sippy's own export template exactly (confirmed from
 // internal tariff XLSX: internal-ptcl_Rates.xlsx).
-function buildRateXlsx(
+export function buildRateXlsx(
   action: string,
   iRateId: number | null,
   prefix: string,
