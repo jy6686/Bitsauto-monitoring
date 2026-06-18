@@ -35579,16 +35579,20 @@ ${footer}
         // Logging here proves that reaching Sippy with the correct prefix.
         console.log(`[RateManager] change-client-rates request — account=${accountName} iTariff=${iTariff ?? 'unknown'} prefixes=[${prefixes.join(',')}] newRate=${rate} effective=${effectiveFrom ?? 'immediate'}`);
 
-        // ── Phase A: pre-fetch old rates for diagnostic logging ───────────────────
+        // ── Phase A: pre-fetch old rates + existing rate IDs for U action ────────
         const oldRateMap: Record<string, number> = {};
+        const iRateMap:   Record<string, number> = {};
         if (iTariff) {
           try {
             const rateList = await sippy.getSippyRateList(username, password, String(iTariff), portalUrl);
             for (const p of prefixes) {
               const match = rateList.rates.find(r => r.prefix === String(p));
-              if (match) oldRateMap[String(p)] = match.rate;
+              if (match) {
+                oldRateMap[String(p)] = match.rate;
+                if (match.iRate > 0) iRateMap[String(p)] = match.iRate;
+              }
             }
-            console.log(`[RateManager] Pre-push old rates: ${JSON.stringify(oldRateMap)}`);
+            console.log(`[RateManager] Pre-push old rates: ${JSON.stringify(oldRateMap)} iRates: ${JSON.stringify(iRateMap)}`);
           } catch (e: any) {
             console.log(`[RateManager] Pre-push rate fetch failed (non-critical): ${e.message}`);
           }
@@ -35633,6 +35637,7 @@ ${footer}
                   rate:          Number(rate),
                   effectiveFrom: effectiveFrom || undefined,
                   effectiveTill: effectiveTill || undefined,
+                  iRate:         iRateMap[String(prefix)] ?? undefined,
                 },
                 portalUrl,
                 {
@@ -35643,7 +35648,7 @@ ${footer}
                   adminWebPassword: (settings as any).adminWebPassword ?? undefined,
                 },
               );
-              r = { ...sr, detail: `i_tariff=${iTariff}` };
+              r = { ...sr, detail: `i_tariff=${iTariff} iRate=${iRateMap[String(prefix)] ?? 'new'}` };
             } else {
               r = await sippy.pushRateToSippy(
                 {

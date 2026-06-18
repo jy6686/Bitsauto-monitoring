@@ -8095,7 +8095,7 @@ export async function setSippyRateEntry(
   username: string,
   password: string,
   tariffId: string,
-  entry: { prefix: string; rate: number; effectiveFrom?: string; effectiveTill?: string },
+  entry: { prefix: string; rate: number; effectiveFrom?: string; effectiveTill?: string; iRate?: number },
   portalUrl?: string,
   adminCreds?: RateAdminCreds,
 ): Promise<{ success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }> {
@@ -8131,7 +8131,8 @@ export async function setSippyRateEntry(
         console.log(`[RateManager] Upload token: ${uploadToken} | URL: ${uploadUrl}`);
 
         const csvHeader  = 'Action,Id,Prefix,Country,Interval 1,Interval N,Price 1,Price N,Forbidden,Grace Period,Activation Date,Expiration Date';
-        const csvRow     = `SA,,${entry.prefix},,1,1,${entry.rate},${entry.rate},0,1,${normDateLocal(entry.effectiveFrom)},${normDateLocal(entry.effectiveTill)}`;
+        const action     = entry.iRate && entry.iRate > 0 ? `U,${entry.iRate}` : 'SA,';
+        const csvRow     = `${action},${entry.prefix},,1,1,${entry.rate},${entry.rate},0,1,${normDateLocal(entry.effectiveFrom)},${normDateLocal(entry.effectiveTill)}`;
         const csvContent = `${csvHeader}\r\n${csvRow}`;
         console.log(`[RateManager] Upload CSV row: ${csvRow}`);
 
@@ -8293,7 +8294,7 @@ export async function setSippyRateEntry(
   console.log(`[Sippy] setSippyRateEntry: all XML-RPC methods failed — falling back to portal CSV upload`);
   const portalResult = await pushRateViaPortalUpload(
     base, Number(tariffId), entry.prefix, entry.rate,
-    entry.effectiveFrom, entry.effectiveTill, adminCreds,
+    entry.effectiveFrom, entry.effectiveTill, adminCreds, entry.iRate,
   );
   if (portalResult.success) {
     // Phase E: verify the rate actually changed in Sippy (portal may return 200 for display pages)
@@ -8342,6 +8343,7 @@ async function pushRateViaPortalUpload(
   effectiveFrom?: string,
   effectiveTill?: string,
   adminCreds?: RateAdminCreds,
+  iRate?: number,
 ): Promise<{ success: boolean; message: string }> {
   // ── Step 1: find a session that can BOTH login AND access the rates page ──
   // findRatesCapableSession tries each credential pair (rateAdminUser → SIPPY_PROV → ssp-root)
@@ -8428,7 +8430,8 @@ async function pushRateViaPortalUpload(
     return '';
   }
   const csvHeader = 'Action,Id,Prefix,Country,Interval 1,Interval N,Price 1,Price N,Forbidden,Grace Period,Activation Date,Expiration Date';
-  const csvRow    = `SA,,${prefix},,1,1,${rate},${rate},0,1,${normDate(effectiveFrom)},${normDate(effectiveTill)}`;
+  const action    = iRate && iRate > 0 ? `U,${iRate}` : 'SA,';
+  const csvRow    = `${action},${prefix},,1,1,${rate},${rate},0,1,${normDate(effectiveFrom)},${normDate(effectiveTill)}`;
   const csvContent = `${csvHeader}\r\n${csvRow}`;
   console.log(`[Sippy] pushRateViaPortalUpload: CSV row: ${csvRow}`);
 
