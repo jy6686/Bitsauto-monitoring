@@ -8190,7 +8190,12 @@ export async function setSippyRateEntry(
       if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
       return '';
     };
-    const tokenXml  = buildGetUploadTokenXml(1, undefined, undefined, { i_tariff: Number(tariffId) });
+    // Explicitly set process_on = "now + 10s" in Sippy ISO8601 format (YYYYMMDDThh:mm:ss).
+    // Without it some Sippy builds schedule processing far in the future, leaving status
+    // permanently at FILE_UPLOADED within the poll window.
+    const _pIso     = new Date(Date.now() + 10000).toISOString();
+    const processOn = `${_pIso.slice(0,4)}${_pIso.slice(5,7)}${_pIso.slice(8,10)}T${_pIso.slice(11,19)}`;
+    const tokenXml  = buildGetUploadTokenXml(1, processOn, undefined, { i_tariff: Number(tariffId) });
     const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
     console.log(`[RateManager] getUploadToken: HTTP ${tokenResp.statusCode} body=${tokenResp.body.substring(0, 300)}`);
 
@@ -8223,6 +8228,9 @@ export async function setSippyRateEntry(
               if (statusResp.statusCode === 200 && !statusResp.body.includes('faultCode')) {
                 const sm = extractStructMembers(extractAllTags(statusResp.body, 'struct')[0] ?? '');
                 if (sm['status']) finalStatus = sm['status'];
+              } else if (poll === 1) {
+                // Log once so we know whether getUploadStatus itself is unsupported
+                console.log(`[RateManager] getUploadStatus poll#1: HTTP ${statusResp.statusCode} body=${statusResp.body.substring(0, 200)}`);
               }
             } catch { /* keep polling */ }
             console.log(`[RateManager] Upload status poll #${poll}: ${finalStatus}`);
@@ -8250,6 +8258,23 @@ export async function setSippyRateEntry(
               uploadStatus: finalStatus,
               verificationResult: 'mismatch',
             };
+          }
+          // FILE_UPLOADED at poll-end often means getUploadStatus is unsupported on
+          // this Sippy build — the import may have completed silently.  Verify before
+          // falling through so a working upload doesn't get discarded.
+          if (finalStatus === 'FILE_UPLOADED') {
+            const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
+            console.log(`[RateManager] Verification after FILE_UPLOADED (upload_token): ${verifyResult.message}`);
+            if (verifyResult.confirmed) {
+              return {
+                success: true,
+                message: `Rate updated — XLSX uploaded, verified (prefix=${entry.prefix} rate=${entry.rate}; status API may be unsupported on this Sippy build)`,
+                method: 'upload_token',
+                uploadToken,
+                uploadStatus: finalStatus,
+                verificationResult: 'confirmed',
+              };
+            }
           }
           lastErrors.push(`upload_token: status=${finalStatus}`);
           console.log(`[RateManager] Upload token finalStatus=${finalStatus} — falling through`);
