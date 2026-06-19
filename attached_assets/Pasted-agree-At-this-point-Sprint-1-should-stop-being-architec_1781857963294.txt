@@ -1,0 +1,593 @@
+agree. At this point, Sprint 1 should stop being architecture discussion and become evidence gathering.
+
+The most important question is no longer:
+
+"Is the Send Rate design correct?"
+
+The question is:
+
+"Can Send Rate reliably execute the same real-world operations that Change Client Rates can execute?"
+
+Until that is proven, every audit table, queue, worker, email engine, and rollback mechanism is being built around an assumption.
+
+Sprint 1 - Item 1: Send Rate Certification Suite
+Goal
+
+Certify the actual Send Rate execution path, not the underlying Sippy endpoint.
+
+Remember:
+
+Change Client Rates
+    ↓
+action=change
+    ↓
+Sippy
+
+has already been proven.
+
+What remains unproven is:
+
+Send Rate UI
+    ↓
+Destination Queue
+    ↓
+Prefix Resolution
+    ↓
+Tariff Mapping
+    ↓
+action=change
+    ↓
+Sippy
+
+Most failures will occur before Sippy.
+
+Certification Success Criteria
+
+A test passes only if all three are true:
+
+1. Request Accepted
+
+BitsAuto reports success.
+
+2. Sippy Updated
+
+Rate actually changed in Sippy.
+
+3. Expected Destination Changed
+
+Correct prefix changed.
+
+Not:
+
+Pakistan Mobile
+
+when intending:
+
+Pakistan Jazz Mobile
+
+This is where longest-prefix bugs appear.
+
+T1 — Single Destination
+
+Purpose:
+
+Verify basic path.
+
+Scenario:
+
+1 Client
+1 Destination
+1 Rate Change
+
+Expected:
+
+Destination found
+Prefix resolved
+Rate changed
+Verified in Sippy
+T2 — Multiple Destinations
+
+Purpose:
+
+Verify queue processing.
+
+Scenario:
+
+Pakistan Mobile
+UK Mobile
+USA Mobile
+
+Expected:
+
+All modified.
+
+No partial updates.
+
+T3 — Future Effective Date
+
+Purpose:
+
+Verify scheduling fields survive.
+
+Scenario:
+
+Tomorrow
+00:00 GMT
+
+Expected:
+
+Correct effective date stored in Sippy.
+
+T4 — Product Segmentation
+
+Critical for BitsAuto.
+
+Scenario:
+
+First Class
+Business Class
+Special Bravo
+Special Charlie
+
+Same destination.
+
+Different products.
+
+Expected:
+
+Correct tariff selected for each product.
+
+No cross-product contamination.
+
+T5 — Restore
+
+Purpose:
+
+Verify reversibility.
+
+Process:
+
+Original Rate
+→ Change
+→ Restore
+
+Expected:
+
+Exact original value restored.
+
+T6 — Invalid Destination
+
+Most important validation test.
+
+Scenario:
+
+Pakistan Mobile XYZ
+
+Expected:
+
+Validation Error
+No Sippy Change
+No Partial Update
+
+This becomes the basis of the future Pre-Validation Engine.
+
+T7 — Prefix Collision
+
+Highest telecom risk.
+
+Scenario:
+
+92
+92300
+92301
+
+Expected:
+
+Longest-prefix match wins.
+
+Verify actual modified row in Sippy.
+
+This specifically validates the prefix-normalization rewrite.
+
+Additional Test I'd Add
+T8 — Mixed Valid + Invalid Queue
+
+This is the production scenario.
+
+Example:
+
+Pakistan Mobile
+UK Mobile
+Invalid Destination
+USA Mobile
+
+Expected result should be defined now.
+
+Choose one:
+
+Option A (Recommended)
+
+Fail Entire Batch
+
+4 submitted
+1 invalid
+0 processed
+
+Safer for billing.
+
+Option B
+
+Partial Success
+
+3 processed
+1 failed
+
+Higher operational risk.
+
+For telecom billing, I would recommend Option A.
+
+Certification Deliverables
+
+At the end of testing, produce a simple matrix:
+
+Test	Result
+T1	Pass/Fail
+T2	Pass/Fail
+T3	Pass/Fail
+T4	Pass/Fail
+T5	Pass/Fail
+T6	Pass/Fail
+T7	Pass/Fail
+T8	Pass/Fail
+Exit Criteria
+
+Do not start Audit Snapshot until:
+
+T1-T8 = PASS
+
+Reason:
+
+If T6 or T7 fail, you'll redesign validation and prefix resolution anyway.
+
+No point building audit layers on top of unstable behavior.
+
+After Certification
+
+Then Sprint 1 naturally becomes:
+
+Step 2
+
+Audit Snapshot
+
+Capture:
+
+old_rate
+new_rate
+prefix
+destination
+tariff
+client
+user
+timestamp
+Step 3
+
+Pre-Validation
+
+Derived directly from failures discovered during certification.
+
+Step 4
+
+Dry Run
+
+Uses the same validation engine and audit preview data.
+
+That sequence minimizes rework and keeps the proven action=change path as the foundation of the entire Send Rate system.
+
+we have to create email notifcation centre which detail i already share with you can check old discussion, Invoice, Rates, Disputes, etc notification would be come from account profile details, you already have deatils of old bitsauot 
+
+Got it — pure discussion mode. Let me read the rest of the attached file before responding.
+
+
+2 actions
+Good — I've read both documents in full. Here's the synthesized picture of where the two reviews align, where they differ, and what a consolidated recommendation looks like.
+
+Where Both Reviews Fully Agree
+Item	Agreed Position
+Separate Rate Manager / Send Rate	Yes — different domains, different users, different outputs
+Pre-Validation before submit	Yes — check account + tariff + product mapping per client before anything is created
+Audit snapshot (old rate / new rate)	Yes — mandatory, captured at submit time, never reconstructed from live data
+Notification Type at job level	Yes — Full Sheet / Changes Only / Partial is a campaign property, not per-destination
+Status lifecycle design	Yes — design queued → validating → processing → completed / failed now even if execution stays synchronous
+Email engine	Later — too many failure points to mix with rate updates
+SBC integration	Much later — keep it decoupled from tariff operations
+Rollback	After audit layer is proven in production
+Where the Two Reviews Differ
+Per-Destination Effective Date
+
+My earlier suggestion: each queue row gets its own date/time
+Your review: disagree for Phase 1 — real wholesale carriers use one effective date per batch. Per-row override is Phase 3 at earliest, and only if the business actually needs it
+→ Your position is more practical. One job-level effective date for Phase 1.
+
+Job Queue / Background Worker timing
+
+My earlier suggestion: design the async job queue as Phase 1
+Your review: partial disagreement — design the push_jobs / push_job_items tables now, but keep execution synchronous for now. Only introduce workers when real production data justifies it (>100 clients, or >30s push duration, or timeouts appearing)
+→ Your position is correct. Premature async adds dead jobs, locking issues, and harder auditing before you even know if you need it.
+
+Consolidated Sprint Plan (Discussion)
+Sprint 1 — Certify + Protect
+
+Send Rate certification suite (T1–T7 as described)
+Pre-validation engine: per-client check before submit, preview screen showing green/red
+Audit snapshot: rate_push_audit table captures old rate, new rate, prefix, client, user, timestamp
+Push History: basic table showing what was submitted and result
+Sprint 2 — Structure the job model (sync execution)
+
+push_jobs and push_job_items tables created with the full status lifecycle column
+Notification type stored on the job record
+Job-level effective date (single field per campaign)
+Execution still synchronous — the DB structure is ready for async later
+Sprint 3 — Background worker (only if production data justifies)
+
+Worker only if: push duration consistently >30s, or >100 clients, or timeout errors appear in production
+Retry logic goes here too
+One Open Question for Discussion
+The certification suite (T1–T7) requires a live Sippy tariff with a real test account. Do you want the certification to run against the production Sippy instance, or do you have a staging tariff we can use safely?
+
+T6 (unknown destination → validation error, no push) and T7 (prefix collision: 92300 vs 92) are the highest-risk tests because T6 must confirm nothing is written to Sippy, and T7 must confirm the correct row wins. Those two I'd want to be very explicit about before we run them.
+
+Yes, and this actually changes the architecture slightly.
+
+Based on our earlier BitsAuto discussions, Email Notification Center is not a Send Rate feature. It is a platform-wide communication service that Send Rate, Invoicing, Disputes, Finance, NOC, Fraud, and Account Management all consume.
+
+That is why I would not build email logic inside Send Rate.
+
+Recommended Architecture
+New Core Module
+Communication & Notification Center
+
+Single service responsible for:
+
+Email
+WhatsApp
+SMS
+Voice Alert
+In-App Notification
+Webhook
+
+Every department publishes events to it.
+
+Notification Sources
+Finance
+
+Events:
+
+Invoice Generated
+Invoice Approved
+Invoice Sent
+Invoice Overdue
+Payment Received
+Credit Note Created
+Balance Threshold Breached
+Commercial
+
+Events:
+
+Rate Change
+Rate Increase
+Rate Decrease
+New Destination
+Tariff Migration
+Account Activation
+Account Suspension
+Disputes
+
+Events:
+
+Dispute Opened
+Dispute Accepted
+Dispute Rejected
+Dispute Resolved
+Dispute Escalated
+NOC
+
+Events:
+
+Route Failure
+QoS Degradation
+Vendor Outage
+Destination Down
+Maintenance Window
+Fraud
+
+Events:
+
+FAS Detected
+IRSF Alert
+CLI Abuse
+Traffic Spike
+Account Blocked
+Account Profile Driven
+
+This is the important part you mentioned.
+
+Everything should come from the Client Profile.
+
+Not manually entered every time.
+
+Example:
+
+Client Profile
+
+Company Name
+Billing Email
+Finance Email
+NOC Email
+Dispute Email
+Rate Notification Email
+Primary Contact
+WhatsApp Number
+Example
+
+ABC Telecom
+
+Billing
+finance@abc.com
+accounts@abc.com
+
+Receives:
+
+invoices
+payments
+overdue notices
+NOC
+noc@abc.com
+
+Receives:
+
+outages
+maintenance
+routing issues
+Commercial
+rates@abc.com
+
+Receives:
+
+rate changes
+promotions
+tariff updates
+Disputes
+disputes@abc.com
+
+Receives:
+
+dispute tickets
+resolutions
+Client Notification Matrix
+
+Instead of storing emails on jobs:
+
+Create:
+
+client_notification_preferences
+
+Example:
+
+Event	Recipient Group
+Invoice	Finance
+Rate Change	Commercial
+Dispute	Dispute
+Outage	NOC
+Fraud	Security
+Notification Templates
+
+Centralized.
+
+Rate Change
+
+Templates:
+
+Full Tariff
+Changes Only
+Destination Specific
+Invoice
+
+Templates:
+
+Invoice Generated
+Invoice Reminder
+Invoice Overdue
+Disputes
+
+Templates:
+
+Opened
+Accepted
+Rejected
+Resolved
+Send Rate Integration
+
+Send Rate should only create:
+
+rate_push_job
+
+with:
+
+Notification Type
+Effective Date
+Client List
+Destination List
+
+Then:
+
+Rate Push Completed
+        ↓
+Notification Center
+        ↓
+Generate Email
+        ↓
+Send To Client Profile Contacts
+Why This Matters
+
+If you embed email functionality into Send Rate:
+
+Send Rate
+ ├─ Email Templates
+ ├─ SMTP Logic
+ ├─ Attachments
+ ├─ Tracking
+
+Then later:
+
+Invoice Module
+
+duplicates everything.
+
+And later:
+
+Dispute Module
+
+duplicates everything again.
+
+What I Remember From Your Earlier BitsAuto Design
+
+You already discussed:
+
+Finance Portal
+NOC Portal
+Client Portal
+KAM Portal
+Messaging Intelligence Center
+WhatsApp integration
+Email notifications
+Approval workflows
+
+All of those naturally point toward a centralized communication layer.
+
+Revised Sprint Priority
+Sprint 1
+Send Rate Certification
+Audit Snapshot
+Pre-Validation
+Dry Run
+Sprint 2
+Notification Center Core
+Notification Templates
+Client Contact Matrix
+Event Routing Engine
+Sprint 3
+Send Rate Notification Integration
+Invoice Notification Integration
+Dispute Notification Integration
+Sprint 4
+WhatsApp
+SMS
+Voice Alerts
+Delivery Tracking
+Read/Acknowledgement Tracking
+
+So my recommendation is:
+
+Do not build "Email Notification" inside Send Rate.
+
+Build a BitsAuto Notification Center once, fed from Account Profile contact details (Billing, NOC, Rates, Disputes, Security, Management), and let Rate Management, Invoicing, Disputes, Fraud, and Operations all publish events into that central service. That matches the broader BitsAuto architecture you've been describing for months and avoids duplicate communication logic across every module.
