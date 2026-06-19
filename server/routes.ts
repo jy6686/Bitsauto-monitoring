@@ -35527,13 +35527,14 @@ ${footer}
         const stripPlus = (s: string) => s.replace(/^\+/, '');
         const destList: Array<{ fullPrefix: string; dialPrefix: string; rate: number }> =
           Array.isArray(destinations) && destinations.length > 0
-            ? destinations.map(d => ({
-                dialPrefix: stripPlus(d.dialPrefix),
-                fullPrefix:  (trunkPrefix ?? '') + stripPlus(d.dialPrefix),
-                rate: Number(d.rate),
+            ? destinations.map((d: any) => ({
+                dialPrefix:      stripPlus(d.dialPrefix),
+                fullPrefix:      (trunkPrefix ?? '') + stripPlus(d.dialPrefix),
+                rate:            Number(d.rate),
+                destinationName: d.destinationName ?? null,
               }))
             : dialPrefix
-              ? [{ dialPrefix: stripPlus(dialPrefix), fullPrefix: (trunkPrefix ?? '') + stripPlus(dialPrefix), rate: Number(rate) }]
+              ? [{ dialPrefix: stripPlus(dialPrefix), fullPrefix: (trunkPrefix ?? '') + stripPlus(dialPrefix), rate: Number(rate), destinationName: null }]
               : [];
 
         if (destList.length === 0) {
@@ -35636,6 +35637,8 @@ ${footer}
             completedAt:        new Date(),
             clientNames:        accountNames.join(', '),
             dialPrefix:         destList.map(d => d.dialPrefix).join(', ').substring(0, 128),
+            destinationName:    (destList.length === 1 ? (destList[0] as any).destinationName ?? null : destList.map(d => (d as any).destinationName ?? d.dialPrefix).join(', ').substring(0, 255)) || null,
+            notificationType:   (req.body as any).notificationType ?? null,
           });
         } catch { /* non-critical */ }
 
@@ -35794,17 +35797,21 @@ ${footer}
   app.get('/api/rate-manager/jobs', async (_req, res) => {
     try {
       const jobs = await db.select().from(ratePushJobs).orderBy(desc(ratePushJobs.createdAt)).limit(100);
-      // Enrich with destination name from catalog for jobs missing it
-      const dests = await db.execute(sql`SELECT dial_prefix, name FROM global_destinations WHERE dial_prefix IS NOT NULL`);
-      const destMap = new Map<string, string>(
-        (dests.rows as any[]).map(d => [String(d.dial_prefix), String(d.name)])
-      );
+      // For historic records missing destinationName, fall back to catalog lookup by dialPrefix
+      const needsCatalog = jobs.some(j => !j.destinationName);
+      let destMap = new Map<string, string>();
+      if (needsCatalog) {
+        const dests = await db.execute(sql`SELECT dial_prefix, name FROM global_destinations WHERE dial_prefix IS NOT NULL`);
+        destMap = new Map<string, string>(
+          (dests.rows as any[]).map(d => [String(d.dial_prefix), String(d.name)])
+        );
+      }
       const enriched = jobs.map(j => {
         const dp = j.dialPrefix
           || (j.fullPrefix && j.trunkPrefix ? j.fullPrefix.slice(String(j.trunkPrefix).length) : null)
           || null;
-        const destName = j.destinationName
-          || (dp ? (destMap.get(dp) ?? null) : null);
+        // Prefer immutably stored destination name; catalog lookup is fallback for old records only
+        const destName = j.destinationName || (dp ? (destMap.get(dp) ?? null) : null);
         return { ...j, dialPrefix: dp, destinationName: destName };
       });
       res.json(enriched);

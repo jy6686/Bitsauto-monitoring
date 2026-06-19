@@ -26,6 +26,7 @@ function displayPrefix(sippyPrefix: string | null | undefined): string {
 interface Product {
   id: number; code: string; name: string;
   trunkPrefix: string | null; status: string; color: string;
+  segment?: string | null;
 }
 interface SippyAccount { iAccount: number; username: string; balance: number; cached?: boolean; tariffName?: string | null; }
 interface DestNode {
@@ -709,7 +710,7 @@ function AnalysisTab({
             <option value="">— Select product —</option>
             {products.map(p => (
               <option key={p.id} value={String(p.id)}>
-                {p.name}
+                {p.segment ? `${p.name} - ${p.segment}` : p.name}
               </option>
             ))}
           </select>
@@ -1025,14 +1026,17 @@ function SendRateTab({
     setPushing(true);
     setPushResults(null);
     try {
+      const fmtToSippy: Record<string, string> = { "Default": "default", "Changes Only": "partial", "Full Sheet": "full" };
       const body = {
         accountNames: selectedClientAccounts.map(a => a.username),
         accounts: selectedClientAccounts.map(a => ({ username: a.username, iAccount: a.iAccount })),
         trunkPrefix,
-        destinations: destQueue.map(q => ({ dialPrefix: q.dialPrefix, rate: parseFloat(q.rate) })),
+        destinations: destQueue.map(q => ({ dialPrefix: q.dialPrefix, rate: parseFloat(q.rate), destinationName: q.destLabel })),
         effectiveFrom: effectiveDate || undefined,
-        format: format.toLowerCase(),
-        productName: product?.name,
+        format: fmtToSippy[format] ?? format.toLowerCase(),
+        notificationType: format,
+        productName: product ? (product.segment ? `${product.name} - ${product.segment}` : product.name) : undefined,
+        productId: product?.id,
         rateType: rateType.toLowerCase(),
       };
       const res = await apiRequest("POST", "/api/rate-manager/push-batch", body);
@@ -1089,7 +1093,7 @@ function SendRateTab({
             <option value="">— Select product —</option>
             {products.map(p => (
               <option key={p.id} value={String(p.id)}>
-                {p.name}
+                {p.segment ? `${p.name} - ${p.segment}` : p.name}
               </option>
             ))}
           </select>
@@ -1104,8 +1108,8 @@ function SendRateTab({
           />
         </SidebarSection>
 
-        <SidebarSection title="Format">
-          <ToggleButtons options={["Default", "Changes", "Full"]} value={format} onChange={setFormat} />
+        <SidebarSection title="Notification Type">
+          <ToggleButtons options={["Default", "Changes Only", "Full Sheet"]} value={format} onChange={setFormat} />
         </SidebarSection>
 
         <SidebarSection title="Rate Type">
@@ -1424,7 +1428,7 @@ function JobsTab() {
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="border-b border-border/50 bg-muted/20">
-              {["Client(s)", "Product", "Destination", "Prefix", "Rate", "Effective", "Status", "Date"].map(h => (
+              {["Client(s)", "Product", "Destination", "Prefix", "Rate", "Effective", "Type", "Status", "Date"].map(h => (
                 <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -1470,6 +1474,9 @@ function JobsTab() {
                     <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
                       {j.effectiveAt ? String(j.effectiveAt).slice(0, 10) : "—"}
                     </td>
+                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap text-[10px]">
+                      {j.notificationType ?? "—"}
+                    </td>
                     <td className="py-2 px-3">
                       <span className={cn("text-[10px] font-medium capitalize border px-1.5 py-0.5 rounded", STATUS_BG[j.status] ?? "text-muted-foreground")}>
                         {j.status}
@@ -1481,7 +1488,7 @@ function JobsTab() {
                   </tr>
                   {isExpanded && (
                     <tr key={`${j.id}-detail`} className="bg-muted/10 border-b border-border/30">
-                      <td colSpan={8} className="px-4 py-3">
+                      <td colSpan={9} className="px-4 py-3">
                         <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-[11px] sm:grid-cols-4">
                           <div>
                             <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Job ID</span>

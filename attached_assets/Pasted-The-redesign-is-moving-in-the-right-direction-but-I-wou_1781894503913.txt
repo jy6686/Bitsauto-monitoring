@@ -1,0 +1,176 @@
+The redesign is moving in the right direction, but I would stop Replit before they go further because there are still some architectural mistakes.
+
+What I Agree With
+
+✅ Remove emphasis on Job ID
+
+✅ Show Client Name
+
+✅ Show Destination Name
+
+✅ Show Effective Date
+
+✅ Move technical details into drill-down
+
+✅ Business users should not see portal_csv, XML-RPC, tariff IDs, routing internals by default
+
+What Is Still Wrong
+1. Prefix should be 9233, not 0233
+
+Replit wrote:
+
+Prefix: 0233 (trunk digit stripped)
+
+This is incorrect.
+
+Current:
+
+19233
+
+should become:
+
+9233
+
+NOT
+
+0233
+
+The logic is:
+
+1 = Product Prefix
+9233 = Destination Prefix
+
+Therefore:
+
+19233
+→ remove product prefix
+→ 9233
+
+not:
+
+19233
+→ remove first digit incorrectly
+→ 0233
+
+This must be fixed immediately.
+
+2. Destination Name should come from catalog, not prefix matching
+
+I don't like this statement:
+
+enriches historic rows with destination name by matching dial_prefix against destination catalog
+
+This is dangerous.
+
+Example:
+
+923
+9230
+9233
+92300
+923331
+
+Prefix matching can return the wrong destination.
+
+Instead store at push time:
+
+destination_id
+destination_name
+destination_prefix
+
+inside the job record.
+
+Then history becomes immutable.
+
+Exactly like legacy BitsAuto.
+
+3. Push History still missing Notification Context
+
+Legacy system showed:
+
+Notification Type
+Default
+Changes Only
+Full Sheet
+
+Current Push History still doesn't.
+
+This matters because:
+
+Rate Change
+
+and
+
+Full Sheet Publication
+
+are completely different commercial events.
+
+4. Product should support Retail / Wholesale
+
+Your old screenshots prove products are:
+
+First Class - Wholesale
+Special Charlie - Retail
+Premium
+Standard
+
+Current implementation still shows:
+
+First Class
+
+only.
+
+That means commercial context is still missing.
+
+What Push History Should Eventually Look Like
+Client	Product	Destination	Prefix	Rate	Effective Date	Type	Status
+Voicenn	First Class - Wholesale	Pakistan Ufone Mobile	9233	0.035	19-Jun-2026	Changes Only	Success
+Call-Cords	Special Charlie - Retail	Pakistan Jazz	9230	0.027	20-Jun-2026	Full Sheet	Success
+
+Then:
+
+Click Row
+
+shows:
+
+Job ID
+Internal Routing Prefix (19233)
+Tariff ID
+Push Method
+Portal Upload Details
+Verification Results
+Created By
+Message to Replit
+
+The Push History redesign is moving in the right direction, but please correct the following before proceeding:
+
+Destination prefix must display as 9233, not 0233.
+Product prefix (1/2/6/7) should be removed.
+Destination prefix must remain unchanged.
+Example:
+19233 → 9233
+not 0233.
+Do not derive destination names from prefix matching for historical records.
+Store destination_id, destination_name and destination_prefix at push time.
+Push History should be immutable and not depend on future catalog changes.
+Add Notification Type to Push History:
+Default
+Changes Only
+Full Sheet
+Include Retail/Wholesale product context.
+Example:
+First Class - Wholesale
+Special Charlie - Retail
+Not just "First Class".
+Technical data should remain in expandable details:
+Job ID
+Internal Routing Prefix
+Tariff ID
+Push Method
+Verification Data
+Created By
+
+Goal:
+Business users should see commercial information first. Technical routing information should only appear inside the details panel.
+
+This will bring the new Push History much closer to the workflow demonstrated in the legacy BitsAuto screenshots while keeping your newer push engine and audit architecture.

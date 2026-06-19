@@ -3768,6 +3768,8 @@ export const productRegistry = pgTable("product_registry", {
   offerWindowPremium:     real("offer_window_premium"),
   // Sippy trunk prefix encoding (e.g. "1"=First Class, "2"=Business, "6"=Bravo, "7"=Charlie)
   trunkPrefix:            varchar("trunk_prefix",  { length: 8 }),
+  // Commercial segment: Retail | Wholesale | Both — shown alongside product name
+  segment:                varchar("segment",        { length: 32 }),
   sortOrder:              integer("sort_order").default(0),
   createdAt:              timestamp("created_at").defaultNow().notNull(),
 });
@@ -3890,7 +3892,8 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
   // ── Business-facing fields ──────────────────────────────────────────────────
   clientNames:        text("client_names"),          // comma-sep account names
   dialPrefix:         varchar("dial_prefix",         { length: 128 }), // stripped (no trunk digit)
-  destinationName:    varchar("destination_name",    { length: 256 }), // human name from catalog
+  destinationName:    varchar("destination_name",    { length: 256 }), // frozen at push time
+  notificationType:   varchar("notification_type",   { length: 32  }), // Default|Changes Only|Full Sheet
 });
 export type RatePushJob       = typeof ratePushJobs.$inferSelect;
 export type InsertRatePushJob = typeof ratePushJobs.$inferInsert;

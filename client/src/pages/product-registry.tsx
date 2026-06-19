@@ -25,6 +25,7 @@ interface Product {
   minMarginPct?: number; discountRangeMin?: number; discountRangeMax?: number;
   noticePeriodDays?: number;
   offerWindowMin?: number; offerWindowTarget?: number; offerWindowPremium?: number;
+  trunkPrefix?: string | null; segment?: string | null;
   sortOrder?: number;
 }
 interface Destination {
@@ -384,6 +385,20 @@ function ProductCatalogTab({ products, destinations, assignments }: {
 
             <Field label="Description">
               <Textarea value={(creating ? form.description : editForm.description) ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} data-testid="input-product-desc" />
+            </Field>
+
+            <Field label="Segment">
+              <select
+                value={editForm.segment ?? ""}
+                onChange={e => setForm(f => ({ ...f, segment: e.target.value || null }))}
+                className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background text-foreground"
+                data-testid="select-product-segment"
+              >
+                <option value="">— Not set —</option>
+                <option value="Wholesale">Wholesale</option>
+                <option value="Retail">Retail</option>
+                <option value="Both">Both</option>
+              </select>
             </Field>
 
             <div className="grid grid-cols-3 gap-4">
