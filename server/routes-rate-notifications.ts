@@ -1,0 +1,535 @@
+/**
+ * routes-rate-notifications.ts
+ *
+ * Rate Notification Template + Job system.
+ * Mirrors legacy BitsAuto: one template per Client × Product,
+ * destination rate sheet stored per template, send action creates a
+ * job, pushes to Sippy tariff, and emails the client an Excel attachment.
+ */
+
+import type { Express } from 'express';
+import { db }           from './db';
+import { eq, desc }     from 'drizzle-orm';
+import {
+  rateNotificationTemplates,
+  rateNotificationTemplateDestinations,
+  rateNotificationJobs,
+  productRegistry,
+} from '@shared/schema';
+import * as sippy                      from './sippy';
+import { storage }                     from './storage';
+import { decryptSecret, isEncrypted }  from './utils/crypto';
+import nodemailer                      from 'nodemailer';
+import XLSX                            from 'xlsx';
+
+async function getSippyCreds() {
+  const settings = await storage.getSettings();
+  const s = settings as any;
+  return {
+    username: s.apiAdminUsername || s.portalUsername || '',
+    password: s.apiAdminPassword || s.portalPassword || '',
+    portalUrl: s.portalUrl || '',
+  };
+}
+
+function requireRole(roles: string[], req: any, res: any, next: any) {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+  next();
+}
+
+function jobRef(): string {
+  const now = new Date();
+  const d = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  return `RNJ-${d}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+}
+
+function notifTypeLabel(t: string): string {
+  if (t === 'changes_only') return 'CHANGES';
+  if (t === 'full_sheet')   return 'FULL';
+  return 'DEFAULT';
+}
+
+async function getSmtpTransporter() {
+  const settings = await storage.getSettings?.();
+  if (!settings) return null;
+  const host = (settings as any).smtpHost || (settings as any).invoiceSmtpHost;
+  const user = (settings as any).smtpUser || (settings as any).invoiceSmtpUser;
+  let   pass = (settings as any).smtpPass || (settings as any).invoiceSmtpPass;
+  if (!host || !user || !pass) return null;
+  if (isEncrypted(pass)) {
+    const dec = decryptSecret(pass);
+    if (!dec) return null;
+    pass = dec;
+  }
+  return nodemailer.createTransport({
+    host,
+    port:   (settings as any).smtpPort ?? 587,
+    secure: ((settings as any).smtpPort === 465),
+    auth:   { user, pass },
+  });
+}
+
+function buildExcel(
+  destinations: Array<{
+    country?: string | null;
+    carrierType?: string | null;
+    destinationName: string;
+    dialPrefix?: string | null;
+    rate: string | number;
+    baseRate?: string | null;
+    activationDate?: string | null;
+    activationTime?: string | null;
+  }>,
+  notifType: string,
+): Buffer {
+  const wb = XLSX.utils.book_new();
+  const rows = destinations.map((d, i) => ({
+    '#':              i + 1,
+    'Code':           d.dialPrefix ?? '',
+    'Country':        d.country ?? '',
+    'Carrier Type':   d.carrierType ?? '',
+    'Destination':    d.destinationName,
+    'Rate (USD/min)': Number(d.rate).toFixed(6),
+    'Base Rate':      d.baseRate ? Number(d.baseRate).toFixed(6) : '',
+    'Effective Date': d.activationDate ?? '',
+    'Effective Time': d.activationTime ?? '',
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 4 }, { wch: 10 }, { wch: 20 }, { wch: 18 },
+    { wch: 30 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'Rate Sheet');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
+function buildEmailHtml(
+  clientName: string,
+  productName: string,
+  notifType: string,
+  trafficFormat: string | null | undefined,
+  issueDate: string,
+): string {
+  const typeLabel = notifTypeLabel(notifType);
+  return `
+<p>Dear ${clientName},&nbsp;<br/><br/>
+Please find attached updated rate sheet from <strong>Ichibaan Logic Private Limited</strong>
+<em>(formerly&nbsp;Bhaoo Private Limited)</em>.
+Changes are indicated in attached rate sheet and are effective as specified.</p>
+
+<p>We request you to acknowledge the rate sheet and look forward to your continuous support
+in our endeavor to give you the best quality at best possible price. Please note that the
+notification will be considered&nbsp;as received automatically, even if you fail to confirm.</p>
+
+<p><strong>Issue Date :</strong>&nbsp;${issueDate}</p>
+<p><strong>Product:</strong>&nbsp;${productName.toUpperCase()}</p>
+${trafficFormat ? `<p><strong>Traffic to send in a format:</strong>&nbsp;${trafficFormat}</p>` : ''}
+<p><strong>Notification Type:</strong>&nbsp;<strong>${typeLabel}</strong></p>
+
+<br/>
+<p>In case of any further clarification, please do not hesitate to contact your Key Account Manager.</p>
+<p>Thank you very much for your support.<br/>&nbsp;</p>
+<p><strong>Best Regards,</strong></p>
+<p><strong>Ichibaan Logic Private Limited</strong><br/>
+<em>(formerly Bhaoo Private Limited)</em></p>
+
+<p><strong>FULL/A2Z:</strong> FULL rate sheet contains all the codes and destinations for all
+countries offered. Rates against codes/destination should always be replaced by new FULL rate sheet.
+In case, any code/destination is not offered in new Full rate sheet, missing codes/destination
+is considered to be DELETED.</p>
+
+<p><strong>CHANGES/PARTIAL:</strong> Partial rate sheet includes only changes from previous rate sheet.
+All of the rates given against codes in the partial rate sheet are replaced by the new rate sheet.
+However, Rates for the missing codes/destinations are still considered valid as given in previous rate sheet.</p>
+`;
+}
+
+export function registerRateNotificationRoutes(app: Express) {
+
+  // ── Templates CRUD ──────────────────────────────────────────────────────────
+
+  app.get('/api/rate-notification-templates',
+    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const rows = await db
+          .select({
+            id:               rateNotificationTemplates.id,
+            clientName:       rateNotificationTemplates.clientName,
+            productId:        rateNotificationTemplates.productId,
+            notificationType: rateNotificationTemplates.notificationType,
+            status:           rateNotificationTemplates.status,
+            createdBy:        rateNotificationTemplates.createdBy,
+            createdAt:        rateNotificationTemplates.createdAt,
+            productName:      productRegistry.name,
+          })
+          .from(rateNotificationTemplates)
+          .leftJoin(productRegistry, eq(rateNotificationTemplates.productId, productRegistry.id))
+          .orderBy(desc(rateNotificationTemplates.createdAt));
+        res.json(rows);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  app.post('/api/rate-notification-templates',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const { clientName, productId, notificationType, recipients, ccEmails, trafficFormat, status } = req.body;
+        if (!clientName || !productId) return res.status(400).json({ error: 'clientName and productId required' });
+        const [row] = await db.insert(rateNotificationTemplates).values({
+          clientName, productId: Number(productId),
+          notificationType: notificationType || 'default',
+          recipients: recipients || null,
+          ccEmails:   ccEmails   || null,
+          trafficFormat: trafficFormat || null,
+          status:    status || 'active',
+          createdBy: req.user?.username || 'operator',
+        }).returning();
+        res.json(row);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  app.get('/api/rate-notification-templates/:id',
+    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        const [tpl] = await db
+          .select({
+            id:               rateNotificationTemplates.id,
+            clientName:       rateNotificationTemplates.clientName,
+            productId:        rateNotificationTemplates.productId,
+            notificationType: rateNotificationTemplates.notificationType,
+            recipients:       rateNotificationTemplates.recipients,
+            ccEmails:         rateNotificationTemplates.ccEmails,
+            trafficFormat:    rateNotificationTemplates.trafficFormat,
+            status:           rateNotificationTemplates.status,
+            createdBy:        rateNotificationTemplates.createdBy,
+            createdAt:        rateNotificationTemplates.createdAt,
+            productName:      productRegistry.name,
+          })
+          .from(rateNotificationTemplates)
+          .leftJoin(productRegistry, eq(rateNotificationTemplates.productId, productRegistry.id))
+          .where(eq(rateNotificationTemplates.id, id))
+          .limit(1);
+        if (!tpl) return res.status(404).json({ error: 'Template not found' });
+
+        const destinations = await db
+          .select()
+          .from(rateNotificationTemplateDestinations)
+          .where(eq(rateNotificationTemplateDestinations.templateId, id))
+          .orderBy(rateNotificationTemplateDestinations.country, rateNotificationTemplateDestinations.destinationName);
+
+        res.json({ ...tpl, destinations });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  app.patch('/api/rate-notification-templates/:id',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        const { clientName, productId, notificationType, recipients, ccEmails, trafficFormat, status } = req.body;
+        const updates: Record<string, any> = {};
+        if (clientName       !== undefined) updates.clientName       = clientName;
+        if (productId        !== undefined) updates.productId        = Number(productId);
+        if (notificationType !== undefined) updates.notificationType = notificationType;
+        if (recipients       !== undefined) updates.recipients       = recipients;
+        if (ccEmails         !== undefined) updates.ccEmails         = ccEmails;
+        if (trafficFormat    !== undefined) updates.trafficFormat    = trafficFormat;
+        if (status           !== undefined) updates.status           = status;
+        const [row] = await db.update(rateNotificationTemplates).set(updates).where(eq(rateNotificationTemplates.id, id)).returning();
+        res.json(row);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  app.delete('/api/rate-notification-templates/:id',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        await db.delete(rateNotificationTemplateDestinations).where(eq(rateNotificationTemplateDestinations.templateId, id));
+        await db.delete(rateNotificationTemplates).where(eq(rateNotificationTemplates.id, id));
+        res.json({ ok: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  // ── Template Destinations ───────────────────────────────────────────────────
+
+  app.post('/api/rate-notification-templates/:id/destinations',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const templateId = Number(req.params.id);
+        const { country, carrierType, category, destinationName, dialPrefix, rate, baseRate, activationDate, activationTime } = req.body;
+        if (!destinationName || rate === undefined) return res.status(400).json({ error: 'destinationName and rate required' });
+        const [row] = await db.insert(rateNotificationTemplateDestinations).values({
+          templateId,
+          country:         country         || null,
+          carrierType:     carrierType     || null,
+          category:        category        || null,
+          destinationName,
+          dialPrefix:      dialPrefix      || null,
+          rate:            String(rate),
+          baseRate:        baseRate ? String(baseRate) : null,
+          activationDate:  activationDate  || null,
+          activationTime:  activationTime  || null,
+        }).returning();
+        res.json(row);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  app.patch('/api/rate-notification-template-destinations/:id',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        const { country, carrierType, category, destinationName, dialPrefix, rate, baseRate, activationDate, activationTime } = req.body;
+        const updates: Record<string, any> = {};
+        if (country         !== undefined) updates.country         = country;
+        if (carrierType     !== undefined) updates.carrierType     = carrierType;
+        if (category        !== undefined) updates.category        = category;
+        if (destinationName !== undefined) updates.destinationName = destinationName;
+        if (dialPrefix      !== undefined) updates.dialPrefix      = dialPrefix;
+        if (rate            !== undefined) updates.rate            = String(rate);
+        if (baseRate        !== undefined) updates.baseRate        = baseRate ? String(baseRate) : null;
+        if (activationDate  !== undefined) updates.activationDate  = activationDate;
+        if (activationTime  !== undefined) updates.activationTime  = activationTime;
+        const [row] = await db.update(rateNotificationTemplateDestinations).set(updates).where(eq(rateNotificationTemplateDestinations.id, id)).returning();
+        res.json(row);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  app.delete('/api/rate-notification-template-destinations/:id',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        await db.delete(rateNotificationTemplateDestinations).where(eq(rateNotificationTemplateDestinations.id, id));
+        res.json({ ok: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  // ── Send Rate Notification ──────────────────────────────────────────────────
+  // Creates a job, pushes rates to Sippy tariffs, sends email with Excel.
+
+  app.post('/api/rate-notification-templates/:id/send',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const tplId = Number(req.params.id);
+
+        // Load template + destinations
+        const [tpl] = await db
+          .select({
+            id:               rateNotificationTemplates.id,
+            clientName:       rateNotificationTemplates.clientName,
+            productId:        rateNotificationTemplates.productId,
+            notificationType: rateNotificationTemplates.notificationType,
+            recipients:       rateNotificationTemplates.recipients,
+            ccEmails:         rateNotificationTemplates.ccEmails,
+            trafficFormat:    rateNotificationTemplates.trafficFormat,
+            productName:      productRegistry.name,
+            trunkPrefix:      (productRegistry as any).trunkPrefix,
+          })
+          .from(rateNotificationTemplates)
+          .leftJoin(productRegistry, eq(rateNotificationTemplates.productId, productRegistry.id))
+          .where(eq(rateNotificationTemplates.id, tplId))
+          .limit(1);
+        if (!tpl) return res.status(404).json({ error: 'Template not found' });
+
+        const destinations = await db
+          .select()
+          .from(rateNotificationTemplateDestinations)
+          .where(eq(rateNotificationTemplateDestinations.templateId, tplId))
+          .orderBy(rateNotificationTemplateDestinations.country, rateNotificationTemplateDestinations.destinationName);
+
+        if (destinations.length === 0) {
+          return res.status(400).json({ error: 'Template has no destinations — add destinations before sending' });
+        }
+
+        // Create the job record
+        const ref = jobRef();
+        const [job] = await db.insert(rateNotificationJobs).values({
+          jobRef:           ref,
+          templateId:       tplId,
+          clientName:       tpl.clientName,
+          productName:      tpl.productName || `product-${tpl.productId}`,
+          notificationType: tpl.notificationType,
+          destinationCount: destinations.length,
+          status:           'in_progress',
+          createdBy:        req.user?.username || 'operator',
+        }).returning();
+
+        const steps = { tariffUpdated: false, sbcMappingOk: false, emailSent: false, violatedRules: false, approvalRequired: false };
+        let pushResults: any[] = [];
+        let remarks = '';
+
+        // ── Push rates to Sippy ─────────────────────────────────────────────
+        try {
+          const { username, password, portalUrl } = await getSippyCreds();
+          if (username) {
+            const companies = await storage.getCompanies();
+            const company   = companies.find((c: any) =>
+              c.name?.toLowerCase() === tpl.clientName.toLowerCase() ||
+              c.displayName?.toLowerCase() === tpl.clientName.toLowerCase(),
+            );
+            if (company?.name) {
+              for (const dest of destinations) {
+                const fullPrefix = ((tpl as any).trunkPrefix || '') + (dest.dialPrefix || '');
+                if (!fullPrefix) continue;
+                try {
+                  const r = await sippy.pushRateToSippy(
+                    {
+                      accountName: company.name,
+                      prefix:      fullPrefix,
+                      ratePerMin:  Number(dest.rate),
+                      effectiveFrom: dest.activationDate
+                        ? new Date(`${dest.activationDate}T${dest.activationTime || '00:00'}:00`)
+                        : undefined,
+                      format: tpl.notificationType === 'full_sheet' ? 'full' : 'partial',
+                    },
+                    { username: username!, password: password! },
+                    portalUrl!,
+                  );
+                  pushResults.push({ prefix: fullPrefix, dest: dest.destinationName, success: r.success, message: r.message });
+                } catch (e: any) {
+                  pushResults.push({ prefix: fullPrefix, dest: dest.destinationName, success: false, message: e.message });
+                }
+              }
+              const successCount = pushResults.filter(r => r.success).length;
+              steps.tariffUpdated = successCount > 0;
+              steps.sbcMappingOk  = successCount > 0;
+              remarks = `Sippy push: ${successCount}/${pushResults.length} destinations updated`;
+            } else {
+              remarks = `Client "${tpl.clientName}" not found in companies — Sippy push skipped; email will still be sent`;
+            }
+          }
+        } catch (pushErr: any) {
+          remarks = `Sippy push error: ${pushErr.message}`;
+        }
+
+        // ── Send email ──────────────────────────────────────────────────────
+        try {
+          const transporter = await getSmtpTransporter();
+          if (transporter && tpl.recipients) {
+            const now       = new Date();
+            const issueDate = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+            const dtStamp   = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+            const typeLabel = notifTypeLabel(tpl.notificationType);
+            const productUpper = (tpl.productName || 'PRODUCT').toUpperCase();
+            const subject   = `RATE NOTIFICATION (${typeLabel}) | ${tpl.clientName.toUpperCase()} | ${productUpper} | ${issueDate}`;
+            const filename  = `${tpl.clientName.toUpperCase().replace(/\s+/g,'-')}-${productUpper.replace(/\s+/g,'-')}-${dtStamp}-${typeLabel}.xlsx`;
+            const excelBuf  = buildExcel(destinations, tpl.notificationType);
+            const html      = buildEmailHtml(tpl.clientName, tpl.productName || 'Product', tpl.notificationType, tpl.trafficFormat, issueDate);
+            const toList    = tpl.recipients.split(',').map((e: string) => e.trim()).filter(Boolean);
+            const ccList    = tpl.ccEmails ? tpl.ccEmails.split(',').map((e: string) => e.trim()).filter(Boolean) : [];
+
+            await transporter.sendMail({
+              from:        `Ichibaan Rates <${(await getSmtpUser())}>`,
+              to:          toList.join(', '),
+              cc:          ccList.join(', ') || undefined,
+              replyTo:     req.user?.email || undefined,
+              subject,
+              html,
+              attachments: [{ filename, content: excelBuf, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }],
+            });
+            steps.emailSent = true;
+          } else if (!tpl.recipients) {
+            remarks += ' | No recipients configured — email skipped';
+          } else {
+            remarks += ' | SMTP not configured — email skipped';
+          }
+        } catch (emailErr: any) {
+          remarks += ` | Email error: ${emailErr.message}`;
+        }
+
+        // ── Update job record ───────────────────────────────────────────────
+        const finalStatus = steps.emailSent && (steps.tariffUpdated || pushResults.length === 0)
+          ? 'successful'
+          : steps.emailSent || steps.tariffUpdated
+          ? 'partial'
+          : 'failed';
+
+        await db.update(rateNotificationJobs).set({
+          tariffUpdated:    steps.tariffUpdated,
+          sbcMappingOk:     steps.sbcMappingOk,
+          emailSent:        steps.emailSent,
+          violatedRules:    steps.violatedRules,
+          approvalRequired: steps.approvalRequired,
+          status:           finalStatus,
+          remarks:          remarks || 'Completed',
+          pushResults:      JSON.stringify(pushResults),
+        }).where(eq(rateNotificationJobs.id, job.id));
+
+        res.json({ jobId: job.id, jobRef: ref, status: finalStatus, steps, pushResults, remarks });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  // ── Jobs list + detail ──────────────────────────────────────────────────────
+
+  app.get('/api/rate-notification-jobs',
+    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const rows = await db
+          .select()
+          .from(rateNotificationJobs)
+          .orderBy(desc(rateNotificationJobs.createdAt))
+          .limit(200);
+        res.json(rows);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  app.get('/api/rate-notification-jobs/:id',
+    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        const [job] = await db.select().from(rateNotificationJobs).where(eq(rateNotificationJobs.id, id)).limit(1);
+        if (!job) return res.status(404).json({ error: 'Job not found' });
+        res.json({ ...job, pushResults: job.pushResults ? JSON.parse(job.pushResults) : [] });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+}
+
+async function getSmtpUser(): Promise<string> {
+  try {
+    const settings: any = await storage.getSettings?.();
+    return settings?.smtpUser || settings?.invoiceSmtpUser || 'pricing@ichibaanlogic.com';
+  } catch { return 'pricing@ichibaanlogic.com'; }
+}

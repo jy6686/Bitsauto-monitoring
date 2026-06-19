@@ -1620,166 +1620,648 @@ function ProductRatesTab({ products }: { products: Product[] }) {
   );
 }
 
-// ── Notifications Tab ─────────────────────────────────────────────────────────
-function NotificationsTab({ products }: { products: Product[] }) {
+// ── Rate Notification System ──────────────────────────────────────────────────
+interface RnTemplate {
+  id: number; clientName: string; productId: number; productName?: string | null;
+  notificationType: string; recipients?: string | null; ccEmails?: string | null;
+  trafficFormat?: string | null; status: string; createdBy?: string | null; createdAt: string;
+}
+interface RnDestination {
+  id: number; templateId: number; country?: string | null; carrierType?: string | null;
+  category?: string | null; destinationName: string; dialPrefix?: string | null;
+  rate: string; baseRate?: string | null; activationDate?: string | null;
+  activationTime?: string | null; createdAt: string;
+}
+interface RnJob {
+  id: number; jobRef: string; templateId?: number | null; clientName: string;
+  productName?: string | null; notificationType?: string | null; destinationCount?: number | null;
+  tariffUpdated?: boolean | null; sbcMappingOk?: boolean | null; emailSent?: boolean | null;
+  violatedRules?: boolean | null; approvalRequired?: boolean | null;
+  status: string; remarks?: string | null; pushResults?: any[]; createdBy?: string | null; createdAt: string;
+}
+
+const NOTIF_TYPE_LABEL: Record<string, string> = {
+  default: "DEFAULT", changes_only: "CHANGES", full_sheet: "FULL",
+};
+const JOB_STATUS_COLOR: Record<string, string> = {
+  successful: "text-green-400", partial: "text-amber-400",
+  failed: "text-red-400", in_progress: "text-blue-400", pending: "text-muted-foreground",
+};
+
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// ── Add Destination Modal ──────────────────────────────────────────────────────
+function AddDestinationModal({
+  templateId, onClose, onSaved,
+}: { templateId: number; onClose: () => void; onSaved: () => void }) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    country: "", carrierType: "", category: "", destinationName: "",
+    dialPrefix: "", rate: "", baseRate: "", activationDate: "", activationTime: "00:00",
+  });
+  const saveMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/rate-notification-templates/${templateId}/destinations`, {
+      ...form,
+      rate: parseFloat(form.rate) || 0,
+      baseRate: form.baseRate ? parseFloat(form.baseRate) : undefined,
+    }),
+    onSuccess: () => { toast({ title: "Destination added" }); onSaved(); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const f = (k: keyof typeof form, v: string) => setForm(p => ({ ...p, [k]: v }));
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-background border border-border rounded-lg w-full max-w-lg flex flex-col gap-0 overflow-hidden shadow-xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+          <span className="text-sm font-semibold flex items-center gap-2"><Plus className="w-4 h-4 text-amber-400" /> Add Destination</span>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Destination Name *</label>
+              <input data-testid="input-dest-name" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                placeholder="Pakistan Jazz" value={form.destinationName} onChange={e => f("destinationName", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Dial Prefix</label>
+              <input data-testid="input-dest-prefix" className="bg-muted border border-border rounded px-2 py-1.5 text-xs font-mono"
+                placeholder="9230" value={form.dialPrefix} onChange={e => f("dialPrefix", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Country</label>
+              <input data-testid="input-dest-country" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                placeholder="Pakistan" value={form.country} onChange={e => f("country", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Carrier Type</label>
+              <input data-testid="input-dest-carrier" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                placeholder="Mobile" value={form.carrierType} onChange={e => f("carrierType", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Rate (USD/min) *</label>
+              <input data-testid="input-dest-rate" type="number" step="0.000001" className="bg-muted border border-border rounded px-2 py-1.5 text-xs font-mono"
+                placeholder="0.027000" value={form.rate} onChange={e => f("rate", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Base Rate</label>
+              <input data-testid="input-dest-base-rate" type="number" step="0.000001" className="bg-muted border border-border rounded px-2 py-1.5 text-xs font-mono"
+                placeholder="optional" value={form.baseRate} onChange={e => f("baseRate", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Activation Date</label>
+              <input data-testid="input-dest-actdate" type="date" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                value={form.activationDate} onChange={e => f("activationDate", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Activation Time</label>
+              <input data-testid="input-dest-acttime" type="time" className="bg-muted border border-border rounded px-2 py-1.5 text-xs font-mono"
+                value={form.activationTime} onChange={e => f("activationTime", e.target.value)} />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Category</label>
+            <input data-testid="input-dest-category" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+              placeholder="Wholesale / Retail" value={form.category} onChange={e => f("category", e.target.value)} />
+          </div>
+        </div>
+        <div className="flex gap-2 px-4 py-3 border-t border-border/50">
+          <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !form.destinationName || !form.rate}
+            data-testid="btn-save-destination"
+            className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors">
+            {saveMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save Destination
+          </button>
+          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Template Detail Panel ──────────────────────────────────────────────────────
+function TemplateDetail({
+  tpl, products, onBack,
+}: { tpl: RnTemplate; products: Product[]; onBack: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    tariffId: "", productId: "", notificationType: "rate_change",
-    subject: "", message: "", scheduledFor: "",
+  const [showAddDest, setShowAddDest]     = useState(false);
+  const [showSendConfirm, setShowSendConfirm] = useState(false);
+  const [sendResult, setSendResult]       = useState<any>(null);
+
+  const detailKey = ["/api/rate-notification-templates", tpl.id];
+  const { data: detail, isLoading } = useQuery<RnTemplate & { destinations: RnDestination[] }>({
+    queryKey: detailKey,
+    queryFn: () => fetch(`/api/rate-notification-templates/${tpl.id}`).then(r => r.json()),
+  });
+  const destinations = detail?.destinations ?? [];
+
+  const deletDestMut = useMutation({
+    mutationFn: (destId: number) => apiRequest("DELETE", `/api/rate-notification-template-destinations/${destId}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: detailKey }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const { data: notifications = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/rate-notifications"] });
-
-  const createMut = useMutation({
-    mutationFn: (body: any) => apiRequest("POST", "/api/rate-notifications", body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/rate-notifications"] });
-      setShowForm(false);
-      setForm({ tariffId: "", productId: "", notificationType: "rate_change", subject: "", message: "", scheduledFor: "" });
-      toast({ title: "Notification queued" });
+  const sendMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/rate-notification-templates/${tpl.id}/send`, {}),
+    onSuccess: (res: any) => {
+      setSendResult(res);
+      setShowSendConfirm(false);
+      qc.invalidateQueries({ queryKey: ["/api/rate-notification-jobs"] });
+      toast({ title: res.status === "successful" ? "Notification sent!" : `Job created — status: ${res.status}` });
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Send failed", description: e.message, variant: "destructive" }),
   });
 
-  const statusMut = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) =>
-      apiRequest("PATCH", `/api/rate-notifications/${id}`, { status }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/rate-notifications"] }); },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
-
-  const NOTIF_LABELS: Record<string, { label: string; color: string }> = {
-    rate_change:     { label: "Rate Change",      color: "text-blue-400"   },
-    price_increase:  { label: "Price Increase",   color: "text-red-400"    },
-    price_decrease:  { label: "Price Decrease",   color: "text-green-400"  },
-    "7_day_notice":  { label: "7-Day Notice",     color: "text-amber-400"  },
-  };
-
-  const STATUS_COLOR: Record<string, string> = {
-    pending:   "text-amber-400",
-    sent:      "text-green-400",
-    cancelled: "text-muted-foreground",
-    failed:    "text-red-400",
-  };
+  const productName = products.find(p => p.id === tpl.productId)?.name ?? tpl.productName ?? `product-${tpl.productId}`;
 
   return (
     <div className="flex-1 overflow-auto p-4">
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-sm font-semibold flex items-center gap-2">
-          <BellRing className="w-4 h-4 text-amber-400" />
-          Rate Notifications &amp; 7-Day Queue
-        </div>
-        <button onClick={() => setShowForm(v => !v)} data-testid="btn-new-notification"
-          className="flex items-center gap-1 text-xs bg-primary/10 hover:bg-primary/20 text-primary px-2.5 py-1 rounded transition-colors">
-          <Plus className="w-3 h-3" /> New Notification
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-4">
+        <button onClick={onBack} data-testid="btn-back-to-templates"
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <ChevronRight className="w-3 h-3 rotate-180" /> Templates
         </button>
+        <span className="text-muted-foreground/50">/</span>
+        <span className="text-sm font-semibold">{tpl.clientName}</span>
+        <span className="text-muted-foreground/50">·</span>
+        <span className="text-xs text-amber-400 font-medium">{productName}</span>
+        <span className="ml-auto flex items-center gap-2">
+          <span className={cn("text-[10px] px-2 py-0.5 rounded border font-medium",
+            NOTIF_TYPE_LABEL[tpl.notificationType] === "FULL" ? "border-blue-400/40 text-blue-400"
+              : NOTIF_TYPE_LABEL[tpl.notificationType] === "CHANGES" ? "border-amber-400/40 text-amber-400"
+              : "border-border/50 text-muted-foreground"
+          )}>
+            {NOTIF_TYPE_LABEL[tpl.notificationType] ?? tpl.notificationType.toUpperCase()}
+          </span>
+          <button onClick={() => setShowAddDest(true)} data-testid="btn-add-destination"
+            className="flex items-center gap-1 text-xs bg-muted hover:bg-muted/80 border border-border/50 px-2.5 py-1 rounded transition-colors">
+            <Plus className="w-3 h-3" /> Add Destination
+          </button>
+          <button onClick={() => setShowSendConfirm(true)} disabled={destinations.length === 0}
+            data-testid="btn-send-notification"
+            className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white px-3 py-1 rounded transition-colors">
+            <Send className="w-3 h-3" /> Send Notification
+          </button>
+        </span>
       </div>
 
-      {showForm && (
-        <div className="border border-border/40 rounded-md bg-muted/10 p-4 mb-4 flex flex-col gap-3">
-          <div className="text-xs font-medium text-muted-foreground mb-1">Create Rate Notification</div>
-          <div className="flex flex-wrap gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-muted-foreground">Type</label>
-              <select data-testid="select-notif-type" className="bg-muted border border-border rounded px-2 py-1 text-xs w-36"
-                value={form.notificationType} onChange={e => setForm(f => ({ ...f, notificationType: e.target.value }))}>
-                <option value="rate_change">Rate Change</option>
-                <option value="price_increase">Price Increase</option>
-                <option value="price_decrease">Price Decrease</option>
-                <option value="7_day_notice">7-Day Notice</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-muted-foreground">Tariff ID</label>
-              <input data-testid="input-notif-tariff" className="bg-muted border border-border rounded px-2 py-1 text-xs w-28 font-mono"
-                placeholder="e.g. 8" value={form.tariffId} onChange={e => setForm(f => ({ ...f, tariffId: e.target.value }))} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-muted-foreground">Product</label>
-              <select data-testid="select-notif-product" className="bg-muted border border-border rounded px-2 py-1 text-xs w-40"
-                value={form.productId} onChange={e => setForm(f => ({ ...f, productId: e.target.value }))}>
-                <option value="">— None —</option>
-                {products.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-muted-foreground">Schedule For (optional)</label>
-              <input data-testid="input-notif-schedule" type="text" placeholder="YYYY-MM-DD HH:mm" className="bg-muted border border-border rounded px-2 py-1 text-xs w-44 font-mono"
-                value={form.scheduledFor} onChange={e => setForm(f => ({ ...f, scheduledFor: e.target.value }))} />
-            </div>
+      {/* Meta row */}
+      <div className="flex flex-wrap gap-4 mb-4 text-xs text-muted-foreground">
+        {tpl.recipients && (
+          <span><span className="text-foreground/60 font-medium">To:</span> {tpl.recipients}</span>
+        )}
+        {tpl.ccEmails && (
+          <span><span className="text-foreground/60 font-medium">CC:</span> {tpl.ccEmails}</span>
+        )}
+        {tpl.trafficFormat && (
+          <span><span className="text-foreground/60 font-medium">Format:</span> {tpl.trafficFormat}</span>
+        )}
+        <span><span className="text-foreground/60 font-medium">Created:</span> {fmtDate(tpl.createdAt)}</span>
+      </div>
+
+      {/* Send result banner */}
+      {sendResult && (
+        <div className={cn("mb-4 border rounded-md px-4 py-3 text-xs flex flex-col gap-1",
+          sendResult.status === "successful" ? "border-green-500/30 bg-green-500/5" : "border-amber-500/30 bg-amber-500/5")}>
+          <div className="flex items-center gap-2 font-medium">
+            {sendResult.status === "successful"
+              ? <CircleCheck className="w-3.5 h-3.5 text-green-400" />
+              : <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />}
+            Job {sendResult.jobRef} — {sendResult.status.toUpperCase()}
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-muted-foreground">Subject</label>
-            <input data-testid="input-notif-subject" className="bg-muted border border-border rounded px-2 py-1 text-xs w-full max-w-md"
-              placeholder="Rate change notification for Pakistan" value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} />
+          <div className="flex gap-4 text-muted-foreground mt-1">
+            <span>Email: {sendResult.steps?.emailSent ? <span className="text-green-400">Sent</span> : <span className="text-red-400">Not sent</span>}</span>
+            <span>Tariff: {sendResult.steps?.tariffUpdated ? <span className="text-green-400">Updated</span> : <span className="text-muted-foreground">Skipped</span>}</span>
+            <span>SBC: {sendResult.steps?.sbcMappingOk ? <span className="text-green-400">OK</span> : <span className="text-muted-foreground">Skipped</span>}</span>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-muted-foreground">Message</label>
-            <textarea data-testid="input-notif-message" rows={3} className="bg-muted border border-border rounded px-2 py-1 text-xs w-full max-w-md resize-none"
-              placeholder="Effective 7 days from today, the following rates will change…" value={form.message}
-              onChange={e => setForm(f => ({ ...f, message: e.target.value }))} />
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => createMut.mutate({ ...form, productId: form.productId || undefined })} disabled={createMut.isPending}
-              data-testid="btn-save-notification"
-              className="flex items-center gap-1 text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1 rounded transition-colors disabled:opacity-50">
-              {createMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bell className="w-3 h-3" />} Queue Notification
-            </button>
-            <button onClick={() => setShowForm(false)} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1">Cancel</button>
-          </div>
+          {sendResult.remarks && <div className="text-muted-foreground mt-0.5">{sendResult.remarks}</div>}
         </div>
       )}
 
+      {/* Destinations table */}
       {isLoading ? (
-        <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
-      ) : notifications.length === 0 ? (
-        <div className="text-center text-xs text-muted-foreground py-12">No notifications queued yet</div>
+        <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading rate sheet…
+        </div>
+      ) : destinations.length === 0 ? (
+        <div className="text-center py-12 text-xs text-muted-foreground border border-dashed border-border/40 rounded-lg">
+          No destinations yet — click <strong>Add Destination</strong> to build the rate sheet.
+        </div>
       ) : (
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="border-b border-border/50 bg-muted/20">
-              {["Type", "Subject", "Tariff", "Affected", "Scheduled", "Status", "Created", "Actions"].map(h => (
+              {["#", "Country", "Carrier", "Destination", "Prefix", "Rate (USD/min)", "Base Rate", "Effective", ""].map(h => (
                 <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {notifications.map((n: any) => {
-              const typeInfo = NOTIF_LABELS[n.notificationType] ?? { label: n.notificationType, color: "text-foreground" };
-              return (
-                <tr key={n.id} className="border-b border-border/20 hover:bg-muted/10" data-testid={`row-notif-${n.id}`}>
-                  <td className={cn("py-2 px-3 font-medium", typeInfo.color)}>{typeInfo.label}</td>
-                  <td className="py-2 px-3 truncate max-w-xs">{n.subject}</td>
-                  <td className="py-2 px-3 font-mono text-muted-foreground">{n.tariffId || "—"}</td>
-                  <td className="py-2 px-3 tabular-nums">{n.affectedCount ?? 0} accounts</td>
-                  <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
-                    {n.scheduledFor ? new Date(n.scheduledFor).toLocaleDateString() : "Immediate"}
-                  </td>
-                  <td className={cn("py-2 px-3 font-medium capitalize", STATUS_COLOR[n.status] ?? "text-muted-foreground")}>{n.status}</td>
-                  <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{new Date(n.createdAt).toLocaleDateString()}</td>
-                  <td className="py-2 px-3 flex gap-1">
-                    {n.status === 'pending' && (
-                      <>
-                        <button onClick={() => statusMut.mutate({ id: n.id, status: 'sent' })}
-                          data-testid={`btn-send-notif-${n.id}`}
-                          className="text-green-400 hover:text-green-300 text-[10px] px-1.5 py-0.5 border border-green-400/30 rounded">
-                          Mark Sent
-                        </button>
-                        <button onClick={() => statusMut.mutate({ id: n.id, status: 'cancelled' })}
-                          data-testid={`btn-cancel-notif-${n.id}`}
-                          className="text-muted-foreground hover:text-foreground text-[10px] px-1.5 py-0.5 border border-border/40 rounded">
-                          Cancel
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {destinations.map((d, i) => (
+              <tr key={d.id} className="border-b border-border/20 hover:bg-muted/10" data-testid={`row-dest-${d.id}`}>
+                <td className="py-2 px-3 text-muted-foreground tabular-nums">{i + 1}</td>
+                <td className="py-2 px-3">{d.country || "—"}</td>
+                <td className="py-2 px-3 text-muted-foreground">{d.carrierType || "—"}</td>
+                <td className="py-2 px-3 font-medium">{d.destinationName}</td>
+                <td className="py-2 px-3 font-mono text-muted-foreground">{d.dialPrefix || "—"}</td>
+                <td className="py-2 px-3 font-mono tabular-nums text-amber-400">{Number(d.rate).toFixed(6)}</td>
+                <td className="py-2 px-3 font-mono tabular-nums text-muted-foreground">{d.baseRate ? Number(d.baseRate).toFixed(6) : "—"}</td>
+                <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
+                  {d.activationDate ? `${d.activationDate} ${d.activationTime || ""}`.trim() : "—"}
+                </td>
+                <td className="py-2 px-3">
+                  <button onClick={() => deletDestMut.mutate(d.id)} data-testid={`btn-del-dest-${d.id}`}
+                    className="text-muted-foreground hover:text-red-400 transition-colors">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
+      )}
+
+      {showAddDest && (
+        <AddDestinationModal
+          templateId={tpl.id}
+          onClose={() => setShowAddDest(false)}
+          onSaved={() => { setShowAddDest(false); qc.invalidateQueries({ queryKey: detailKey }); }}
+        />
+      )}
+
+      {/* Send confirmation dialog */}
+      {showSendConfirm && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-lg w-full max-w-md shadow-xl">
+            <div className="px-5 py-4 border-b border-border/50">
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <Send className="w-4 h-4 text-amber-400" /> Send Rate Notification
+              </h2>
+            </div>
+            <div className="px-5 py-4 text-xs flex flex-col gap-2">
+              <p className="text-muted-foreground">This will:</p>
+              <ul className="list-disc list-inside text-muted-foreground flex flex-col gap-1 pl-2">
+                <li>Push <strong className="text-foreground">{destinations.length} destination{destinations.length !== 1 ? "s" : ""}</strong> to the Sippy tariff</li>
+                <li>Email an Excel rate sheet to <strong className="text-foreground">{tpl.recipients || "configured recipients"}</strong></li>
+                <li>Create a job record for audit tracking</li>
+              </ul>
+              <p className="mt-1 font-medium text-foreground">
+                Client: <span className="text-amber-400">{tpl.clientName}</span> &nbsp;·&nbsp;
+                Product: <span className="text-amber-400">{productName}</span> &nbsp;·&nbsp;
+                Type: <span className="text-amber-400">{NOTIF_TYPE_LABEL[tpl.notificationType] ?? tpl.notificationType}</span>
+              </p>
+            </div>
+            <div className="flex gap-2 px-5 py-3 border-t border-border/50">
+              <button onClick={() => sendMut.mutate()} disabled={sendMut.isPending}
+                data-testid="btn-confirm-send"
+                className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-4 py-1.5 rounded transition-colors">
+                {sendMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                {sendMut.isPending ? "Sending…" : "Confirm Send"}
+              </button>
+              <button onClick={() => setShowSendConfirm(false)} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── New Template Modal ─────────────────────────────────────────────────────────
+function NewTemplateModal({
+  products, onClose, onSaved,
+}: { products: Product[]; onClose: () => void; onSaved: (t: RnTemplate) => void }) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({
+    clientName: "", productId: "", notificationType: "default",
+    recipients: "", ccEmails: "", trafficFormat: "",
+  });
+  const saveMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/rate-notification-templates", {
+      ...form, productId: Number(form.productId),
+    }),
+    onSuccess: (res: any) => { toast({ title: "Template created" }); onSaved(res); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const f = (k: keyof typeof form, v: string) => setForm(p => ({ ...p, [k]: v }));
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-background border border-border rounded-lg w-full max-w-lg overflow-hidden shadow-xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+          <span className="text-sm font-semibold flex items-center gap-2"><BellRing className="w-4 h-4 text-amber-400" /> New Rate Notification Template</span>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1 col-span-2">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Client Name *</label>
+              <input data-testid="input-tpl-client" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                placeholder="e.g. Telstra" value={form.clientName} onChange={e => f("clientName", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Product *</label>
+              <select data-testid="select-tpl-product" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                value={form.productId} onChange={e => f("productId", e.target.value)}>
+                <option value="">— Select product —</option>
+                {products.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Notification Type</label>
+              <select data-testid="select-tpl-type" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                value={form.notificationType} onChange={e => f("notificationType", e.target.value)}>
+                <option value="default">DEFAULT — standard update</option>
+                <option value="changes_only">CHANGES — partial/delta only</option>
+                <option value="full_sheet">FULL — complete A–Z sheet</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1 col-span-2">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Recipients (comma-separated emails)</label>
+              <input data-testid="input-tpl-recipients" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                placeholder="john@carrier.com, noc@carrier.com" value={form.recipients} onChange={e => f("recipients", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1 col-span-2">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">CC Emails (optional)</label>
+              <input data-testid="input-tpl-cc" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                placeholder="manager@carrier.com" value={form.ccEmails} onChange={e => f("ccEmails", e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1 col-span-2">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Traffic Format (optional)</label>
+              <input data-testid="input-tpl-format" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                placeholder="e.g. E.164 with 9230XXXXXXX" value={form.trafficFormat} onChange={e => f("trafficFormat", e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-2 px-4 py-3 border-t border-border/50">
+          <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !form.clientName || !form.productId}
+            data-testid="btn-save-template"
+            className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors">
+            {saveMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Create Template
+          </button>
+          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Job Detail Drawer ──────────────────────────────────────────────────────────
+function JobDetailDrawer({ job, onClose }: { job: RnJob; onClose: () => void }) {
+  const steps = [
+    { key: "emailSent",        label: "Email Sent",        value: job.emailSent },
+    { key: "sbcMappingOk",     label: "SBC Mapping",       value: job.sbcMappingOk },
+    { key: "tariffUpdated",    label: "Updated Tariff",     value: job.tariffUpdated },
+    { key: "violatedRules",    label: "Violated Rules",     value: job.violatedRules,    warn: true },
+    { key: "approvalRequired", label: "Approval Required",  value: job.approvalRequired, warn: true },
+    { key: "successful",       label: "Successful",         value: job.status === "successful" },
+  ];
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="bg-background border border-border rounded-lg w-full max-w-lg shadow-xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+          <span className="text-sm font-semibold font-mono">{job.jobRef}</span>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="px-4 py-3 flex flex-col gap-3">
+          <div className="flex flex-wrap gap-4 text-xs">
+            <span><span className="text-muted-foreground">Client:</span> <strong>{job.clientName}</strong></span>
+            <span><span className="text-muted-foreground">Product:</span> <strong>{job.productName || "—"}</strong></span>
+            <span><span className="text-muted-foreground">Type:</span> <strong>{NOTIF_TYPE_LABEL[job.notificationType ?? ""] ?? job.notificationType}</strong></span>
+            <span><span className="text-muted-foreground">Destinations:</span> <strong>{job.destinationCount ?? 0}</strong></span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {steps.map(s => (
+              <div key={s.key} className={cn(
+                "flex items-center gap-2 text-xs px-3 py-2 rounded border",
+                s.value
+                  ? s.warn ? "border-red-400/30 bg-red-400/5 text-red-400" : "border-green-500/30 bg-green-500/5 text-green-400"
+                  : "border-border/30 bg-muted/20 text-muted-foreground",
+              )}>
+                {s.value
+                  ? s.warn ? <AlertTriangle className="w-3 h-3" /> : <CircleCheck className="w-3 h-3" />
+                  : <CircleX className="w-3 h-3 opacity-40" />}
+                {s.label}
+              </div>
+            ))}
+          </div>
+          {job.remarks && (
+            <div className="text-xs text-muted-foreground bg-muted/20 rounded px-3 py-2 border border-border/30">
+              {job.remarks}
+            </div>
+          )}
+          {job.pushResults && job.pushResults.length > 0 && (
+            <div className="max-h-40 overflow-auto">
+              <div className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wide">Push Results</div>
+              {job.pushResults.map((r: any, i: number) => (
+                <div key={i} className={cn("text-xs flex items-center gap-2 py-1 border-b border-border/20",
+                  r.success ? "text-green-400" : "text-red-400")}>
+                  {r.success ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                  <span className="font-mono">{r.prefix}</span>
+                  <span className="text-muted-foreground">{r.dest}</span>
+                  {!r.success && <span className="ml-auto text-[10px]">{r.message}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="text-[10px] text-muted-foreground">{fmtDate(job.createdAt)} · by {job.createdBy || "system"}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Notifications Tab ─────────────────────────────────────────────────────
+function NotificationsTab({ products }: { products: Product[] }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const [subTab, setSubTab]             = useState<"templates" | "jobs">("templates");
+  const [selectedTpl, setSelectedTpl]   = useState<RnTemplate | null>(null);
+  const [showNewTpl, setShowNewTpl]     = useState(false);
+  const [selectedJob, setSelectedJob]   = useState<RnJob | null>(null);
+
+  const { data: templates = [], isLoading: tplLoading } = useQuery<RnTemplate[]>({
+    queryKey: ["/api/rate-notification-templates"],
+  });
+  const { data: jobs = [], isLoading: jobsLoading } = useQuery<RnJob[]>({
+    queryKey: ["/api/rate-notification-jobs"],
+  });
+
+  const deleteTplMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/rate-notification-templates/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/rate-notification-templates"] });
+      toast({ title: "Template deleted" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  // If a template is selected, show its detail panel
+  if (selectedTpl) {
+    return (
+      <TemplateDetail
+        tpl={selectedTpl}
+        products={products}
+        onBack={() => setSelectedTpl(null)}
+      />
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto">
+      {/* Sub-tab bar */}
+      <div className="flex items-center border-b border-border/40 px-4 gap-1">
+        {(["templates", "jobs"] as const).map(tab => (
+          <button key={tab} onClick={() => setSubTab(tab)} data-testid={`btn-subtab-${tab}`}
+            className={cn(
+              "text-xs px-3 py-2.5 border-b-2 transition-colors capitalize",
+              subTab === tab
+                ? "border-amber-400 text-amber-400 font-medium"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}>
+            {tab === "templates" ? "Templates" : `Jobs${jobs.length ? ` (${jobs.length})` : ""}`}
+          </button>
+        ))}
+        <div className="ml-auto py-1.5">
+          {subTab === "templates" && (
+            <button onClick={() => setShowNewTpl(true)} data-testid="btn-new-template"
+              className="flex items-center gap-1 text-xs bg-amber-600 hover:bg-amber-500 text-white px-2.5 py-1 rounded transition-colors">
+              <Plus className="w-3 h-3" /> New Template
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="p-4">
+        {/* ── Templates list ── */}
+        {subTab === "templates" && (
+          tplLoading ? (
+            <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading templates…
+            </div>
+          ) : templates.length === 0 ? (
+            <div className="text-center py-16 text-xs text-muted-foreground border border-dashed border-border/40 rounded-lg">
+              <BellRing className="w-8 h-8 mx-auto mb-2 opacity-20" />
+              <p>No templates yet.</p>
+              <p className="mt-1">Click <strong>New Template</strong> to create a Rate Notification.</p>
+            </div>
+          ) : (
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border/50 bg-muted/20">
+                  {["Client", "Product", "Type", "Recipients", "Status", "Created", ""].map(h => (
+                    <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {templates.map((t) => {
+                  const typeLabel = NOTIF_TYPE_LABEL[t.notificationType] ?? t.notificationType.toUpperCase();
+                  const productName = products.find(p => p.id === t.productId)?.name ?? t.productName ?? `product-${t.productId}`;
+                  return (
+                    <tr key={t.id} className="border-b border-border/20 hover:bg-muted/10 cursor-pointer"
+                      data-testid={`row-tpl-${t.id}`}
+                      onClick={() => setSelectedTpl(t)}>
+                      <td className="py-2 px-3 font-medium">{t.clientName}</td>
+                      <td className="py-2 px-3 text-amber-400">{productName}</td>
+                      <td className="py-2 px-3">
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-medium",
+                          typeLabel === "FULL"    ? "border-blue-400/40 text-blue-400"
+                          : typeLabel === "CHANGES" ? "border-amber-400/40 text-amber-400"
+                          : "border-border/50 text-muted-foreground"
+                        )}>{typeLabel}</span>
+                      </td>
+                      <td className="py-2 px-3 text-muted-foreground truncate max-w-xs">{t.recipients || "—"}</td>
+                      <td className="py-2 px-3">
+                        <span className={cn("text-[10px] capitalize",
+                          t.status === "active" ? "text-green-400" : "text-muted-foreground")}>
+                          {t.status}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{fmtDate(t.createdAt)}</td>
+                      <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
+                        <button onClick={() => deleteTplMut.mutate(t.id)} data-testid={`btn-del-tpl-${t.id}`}
+                          className="text-muted-foreground hover:text-red-400 transition-colors">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )
+        )}
+
+        {/* ── Jobs list ── */}
+        {subTab === "jobs" && (
+          jobsLoading ? (
+            <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading jobs…
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="text-center py-16 text-xs text-muted-foreground border border-dashed border-border/40 rounded-lg">
+              <Clock className="w-8 h-8 mx-auto mb-2 opacity-20" />
+              <p>No jobs yet. Send a notification from a template to create a job.</p>
+            </div>
+          ) : (
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border/50 bg-muted/20">
+                  {["Job Ref", "Client", "Product", "Type", "Dests", "Email", "Tariff", "Status", "Created"].map(h => (
+                    <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((j) => (
+                  <tr key={j.id} className="border-b border-border/20 hover:bg-muted/10 cursor-pointer"
+                    data-testid={`row-job-${j.id}`}
+                    onClick={() => setSelectedJob(j)}>
+                    <td className="py-2 px-3 font-mono text-muted-foreground">{j.jobRef}</td>
+                    <td className="py-2 px-3 font-medium">{j.clientName}</td>
+                    <td className="py-2 px-3 text-amber-400">{j.productName || "—"}</td>
+                    <td className="py-2 px-3 text-muted-foreground">{NOTIF_TYPE_LABEL[j.notificationType ?? ""] ?? j.notificationType ?? "—"}</td>
+                    <td className="py-2 px-3 tabular-nums">{j.destinationCount ?? 0}</td>
+                    <td className="py-2 px-3">
+                      {j.emailSent
+                        ? <CircleCheck className="w-3.5 h-3.5 text-green-400" />
+                        : <CircleX className="w-3.5 h-3.5 text-muted-foreground/40" />}
+                    </td>
+                    <td className="py-2 px-3">
+                      {j.tariffUpdated
+                        ? <CircleCheck className="w-3.5 h-3.5 text-green-400" />
+                        : <CircleX className="w-3.5 h-3.5 text-muted-foreground/40" />}
+                    </td>
+                    <td className={cn("py-2 px-3 font-medium capitalize", JOB_STATUS_COLOR[j.status] ?? "text-muted-foreground")}>
+                      {j.status}
+                    </td>
+                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{fmtDate(j.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        )}
+      </div>
+
+      {showNewTpl && (
+        <NewTemplateModal
+          products={products}
+          onClose={() => setShowNewTpl(false)}
+          onSaved={(t) => {
+            setShowNewTpl(false);
+            qc.invalidateQueries({ queryKey: ["/api/rate-notification-templates"] });
+            setSelectedTpl(t);
+          }}
+        />
+      )}
+
+      {selectedJob && (
+        <JobDetailDrawer job={selectedJob} onClose={() => setSelectedJob(null)} />
       )}
     </div>
   );

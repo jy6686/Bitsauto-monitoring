@@ -5,6 +5,7 @@ import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
 import { registerRateManagerRoutes } from './routes-rate-manager';
+import { registerRateNotificationRoutes } from './routes-rate-notifications';
 import { registerProductTemplatesRoutes } from './routes-product-templates';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { registerAiCopilotRoutes } from './routes-ai-copilot';
@@ -33900,6 +33901,7 @@ ${footer}
 
   // ── Rate Manager extended routes (product rates, notifications, per-row recon)
   registerRateManagerRoutes(app);
+  registerRateNotificationRoutes(app);
   registerProductTemplatesRoutes(app);
 
   // ── AI Route Copilot ──────────────────────────────────────────────────────

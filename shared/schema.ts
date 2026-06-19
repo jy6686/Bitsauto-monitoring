@@ -4061,3 +4061,68 @@ export const destinationProductRates = pgTable("destination_product_rates", {
 });
 export type DestinationProductRate       = typeof destinationProductRates.$inferSelect;
 export type InsertDestinationProductRate = typeof destinationProductRates.$inferInsert;
+
+// ── Rate Notification Templates ───────────────────────────────────────────────
+// One template per Client × Product combination (mirrors legacy BitsAuto).
+// Stores recipients, notification type, and the rate sheet destinations.
+export const rateNotificationTemplates = pgTable("rate_notification_templates", {
+  id:               serial("id").primaryKey(),
+  clientName:       varchar("client_name",       { length: 256 }).notNull(),
+  productId:        integer("product_id").notNull(),
+  notificationType: varchar("notification_type", { length: 32 }).notNull().default("default"),
+  recipients:       text("recipients"),           // comma-separated To: emails
+  ccEmails:         text("cc_emails"),            // comma-separated CC: emails
+  trafficFormat:    varchar("traffic_format",     { length: 64 }),  // e.g. "59471"
+  status:           varchar("status",             { length: 32 }).notNull().default("active"),
+  createdBy:        varchar("created_by",         { length: 128 }),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+});
+export type RateNotificationTemplate       = typeof rateNotificationTemplates.$inferSelect;
+export type InsertRateNotificationTemplate = typeof rateNotificationTemplates.$inferInsert;
+export const insertRateNotificationTemplateSchema = createInsertSchema(rateNotificationTemplates).omit({ id: true, createdAt: true });
+
+// ── Rate Notification Template Destinations ───────────────────────────────────
+// Individual destination rows within a template (the rate sheet entries).
+export const rateNotificationTemplateDestinations = pgTable("rate_notification_template_destinations", {
+  id:              serial("id").primaryKey(),
+  templateId:      integer("template_id").notNull(),
+  country:         varchar("country",          { length: 128 }),
+  carrierType:     varchar("carrier_type",     { length: 64 }),
+  category:        varchar("category",         { length: 128 }),
+  destinationName: varchar("destination_name", { length: 256 }).notNull(),
+  dialPrefix:      varchar("dial_prefix",      { length: 32 }),
+  rate:            numeric("rate",             { precision: 10, scale: 6 }).notNull(),
+  baseRate:        numeric("base_rate",        { precision: 10, scale: 6 }),
+  activationDate:  varchar("activation_date",  { length: 16 }),  // YYYY-MM-DD
+  activationTime:  varchar("activation_time",  { length: 8 }),   // HH:MM
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+});
+export type RateNotificationTemplateDestination       = typeof rateNotificationTemplateDestinations.$inferSelect;
+export type InsertRateNotificationTemplateDestination = typeof rateNotificationTemplateDestinations.$inferInsert;
+export const insertRateNotifDestSchema = createInsertSchema(rateNotificationTemplateDestinations).omit({ id: true, createdAt: true });
+
+// ── Rate Notification Jobs ────────────────────────────────────────────────────
+// One job per send action. Tracks the full lifecycle: tariff update + email.
+export const rateNotificationJobs = pgTable("rate_notification_jobs", {
+  id:               serial("id").primaryKey(),
+  jobRef:           varchar("job_ref",           { length: 32 }).notNull(),  // e.g. RNJ-20260619-0001
+  templateId:       integer("template_id"),
+  clientName:       varchar("client_name",        { length: 256 }).notNull(),
+  productName:      varchar("product_name",       { length: 128 }),
+  notificationType: varchar("notification_type",  { length: 32 }),           // default|changes_only|full_sheet
+  destinationCount: integer("destination_count").default(0),
+  // Step tracking (mirrors legacy Status Summary View)
+  tariffUpdated:    boolean("tariff_updated").default(false),
+  sbcMappingOk:     boolean("sbc_mapping_ok").default(false),
+  emailSent:        boolean("email_sent").default(false),
+  violatedRules:    boolean("violated_rules").default(false),
+  approvalRequired: boolean("approval_required").default(false),
+  // Overall
+  status:           varchar("status", { length: 32 }).notNull().default("pending"), // pending|in_progress|successful|failed|partial
+  remarks:          text("remarks"),
+  pushResults:      text("push_results"),   // JSON stringified per-account push results
+  createdBy:        varchar("created_by",   { length: 128 }),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+});
+export type RateNotificationJob       = typeof rateNotificationJobs.$inferSelect;
+export type InsertRateNotificationJob = typeof rateNotificationJobs.$inferInsert;
