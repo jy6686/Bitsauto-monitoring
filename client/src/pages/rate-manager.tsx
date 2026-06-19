@@ -1639,6 +1639,8 @@ interface RnJob {
   sheetGenerated?: boolean | null; sheetGeneratedAt?: string | null;
   emailSent?: boolean | null; violatedRules?: boolean | null; approvalRequired?: boolean | null;
   templateVersion?: string | null; generatedAttachmentHash?: string | null;
+  companyId?: number | null; productId?: number | null; iAccount?: number | null;
+  iTariff?: number | null; servicePlanId?: string | null;
   status: string; remarks?: string | null; pushResults?: any[]; createdBy?: string | null; createdAt: string;
 }
 
@@ -1648,6 +1650,12 @@ const NOTIF_TYPE_LABEL: Record<string, string> = {
 const JOB_STATUS_COLOR: Record<string, string> = {
   successful: "text-green-400", partial: "text-amber-400",
   failed: "text-red-400", in_progress: "text-blue-400", pending: "text-muted-foreground",
+  pending_rates: "text-amber-500", dismissed: "text-muted-foreground/40",
+};
+const JOB_STATUS_LABEL: Record<string, string> = {
+  pending_rates: "Pending Rates", in_progress: "In Progress",
+  successful: "Successful", failed: "Failed", partial: "Partial",
+  pending: "Pending", dismissed: "Dismissed",
 };
 
 function fmtDate(iso: string) {
@@ -2015,7 +2023,67 @@ function NewTemplateModal({
 }
 
 // ── Job Detail Drawer ──────────────────────────────────────────────────────────
-function JobDetailDrawer({ job, onClose }: { job: RnJob; onClose: () => void }) {
+function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
+  job: RnJob; onClose: () => void; onNavigateToTemplates?: (clientName: string, productId?: number) => void;
+}) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const dismissMut = useMutation({
+    mutationFn: () => apiRequest("PATCH", `/api/rate-notification-jobs/${job.id}/dismiss`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/rate-notification-jobs"] });
+      toast({ title: "Job dismissed" });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  // Pending-rates jobs get a special onboarding banner instead of the step grid
+  if (job.status === "pending_rates") {
+    return (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="bg-background border border-border rounded-lg w-full max-w-lg shadow-xl">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+              <span className="font-mono">{job.jobRef}</span>
+            </span>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="px-4 py-4 flex flex-col gap-3">
+            <div className="flex flex-wrap gap-4 text-xs">
+              <span><span className="text-muted-foreground">Client:</span> <strong>{job.clientName}</strong></span>
+              <span><span className="text-muted-foreground">Product:</span> <strong>{job.productName || "—"}</strong></span>
+              {job.iAccount && <span><span className="text-muted-foreground">i_account:</span> <span className="font-mono">{job.iAccount}</span></span>}
+              {job.iTariff  && <span><span className="text-muted-foreground">i_tariff:</span>  <span className="font-mono">{job.iTariff}</span></span>}
+            </div>
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+              <p className="font-medium mb-1">No rate notification template exists yet for this client.</p>
+              <p className="text-xs text-amber-400/70">Create a template to begin sending rate sheets. Once created, this job will be linked to it automatically.</p>
+            </div>
+            <div className="flex gap-2 mt-1">
+              <button
+                onClick={() => { onClose(); onNavigateToTemplates?.(job.clientName, job.productId ?? undefined); }}
+                className="flex-1 text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 rounded transition-colors font-medium"
+                data-testid="btn-create-template-from-job">
+                Create Template
+              </button>
+              <button
+                onClick={() => dismissMut.mutate()}
+                disabled={dismissMut.isPending}
+                className="text-xs border border-border/50 text-muted-foreground hover:text-foreground px-3 py-2 rounded transition-colors"
+                data-testid="btn-dismiss-pending-job">
+                Dismiss
+              </button>
+            </div>
+            <div className="text-[10px] text-muted-foreground">{fmtDate(job.createdAt)} · auto-created on product assignment</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Step order matches legacy BitsAuto job detail exactly; Sheet Generated prepended
   const steps = [
     { key: "sheetGenerated",   label: "Sheet Generated",       value: job.sheetGenerated },
@@ -2108,6 +2176,7 @@ function NotificationsTab({ products }: { products: Product[] }) {
   const [selectedTpl, setSelectedTpl]   = useState<RnTemplate | null>(null);
   const [showNewTpl, setShowNewTpl]     = useState(false);
   const [selectedJob, setSelectedJob]   = useState<RnJob | null>(null);
+  const [jobFilter, setJobFilter]       = useState<"all" | "pending_rates">("all");
 
   const { data: templates = [], isLoading: tplLoading } = useQuery<RnTemplate[]>({
     queryKey: ["/api/rate-notification-templates"],
@@ -2148,7 +2217,16 @@ function NotificationsTab({ products }: { products: Product[] }) {
                 ? "border-amber-400 text-amber-400 font-medium"
                 : "border-transparent text-muted-foreground hover:text-foreground",
             )}>
-            {tab === "templates" ? "Templates" : `Jobs${jobs.length ? ` (${jobs.length})` : ""}`}
+            {tab === "templates" ? "Templates" : (
+              <span className="flex items-center gap-1.5">
+                Jobs{jobs.length ? ` (${jobs.length})` : ""}
+                {(() => { const pr = jobs.filter(j => j.status === "pending_rates").length; return pr > 0 ? (
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-black text-[9px] font-bold leading-none">
+                    {pr}
+                  </span>
+                ) : null; })()}
+              </span>
+            )}
           </button>
         ))}
         <div className="ml-auto py-1.5">
@@ -2223,55 +2301,92 @@ function NotificationsTab({ products }: { products: Product[] }) {
         )}
 
         {/* ── Jobs list ── */}
-        {subTab === "jobs" && (
-          jobsLoading ? (
-            <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground">
-              <Loader2 className="w-4 h-4 animate-spin" /> Loading jobs…
-            </div>
-          ) : jobs.length === 0 ? (
-            <div className="text-center py-16 text-xs text-muted-foreground border border-dashed border-border/40 rounded-lg">
-              <Clock className="w-8 h-8 mx-auto mb-2 opacity-20" />
-              <p>No jobs yet. Send a notification from a template to create a job.</p>
-            </div>
-          ) : (
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-border/50 bg-muted/20">
-                  {["Job Ref", "Client", "Product", "Type", "Dests", "Email", "Tariff", "Status", "Created"].map(h => (
-                    <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map((j) => (
-                  <tr key={j.id} className="border-b border-border/20 hover:bg-muted/10 cursor-pointer"
-                    data-testid={`row-job-${j.id}`}
-                    onClick={() => setSelectedJob(j)}>
-                    <td className="py-2 px-3 font-mono text-muted-foreground">{j.jobRef}</td>
-                    <td className="py-2 px-3 font-medium">{j.clientName}</td>
-                    <td className="py-2 px-3 text-amber-400">{j.productName || "—"}</td>
-                    <td className="py-2 px-3 text-muted-foreground">{NOTIF_TYPE_LABEL[j.notificationType ?? ""] ?? j.notificationType ?? "—"}</td>
-                    <td className="py-2 px-3 tabular-nums">{j.destinationCount ?? 0}</td>
-                    <td className="py-2 px-3">
-                      {j.emailSent
-                        ? <CircleCheck className="w-3.5 h-3.5 text-green-400" />
-                        : <CircleX className="w-3.5 h-3.5 text-muted-foreground/40" />}
-                    </td>
-                    <td className="py-2 px-3">
-                      {j.tariffUpdated
-                        ? <CircleCheck className="w-3.5 h-3.5 text-green-400" />
-                        : <CircleX className="w-3.5 h-3.5 text-muted-foreground/40" />}
-                    </td>
-                    <td className={cn("py-2 px-3 font-medium capitalize", JOB_STATUS_COLOR[j.status] ?? "text-muted-foreground")}>
-                      {j.status}
-                    </td>
-                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{fmtDate(j.createdAt)}</td>
-                  </tr>
+        {subTab === "jobs" && (() => {
+          const pendingRatesCount = jobs.filter(j => j.status === "pending_rates").length;
+          const filteredJobs = jobFilter === "pending_rates"
+            ? jobs.filter(j => j.status === "pending_rates")
+            : jobs;
+          return (
+            <>
+              {/* Filter chips */}
+              <div className="flex items-center gap-2 mb-3">
+                {(["all", "pending_rates"] as const).map(f => (
+                  <button key={f} onClick={() => setJobFilter(f)} data-testid={`btn-filter-${f}`}
+                    className={cn(
+                      "text-[11px] px-2.5 py-1 rounded-full border transition-colors",
+                      jobFilter === f
+                        ? "border-amber-500 bg-amber-500/10 text-amber-400"
+                        : "border-border/40 text-muted-foreground hover:border-border",
+                    )}>
+                    {f === "all" ? `All (${jobs.length})` : (
+                      <span className="flex items-center gap-1">
+                        Awaiting Setup
+                        {pendingRatesCount > 0 && (
+                          <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-amber-500 text-black text-[8px] font-bold">
+                            {pendingRatesCount}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </button>
                 ))}
-              </tbody>
-            </table>
-          )
-        )}
+              </div>
+              {jobsLoading ? (
+                <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading jobs…
+                </div>
+              ) : filteredJobs.length === 0 ? (
+                <div className="text-center py-16 text-xs text-muted-foreground border border-dashed border-border/40 rounded-lg">
+                  <Clock className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                  <p>{jobFilter === "pending_rates" ? "No clients awaiting initial rate setup." : "No jobs yet. Send a notification from a template to create a job."}</p>
+                </div>
+              ) : (
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-border/50 bg-muted/20">
+                      {["Job Ref", "Client", "Product", "Type", "Dests", "Email", "Tariff", "Status", "Created"].map(h => (
+                        <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredJobs.map((j) => (
+                      <tr key={j.id}
+                        className={cn("border-b border-border/20 hover:bg-muted/10 cursor-pointer",
+                          j.status === "pending_rates" && "bg-amber-500/3")}
+                        data-testid={`row-job-${j.id}`}
+                        onClick={() => setSelectedJob(j)}>
+                        <td className="py-2 px-3 font-mono text-muted-foreground">{j.jobRef}</td>
+                        <td className="py-2 px-3 font-medium">{j.clientName}</td>
+                        <td className="py-2 px-3 text-amber-400">{j.productName || "—"}</td>
+                        <td className="py-2 px-3 text-muted-foreground">{j.status === "pending_rates" ? "—" : (NOTIF_TYPE_LABEL[j.notificationType ?? ""] ?? j.notificationType ?? "—")}</td>
+                        <td className="py-2 px-3 tabular-nums">{j.destinationCount ?? 0}</td>
+                        <td className="py-2 px-3">
+                          {j.status === "pending_rates"
+                            ? <span className="text-muted-foreground/30">—</span>
+                            : j.emailSent
+                              ? <CircleCheck className="w-3.5 h-3.5 text-green-400" />
+                              : <CircleX className="w-3.5 h-3.5 text-muted-foreground/40" />}
+                        </td>
+                        <td className="py-2 px-3">
+                          {j.status === "pending_rates"
+                            ? <span className="text-muted-foreground/30">—</span>
+                            : j.tariffUpdated
+                              ? <CircleCheck className="w-3.5 h-3.5 text-green-400" />
+                              : <CircleX className="w-3.5 h-3.5 text-muted-foreground/40" />}
+                        </td>
+                        <td className={cn("py-2 px-3 font-medium", JOB_STATUS_COLOR[j.status] ?? "text-muted-foreground")}>
+                          {JOB_STATUS_LABEL[j.status] ?? j.status}
+                        </td>
+                        <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{fmtDate(j.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {showNewTpl && (
@@ -2287,7 +2402,15 @@ function NotificationsTab({ products }: { products: Product[] }) {
       )}
 
       {selectedJob && (
-        <JobDetailDrawer job={selectedJob} onClose={() => setSelectedJob(null)} />
+        <JobDetailDrawer
+          job={selectedJob}
+          onClose={() => setSelectedJob(null)}
+          onNavigateToTemplates={(_clientName, _productId) => {
+            setSelectedJob(null);
+            setSubTab("templates");
+            setShowNewTpl(true);
+          }}
+        />
       )}
     </div>
   );

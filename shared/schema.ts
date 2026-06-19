@@ -4118,6 +4118,12 @@ export const rateNotificationJobs = pgTable("rate_notification_jobs", {
   emailSent:        boolean("email_sent").default(false),
   violatedRules:    boolean("violated_rules").default(false),
   approvalRequired: boolean("approval_required").default(false),
+  // Provisioning context (added Sprint C — frozen at job creation)
+  companyId:    integer("company_id"),
+  productId:    integer("product_id"),
+  iAccount:     integer("i_account"),
+  iTariff:      integer("i_tariff"),
+  servicePlanId: varchar("service_plan_id", { length: 64 }),
   // Audit fields (added Sprint B)
   sheetGenerated:         boolean("sheet_generated").default(false),
   sheetGeneratedAt:       timestamp("sheet_generated_at"),

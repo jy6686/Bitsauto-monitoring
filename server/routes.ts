@@ -5,7 +5,7 @@ import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
 import { registerRateManagerRoutes } from './routes-rate-manager';
-import { registerRateNotificationRoutes } from './routes-rate-notifications';
+import { registerRateNotificationRoutes, createInitialRateJob } from './routes-rate-notifications';
 import { registerProductTemplatesRoutes } from './routes-product-templates';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { registerAiCopilotRoutes } from './routes-ai-copilot';
@@ -27739,6 +27739,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         status: 'active',
         assignedBy: (req as any).user?.claims?.sub ?? 'admin',
       } as any).returning();
+      // Auto-create Initial Rate Job (pending_rates) for the KAM queue — non-blocking
+      createInitialRateJob({
+        companyId,
+        companyName: company.name,
+        productId,
+        productName: product.name,
+        iAccount,
+        iTariff: (company as any).sippyITariff ?? undefined,
+      }).catch((e: any) => console.warn('[RateJob] createInitialRateJob failed (non-fatal):', e.message));
       res.json(assignment);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });

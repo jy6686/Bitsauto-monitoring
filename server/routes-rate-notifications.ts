@@ -10,7 +10,7 @@
 import type { Express } from 'express';
 import { createHash }   from 'crypto';
 import { db }           from './db';
-import { eq, desc }     from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import {
   rateNotificationTemplates,
   rateNotificationTemplateDestinations,
@@ -553,6 +553,26 @@ export function registerRateNotificationRoutes(app: Express) {
       }
     },
   );
+
+  // ── Dismiss a pending_rates job (KAM acknowledges — template will be created separately) ──
+  app.patch('/api/rate-notification-jobs/:id/dismiss',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        const [job] = await db.select().from(rateNotificationJobs).where(eq(rateNotificationJobs.id, id)).limit(1);
+        if (!job) return res.status(404).json({ error: 'Job not found' });
+        if (job.status !== 'pending_rates') return res.status(400).json({ error: 'Only pending_rates jobs can be dismissed' });
+        const [updated] = await db.update(rateNotificationJobs)
+          .set({ status: 'dismissed', remarks: `Dismissed by ${req.user?.username || 'operator'}` })
+          .where(eq(rateNotificationJobs.id, id))
+          .returning();
+        res.json(updated);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
 }
 
 async function getSmtpUser(): Promise<string> {
@@ -560,4 +580,50 @@ async function getSmtpUser(): Promise<string> {
     const settings: any = await storage.getSettings?.();
     return settings?.smtpUser || settings?.invoiceSmtpUser || 'pricing@ichibaanlogic.com';
   } catch { return 'pricing@ichibaanlogic.com'; }
+}
+
+// ── Exported helper: create an Initial Rate Job when a client is provisioned ──
+// Called from routes.ts after product assignment. Non-blocking — callers should
+// .catch() silently so provisioning never fails due to rate-job creation.
+export async function createInitialRateJob(opts: {
+  companyId:   number;
+  companyName: string;
+  productId:   number;
+  productName: string;
+  iAccount:    number;
+  iTariff?:    number;
+  servicePlanId?: string;
+}): Promise<void> {
+  // Deduplicate: only one pending_rates job per company × product
+  const existing = await db
+    .select({ id: rateNotificationJobs.id })
+    .from(rateNotificationJobs)
+    .where(
+      and(
+        eq(rateNotificationJobs.companyId, opts.companyId),
+        eq(rateNotificationJobs.productId, opts.productId),
+        eq(rateNotificationJobs.status, 'pending_rates'),
+      ),
+    )
+    .limit(1);
+  if (existing.length > 0) return; // already queued
+
+  const now   = new Date();
+  const d     = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  const ref   = `INIT-${d}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+
+  await db.insert(rateNotificationJobs).values({
+    jobRef:           ref,
+    companyId:        opts.companyId,
+    productId:        opts.productId,
+    iAccount:         opts.iAccount,
+    iTariff:          opts.iTariff     ?? null,
+    servicePlanId:    opts.servicePlanId ?? null,
+    clientName:       opts.companyName,
+    productName:      opts.productName,
+    destinationCount: 0,
+    status:           'pending_rates',
+    remarks:          'Pending initial rate setup — no template yet',
+    createdBy:        'system',
+  });
 }
