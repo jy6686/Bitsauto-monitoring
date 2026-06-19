@@ -4154,3 +4154,25 @@ export const rateNotificationJobs = pgTable("rate_notification_jobs", {
 });
 export type RateNotificationJob       = typeof rateNotificationJobs.$inferSelect;
 export type InsertRateNotificationJob = typeof rateNotificationJobs.$inferInsert;
+
+// ── Configuration Values — central operational parameter store ─────────────────
+// category: vendor | client | commercial | global | az | bsr
+// value_type: text | number | percent | email | days | bool | domain | mb | hour | float
+export const configurationValues = pgTable("configuration_values", {
+  id:           serial("id").primaryKey(),
+  category:     varchar("category",   { length: 32 }).notNull(),
+  configKey:    varchar("config_key", { length: 128 }).notNull(),
+  label:        varchar("label",      { length: 256 }).notNull(),
+  description:  text("description"),
+  unit:         varchar("unit",       { length: 32 }),
+  value:        text("value"),
+  defaultValue: text("default_value"),
+  valueType:    varchar("value_type", { length: 32 }).notNull().default("text"),
+  isEditable:   boolean("is_editable").default(true).notNull(),
+  isActive:     boolean("is_active").default(true).notNull(),
+  sortOrder:    integer("sort_order").default(0).notNull(),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  updatedAt:    timestamp("updated_at").defaultNow().notNull(),
+});
+export type ConfigurationValue       = typeof configurationValues.$inferSelect;
+export type InsertConfigurationValue = typeof configurationValues.$inferInsert;

@@ -310,6 +310,9 @@ const DOMAINS: Domain[] = [
       { label: 'Diagnostics', desc: 'Reconciliation and diagnostic tools (Admin only)', icon: FlaskConical, items: [
         { href: '/recon-lab', label: 'Reconciliation Lab', desc: 'Recording integrity, CDR reconciliation, identity audit', icon: FlaskConical },
       ]},
+      { label: 'Configuration', desc: 'Operational parameters, thresholds and governance values', icon: SlidersHorizontal, items: [
+        { href: '/configuration-values', label: 'Configuration Values', desc: 'Platform operational parameters & thresholds', icon: SlidersHorizontal },
+      ]},
       { label: 'System', desc: 'System configuration, workspaces, VPN and navigation', icon: Settings, items: [
         { href: '/settings',              label: 'Platform Settings',     desc: 'System configuration',           icon: Settings },
         { href: '/workspace-settings',    label: 'Workspace Settings',    desc: 'Portal workspaces & themes',     icon: Layers },

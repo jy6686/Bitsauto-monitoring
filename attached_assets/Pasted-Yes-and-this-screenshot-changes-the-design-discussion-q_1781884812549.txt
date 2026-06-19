@@ -1,0 +1,154 @@
+Yes — and this screenshot changes the design discussion quite a bit.
+
+This is not just a Validation Rules Engine page.
+
+This is actually Step 6 of the Client/Product Wizard workflow.
+
+The legacy flow appears to be:
+
+Step 1  Client Details
+Step 2  Product Selection
+Step 3  Destinations
+Step 4  Rates
+Step 5  Notification Settings
+Step 6  Validation Rules   ← this screen
+Step 7  Approval / Finish
+What this screen is really doing
+
+For every client/product, Commercial decides:
+
+Validation Rule	Action
+Rate Increase Notice Violation	Ignore / Reject Rate Sheet / Approval Required
+Suspect Rate Increase	Ignore / Approval
+Suspect Rate Decrease	Reject Country
+Effective Date Greater Than Allowed Limit	Reject Country
+Effective Date Older Than Allowed Limit	Ignore
+Pending Increases Exceeded	Ignore
+
+This means the legacy platform supported:
+
+Configuration Values
+        ↓
+Client/Product Validation Policy
+        ↓
+Rate Processing
+        ↓
+Approval Workflow
+
+not just:
+
+Configuration Values
+        ↓
+Global Rules
+What this means for BitsAuto
+Layer 1 — Configuration Values (#337)
+
+Stores thresholds:
+
+Old Effective Date = 7 days
+Future Effective Date = 15 days
+Rate Increase Alert = 50%
+Rate Decrease Alert = 50%
+Pending Increase Limit = 10
+
+These are the numbers.
+
+Layer 2 — Validation Rules (Wizard Step 6)
+
+Stores actions:
+
+If Future Effective Date exceeded
+    → Reject Country
+
+If Suspect Increase
+    → Approval Required
+
+If Notice Violation
+    → Ignore
+
+These are the decisions.
+
+Layer 3 — Rate Processing
+
+When vendor/client rates arrive:
+
+Rule Engine
+    ↓
+Check thresholds
+    ↓
+Violation found
+    ↓
+Apply configured action
+My recommendation
+
+Do not build this screen inside Client Wizard first.
+
+Build in this order:
+
+Phase A
+
+#337 Configuration Values
+
+Vendor
+A-Z
+BSR
+Global
+Client
+
+Store all thresholds.
+
+Phase B
+
+Validation Rules Management
+
+A standalone page:
+
+Tools
+  → Validation Rules
+
+Use exactly this matrix UI.
+
+Store:
+
+rule_name
+action
+scope
+product
+enabled
+Phase C
+
+Client Wizard
+
+Instead of forcing users to configure rules every time:
+
+Client Wizard
+    ↓
+Select Product
+    ↓
+Apply Validation Profile
+
+Example:
+
+First Class Wholesale
+    → Validation Profile FC-WHOLESALE
+
+Business Class Wholesale
+    → Validation Profile BC-WHOLESALE
+
+Special Charlie
+    → Validation Profile SC-RETAIL
+
+This avoids repeating Step 6 for every new client.
+
+For your current roadmap
+
+Priority order should be:
+
+#337 Configuration Values        ← build now
+#338 Validation Rules Engine     ← build next
+Validation Profiles             ← after that
+Client Wizard integration        ← last
+
+Because the wizard screen in the screenshot depends on both configuration values and validation rules already existing underneath it.
+
+Otherwise you'll end up rebuilding the same rule matrix for every client manually.
