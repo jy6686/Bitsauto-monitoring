@@ -146,6 +146,25 @@ async function getAnyPortalSession(
 }
 
 /**
+ * Exported helper: warm (or refresh) a portal session for the given URL + credential pairs.
+ * Stores fresh cookies into activeSession so the portal fallback inside pushAccountToSippy
+ * fires even if the module-level session has expired.  Call this before provisioning.
+ * Returns true when a session was obtained, false on all-login-failed.
+ */
+export async function ensurePortalSession(
+  portalUrl: string,
+  ...pairs: Array<[string, string]>
+): Promise<boolean> {
+  const base = sippyBase(portalUrl);
+  const cookies = await getAnyPortalSession(base, ...pairs);
+  if (!cookies) {
+    console.warn(`[Sippy] ensurePortalSession: all portal logins failed for ${base}`);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Exported helper: obtain a portal session for any switch URL + cred pairs, then
  * scrape /activecalls.php (includes orange-banner total fallback).
  * Used by pollSwitch as a last-resort when XML-RPC returns HTTP 200 with 0 calls.

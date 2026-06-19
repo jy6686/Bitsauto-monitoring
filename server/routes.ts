@@ -27410,6 +27410,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
       }
 
+      // Warm the portal session so the portal-form fallback inside pushAccountToSippy fires
+      // if all XML-RPC createAccount attempts return "Fatal error".
+      // getAnyPortalSession() caches for 5 min and promotes to activeSession internally.
+      try {
+        const portalWarmed = await sippy.ensurePortalSession(
+          portalUrl,
+          [portalUser, adminWebPassword || portalPass] as [string, string],
+          [adminUser, adminWebPassword || adminPass] as [string, string],
+        );
+        console.log(`[Provision] Portal session warm-up: ${portalWarmed ? 'OK' : 'FAILED (portal fallback may not fire)'}`);
+      } catch (e: any) {
+        console.warn(`[Provision] Portal session warm-up error (non-fatal): ${e.message}`);
+      }
+
       const result = await sippy.pushAccountToSippy({
         name: displayName,
         type: 'client',
