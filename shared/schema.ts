@@ -3887,6 +3887,10 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
   uploadStatus:       varchar("upload_status",      { length: 32  }),
   verificationResult: varchar("verification_result",{ length: 32  }),
   pushMethod:         varchar("push_method",        { length: 32  }),
+  // ── Business-facing fields ──────────────────────────────────────────────────
+  clientNames:        text("client_names"),          // comma-sep account names
+  dialPrefix:         varchar("dial_prefix",         { length: 128 }), // stripped (no trunk digit)
+  destinationName:    varchar("destination_name",    { length: 256 }), // human name from catalog
 });
 export type RatePushJob       = typeof ratePushJobs.$inferSelect;
 export type InsertRatePushJob = typeof ratePushJobs.$inferInsert;

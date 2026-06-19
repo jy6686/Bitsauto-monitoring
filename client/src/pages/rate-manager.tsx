@@ -1397,21 +1397,23 @@ function SendRateTab({
 // ── Jobs Tab ───────────────────────────────────────────────────────────────────
 function JobsTab() {
   const { data: jobs = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/rate-manager/jobs"] });
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const STATUS_COLOR: Record<string, string> = {
-    completed: "text-green-400",
-    partial:   "text-amber-400",
-    failed:    "text-red-400",
-    pending:   "text-muted-foreground",
-    processing:"text-blue-400",
+  const STATUS_BG: Record<string, string> = {
+    completed:  "bg-green-400/10 text-green-400 border-green-400/30",
+    partial:    "bg-amber-400/10 text-amber-400 border-amber-400/30",
+    failed:     "bg-red-400/10 text-red-400 border-red-400/30",
+    pending:    "bg-muted/30 text-muted-foreground border-border",
+    processing: "bg-blue-400/10 text-blue-400 border-blue-400/30",
   };
 
   return (
     <div className="flex-1 overflow-auto p-4">
-      <div className="text-sm font-semibold mb-3 flex items-center gap-2">
+      <div className="text-sm font-semibold mb-1 flex items-center gap-2">
         <Clock className="w-4 h-4 text-muted-foreground" />
         Rate Push History
       </div>
+      <p className="text-[10px] text-muted-foreground/60 mb-3">Click a row to see technical details</p>
       {isLoading ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground py-8 justify-center">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading…
@@ -1422,46 +1424,118 @@ function JobsTab() {
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="border-b border-border/50 bg-muted/20">
-              {["Job ID", "Product", "Prefix", "New Rate", "Method", "Verified", "Clients", "Status", "Completed"].map(h => (
+              {["Client(s)", "Product", "Destination", "Prefix", "Rate", "Effective", "Status", "Date"].map(h => (
                 <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {jobs.map((j: any) => {
+              const isExpanded = expandedId === j.id;
               const verColor = j.verificationResult === 'confirmed' ? 'text-green-400'
                 : j.verificationResult === 'mismatch' ? 'text-red-400'
                 : 'text-muted-foreground';
-              const methodColor = j.pushMethod === 'upload_token' ? 'text-blue-400'
-                : j.pushMethod === 'portal_csv' ? 'text-amber-400'
-                : j.pushMethod ? 'text-muted-foreground' : 'text-muted-foreground/50';
+              const methodLabel = j.pushMethod === 'upload_token' ? 'XLSX Upload'
+                : j.pushMethod === 'portal_csv' ? 'Portal CSV'
+                : j.pushMethod ?? '—';
+              const rateDisplay = j.newRate
+                ? (isNaN(Number(j.newRate)) ? j.newRate : `$${Number(j.newRate).toFixed(5)}`)
+                : "—";
+              const clientDisplay = j.clientNames || (
+                j.totalClients > 0 ? `${j.pushedClients ?? 0}/${j.totalClients} client${j.totalClients > 1 ? 's' : ''}` : "—"
+              );
+              const destDisplay = j.destinationName || "—";
+              const prefixDisplay = j.dialPrefix || displayPrefix(j.fullPrefix) || "—";
+
               return (
-                <tr key={j.id} className="border-b border-border/20 hover:bg-muted/10">
-                  <td className="py-2 px-3 font-mono text-[10px] text-muted-foreground">{j.jobId}</td>
-                  <td className="py-2 px-3">{j.productName ?? "—"}</td>
-                  <td className="py-2 px-3 font-mono text-amber-400">{j.dialPrefix || displayPrefix(j.fullPrefix) || "—"}</td>
-                  <td className="py-2 px-3 font-mono tabular-nums">
-                    {j.newRate != null ? `$${Number(j.newRate).toFixed(5)}` : "—"}
-                  </td>
-                  <td className={cn("py-2 px-3 font-mono text-[10px]", methodColor)}>
-                    {j.pushMethod ?? "—"}
-                  </td>
-                  <td className={cn("py-2 px-3 font-medium capitalize text-[11px]", verColor)}>
-                    {j.verificationResult ?? "—"}
-                  </td>
-                  <td className="py-2 px-3 tabular-nums">
-                    {j.pushedClients ?? 0}/{j.totalClients ?? 0}
-                    {(j.failedClients ?? 0) > 0 && (
-                      <span className="text-red-400 ml-1">({j.failedClients} failed)</span>
-                    )}
-                  </td>
-                  <td className={cn("py-2 px-3 font-medium capitalize", STATUS_COLOR[j.status] ?? "text-muted-foreground")}>
-                    {j.status}
-                  </td>
-                  <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
-                    {j.completedAt ? new Date(j.completedAt).toLocaleString() : "—"}
-                  </td>
-                </tr>
+                <>
+                  <tr
+                    key={j.id}
+                    className="border-b border-border/20 hover:bg-muted/10 cursor-pointer"
+                    onClick={() => setExpandedId(isExpanded ? null : j.id)}
+                    data-testid={`row-job-${j.id}`}
+                  >
+                    <td className="py-2 px-3 max-w-[180px]">
+                      <div className="truncate" title={clientDisplay}>{clientDisplay}</div>
+                      {(j.failedClients ?? 0) > 0 && (
+                        <div className="text-red-400 text-[10px]">{j.failedClients} failed</div>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 whitespace-nowrap">{j.productName ?? "—"}</td>
+                    <td className="py-2 px-3 max-w-[160px]">
+                      <div className="truncate text-foreground/80" title={destDisplay}>{destDisplay}</div>
+                    </td>
+                    <td className="py-2 px-3 font-mono text-amber-400 whitespace-nowrap">{prefixDisplay}</td>
+                    <td className="py-2 px-3 font-mono tabular-nums whitespace-nowrap">{rateDisplay}</td>
+                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
+                      {j.effectiveAt ? String(j.effectiveAt).slice(0, 10) : "—"}
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className={cn("text-[10px] font-medium capitalize border px-1.5 py-0.5 rounded", STATUS_BG[j.status] ?? "text-muted-foreground")}>
+                        {j.status}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
+                      {j.completedAt ? new Date(j.completedAt).toLocaleDateString() : "—"}
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr key={`${j.id}-detail`} className="bg-muted/10 border-b border-border/30">
+                      <td colSpan={8} className="px-4 py-3">
+                        <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-[11px] sm:grid-cols-4">
+                          <div>
+                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Job ID</span>
+                            <div className="font-mono text-muted-foreground/80">{j.jobId}</div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Push Method</span>
+                            <div className={j.pushMethod ? "text-blue-400" : "text-muted-foreground"}>{methodLabel}</div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Verified</span>
+                            <div className={cn("capitalize", verColor)}>{j.verificationResult ?? "—"}</div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Switch</span>
+                            <div className="font-mono text-[10px] text-muted-foreground/70 truncate">{j.switchName ?? "—"}</div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Internal Prefix</span>
+                            <div className="font-mono text-muted-foreground/60">{j.fullPrefix ?? "—"}</div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Tariff ID</span>
+                            <div className="font-mono text-muted-foreground/60">{j.iTariff ?? "—"}</div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Format</span>
+                            <div className="text-muted-foreground/60">{j.format ?? "—"}</div>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">By</span>
+                            <div className="text-muted-foreground/60 truncate">{j.createdBy ?? "—"}</div>
+                          </div>
+                          {j.pushResults && j.pushResults.length > 0 && (
+                            <div className="col-span-2 sm:col-span-4 mt-1">
+                              <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Per-destination results</span>
+                              <div className="mt-1 max-h-32 overflow-auto space-y-0.5">
+                                {j.pushResults.map((r: any, i: number) => (
+                                  <div key={i} className={cn("flex items-center gap-2 text-[10px] py-0.5 border-b border-border/10",
+                                    r.success ? "text-green-400" : "text-red-400")}>
+                                    {r.success ? <Check className="w-3 h-3 shrink-0" /> : <X className="w-3 h-3 shrink-0" />}
+                                    <span className="font-mono">{displayPrefix(r.prefix)}</span>
+                                    <span className="text-muted-foreground">{r.dest}</span>
+                                    {!r.success && <span className="ml-auto text-[10px]">{r.message}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               );
             })}
           </tbody>

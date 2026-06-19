@@ -35634,6 +35634,8 @@ ${footer}
             notes:              `Batch: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'}`,
             createdBy:          (req as any).user?.claims?.sub ?? 'system',
             completedAt:        new Date(),
+            clientNames:        accountNames.join(', '),
+            dialPrefix:         destList.map(d => d.dialPrefix).join(', ').substring(0, 128),
           });
         } catch { /* non-critical */ }
 
@@ -35788,11 +35790,24 @@ ${footer}
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     },
   );
-  // GET /api/rate-manager/jobs — rate push job history
+  // GET /api/rate-manager/jobs — rate push job history (business-enriched)
   app.get('/api/rate-manager/jobs', async (_req, res) => {
     try {
       const jobs = await db.select().from(ratePushJobs).orderBy(desc(ratePushJobs.createdAt)).limit(100);
-      res.json(jobs);
+      // Enrich with destination name from catalog for jobs missing it
+      const dests = await db.execute(sql`SELECT dial_prefix, name FROM global_destinations WHERE dial_prefix IS NOT NULL`);
+      const destMap = new Map<string, string>(
+        (dests.rows as any[]).map(d => [String(d.dial_prefix), String(d.name)])
+      );
+      const enriched = jobs.map(j => {
+        const dp = j.dialPrefix
+          || (j.fullPrefix && j.trunkPrefix ? j.fullPrefix.slice(String(j.trunkPrefix).length) : null)
+          || null;
+        const destName = j.destinationName
+          || (dp ? (destMap.get(dp) ?? null) : null);
+        return { ...j, dialPrefix: dp, destinationName: destName };
+      });
+      res.json(enriched);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
