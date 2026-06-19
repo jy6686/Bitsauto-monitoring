@@ -1,0 +1,199 @@
+I agree with most of that analysis, but I would slightly change the priority based on your business reality.
+
+What I think is happening
+
+The legacy system had two separate layers:
+
+Layer 1: Commercial Layer
+Client Tariff Profile
+Rate Sheet Templates
+Status Engine
+Notifications
+PDF/Excel
+
+Layer 2: Execution Layer
+Sippy Tariffs
+Rate Push
+Audit
+
+Your current platform already has most of Layer 2:
+
+✅ Sippy Integration
+✅ Destination Catalogue
+✅ Product Registry
+✅ Push Engine
+✅ Audit Trail
+✅ Governance
+
+What is missing is the mature Commercial Layer.
+
+However...
+
+Before spending weeks reverse-engineering Client Tariff Profile, I would first finish and certify the foundation.
+
+You already found a real production bug:
+
+9233
+  ↓
+19233
+
+This bug would have broken:
+
+Client Tariff Profile
+Notification Engine
+Status Engine
+Excel Generation
+PDF Generation
+
+because all of them ultimately depend on the execution layer.
+
+So my order would be:
+
+Phase A (Finish Foundation)
+1. Deploy prefix fix
+
+Verify:
+
+Pakistan
+  ↓
+UFONE
+  ↓
+Mobile
+  ↓
+9233
+
+pushes successfully.
+
+2. Hierarchy certification
+
+Not all destinations.
+
+But test every hierarchy level:
+
+Country
+Operator
+Category
+Destination
+
+Across all products:
+
+FC
+BC
+SB
+SC
+
+This is exactly what you suggested earlier and I think it is the correct test.
+
+Example:
+
+Pakistan → Jazz → Mobile → 9230
+Pakistan → Ufone → Mobile → 9233
+Pakistan → PTCL → Fixed → 9221
+Bangladesh → Grameen → Mobile → 8801
+
+If these work across all products, then the hierarchy is certified.
+
+Lock it.
+
+Phase B (Legacy Discovery)
+
+Then gather:
+
+Client Tariff Profile List
+
+Most important screen.
+
+I want to know:
+
+Profile ID
+Client
+Product
+Template
+Status
+Rates Tab
+
+Most important tab.
+
+It will reveal:
+
+How N
+How NC
+How I
+How D
+
+were computed.
+
+Status Tab
+
+Second most important.
+
+This likely contains:
+
+Changes Only
+Full Sheet
+Default
+
+logic.
+
+What I think you will eventually discover
+
+My guess:
+
+Client Tariff Profile
+
+was effectively:
+
+Client
++
+Product
++
+Notification Template
++
+Rate Comparison Rules
+
+Not a replacement for Push History.
+
+Not a replacement for Product Registry.
+
+But a commercial wrapper around them.
+
+If that is true, then modern BitsAuto does not need to throw away what you've built.
+
+Instead:
+
+Product Registry
+Destination Catalogue
+Push Engine
+Governance
+
+remain exactly as they are.
+
+Then add:
+
+Client Tariff Profile
+
+above them.
+
+That would be much less rework.
+
+If I were driving the roadmap
+
+This week:
+
+Fix 9233/19233 completely.
+Certify hierarchy flow.
+Lock prefix architecture.
+
+Next:
+
+Capture all Client Tariff Profile screens.
+Reverse-engineer status codes.
+Design modern Client Tariff Profile.
+
+Only after that:
+
+Build Rate Sheet Engine.
+Build Changes Only logic.
+Build PDF/Excel notification engine.
+
+That sequence minimizes the risk of rebuilding a simplified version of something the legacy platform had already solved.

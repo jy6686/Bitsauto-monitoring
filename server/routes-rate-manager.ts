@@ -263,7 +263,8 @@ export function registerRateManagerRoutes(app: Express) {
         // Get product info for trunk prefix
         const [product] = await db.select().from(productRegistry).where(eq(productRegistry.id, rateRow.productId)).limit(1);
         const trunkPrefix = (product as any)?.trunkPrefix ?? '';
-        const fullPrefix  = trunkPrefix + prefix;
+        const fullPrefix  = trunkPrefix + prefix;   // BitsAuto catalogue identifier — audit only, never sent to Sippy
+        const dialPrefix  = sippy.resolveSippyPrefix(prefix, trunkPrefix);  // bare prefix Sippy uses for routing
 
         // Auto-discover account names from product customer assignments
         let { accountNames, format } = req.body ?? {};
@@ -297,7 +298,7 @@ export function registerRateManagerRoutes(app: Express) {
             const r = await sippy.pushRateToSippy(
               {
                 accountName,
-                prefix:      fullPrefix,
+                prefix:      dialPrefix,   // PLATFORM RULE: dialPrefix only — trunkPrefix is BitsAuto-internal, Sippy never receives fullPrefix
                 ratePerMin,
                 effectiveFrom: rateRow.effectiveFrom ? new Date(rateRow.effectiveFrom) : undefined,
                 effectiveTo:   rateRow.effectiveTo   ? new Date(rateRow.effectiveTo)   : undefined,

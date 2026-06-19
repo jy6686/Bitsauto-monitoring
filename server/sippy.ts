@@ -97,6 +97,43 @@ export function getActivePortalUrl(): string | undefined {
   return activeSession?.portalUrl ?? undefined;
 }
 
+// ── Prefix Architecture ───────────────────────────────────────────────────────
+//
+// PLATFORM RULE — LOCKED — DO NOT MODIFY WITHOUT ARCHITECTURE REVIEW:
+//
+//   trunkPrefix  (1 / 2 / 6 / 7)  = BitsAuto internal routing-class identifier
+//                                    → stored in rate_push_jobs for audit ONLY
+//                                    → NEVER sent to Sippy
+//
+//   dialPrefix   (9233, 8801 …)   = real telecom prefix Sippy uses for routing
+//                                    → the ONLY value ever sent to Sippy
+//
+//   fullPrefix   (19233)          = trunkPrefix + dialPrefix
+//                                    → BitsAuto catalogue identifier, audit only
+//
+// Every Sippy write path MUST call resolveSippyPrefix() instead of building
+// prefixes manually.  No route may concatenate trunkPrefix + dialPrefix and
+// pass the result to any Sippy API.
+//
+/**
+ * Returns the bare dial-prefix that Sippy expects.
+ *
+ * Strips the BitsAuto trunk-class digit (1/2/6/7) if it was accidentally
+ * prepended, making the function safe whether the caller passes `dialPrefix`
+ * or `fullPrefix`.
+ *
+ * Usage:
+ *   resolveSippyPrefix("19233", "1")  → "9233"   (strips trunk digit)
+ *   resolveSippyPrefix("9233",  "1")  → "9233"   (already correct, idempotent)
+ *   resolveSippyPrefix("9233")        → "9233"   (no trunk prefix known)
+ */
+export function resolveSippyPrefix(prefix: string, trunkPrefix?: string | null): string {
+  if (!prefix) return prefix;
+  if (!trunkPrefix) return prefix;
+  if (prefix.startsWith(trunkPrefix)) return prefix.slice(trunkPrefix.length);
+  return prefix;
+}
+
 // ── Portal session caches ─────────────────────────────────────────────────────
 // Two separate caches:
 //   anyPortalCache  — used by listActiveCalls; accepts any session (admin/reseller/customer)
