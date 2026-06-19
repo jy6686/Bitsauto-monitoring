@@ -1,0 +1,154 @@
+Based on everything you've shared, I would consider #328 and #329 good additions, but I would do one verification pass before calling them production-ready.
+
+#328 Audit Fields — Looks Correct
+
+The architecture is strong because it now separates:
+
+Sheet Generated
+↓
+Tariff Updated
+↓
+Email Sent
+
+instead of:
+
+Email Sent = Everything Worked
+
+The additions:
+
+sheet_generated
+sheet_generated_at
+template_version
+generated_attachment_hash
+
+are exactly the kind of audit fields telecom/commercial teams need during disputes.
+
+One thing I would verify
+
+Open a real job record and confirm:
+
+sheet_generated = true
+sheet_generated_at populated
+template_version populated
+generated_attachment_hash populated
+
+after a successful send.
+
+I've seen many systems add columns but forget to populate them in every path (success, retry, resend, manual send).
+
+#329 Initial Client Rate Job — Direction is Correct
+
+This is probably the most valuable commercial workflow addition you've made recently.
+
+The lifecycle now becomes:
+
+Client Wizard
+↓
+Company Created
+↓
+Tariff Created
+↓
+Service Plan Created
+↓
+Product Assigned
+↓
+Initial Rate Job Created
+↓
+KAM Action Required
+
+That matches the legacy BitsAuto commercial process much better.
+
+One Concern About #329
+
+You mentioned:
+
+Every time a product is assigned to a client
+→ createInitialRateJob()
+
+I would verify deduplication carefully.
+
+Example:
+
+Client
+↓
+FC assigned
+→ Job created
+
+Operator edits client
+↓
+FC re-assigned
+→ No duplicate job
+
+Verify:
+
+company_id + product_id + status != dismissed/completed
+
+cannot create duplicate pending jobs.
+
+Otherwise KAM queues get flooded.
+
+Next Feature I Would Build
+
+Now that #329 exists, the next logical feature is:
+
+Pending Initial Rates Dashboard
+
+Not another notification feature.
+
+Something like:
+
+Commercial Operations
+
+Pending Initial Rates      12
+Pending Templates           5
+Pending Notifications       3
+Pending Approvals           2
+
+Because now you finally have the data to drive a commercial operations queue.
+
+One More Improvement for New Client Onboarding
+
+When Client Wizard finishes:
+
+Client Created
+↓
+Tariff Created
+↓
+Service Plan Created
+↓
+Initial Rate Job Created
+
+I would also automatically snapshot:
+
+company_id
+i_account
+i_tariff
+service_plan_id
+product_id
+
+inside the Initial Rate Job.
+
+That makes later investigations much easier.
+
+My Recommendation
+Keep
+
+✅ #328
+✅ #329
+
+Verify
+Audit fields populate correctly
+No duplicate Initial Rate Jobs
+Pending Rates badge count works
+Create Template deep-link pre-fills client + product
+Next Sprint
+
+Instead of more rate-engine work, move toward:
+
+Commercial Operations Dashboard
+
+and
+
+Product-driven onboarding workflow
+
+because your provisioning → tariff → service plan → initial rate job chain is now starting to look like a complete commercial lifecycle rather than a collection of isolated features.
