@@ -4,6 +4,7 @@ import { registerBhaooRoutes } from './routes-bhaoo';
 import { registerConfigurationValueRoutes } from './routes-configuration-values';
 import { registerValidationRuleRoutes }     from './routes-validation-rules';
 import { registerGovernanceReviewRoutes }   from './routes-governance-review';
+import { seedGovernanceData }               from './seed-governance';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
@@ -805,6 +806,10 @@ export async function registerRoutes(
     console.warn('[auth] Replit OIDC setup skipped (non-fatal):', err?.message ?? err);
   }
   registerAuthRoutes(app);
+
+  // Seed governance defaults on first boot (no-op if rows already exist)
+  seedGovernanceData().catch(err => console.error('[seed] Governance seed error:', err));
+
 
   // ── Workspace seed (auto-runs once if DB is empty) ─────────────────────────
   seedWorkspacesIfEmpty().catch(err =>
