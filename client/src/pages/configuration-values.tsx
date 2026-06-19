@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
-import { Search, Save, RefreshCw, RotateCcw, Loader2 } from "lucide-react";
+import { Search, Save, RefreshCw, RotateCcw, Loader2, Lock } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -126,6 +126,13 @@ export default function ConfigurationValuesPage() {
   const [filter, setFilter]         = useState("");
   const [drafts, setDrafts]         = useState<Record<number, string | null>>({});
 
+  const { data: govData } = useQuery<{ review: { status: string } }>({
+    queryKey: ["/api/governance-review"],
+    queryFn: () => fetch("/api/governance-review", { credentials: "include" }).then(r => r.json()),
+    staleTime: 30_000,
+  });
+  const isGovLocked = govData?.review?.status === "locked";
+
   const { data: rows = [], isLoading } = useQuery<ConfigValue[]>({
     queryKey: ["/api/configuration-values", activeTab],
     queryFn: () => fetch(`/api/configuration-values?category=${activeTab}`, { credentials: "include" }).then(r => r.json()),
@@ -188,11 +195,11 @@ export default function ConfigurationValuesPage() {
           )}
           <button
             onClick={() => saveMut.mutate()}
-            disabled={!hasDirty || saveMut.isPending || !isManagement}
+            disabled={!hasDirty || saveMut.isPending || !isManagement || isGovLocked}
             data-testid="btn-update-config"
             className={cn(
               "flex items-center gap-1.5 text-xs px-3 py-1.5 rounded transition-colors font-medium",
-              hasDirty && isManagement
+              hasDirty && isManagement && !isGovLocked
                 ? "bg-amber-600 hover:bg-amber-500 text-white"
                 : "bg-muted/30 text-muted-foreground cursor-not-allowed opacity-50",
             )}>
@@ -201,6 +208,16 @@ export default function ConfigurationValuesPage() {
           </button>
         </div>
       </div>
+
+      {/* Governance locked banner */}
+      {isGovLocked && (
+        <div className="flex items-center gap-2 px-6 py-2.5 bg-emerald-500/10 border-b border-emerald-500/20 flex-shrink-0">
+          <Lock className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+          <span className="text-xs text-emerald-300 font-medium">
+            Governance is locked — configuration values are read-only. Reset governance to draft to make changes.
+          </span>
+        </div>
+      )}
 
       {/* Category tab bar */}
       <div className="flex items-center border-b border-border/40 px-6 gap-0">

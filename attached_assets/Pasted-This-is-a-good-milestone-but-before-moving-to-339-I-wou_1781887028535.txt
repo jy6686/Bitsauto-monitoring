@@ -1,0 +1,133 @@
+This is a good milestone, but before moving to #339, I would do one structured review of the entire commercial governance stack because you now have several overlapping layers:
+
+Current State
+Client Wizard
+    ↓
+#329 Initial Rate Job
+    ↓
+#336 Approval Lifecycle
+    ↓
+#337 Configuration Values
+    ↓
+#338 Validation Rules
+    ↓
+#338A Governance Review / Lock
+
+This is now becoming a complete commercial operating model rather than individual features.
+
+What I would verify now
+1. Governance Lock Behavior
+
+Right now #338A can be:
+
+Draft
+Approved
+Locked
+
+Before #339 starts reading it, define exactly what "Locked" means.
+
+Recommended:
+
+Area	Behavior when Locked
+Configuration Values	Read-only
+Validation Rules	Read-only
+Governance Review	Read-only
+Approval Workflow	Continues normally
+Send Rate	Unaffected
+
+Otherwise operators may assume governance is frozen while someone is still changing thresholds underneath.
+
+2. Approval Matrix Ownership
+
+For each area identify the owner:
+
+Area	Owner
+Commercial Values	Commercial
+Client Values	KAM / Commercial
+Vendor Values	Trading / Routing
+Global Values	Operations
+Validation Rules	NOC + Commercial
+Governance Lock	Management
+
+Without ownership, #339 will become difficult because nobody will know who approves policy changes.
+
+3. Missing Governance Artifact
+
+One thing old BitsAuto had indirectly but the new platform still lacks:
+
+Governance Change History
+
+Not enforcement.
+
+Not audit of rate pushes.
+
+Just:
+
+Commercial changed:
+Require Approval For Initial Rates
+true → false
+
+Date
+User
+Reason
+
+I would place this after #339, not before, but it should already be on the roadmap.
+
+Recommendation for #339
+
+Start with exactly one consumer:
+
+Commercial.Require Approval For Initial Rates
+
+inside:
+
+#336 Initial Rate Lifecycle
+
+Flow:
+
+Pending Rates
+    ↓
+Submit
+
+IF Require Approval = true
+       ↓
+Awaiting Approval
+       ↓
+Approved
+ELSE
+       ↓
+Approved
+
+Nothing else.
+
+Do not connect:
+
+Vendor validations
+Rate imports
+Send Rate
+Bulk pushes
+Notification sending
+
+yet.
+
+Overall Assessment
+
+You have now completed:
+
+Governance Foundation      ✅
+Approval Workflow          ✅
+Configuration Layer        ✅
+Validation Layer           ✅
+Review & Sign-off Layer    ✅
+
+The next step is no longer building screens.
+
+The next step is carefully choosing the first rule that becomes enforceable.
+
+For BitsAuto, the safest first live consumer is:
+
+Require Approval For Initial Rates
+
+because it affects onboarding only and does not risk production rate pushes or Sippy tariff updates.
+
+That is where I would start #339.

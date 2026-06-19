@@ -366,6 +366,48 @@ export default function GovernanceReviewPage() {
           </div>
         </Section>
 
+        {/* ── Section 4: Ownership Matrix ──────────────────────────────────── */}
+        <Section title="Section 4 — Ownership Matrix" defaultOpen={false}>
+          <p className="text-[11px] text-muted-foreground/70 mb-3 leading-relaxed">
+            Defines who is responsible for reviewing and approving changes in each area
+            before governance can be locked. Required sign-off before #339 enforcement is enabled.
+          </p>
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-border/30">
+                <th className="text-left py-1.5 px-0 font-medium text-muted-foreground">Area</th>
+                <th className="text-left py-1.5 px-4 font-medium text-muted-foreground">Owner</th>
+                <th className="text-left py-1.5 px-0 font-medium text-muted-foreground">What to verify</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { area: "Commercial Values",    owner: "Commercial",          note: "Approval flags, notification limits, effective date offsets" },
+                { area: "Client Values",        owner: "KAM / Commercial",    note: "Notice periods, rate change alert thresholds, invoice settings" },
+                { area: "Vendor Values",        owner: "Trading / Routing",   note: "Effective date windows, rounding, file size limits, CDR delay" },
+                { area: "Global Values",        owner: "Operations",          note: "Date formats, file/user limits, invoice difference thresholds" },
+                { area: "Validation Rules",     owner: "NOC + Commercial",    note: "Actions per rule (Ignore / Reject / Approval Reqd) match policy" },
+                { area: "Governance Lock",      owner: "Management",          note: "Final sign-off — confirms all areas above have been reviewed" },
+                { area: "Approval Workflow",    owner: "Commercial",          note: "Continues normally when locked — not blocked by governance lock" },
+                { area: "Send Rate / Push",     owner: "Frozen",              note: "Unaffected — no changes until #339 Phase 1 is explicitly enabled" },
+              ].map(row => (
+                <tr key={row.area} className="border-b border-border/10 hover:bg-muted/5">
+                  <td className="py-1.5 font-medium text-foreground/80">{row.area}</td>
+                  <td className="py-1.5 px-4">
+                    <span className={cn(
+                      "text-[10px] px-1.5 py-0.5 rounded font-medium",
+                      row.owner === "Frozen"
+                        ? "bg-muted/30 text-muted-foreground/60"
+                        : "bg-amber-500/10 text-amber-300 border border-amber-500/20",
+                    )}>{row.owner}</span>
+                  </td>
+                  <td className="py-1.5 text-muted-foreground/70">{row.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+
         {/* ── Sign-off panel ────────────────────────────────────────────────── */}
         {!isLocked && isManagement && (
           <div className="border border-border/40 rounded-lg p-5 bg-muted/10 space-y-4">

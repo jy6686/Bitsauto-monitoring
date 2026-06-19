@@ -13,7 +13,13 @@
 import type { Express }   from 'express';
 import { db }              from './db';
 import { eq, and, asc }   from 'drizzle-orm';
-import { validationRules, configurationValues } from '@shared/schema';
+import { validationRules, configurationValues, governanceReviews } from '@shared/schema';
+
+async function isGovernanceLocked(): Promise<boolean> {
+  const [row] = await db.select({ status: governanceReviews.status })
+    .from(governanceReviews).limit(1);
+  return row?.status === 'locked';
+}
 
 type Role = 'admin' | 'super_admin' | 'management' | 'support' | 'viewer' |
   'kam' | 'destination_manager' | 'routing_admin' | 'finance';
@@ -94,6 +100,9 @@ export function registerValidationRuleRoutes(app: Express) {
     (req: any, res, next) => requireRole(['admin','management'], req, res, next),
     async (req: any, res) => {
       try {
+        if (await isGovernanceLocked())
+          return res.status(423).json({ error: 'Governance is locked — reset to draft before making changes.' });
+
         const updates = req.body as { id: number; selectedAction: string }[];
         if (!Array.isArray(updates) || updates.length === 0)
           return res.status(400).json({ error: 'Expected non-empty array of { id, selectedAction }' });
