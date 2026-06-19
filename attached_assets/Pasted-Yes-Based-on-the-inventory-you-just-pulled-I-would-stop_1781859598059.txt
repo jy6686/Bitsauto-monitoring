@@ -1,0 +1,361 @@
+Yes.
+
+Based on the inventory you just pulled, I would stop discussing architecture and write the certification harness next.
+
+A few corrections to the inventory conclusions before doing that:
+
+1. Audit Is Not "Missing"
+
+The statement:
+
+"Old-rate audit trail does not exist"
+
+is only partially true.
+
+From the inventory:
+
+rate_push_jobs
+- oldRate
+- newRate
+- effectiveAt
+- verificationResult
+- pushMethod
+
+The table already contains audit-oriented fields.
+
+The real question is:
+
+Are oldRate/newRate actually populated correctly for every Send Rate operation?
+
+That should become part of certification.
+
+So I'd classify it as:
+
+Audit framework exists
+Per-client audit completeness unverified
+
+not
+
+No audit exists
+2. Notification Infrastructure Exists
+
+The inventory confirms:
+
+invoice-email.service.ts
+bulk-send API
+commercial-notifications.tsx
+communication-policies.tsx
+sender-profiles.tsx
+
+Therefore Notification Center is not a greenfield project.
+
+It's an extension project.
+
+Not relevant to Sprint 1.
+
+3. Biggest Unknown Remains Send Rate
+
+The inventory validates exactly what we've been saying:
+
+Proven
+Change Client Rates
+→ action=change
+→ Sippy
+Not Proven
+Send Rate Queue
+→ Prefix Resolution
+→ Product Mapping
+→ action=change
+→ Verification
+
+That is the actual risk surface.
+
+My Recommendation for the Certification Script
+
+Do not simply clone validate-rate-push.ts.
+
+The new script should specifically test the Send Rate path.
+
+Meaning:
+
+Use the same API endpoint
+Use the same queue structure
+Use the same destination resolution logic
+Use the same longest-prefix logic
+Use the same product mapping logic
+
+Otherwise you'll just re-certify Change Client Rates again.
+
+Certification Matrix
+
+The script should explicitly record:
+
+Test	Purpose
+T1	Single destination
+T2	Multiple destinations
+T3	Future effective date
+T4	Product segregation
+T5	Restore
+T6	Invalid destination
+T7	Prefix collision
+T8	Mixed valid + invalid batch
+Two Additional Assertions I'd Add
+A1
+
+Verify verificationResult
+
+If Send Rate claims:
+
+Verified = true
+
+confirm the rate actually changed in Sippy.
+
+Not merely that the API returned success.
+
+A2
+
+Verify Push History Logging
+
+After each test:
+
+Check:
+
+rate_push_jobs
+
+contains:
+
+status
+method
+newRate
+effectiveAt
+verificationResult
+
+Because Push History is part of the user workflow.
+
+Expected Outcome
+
+At the end you should have a report like:
+
+Test	Result
+T1	PASS
+T2	PASS
+T3	PASS
+T4	PASS
+T5	PASS
+T6	FAIL
+T7	PASS
+T8	FAIL
+
+or whatever the real results are.
+
+That report becomes the basis for:
+
+Pre-validation design
+Dry-run design
+Audit enhancement
+
+instead of guessing.
+
+So yes, if the objective is to move the project forward rather than generate another architecture review, the next concrete step is:
+
+Write and run a Send Rate Certification Suite that exercises the actual Send Rate workflow (queue → destination resolution → product mapping → action=change → verification), not the already-certified Change Client Rates path.
+
+That will give you the first piece of real evidence we've been missing throughout this discussion.
+
+make sure nothing would be changed what we sucessfully tested push rates and implemented succussfully in sippy 
+Full document read. Here's the clean synthesis — no implementation, just the consolidated position.
+
+Where All Three Reviews Now Converge
+After this full discussion, all perspectives agree on one thing:
+
+The design is done. The next deliverable is evidence, not another document.
+
+Corrections to the Inventory (from the latest review)
+The previous inventory slightly overstated two gaps:
+
+1. Audit trail — not missing, just unverified
+
+rate_push_jobs already has oldRate, newRate, effectiveAt, verificationResult, pushMethod, iTariff. The correct statement is:
+
+Audit framework: exists
+Whether those fields are actually populated on every Send Rate push: unverified
+That becomes part of certification (assertion A2), not a schema design task.
+
+2. Notification Center — not greenfield, an extension
+
+The platform already has invoice-email.service.ts, bulk-send API, commercial-notifications.tsx, communication-policies.tsx, sender-profiles.tsx, rate_notifications table. Building a Notification Center means extending these, not starting over. Completely irrelevant to Sprint 1.
+
+What the Certification Script Must Test
+The script must exercise the Send Rate path specifically — not Change Client Rates (already proven). The path under test is:
+
+Send Rate UI submission
+→ Destination Queue
+→ Prefix Resolution (longest-prefix match)
+→ Product → Tariff Mapping
+→ action=change to Sippy
+→ Verification read-back from Sippy
+→ rate_push_jobs row written with correct fields
+
+Test	What it proves
+T1 — Single destination	Basic path end-to-end
+T2 — Multiple destinations	Queue processing, no partial updates
+T3 — Future effective date	effectiveAt survives all the way to Sippy
+T4 — Product segregation	First Class → FC tariff, Business Class → BC tariff (no cross-contamination)
+T5 — Restore	Exact original rate recoverable
+T6 — Invalid destination	**No
+
+Absolutely. The most important rule for the certification effort should be:
+
+Do Not Touch the Proven Path
+
+The following path is already production-proven and should be treated as frozen until certification is complete:
+
+Change Client Rates
+    ↓
+pushRateViaPortalUpload()
+    ↓
+download tariff
+    ↓
+extract iRate
+    ↓
+action=change
+    ↓
+verify from Sippy
+
+You already have evidence that this path passed:
+
+Single change
+Repeat change
+Different prefix
+Future date
+Multi-destination batch
+Restore
+
+That is valuable production knowledge and should not be refactored, optimized, merged, or "cleaned up" during certification.
+
+Certification Goal
+
+The goal is not:
+
+Improve rate pushing
+
+The goal is:
+
+Prove Send Rate uses the same proven engine correctly
+
+Think of it as validating the layers above the engine:
+
+Send Rate Queue
+→ Destination Resolution
+→ Prefix Selection
+→ Product Mapping
+→ Existing Proven Push Engine
+Safe Testing Principle
+
+During T1–T8:
+
+Allowed
+Read existing Sippy data
+Create test rate changes
+Verify results
+Restore original rates
+Log results
+Inspect rate_push_jobs
+Not Allowed
+Modify pushRateViaPortalUpload
+Modify action=change workflow
+Replace verification logic
+Refactor portal session handling
+Change proven Sippy authentication flow
+Change XLSX fallback logic
+
+In other words:
+
+Certification = Observe
+Not Refactor
+What T6 Must Prove
+
+The message was cut off, but T6 should prove:
+
+Invalid Destination
+    ↓
+Validation Failure
+    ↓
+NO Sippy Write
+    ↓
+NO Rate Change
+    ↓
+NO Partial Update
+
+This is one of the highest-value tests.
+
+What T7 Must Prove
+92
+92300
+92301
+
+Expected:
+
+Longest Prefix Wins
+
+and verify the actual row changed in Sippy.
+
+This specifically validates the new Send Rate destination-resolution rewrite without touching the underlying push engine.
+
+Additional Protection
+
+Before running T1–T8:
+
+Capture baseline for each test tariff:
+
+Tariff ID
+Prefix
+Current Rate
+Effective Date
+
+Then every test can:
+
+Read Baseline
+→ Apply Test
+→ Verify
+→ Restore
+→ Verify Restore
+
+This guarantees no permanent impact on production pricing.
+
+Success Criteria
+
+At the end of certification:
+
+If T1–T8 Pass
+
+Conclusion:
+
+Send Rate is certified
+Existing push engine remains unchanged
+Proceed to Pre-Validation
+If T1–T8 Fail
+
+Conclusion:
+
+Fix only:
+- destination resolution
+- queue logic
+- product mapping
+- validation layer
+
+Do NOT modify the proven Sippy push engine.
+
+That is the key protection boundary:
+
+The proven Sippy rate-update implementation (pushRateViaPortalUpload → action=change) should be treated as a certified black box.
+
+Everything under certification is above that layer. If a test fails, the default assumption should be:
+
+"The Send Rate workflow is wrong"
+
+not
+
+"The proven Sippy push mechanism is wrong."
+
+That approach minimizes risk and protects the work that has already been successfully validated in production.
