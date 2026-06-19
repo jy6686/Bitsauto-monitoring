@@ -1,0 +1,210 @@
+The corrections are heading in the right direction, but I'd make a few architectural adjustments before considering it complete.
+
+What I Agree With
+Separate SBC Stages
+
+Legacy behavior clearly appears to be:
+
+Email Sent
+↓
+SBC Mapping Available
+↓
+SBC Updated
+↓
+Updated Tariff
+↓
+Approval Required / Violated Rules
+↓
+Successful
+
+So splitting:
+
+sbcMappingOk
+sbcUpdated
+
+is correct.
+
+Notification Sheet ≠ Tariff
+
+This is probably the most important clarification.
+
+Many telecom operators misunderstand this.
+
+The notification sheet should represent:
+
+Changed Prefixes Only
+
+not:
+
+Complete Tariff Replacement
+
+Meaning:
+
+9230  Jazz
+9715  UAE Mobile
+4477  UK Mobile
+
+are updated.
+
+Everything else remains untouched.
+
+That matches how Sippy tariffs actually behave.
+
+One Architectural Concern
+
+The status sequence should not be strictly linear.
+
+Today you have:
+
+1
+2
+3
+4
+5
+6
+7
+
+But in reality:
+
+Email Sent
+Tariff Updated
+
+can succeed while:
+
+Approval Required
+
+is still pending.
+
+Or:
+
+Tariff Updated
+
+may complete before:
+
+SBC Updated
+
+depending on workflow.
+
+I would store them as independent state flags rather than a hard pipeline.
+
+Example:
+
+emailSent = true
+sbcMappingOk = true
+sbcUpdated = false
+tariffUpdated = true
+approvalRequired = true
+
+Then render the timeline dynamically.
+
+Bigger Missing Piece
+
+The job currently tracks:
+
+Email
+SBC
+Tariff
+
+But it doesn't yet track:
+
+Rate Notification Template Version
+
+Example:
+
+Template ID: 102
+Version: 4
+Generated: 2026-06-19
+
+Without this, six months later you cannot prove exactly what was sent to the customer.
+
+For auditability I'd add:
+
+template_id
+template_version
+generated_attachment_hash
+
+to the job record.
+
+Another Missing Stage
+
+Legacy systems usually distinguish:
+
+Generated
+
+from
+
+Sent
+
+Example:
+
+Notification Sheet Generated
+↓
+Email Sent
+
+Those are not the same event.
+
+You can generate successfully and fail SMTP.
+
+So I'd consider:
+
+Sheet Generated
+Email Sent
+
+as separate audit checkpoints.
+
+Client Wizard Integration
+
+The biggest thing from the previous discussion remains:
+
+When a new client is created:
+
+Create Account
+Create Tariff
+Create Service Plan
+
+should automatically create:
+
+Initial Client Rate Job
+
+Status:
+
+Pending Initial Rates
+
+That becomes the entry point into this entire workflow.
+
+My Recommended End-State
+Client Wizard
+    ↓
+Account
+    ↓
+Tariff
+    ↓
+Service Plan
+    ↓
+Initial Rate Job
+    ↓
+Notification Sheet Generated
+    ↓
+Email Sent
+    ↓
+SBC Mapping Available
+    ↓
+SBC Updated
+    ↓
+Tariff Updated
+    ↓
+Approval Checks
+    ↓
+Successful
+
+And keep the existing Sippy push engine completely untouched.
+
+The strongest part of your current direction is that you're separating:
+
+Commercial Notification Workflow
+
+from
+
+Sippy Rate Update Engine
+
+while allowing them to participate in the same job record. That's much closer to the legacy BitsAuto behavior than treating Send Rate as just another tariff update screen.
