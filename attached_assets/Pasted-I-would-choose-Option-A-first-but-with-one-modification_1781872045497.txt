@@ -1,0 +1,199 @@
+I would choose Option A first, but with one modification.
+
+Why Not Option B Yet?
+
+Option B requires changing the Send Rate workflow before certification.
+
+That violates the principle we've been following all session:
+
+Certify current behaviour first
+Then improve workflow
+
+If you change Send Rate to auto-resolve from membership now, and T4 fails, you'll immediately have two unknowns:
+
+Membership logic issue?
+OR
+Send Rate issue?
+
+You lose isolation.
+
+My Recommended Path
+Phase 1 (Tomorrow)
+
+Seed:
+
+Account	Product
+internal-ptcl	FC
+PUSHTOTALK	FC
+test202	BC
+test203	BC
+
+Then run:
+
+T4A = Membership Validation
+
+Not full T4 yet.
+
+Verify:
+
+customer_product_assignments
+
+contains the expected rows.
+
+Verify:
+
+FC returns FC accounts
+BC returns BC accounts
+
+This is really a data integrity test.
+
+Then Run
+T6
+T7
+T8
+T1
+T2
+T3
+T5
+
+against the existing workflow.
+
+This certifies the actual push engine path that users are using today.
+
+Then Build Membership UI
+
+After certification.
+
+Because at that point you know:
+
+Push works
+Tariff resolution works
+Logging works
+Validation works
+
+Only the UX layer is missing.
+
+Then Introduce Auto-Resolve
+
+At that point:
+
+Select Product
+↓
+Load Assignments
+↓
+Pre-select Accounts
+↓
+User Reviews
+↓
+Push
+
+Notice:
+
+Pre-select
+
+not
+
+Auto-push
+
+I completely agree with your review step.
+
+I Would Never Remove Review
+
+For telecom rate management:
+
+Bad idea:
+
+Select FC
+↓
+Push Immediately
+
+Good idea:
+
+Select FC
+↓
+System finds 126 accounts
+↓
+Review screen
+↓
+2 accounts deselected
+↓
+Push 124 accounts
+
+That is operationally much safer.
+
+Your Point About Seeding Is Also Correct
+
+This should not be automatic.
+
+Example:
+
+Prefix = 1
+
+might suggest:
+
+First Class
+
+but that is only a suggestion.
+
+Commercial ownership should decide.
+
+I would actually store:
+
+Account	Suggested Product	Assigned Product
+
+during migration.
+
+One Thing I Would Add
+
+Create a fourth view in Membership Management:
+
+Conflicts
+
+Example:
+
+Account assigned to multiple products
+Account has no tariff
+Account inactive
+Account assignment mismatch
+
+This will become very useful when you scale to hundreds of clients.
+
+My Final Recommendation
+Tomorrow
+Query product IDs.
+Insert 4-6 test assignments.
+Validate membership data.
+Run certification:
+T6
+T7
+T8
+T1
+T2
+T3
+T5
+Treat T4 as a membership validation exercise for now.
+After Certification
+
+Build:
+
+Product Membership Management
+
+with:
+
+Product View
+Account View
+Unassigned View
+Conflict View
+Then
+
+Convert Send Rate from:
+
+Manual Selection
+
+to:
+
+Auto-Populate + Review
+
+not Auto-Populate + Auto-Push.
+
+That gives you the fastest route to certification while still ending up with the product-driven workflow you've wanted from the beginning.
