@@ -236,6 +236,54 @@ export default function GovernanceReviewPage() {
         </div>
       )}
 
+      {/* ── Governance KPI strip ──────────────────────────────────────────── */}
+      <div className="flex-shrink-0 border-b border-border/40 px-6 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {[
+          {
+            label: "Configuration Values",
+            value: configs.length,
+            sub: "parameters defined",
+            color: "text-foreground",
+          },
+          {
+            label: "Validation Rules",
+            value: rules.length,
+            sub: "rules across 3 scopes",
+            color: "text-foreground",
+          },
+          {
+            label: "Active Controls",
+            value: enforcedRules.length,
+            sub: "non-ignore rules",
+            color: enforcedRules.length > 0 ? "text-amber-400" : "text-muted-foreground",
+          },
+          {
+            label: "Governance Status",
+            value: statusMeta?.label ?? "—",
+            sub: "current lifecycle state",
+            color: isLocked ? "text-emerald-400" : isApproved ? "text-blue-400" : "text-amber-400",
+          },
+          {
+            label: "Last Reviewed By",
+            value: review?.reviewedBy ?? "—",
+            sub: review?.reviewedAt ? fmtDate(review.reviewedAt) : "not yet reviewed",
+            color: review?.reviewedBy ? "text-foreground" : "text-muted-foreground/50",
+          },
+          {
+            label: isLocked ? "Locked By" : "Locked By",
+            value: review?.lockedBy ?? "—",
+            sub: review?.lockedAt ? fmtDate(review.lockedAt) : "not yet locked",
+            color: review?.lockedBy ? "text-emerald-400" : "text-muted-foreground/50",
+          },
+        ].map(kpi => (
+          <div key={kpi.label} className="flex flex-col gap-0.5" data-testid={`kpi-${kpi.label.replace(/\s+/g,"-").toLowerCase()}`}>
+            <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide font-medium leading-none">{kpi.label}</span>
+            <span className={cn("text-sm font-semibold tabular-nums leading-tight", kpi.color)}>{kpi.value}</span>
+            <span className="text-[10px] text-muted-foreground/50 leading-none">{kpi.sub}</span>
+          </div>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-auto px-6 py-5 space-y-4">
 
         {/* ── Section 1: Configuration Values ─────────────────────────────── */}
