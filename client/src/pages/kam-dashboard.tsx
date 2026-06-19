@@ -6,7 +6,7 @@ import {
   BarChart3, HeartPulse, AlertTriangle, CheckCircle2, Clock,
   ChevronRight, Megaphone, ArrowUpRight, MessageSquare, Activity,
   TrendingDown, Minus, Phone, Zap, Eye, AlertCircle, Shield,
-  BarChart2, ArrowRight, RefreshCw,
+  BarChart2, ArrowRight, RefreshCw, FileSpreadsheet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -382,11 +382,19 @@ export default function KamDashboardPage() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: rnJobs = [] } = useQuery<any[]>({
+    queryKey: ["/api/rate-notification-jobs"],
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+
   const portfolio  = portfolioData?.portfolio ?? [];
   const kamName    = portfolioData?.kamName;
   const totalLive  = Array.isArray(liveCallsRaw) ? liveCallsRaw.length : (liveCallsRaw?.calls?.length ?? liveCallsRaw?.count ?? 0);
   const openInvoices = Array.isArray(invoices) ? invoices.filter((i: any) => i.status === "sent" || i.status === "overdue").length : 0;
   const openDisputes = Array.isArray(disputes) ? disputes.filter((d: any) => d.status === "open").length : 0;
+
+  const pendingFirstRate = Array.isArray(rnJobs) ? rnJobs.filter((j: any) => j.status === "pending_rates").length : 0;
 
   const atRisk    = portfolio.filter(a => a.state === "at_risk" || a.state === "degraded");
   const onWatch   = portfolio.filter(a => a.state === "watch");
@@ -442,7 +450,7 @@ export default function KamDashboardPage() {
           <div className="px-6 py-5 space-y-6">
 
             {/* ── Portfolio KPI strip ──────────────────────────────────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
               {[
                 {
                   label: "Managed Accounts", value: portfolio.length, icon: Users,
@@ -479,6 +487,13 @@ export default function KamDashboardPage() {
                   bg: openDisputes > 0 ? "bg-amber-500/10" : "bg-emerald-500/10",
                   href: "/billing-disputes",
                   sub: openDisputes > 0 ? "Need resolution" : "None open",
+                },
+                {
+                  label: "Pending First Rate", value: pendingFirstRate, icon: FileSpreadsheet,
+                  color: pendingFirstRate > 0 ? "text-orange-400" : "text-emerald-400",
+                  bg: pendingFirstRate > 0 ? "bg-orange-500/10" : "bg-emerald-500/10",
+                  href: "/rate-manager?tab=notifications&subtab=jobs&statusFilter=pending_rates",
+                  sub: pendingFirstRate > 0 ? "Awaiting rate sheet" : "All rated",
                 },
               ].map(card => {
                 const I = card.icon;

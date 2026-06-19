@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -2168,15 +2169,19 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
 }
 
 // ── Main Notifications Tab ─────────────────────────────────────────────────────
-function NotificationsTab({ products }: { products: Product[] }) {
+function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
+  products: Product[];
+  initialSubTab?: "templates" | "jobs";
+  initialStatusFilter?: string;
+}) {
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  const [subTab, setSubTab]             = useState<"templates" | "jobs">("templates");
+  const [subTab, setSubTab]             = useState<"templates" | "jobs">(initialSubTab ?? "templates");
   const [selectedTpl, setSelectedTpl]   = useState<RnTemplate | null>(null);
   const [showNewTpl, setShowNewTpl]     = useState(false);
   const [selectedJob, setSelectedJob]   = useState<RnJob | null>(null);
-  const [jobFilter, setJobFilter]       = useState<"all" | "pending_rates">("all");
+  const [statusFilter, setStatusFilter] = useState<string>(initialStatusFilter ?? "");
 
   const { data: templates = [], isLoading: tplLoading } = useQuery<RnTemplate[]>({
     queryKey: ["/api/rate-notification-templates"],
@@ -2184,6 +2189,10 @@ function NotificationsTab({ products }: { products: Product[] }) {
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<RnJob[]>({
     queryKey: ["/api/rate-notification-jobs"],
   });
+
+  const filteredJobs = statusFilter
+    ? jobs.filter(j => j.status === statusFilter)
+    : jobs;
 
   const deleteTplMut = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/rate-notification-templates/${id}`),
@@ -2219,7 +2228,7 @@ function NotificationsTab({ products }: { products: Product[] }) {
             )}>
             {tab === "templates" ? "Templates" : (
               <span className="flex items-center gap-1.5">
-                Jobs{jobs.length ? ` (${jobs.length})` : ""}
+                Jobs{jobs.length ? ` (${filteredJobs.length}${statusFilter ? `/${jobs.length}` : ""})` : ""}
                 {(() => { const pr = jobs.filter(j => j.status === "pending_rates").length; return pr > 0 ? (
                   <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-500 text-black text-[9px] font-bold leading-none">
                     {pr}
@@ -2229,7 +2238,16 @@ function NotificationsTab({ products }: { products: Product[] }) {
             )}
           </button>
         ))}
-        <div className="ml-auto py-1.5">
+        <div className="ml-auto py-1.5 flex items-center gap-2">
+          {subTab === "jobs" && statusFilter && (
+            <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
+              Filter: {statusFilter}
+              <button onClick={() => setStatusFilter("")} data-testid="btn-clear-job-filter"
+                className="ml-0.5 hover:text-white transition-colors">
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </span>
+          )}
           {subTab === "templates" && (
             <button onClick={() => setShowNewTpl(true)} data-testid="btn-new-template"
               className="flex items-center gap-1 text-xs bg-amber-600 hover:bg-amber-500 text-white px-2.5 py-1 rounded transition-colors">
@@ -2303,22 +2321,19 @@ function NotificationsTab({ products }: { products: Product[] }) {
         {/* ── Jobs list ── */}
         {subTab === "jobs" && (() => {
           const pendingRatesCount = jobs.filter(j => j.status === "pending_rates").length;
-          const filteredJobs = jobFilter === "pending_rates"
-            ? jobs.filter(j => j.status === "pending_rates")
-            : jobs;
           return (
             <>
               {/* Filter chips */}
               <div className="flex items-center gap-2 mb-3">
-                {(["all", "pending_rates"] as const).map(f => (
-                  <button key={f} onClick={() => setJobFilter(f)} data-testid={`btn-filter-${f}`}
+                {(["", "pending_rates"] as const).map(f => (
+                  <button key={f || "all"} onClick={() => setStatusFilter(f)} data-testid={`btn-filter-${f || "all"}`}
                     className={cn(
                       "text-[11px] px-2.5 py-1 rounded-full border transition-colors",
-                      jobFilter === f
+                      statusFilter === f
                         ? "border-amber-500 bg-amber-500/10 text-amber-400"
                         : "border-border/40 text-muted-foreground hover:border-border",
                     )}>
-                    {f === "all" ? `All (${jobs.length})` : (
+                    {f === "" ? `All (${jobs.length})` : (
                       <span className="flex items-center gap-1">
                         Awaiting Setup
                         {pendingRatesCount > 0 && (
@@ -2330,6 +2345,15 @@ function NotificationsTab({ products }: { products: Product[] }) {
                     )}
                   </button>
                 ))}
+                {statusFilter && statusFilter !== "pending_rates" && (
+                  <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                    Filter: {statusFilter}
+                    <button onClick={() => setStatusFilter("")} data-testid="btn-clear-job-filter"
+                      className="ml-0.5 hover:text-white transition-colors">
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                )}
               </div>
               {jobsLoading ? (
                 <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground">
@@ -2338,7 +2362,8 @@ function NotificationsTab({ products }: { products: Product[] }) {
               ) : filteredJobs.length === 0 ? (
                 <div className="text-center py-16 text-xs text-muted-foreground border border-dashed border-border/40 rounded-lg">
                   <Clock className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                  <p>{jobFilter === "pending_rates" ? "No clients awaiting initial rate setup." : "No jobs yet. Send a notification from a template to create a job."}</p>
+                  <p>{statusFilter === "pending_rates" ? "No clients awaiting initial rate setup." : statusFilter ? `No jobs with status "${statusFilter}".` : "No jobs yet. Send a notification from a template to create a job."}</p>
+                  {statusFilter && <button onClick={() => setStatusFilter("")} className="mt-2 text-amber-400 hover:underline text-xs">Clear filter</button>}
                 </div>
               ) : (
                 <table className="w-full text-xs border-collapse">
@@ -2353,7 +2378,7 @@ function NotificationsTab({ products }: { products: Product[] }) {
                     {filteredJobs.map((j) => (
                       <tr key={j.id}
                         className={cn("border-b border-border/20 hover:bg-muted/10 cursor-pointer",
-                          j.status === "pending_rates" && "bg-amber-500/3")}
+                          j.status === "pending_rates" && "bg-amber-500/[0.03]")}
                         data-testid={`row-job-${j.id}`}
                         onClick={() => setSelectedJob(j)}>
                         <td className="py-2 px-3 font-mono text-muted-foreground">{j.jobRef}</td>
@@ -2520,7 +2545,15 @@ function PricingIntelligenceTab({ products }: { products: Product[] }) {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function RateManagerPage() {
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence">("analysis");
+  const searchStr = useSearch();
+  const searchParams = new URLSearchParams(searchStr);
+  const urlTab = searchParams.get("tab") as "analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence" | null;
+  const urlSubTab = searchParams.get("subtab") as "templates" | "jobs" | null;
+  const urlStatusFilter = searchParams.get("statusFilter") ?? "";
+
+  const [activeTab, setActiveTab] = useState<"analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence">(
+    urlTab ?? "analysis"
+  );
 
   const { data: products = [], isLoading: prodLoading } = useQuery<Product[]>({
     queryKey: ["/api/rate-manager/products"],
@@ -2612,7 +2645,7 @@ export default function RateManagerPage() {
       {activeTab === "send"          && <SendRateTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
       {activeTab === "jobs"          && <JobsTab />}
       {activeTab === "product-rates" && <ProductRatesTab products={products} />}
-      {activeTab === "notifications" && <NotificationsTab products={products} />}
+      {activeTab === "notifications" && <NotificationsTab products={products} initialSubTab={urlSubTab ?? undefined} initialStatusFilter={urlStatusFilter || undefined} />}
       {activeTab === "intelligence"  && <PricingIntelligenceTab products={products} />}
     </div>
   );
