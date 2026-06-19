@@ -1,0 +1,204 @@
+I agree with about 80% of the analysis, but I would not do the schema change before certification.
+
+What I Agree With
+
+Your observation about the June 16 tariff-sync job is the most important new evidence:
+
+21 Accounts
+↓
+Auto-inferred
+↓
+All assigned to BC
+
+That is strong evidence that:
+
+Tariff
+≠
+Commercial Product
+
+at least for your existing customer base.
+
+So I agree that:
+
+Long-term Source of Truth
+companies.product_id
+
+is cleaner than:
+
+customer_product_assignments
+
+for day-to-day operations.
+
+Because every major workflow asks:
+
+What product is this customer?
+
+not:
+
+What assignment row links this account to a product?
+What I Disagree With
+
+I would not do:
+
+ALTER TABLE companies
+ADD COLUMN product_id
+
+before certification.
+
+Reason:
+
+You're now mixing two projects:
+
+Project 1
+Certify Send Rate
+Project 2
+Redesign Product Membership Architecture
+
+Those are different initiatives.
+
+My Recommended Sequence
+Phase 1 (Now)
+
+Freeze schema.
+
+Keep:
+
+customer_product_assignments
+
+exactly as it exists.
+
+Do not add:
+
+companies.product_id
+
+yet.
+
+Do not migrate data.
+
+Do not retire anything.
+
+Phase 2
+
+Use existing structures to certify:
+
+T4A
+T6
+T7
+T8
+T1
+T2
+T3
+T5
+
+Goal:
+
+Prove Send Rate
+
+Nothing else.
+
+Phase 3
+
+Once certification passes:
+
+Introduce:
+
+companies.product_id
+
+Then:
+
+Product Membership Migration
+
+becomes a dedicated project.
+
+Hybrid Model I Would Eventually Use
+
+I actually wouldn't fully delete the junction table.
+
+I would make:
+
+Source of Truth
+companies.product_id
+History
+customer_product_assignments
+
+Example:
+
+2026-06-20
+internal-ptcl
+BC → FC
+Changed By: Junaid
+Reason: Commercial Review
+
+That audit trail becomes valuable later.
+
+Client Wizard
+
+This is where your idea becomes very powerful.
+
+Today:
+
+Create Client
+↓
+Create Tariff
+↓
+Manual Product Work
+
+Future:
+
+Create Client
+↓
+Select Product
+↓
+product_id set automatically
+↓
+Tariff created
+↓
+Membership recorded
+
+Every future account automatically lands in the right product.
+
+That's the biggest win.
+
+My Final Recommendation
+For Certification
+
+Keep current schema.
+
+Don't touch:
+
+companies
+customer_product_assignments
+
+other than maybe inserting a few test rows if needed.
+
+After Certification
+
+Build:
+
+companies.product_id
+
+as the long-term model.
+
+Then:
+
+companies.product_id
+
+becomes:
+
+Send Rate source
+Notification source
+Reporting source
+Governance source
+Client Portal source
+
+while:
+
+customer_product_assignments
+
+remains the audit/history layer.
+
+So my answer is:
+
+Yes, the long-term architecture should move toward companies.product_id.
+
+No, I would not perform that migration before finishing Send Rate certification. The certification project and the membership redesign project should stay separate to avoid introducing new variables while you're still proving the rate-management workflow.
