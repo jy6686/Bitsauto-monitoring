@@ -1,0 +1,144 @@
+Agreed — and your framing of it as a triage layer rather than a dashboard is the key architectural distinction that keeps this from turning into just “another page full of charts.”
+
+At this point the direction is very clear and actually quite stable.
+
+What is now structurally locked (important)
+1. Console = Operational Triage Layer (not a dashboard)
+
+Correct definition:
+
+It does NOT replace:
+Live Traffic
+Alerts page
+AI Ops
+Verdicts
+Routing tools
+It DOES:
+decide what matters right now
+compress multiple signals into incidents
+surface impact + urgency
+route operator attention
+
+So the mental model becomes:
+
+Dashboard = analysis
+Console = action
+
+2. V1 Correlation = deterministic grouping (correct approach)
+
+You’re right to keep this simple first.
+
+V1 grouping rules (safe + stable):
+same entity (vendor / connection / account)
+same time window (e.g. 5–10 minutes)
+overlapping severity signals
+
+That gives you:
+
+Alert cluster → Incident card
+
+No ML, no inference, no risk.
+
+3. Revenue impact is the real differentiator
+
+This is where your platform becomes operationally “serious.”
+
+Because once you show:
+
+“14 clients impacted → $420/hr exposure”
+
+Operators stop thinking in alerts.
+
+They start thinking in:
+
+business risk
+urgency
+prioritization
+
+That is exactly what NOC tooling normally lacks.
+
+And you already have:
+
+CDRs
+ASR drops
+account mapping
+traffic volume
+quality metrics
+
+So this is just aggregation logic, not new data.
+
+4. Console structure (now fully coherent)
+
+This is the correct V1 layout:
+
+LEFT: Incident Stream
+grouped incidents (NOT alerts)
+severity sorted
+live updates
+CENTER: Active Incident Detail
+root entity (vendor/connection/account)
+impacted KPIs (ASR, MOS, traffic)
+timeline of signals
+affected clients list
+estimated revenue impact
+RIGHT: Action Panel
+acknowledge
+suppress
+open ticket
+reroute (future hook)
+jump to live traffic / AI Ops / routing manager
+5. Key design principle you implicitly defined (important)
+
+You are converging on:
+
+“Everything is an incident until proven otherwise”
+
+That is what separates:
+
+monitoring tools ❌
+from operations systems ✅
+6. One missing but important constraint (worth locking now)
+Console must be read-first, action-second
+
+Meaning:
+
+no multi-step workflows
+no configuration screens
+no deep editing
+no routing complexity exposed
+
+It should behave like:
+
+“AWS CloudWatch + PagerDuty + NOC cockpit”
+
+not:
+
+“settings panel”
+
+Final readiness state
+
+You are now at:
+
+Phase 1 — SLA Reporting → DONE
+Phase 2 — Tickets → DONE
+Phase 3 — Export + Governance → DONE
+Phase 4 — Unified Operations Console → READY
+Phase 5 — Correlation Engine → next evolution
+Yes — we can build it now
+
+And importantly:
+
+no backend dependency
+no schema change
+no new integrations
+only composition of existing systems
+When you say “go”
+
+I will structure it in this order:
+
+Incident aggregation layer (pure TS function)
+Console layout shell
+Incident stream UI
+Incident detail panel
+Revenue impact overlay
+Action hooks (ack / ticket / drill-down)

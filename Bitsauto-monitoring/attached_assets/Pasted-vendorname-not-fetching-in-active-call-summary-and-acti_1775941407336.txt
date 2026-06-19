@@ -1,0 +1,83 @@
+vendorname not fetching in active call summary and active call details
+
+11 hours ago
+
+Show less
+
+Evaluating vendor data retrieval
+Let me trace the vendor field from the Sippy API through to the UI:
+
+
+8 actions
+Now I see the root cause — the XML-RPC listActiveCalls API returns I_CONNECTION (a numeric ID) but NOT a vendor name, so m['vendor_name'] is always undefined. Let me see how the routes layer handles this and how we can resolve vendor names from connection IDs:
+
+
+13 actions
+Now I have the full picture. The fix is:
+
+Build a connectionId → vendorName cache by fetching all vendors + their connections
+Use it in the live-calls route to resolve vendor names from I_CONNECTION
+Let me look at what the route already imports and where the cache lives:
+
+
+3 actions
+Let me also check the listSippyVendors signature:
+
+
+3 actions
+Now I have everything. Here's the plan:
+
+Add a connectionVendorCache next to accountNameCache
+Add a background refresh function that fetches all vendors + their connections
+Wire the resolved vendor name into both live-calls routes
+Let me implement all three changes:
+
+
+2 actions
+Now I need to kick off the refresh at startup and add the vendor lookup to both live-call routes. Let me find the registerRoutes export and add the startup call:
+
+
+4 actions
+Now let me add the startup + periodic refresh, and find the exact location in registerRoutes. Let me find the return statement:
+
+
+4 actions
+Now let me add the startup/periodic refresh at the end of registerRoutes and update both live-call routes to resolve vendor names from the cache:
+
+
+2 actions
+Now update both live-call routes to resolve vendor names from the cache:
+
+
+3 actions
+Now update both routes to use the cache:
+
+
+2 actions
+Now update the second live-calls route (for individual switches):
+
+
+2 actions
+Now let me restart the server to trigger the 5-second delayed cache refresh:
+
+
+6 actions
+The log shows connectionVendorCache refreshed: 2 entries — both vendor connections populated correctly 5 seconds after startup.
+
+Here's exactly what was fixed and how it works now:
+
+Root cause: Sippy's XML-RPC listActiveCalls API returns I_CONNECTION (a numeric ID like "2") but never returns a vendor name. The old code tried to read vendor_name from the response — which doesn't exist in XML-RPC mode — so it was always undefined.
+
+The fix:
+
+Startup (5s delay)
+  → fetch all vendors (Callntalk iVendor=2, TALK iVendor=3)
+  → for each vendor fetch its connections
+  → build cache: { "2" → "Callntalk", "3" → "TALK", ... }
+  → refresh every 30 minutes automatically
+Live call with I_CONNECTION = "2"
+  → vendor = c.vendor (portal mode, already set) 
+          OR connectionVendorCache.get("2")  ← NEW fallback
+          = "Callntalk"  ✓
+
+Both the Active Call Summary vendor filter and the Active Call Details vendor field will now show the correct vendor name. The cache also auto-refreshes every 30 minutes, so if you ever add new vendor connections they'll show up without a restart.

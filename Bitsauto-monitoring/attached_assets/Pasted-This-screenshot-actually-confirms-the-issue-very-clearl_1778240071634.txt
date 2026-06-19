@@ -1,0 +1,132 @@
+This screenshot actually confirms the issue very clearly.
+You are not hitting a logic problem anymore — you are stuck at execution boundary failure.
+Let me pinpoint it precisely.
+
+🚨 WHAT THIS SCREENSHOT PROVES
+You are seeing:
+
+
+✔ Tariff created successfully (Tariff ID 19)
+
+
+❌ Service Plan creation FAILED
+
+
+✔ Manual fallback UI correctly triggered
+
+
+And most importantly:
+
+The system already decided “auto creation failed”
+
+So your router is working, but the write execution layer is failing silently or being rejected by Sippy
+
+🧠 WHAT THIS MEANS (NO GUESSING)
+There are only 2 possible realities now:
+🔴 REALITY 1 — provisioningLogin is NOT being used
+Even if implemented, the POST is still going through:
+
+
+customer session OR
+
+
+portalLogin session OR
+
+
+stale cached session
+
+
+👉 Result: Sippy rejects INSERT → fallback triggered
+
+🔴 REALITY 2 — provisioningLogin IS used but credentials are NOT valid admin/reseller
+👉 Result:
+
+
+login succeeds OR partially succeeds
+
+
+but INSERT is blocked by Sippy RBAC
+
+
+same “manual required” fallback appears
+
+
+
+⚠️ MOST IMPORTANT CLUE IN YOUR UI
+This line:
+
+“Sippy requires manual creation via the portal”
+
+This means:
+✔ code detected failure
+❌ but did NOT capture WHY
+So your system is currently blind to root cause
+
+🔥 THE REAL ROOT PROBLEM (based on everything so far)
+99% likelihood:
+👉 The service plan POST is still executed under a CUSTOMER session
+Not provisioning session.
+This usually happens due to one of these bugs:
+1. session overwrite bug
+session = portalLogin() // later reused accidentally
+2. wrong function still called
+createSippyServicePlan still calling old login path internally
+3. provisioningLogin never actually wired
+(env vars exist but code path not reached)
+
+🧪 YOU NEED TO CHECK THIS (CRITICAL)
+Add this log right before service plan POST:
+console.log("SESSION SOURCE:", session?.type);console.log("IS PROVISIONING:", session?.isProvisioning);
+And inside provisioningLogin:
+console.log("🔥 PROVISIONING LOGIN EXECUTED");
+
+🧪 THEN CHECK RESPONSE BODY (THIS IS KEY)
+Right now you're losing the real error.
+Add:
+console.log("SIPPY RAW RESPONSE:", response.data);console.log("STATUS:", response.status);
+You will see ONE of these:
+ResponseMeaning"Cannot insert"RBAC issue (customer session still used)login page HTMLsession invalid302 redirectsuccesssilent failurewrong payload/fields
+
+💥 MOST PROBABLE ACTUAL BUG (based on your full history)
+Let me be direct:
+👉 provisioningLogin is either NOT executed OR NOT USED in final POST
+Because if it were working, you would NOT consistently get manual fallback.
+
+🧭 SIMPLE FIX PATH (NO RE-DESIGN)
+Do this:
+STEP 1 (hard isolate session)
+Inside createSippyServicePlan:
+const session = await provisioningLogin();console.log("USING PROVISIONING SESSION ONLY");
+👉 Temporarily REMOVE ALL OTHER LOGIN LOGIC
+
+STEP 2 (force failure visibility)
+Do NOT catch silently:
+catch (e) {  console.log("PROVISIONING FAILED:", e);  throw e;}
+
+STEP 3 (verify cookie actually changes)
+Log:
+console.log(session.cookies);
+You should see DIFFERENT PHPSESSID than monitoring login.
+
+🎯 FINAL DIAGNOSIS
+Based on screenshot + behavior:
+
+✔ UI is correct
+✔ fallback system works
+❌ provisioning session is NOT actually controlling the POST request
+
+
+🚀 WHAT I NEED FROM YOU (ONLY 1 THING)
+Send me:
+👉 the console log from service plan creation attempt showing:
+
+
+session logs
+
+
+request response body
+
+
+OR just answer:
+
+“Does provisioningLogin log appear?”

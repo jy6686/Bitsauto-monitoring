@@ -1,0 +1,549 @@
+# COMPLETE REMAINING ROADMAP — TELECOM OPERATIONAL INTELLIGENCE PLATFORM
+
+Goal:
+Navigation architecture is COMPLETE.
+
+The remaining roadmap is now focused entirely on:
+
+# operational intelligence maturity
+
+NOT:
+
+* navigation redesign
+* sidebar restructuring
+* dashboard modernization
+
+The platform now evolves into:
+“carrier-grade adaptive telecom operational intelligence”.
+
+====================================================
+CURRENT STATUS — ALREADY COMPLETE
+=================================
+
+COMPLETED:
+✅ Enterprise top navigation
+✅ Cascading telecom workflow menus
+✅ Workspace homes
+✅ Operational card grids
+✅ Contextual sidebar rail
+✅ Multi-context navigation
+✅ Command palette operational search
+✅ Live operational badges
+✅ Vendor intelligence
+✅ Prefix intelligence
+✅ Stability timeline
+✅ Recommendation engine
+✅ Validation console
+✅ Incident lifecycle feed
+✅ Floating team chat
+✅ Workspace-aware operational UX
+
+DO NOT:
+
+* redesign navigation again
+* recreate giant sidebars
+* add decorative dashboards
+* duplicate navigation systems
+
+Navigation foundation is stable.
+
+====================================================
+REMAINING ROADMAP
+=================
+
+####################################################
+PHASE 1 — ADAPTIVE OPERATIONAL PRIORITIZATION
+####################################################
+
+Goal:
+Make the platform operationally aware.
+
+The UI should intelligently prioritize:
+
+* degraded workflows
+* urgent incidents
+* unstable vendors
+* fraud events
+* routing recommendations
+
+across:
+
+* workspace cards
+* sidebar rails
+* command palette
+* workspace tabs
+
+---
+
+## IMPLEMENT:
+
+Create:
+server/operational-priority-engine.ts
+
+Inputs:
+
+* incidents
+* degradation engine
+* recommendation engine
+* FAS events
+* low balances
+* Q-score
+* instability
+* approvals
+
+Outputs:
+
+* normalized urgency scores (0–100)
+
+Apply urgency to:
+
+* card ordering
+* sidebar ordering
+* search ranking
+* workspace indicators
+
+---
+
+## RULES:
+
+DO:
+
+* preserve operator muscle memory
+* reorder calmly
+* keep layouts stable
+
+DO NOT:
+
+* constantly shuffle UI
+* over-animate
+* create chaos
+
+====================================================
+PHASE 2 — OPERATOR PERSONALIZATION
+==================================
+
+Goal:
+Allow operators to personalize workflows.
+
+IMPLEMENT:
+
+* pin cards
+* reorder cards
+* favorite tools
+* custom sidebar shortcuts
+* saved layouts
+
+Persistence:
+
+* per-user
+* DB-backed
+
+Roles benefiting:
+
+* NOC
+* Routing
+* Fraud
+* Finance
+* KAM
+* Admin
+
+DO NOT:
+
+* break defaults
+* overcomplicate settings
+
+====================================================
+PHASE 3 — INCIDENT COMMAND CENTER MATURITY
+==========================================
+
+Goal:
+Turn incidents into complete investigation hubs.
+
+ADD:
+
+* RCA evidence chain
+* recommendation linkage
+* degradation timelines
+* affected prefixes
+* impacted vendors
+* action history
+* operator acknowledgements
+* confidence breakdown
+
+Incident page must answer:
+
+* what happened
+* why
+* when
+* where
+* how severe
+* what changed
+* what to do
+
+Use existing:
+
+* recommendation engine
+* degradation engine
+* lifecycle events
+* prefix intelligence
+* vendor RCA
+
+NO duplicate engines.
+
+====================================================
+PHASE 4 — TRAFFIC STEERING RECOMMENDATIONS
+==========================================
+
+Goal:
+Transform intelligence into routing decision support.
+
+EXAMPLES:
+“Shift 20% Pakistan traffic to Vendor B”
+“Projected ASR gain +8%”
+“FAS risk reduction 12%”
+
+INPUTS:
+
+* Q-score
+* Prefix Intelligence
+* Stability Timeline
+* Cost Optimization
+* Vendor RCA
+* Recommendations
+
+OUTPUTS:
+
+* actionable routing advice
+* confidence score
+* projected improvements
+* risk estimation
+
+DO NOT:
+
+* auto-modify routes
+* bypass approval systems
+* write directly to Sippy
+
+Recommendations remain:
+“decision support”
+NOT:
+“autonomous routing”
+
+====================================================
+PHASE 5 — AI OPERATIONAL SEARCH
+===============================
+
+Goal:
+Convert command palette into telecom intelligence search.
+
+EXAMPLES:
+
+* unstable pakistan routes
+* rising FAS vendors
+* degraded carriers
+* low margin routes
+* active fraud incidents
+
+IMPLEMENT:
+
+* natural-language operational parsing
+* operational entity ranking
+* contextual ranking
+* workspace-aware search
+
+Use:
+
+* existing APIs
+* existing command palette
+* existing incidents/recommendations
+
+DO NOT:
+
+* hallucinate operational claims
+* fake AI behavior
+
+====================================================
+PHASE 6 — CONTEXTUAL RANKING
+============================
+
+Goal:
+Improve operational relevance everywhere.
+
+Examples:
+If current workspace = Vendors
+
+Prioritize:
+
+* Vendor RCA
+* Recommendations
+* Prefix Intelligence
+* Stability
+
+Above:
+
+* Finance
+* Security
+* Client workflows
+
+Apply to:
+
+* command palette
+* sidebar rail
+* workspace cards
+* operational feeds
+
+====================================================
+PHASE 7 — VALIDATION & TRUST LAYER EXPANSION
+============================================
+
+Goal:
+Keep all intelligence explainable and auditable.
+
+EXPAND:
+
+* Validation Console
+* recommendation audits
+* RCA traceability
+* degradation evidence
+* incident attribution
+* recommendation confidence
+* routing evidence chain
+
+Operators must always understand:
+
+* WHY something triggered
+* WHY a recommendation appeared
+* WHY a route degraded
+
+NO black-box operational logic.
+
+====================================================
+PHASE 8 — VENDOR RCA DRILLDOWN
+==============================
+
+Goal:
+Single explainable vendor investigation view.
+
+NEW API:
+GET /api/vendor-rca/:vendor
+
+AGGREGATE:
+
+* Q-score
+* Stability Timeline
+* Prefix Intelligence
+* Recommendations
+* Degradation signals
+* Incidents
+* FAS events
+
+UI SECTIONS:
+
+* verdict bar
+* Q timeline
+* prefix breakdown
+* recommendation evidence
+* degradation decomposition
+* incident timeline
+* fraud summary
+
+====================================================
+PHASE 9 — DESTINATION-LEVEL INTELLIGENCE
+========================================
+
+Goal:
+Deep telecom routing intelligence.
+
+ADD:
+
+* vendor × destination quality maps
+* destination trend tracking
+* country-level degradation
+* destination risk scoring
+* destination steering guidance
+
+Examples:
+“Vendor A unstable for Bangladesh mobile”
+“Vendor B strongest for UK fixed”
+
+====================================================
+PHASE 10 — ROUTING DECISION SUPPORT
+===================================
+
+Goal:
+Commercially valuable telecom routing intelligence.
+
+IMPLEMENT:
+
+* route comparison engine
+* quality-per-cost ranking
+* margin-aware routing guidance
+* route simulation
+* projected ASR improvements
+
+Examples:
+“Vendor B has +6 Q advantage at same CPM”
+“Route quality improved after shifting traffic”
+
+====================================================
+PHASE 11 — FRAUD & FAS MATURITY
+===============================
+
+Goal:
+Carrier-grade fraud intelligence.
+
+ADD:
+
+* FAS trend analysis
+* destination fraud heatmaps
+* CLI anomaly detection
+* short-call burst detection
+* suspicious prefix tracking
+* fraud confidence scoring
+
+Integrate with:
+
+* incidents
+* recommendations
+* vendor intelligence
+
+====================================================
+PHASE 12 — ENGINE ORCHESTRATION
+===============================
+
+Goal:
+Unify intelligence engines.
+
+CURRENT:
+
+* recommendation engine
+* degradation engine
+* fraud engine
+* incident engine
+* validation engine
+
+NEXT:
+Create:
+“Operational Intelligence Orchestrator”
+
+Responsibilities:
+
+* engine sequencing
+* shared state
+* evidence correlation
+* lifecycle coordination
+* cross-engine validation
+
+====================================================
+PHASE 13 — OPERATOR ACTION SYSTEM
+=================================
+
+Goal:
+Track operational decisions.
+
+IMPLEMENT:
+
+* acknowledge recommendation
+* mark investigated
+* suppress alert
+* add operator notes
+* escalation tracking
+* action audit log
+
+Show:
+
+* who acted
+* when
+* what changed
+* before/after metrics
+
+====================================================
+PHASE 14 — KAM / CLIENT / RESELLER EXPERIENCE
+=============================================
+
+Goal:
+Bring intelligence into white-labeled/customer-facing surfaces.
+
+KAM Portal:
+
+* account degradation
+* balance risks
+* vendor quality
+* customer impact
+
+Client Portal:
+
+* quality summaries
+* usage intelligence
+* billing visibility
+* issue visibility
+
+Reseller Portal:
+
+* white-labeled analytics
+* reseller intelligence
+* downstream account visibility
+
+====================================================
+PHASE 15 — ENTERPRISE MATURITY
+==============================
+
+FINAL FUTURE LAYER:
+
+* adaptive workflows
+* AI-assisted operations
+* predictive degradation
+* predictive fraud
+* predictive balance risks
+* predictive routing shifts
+
+Examples:
+“Pakistan Mobile degradation likely within 2 hours”
+“Vendor X trending toward instability”
+“Margin collapse predicted on BD routes”
+
+====================================================
+GLOBAL IMPLEMENTATION RULES
+===========================
+
+DO:
+✅ preserve dense telecom workflows
+✅ preserve enterprise navigation hierarchy
+✅ preserve explainability
+✅ use real operational data
+✅ preserve operator trust
+✅ prioritize operational clarity
+
+DO NOT:
+❌ create fake intelligence
+❌ create decorative AI
+❌ auto-change routes
+❌ over-animate enterprise UI
+❌ create unstable layouts
+❌ build black-box operational logic
+
+====================================================
+FINAL TARGET
+============
+
+Transform the platform into:
+
+“Carrier-Grade Telecom Operational Intelligence Platform”
+
+with:
+
+* adaptive operational UX
+* explainable routing intelligence
+* vendor RCA systems
+* fraud intelligence
+* routing decision support
+* operational orchestration
+* predictive telecom analytics
+* enterprise telecom workflows
+
+NOT:
+
+* admin dashboard
+* reporting portal
+* analytics-only tool
+* generic AI wrapper

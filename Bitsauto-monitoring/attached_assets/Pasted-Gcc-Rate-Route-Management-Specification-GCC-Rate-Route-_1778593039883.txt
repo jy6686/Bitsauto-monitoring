@@ -1,0 +1,89 @@
+Gcc Rate & Route Management Specification
+GCC Rate & Route Management Specification (Do Not Implement)
+Overview
+
+This document is provided as a reference specification only. It should NOT be implemented directly at this stage. It defines how the GCC (Global Control Center) module will be used to manage client/vendor rates and routing structure within the VoIP platform.
+
+The purpose of this structure is to centralize control of:
+
+Client rate plans
+Vendor routing decisions
+Product-based traffic segmentation
+Commercial pricing tiers
+Purpose of GCC Module
+
+The GCC (Global Control Center) is intended to act as a centralized management layer for:
+
+Rate control across clients and vendors
+Route selection and prioritization
+Product-based traffic classification
+Commercial segmentation of services
+
+This ensures consistent pricing, optimized routing, and structured product-level control.
+
+Product Classification Structure
+
+Traffic and services will be categorized into four product tiers:
+
+1. First Class
+Premium quality routes
+Highest ASR/ACD performance
+Lowest latency paths
+Priority vendor selection
+Used for enterprise-grade traffic
+2. Business Class
+Balanced quality and cost
+Standard premium routes
+Reliable performance for commercial traffic
+Default for most B2B clients
+3. Charlie
+Cost-optimized routing tier
+Medium quality routes
+Used for price-sensitive traffic
+Acceptable performance with lower cost
+4. Bravo
+Lowest cost routing tier
+Least priority routes
+Best effort quality
+Used for bulk or low-margin traffic
+Functional Expectations (Reference Only)
+
+The GCC system is expected to handle the following logic:
+
+Rate Management
+Assign different rates per product class
+Apply client-specific pricing rules
+Maintain vendor cost mapping per route
+Routing Management
+Select vendor based on product class
+Apply priority-based routing logic
+Failover handling between vendors
+Client/Vendor Mapping
+Map each client to allowed product classes
+Map vendors to supported route quality tiers
+Control traffic distribution rules centrally
+Example Mapping Structure
+Product Class	Quality Level	Cost Level	Routing Priority
+First Class	Premium	High	Highest
+Business	Standard	Medium	High
+Charlie	Economical	Low	Medium
+Bravo	Basic	Lowest	Low
+Important Notes
+This document is for design reference only
+No development or implementation should be started based on this until approval
+Final schema and database design will be defined separately
+Vendor/client logic must remain configurable and not hardcoded
+Next Step Recommendation
+
+Once approved, this specification should be converted into:
+
+Database schema (tables for rates, routes, products)
+GCC UI module design
+API layer for rate and routing control
+Feature flag integration for product-based access control
+
+END OF DOCUMENT
+
+I’ve created a structured downloadable reference document (Do Not Implement) for your GCC Rate & Route Management system, including product classifications (First Class, Business, Charlie, Bravo), routing logic, and rate control structure.
+
+You can now review and refine it before any development begins.

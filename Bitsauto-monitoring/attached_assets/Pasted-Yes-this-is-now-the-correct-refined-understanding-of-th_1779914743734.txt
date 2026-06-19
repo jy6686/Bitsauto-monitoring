@@ -1,0 +1,773 @@
+Yes — this is now the correct refined understanding of the platform scope.
+
+After combining:
+
+the legacy workflows,
+the telecom invoice example,
+the reconciliation modules,
+the template/email systems,
+and the rating-engine architecture,
+
+the actual platform structure becomes much clearer.
+
+The key realization is:
+
+Wholesale telecom invoicing is not “generate invoice PDF.”
+
+It is:
+routing-aware, finance-governed, template-driven revenue orchestration.
+
+And the invoice sample proves it immediately.
+
+Most Important Architectural Realization
+
+You correctly identified:
+
+The workflow layer already exists.
+
+The old system already had:
+
+Draft
+Differences
+Approval
+Rejection
+Sending
+Reconciliation
+Credit/Debit Notes
+Payment Matching
+
+That means:
+
+the operational lifecycle was already mature.
+
+The missing piece was:
+
+deterministic telecom economics underneath it.
+
+That is why:
+
+Rating Engine first
+
+is now unquestionably the correct decision.
+
+The Invoice Example Completely Changes Scope
+
+The uploaded invoice demonstrates that real telecom invoices contain:
+
+Operational Complexity
+summary page
+banking page
+destination detail
+telecom-specific formatting
+currency handling
+billing period logic
+timezone awareness
+branded sender identity
+
+This instantly invalidates:
+
+simple PDF invoice generator
+
+as an architecture.
+
+Correct Future Componentization
+
+The invoice engine is actually:
+
+Rating Engine
+    ↓
+Snapshot Layer
+    ↓
+Billing Profile Engine
+    ↓
+Invoice Rendering Engine
+    ↓
+Communication Engine
+    ↓
+Approval & Governance
+    ↓
+Delivery Tracking
+
+NOT:
+
+Generate PDF
+→ Email
+Most Operationally Important Discovery
+
+This point is extremely important and very real in wholesale telecom:
+
+Clients reject invoices automatically if:
+
+subject format wrong
+filename wrong
+attachment name wrong
+CSV structure wrong
+timezone wrong
+missing detail page
+
+That is absolutely true in carrier operations.
+
+Which means:
+
+Invoice communication rules are business-critical infrastructure.
+
+NOT cosmetic settings.
+
+Correct New Core Entity
+
+You correctly evolved this into:
+
+Billing Profile Engine
+
+This should become a first-class entity.
+
+Recommended Future Schema Structure
+companies
+
+Core operational data only.
+
+NEW TABLE
+client_billing_profiles
+
+Recommended fields:
+
+company_id
+
+billing_cycle
+billing_timezone
+currency
+
+invoice_template_id
+invoice_detail_level
+
+invoice_subject_template
+invoice_filename_template
+
+invoice_auto_send
+invoice_approval_required
+
+attachment_profile_id
+banking_profile_id
+
+email_profile_id
+delivery_method
+
+cdr_attachment_enabled
+xlsx_attachment_enabled
+csv_attachment_enabled
+
+branding_profile_id
+
+This separation is VERY important.
+
+Do NOT overload:
+
+companies
+
+with finance orchestration logic forever.
+
+Invoice Detail Levels
+
+(Excellent observation)
+
+You correctly identified this must be configurable.
+
+Recommended:
+
+SUMMARY
+DESTINATION
+PREFIX
+FULL_CDR
+
+Because:
+
+some clients want summary only
+some require destination detail
+some require prefix transparency
+some require full forensic CDRs
+Banking Profiles Must Become Independent
+
+Very important for multi-entity operations.
+
+Example:
+
+banking_profiles
+
+Supports:
+
+USD account
+EUR account
+crypto settlement
+regional billing entity
+
+This becomes critical later for:
+
+multi-country billing
+tax handling
+white labeling
+Communication Engine Is Bigger Than Email
+
+This is another key architectural insight.
+
+You are not building:
+
+email templates
+
+You are building:
+
+Telecom Communication Orchestration
+Recommended Future Communication Layer
+email_profiles
+subject_template
+body_template
+filename_template
+cc_rules
+bcc_rules
+attachment_rules
+delivery_rules
+retry_policy
+Why Invoice Draft Differences Is So Valuable
+
+This legacy workflow was actually extremely forward-thinking.
+
+Because:
+
+Invoice Draft Differences
+
+naturally evolves into:
+
+Revenue Variance Intelligence
+
+Once connected to:
+
+snapshots
+rating engine
+reconciliation
+AI anomaly detection
+
+it becomes:
+
+Telecom Revenue Assurance
+Revised Correct Sequencing
+
+Your updated sequencing is now architecturally correct.
+
+Sprint 1
+Unified Telecom Rating Engine
+interval logic
+effective CPM
+deterministic rating
+centralized costing
+Sprint 2
+Immutable Rating Snapshots
+invoice reproducibility
+rerating history
+dispute-safe finance state
+Sprint 3
+Billing Profile + Validation UI
+
+Includes:
+
+template rules
+filename rules
+subject rules
+banking profile
+attachment profile
+effective rate simulator
+
+This is the correct place for:
+
+invoice_subject_tpl
+invoice_filename_tpl
+invoice_template_id
+invoice_detail_level
+Sprint 4
+Invoice Automation Engine
+
+Only now:
+
+rendering
+delivery
+approval
+tracking
+reconciliation
+
+becomes safe to build.
+
+Most Important Long-Term Strategic Insight
+
+BitsAuto is converging toward:
+
+Telecom Revenue Operations Platform
+
+where:
+
+routing,
+QoS,
+billing,
+disputes,
+approvals,
+reconciliation,
+profitability,
+finance,
+and AI intelligence
+
+all share:
+
+one consistent telecom economic model.
+
+That consistency is the actual moat.
+
+Not the PDF invoices themselves.
+
+share prompt/codde/script we implement in one go 
+Bitsauto Unified Telecom Rating Engine Master Implementation Prompt
+BitsAuto — Master Implementation Prompt
+Unified Telecom Rating Engine + Billing Foundation
+
+You are implementing the foundational telecom billing architecture for the BitsAuto platform.
+
+This implementation MUST follow enterprise telecom billing principles.
+
+DO NOT build generic SaaS invoicing. DO NOT hardcode invoice formats. DO NOT calculate telecom cost independently in multiple modules.
+
+The platform must use ONE centralized telecom rating engine as the single source of truth.
+
+TECHNOLOGY STACK
+
+Frontend:
+
+React 18
+TypeScript
+Tailwind
+shadcn/ui
+React Query
+Wouter
+
+Backend:
+
+Node.js
+Express
+TypeScript
+PostgreSQL
+Drizzle ORM
+
+Architecture:
+
+Service-oriented backend
+Shared rating engine service
+Immutable invoice snapshots
+Queue-based invoice processing
+Audit-safe finance operations
+CORE ARCHITECTURE
+
+The platform must follow this sequence:
+
+CDRs → Unified Telecom Rating Engine → Immutable Rating Snapshots → Invoice Draft Engine → Difference Detection → Approval Workflow → Invoice Dispatch → Payment Reconciliation → Revenue Intelligence
+
+PHASE 1 — UNIFIED TELECOM RATING ENGINE
+
+Create:
+
+services/rating-engine.service.ts
+
+This service becomes the ONLY telecom cost calculation source.
+
+No other module may compute: (duration / 60) * rate
+
+outside this service.
+
+REQUIRED FEATURES
+1. Interval-Aware Billing Logic
+
+Support:
+
+1/1 6/6 30/6 60/1 60/6 60/60
+
+Implement:
+
+billedSeconds = initialInterval + ceil( max(0, duration - initialInterval) / incrementInterval ) * incrementInterval
+
+REQUIRED FUNCTION
+
+Implement:
+
+calculateRatedCall()
+
+Input:
+
+{ durationSeconds, buyRate, sellRate, intervalInitial, intervalIncrement, currency, taxPercent, destination, prefix, vendorId, clientId }
+
+Output:
+
+{ durationSeconds, billedSeconds, effectiveCPM, buyCost, sellRevenue, margin, marginPercent, intervalInitial, intervalIncrement, currency, taxAmount, totalCost, rateVersion, timestamp }
+
+EFFECTIVE CPM CALCULATION
+
+Implement:
+
+effectiveCPM = (totalCost / durationSeconds) * 60
+
+This is critical for:
+
+routing intelligence
+LCR ranking
+profitability
+QoS economics
+REQUIRED DATABASE CHANGES
+rate_decks
+
+Add:
+
+interval_initial INTEGER DEFAULT 60 interval_increment INTEGER DEFAULT 60 minimum_duration INTEGER DEFAULT 0 grace_seconds INTEGER DEFAULT 0 billing_model VARCHAR(20) rate_version VARCHAR(50)
+
+PHASE 2 — IMMUTABLE RATING SNAPSHOTS
+
+Create:
+
+invoice_cdr_snapshots
+
+Fields:
+
+id invoice_id cdr_id rate_used interval_initial_used interval_increment_used currency_used tax_used billed_seconds buy_cost sell_revenue margin rate_version rated_at
+
+IMPORTANT:
+
+NEVER reference live rate tables after invoice lock.
+
+Invoices must remain reproducible forever.
+
+PHASE 3 — CLIENT BILLING PROFILE ENGINE
+
+Create:
+
+client_billing_profiles
+
+Fields:
+
+id company_id billing_cycle billing_timezone currency invoice_template_id invoice_detail_level invoice_subject_template invoice_filename_template banking_profile_id attachment_profile_id branding_profile_id invoice_auto_send invoice_approval_required cdr_attachment_enabled xlsx_attachment_enabled csv_attachment_enabled created_at updated_at
+
+INVOICE DETAIL LEVELS
+
+Support:
+
+SUMMARY DESTINATION PREFIX FULL_CDR
+
+PHASE 4 — BANKING PROFILE ENGINE
+
+Create:
+
+banking_profiles
+
+Fields:
+
+id company_name bank_name account_name account_number swift_code iban currency crypto_wallet branch_address is_default created_at
+
+Support:
+
+USD
+EUR
+Crypto
+Multi-bank
+Multi-entity billing
+PHASE 5 — COMMUNICATION ENGINE
+
+Create:
+
+email_profiles
+
+Fields:
+
+id company_id subject_template body_template filename_template cc_rules bcc_rules retry_policy attachment_rules delivery_method created_at updated_at
+
+TEMPLATE VARIABLES
+
+Support:
+
+{{invoice_number}} {{billing_period}} {{client_name}} {{currency}} {{total_amount}} {{due_date}} {{company_name}} {{po_number}} {{billing_cycle}}
+
+EXAMPLE SUBJECTS
+
+Invoice {{invoice_number}} | {{billing_period}}
+
+[POSTPAID] {{client_name}} Invoice {{invoice_number}}
+
+Traffic Invoice GMT0 Week {{week_number}}
+
+PHASE 6 — DYNAMIC INVOICE TEMPLATE ENGINE
+
+Create:
+
+invoice_templates invoice_template_sections invoice_render_profiles
+
+Support:
+
+Country summary page
+Banking detail page
+Destination breakdown page
+Prefix breakdown page
+Tax page
+Branding page
+White-label invoices
+PDF RENDERER REQUIREMENTS
+
+Support:
+
+Custom logo
+Custom footer
+Banking section
+Country summary
+Destination summary
+Currency formatting
+Multi-page invoices
+Timezone-aware billing periods
+PHASE 7 — AUTOMATIC INVOICE DISPATCH ENGINE
+
+Create:
+
+services/billing-orchestrator.service.ts
+
+Responsibilities:
+
+detect billing cycle closure
+trigger invoice generation
+create immutable snapshots
+render invoice
+attach CSV/XLSX/PDF
+send email
+track delivery
+retry failed delivery
+create audit logs
+REQUIRED TABLES
+
+invoice_jobs invoice_delivery_logs invoice_email_queue finance_approval_queue invoice_audit_logs
+
+DELIVERY STATUS
+
+Support:
+
+DRAFT VALIDATING PENDING_APPROVAL APPROVED LOCKED SENT DELIVERED OPENED FAILED DISPUTED PAID ARCHIVED
+
+PHASE 8 — INVOICE DIFFERENCE ENGINE
+
+IMPORTANT:
+
+Build on top of the existing: Invoice Draft Differences workflow.
+
+Create:
+
+invoice_variance_reports
+
+Detect:
+
+invoice delta vs previous cycle
+destination variance
+ASR drop
+ACD anomaly
+rerating mismatch
+negative margin
+duplicate billing
+unrated traffic
+vendor mismatch
+PHASE 9 — VENDOR RECONCILIATION ENGINE
+
+Create:
+
+vendor_reconciliation_results vendor_invoice_imports cdr_reconciliation_jobs
+
+Support:
+
+CSV import
+vendor invoice parsing
+billed seconds comparison
+interval mismatch detection
+missing calls
+duplicate calls
+rate mismatch detection
+currency mismatch
+PHASE 10 — PAYMENT RECONCILIATION
+
+Create:
+
+payment_reconciliation_jobs payment_match_results
+
+Support:
+
+invoice matching
+SWIFT reference parsing
+amount tolerance matching
+partial payments
+aging analysis
+overdue detection
+PHASE 11 — REALIZED MARGIN INTELLIGENCE
+
+IMPORTANT:
+
+Use ACTUAL billed seconds.
+
+NOT nominal duration.
+
+Create dashboards for:
+
+realized effective CPM
+destination profitability
+client profitability
+vendor profitability
+QoS-adjusted margin
+negative margin alerts
+margin leakage
+PHASE 12 — ROUTING INTELLIGENCE INTEGRATION
+
+IMPORTANT:
+
+LCR routing must use: realized effective cost
+
+NOT nominal CPM.
+
+Example:
+
+Vendor A: 0.010 | 60/60
+
+Vendor B: 0.011 | 1/1
+
+The engine must calculate: actual realized telecom cost.
+
+PHASE 13 — AI REVENUE ASSURANCE
+
+Create:
+
+revenue_leakage_alerts finance_anomaly_events
+
+Detect:
+
+unrated traffic
+zero-cost routes
+invoice anomalies
+margin spikes
+vendor inflation
+suspicious short-duration traffic
+FAS patterns
+interval mismatch disputes
+FRONTEND REQUIREMENTS
+
+Create pages:
+
+Billing Profiles Invoice Templates Banking Profiles Attachment Rules Finance Approval Queue Invoice Variance Dashboard Reconciliation Dashboard Revenue Leakage Dashboard
+
+UI REQUIREMENTS
+
+Support:
+
+interval preset selector
+effective rate simulator
+call cost preview
+timezone selection
+attachment preview
+email subject preview
+invoice preview
+branding preview
+EFFECTIVE RATE SIMULATOR
+
+Example:
+
+Input: Duration: 65 seconds Rate: 0.01 Interval: 60/60
+
+Output: Billed Seconds: 120 Cost: 0.02 Effective CPM: 0.01846
+
+AUDIT REQUIREMENTS
+
+ALL finance actions must generate audit logs.
+
+Track:
+
+invoice generation
+approval
+recalculation
+dispatch
+rejection
+dispute
+credit note
+debit note
+payment reconciliation
+SECURITY REQUIREMENTS
+
+Client portal must NEVER expose:
+
+vendors
+routing groups
+margins
+internal QoS scores
+carrier ranking
+AI recommendations
+internal route economics
+
+Client portal is STRICTLY read-only finance visibility.
+
+MOST IMPORTANT ARCHITECTURAL RULE
+
+ALL telecom cost calculations MUST use:
+
+rating-engine.service.ts
+
+Never duplicate telecom billing logic elsewhere.
+
+This service becomes the single source of truth for:
+
+routing
+invoices
+reconciliation
+profitability
+finance
+AI operations
+margin analytics
+revenue assurance
+FINAL GOAL
+
+BitsAuto is evolving into:
+
+"Telecom Revenue Operations Intelligence Platform"
+
+combining:
+
+telecom routing intelligence
+QoS analytics
+billing automation
+reconciliation
+finance governance
+invoice orchestration
+fraud analytics
+AI revenue assurance
+profitability intelligence
+
+inside one unified architecture.
+
+I created a complete master implementation prompt/script for the BitsAuto telecom billing and revenue intelligence architecture.
+
+It includes:
+
+Unified Telecom Rating Engine
+Interval-aware billing
+Immutable rating snapshots
+Client billing profile engine
+Multi-template invoice renderer
+Banking profile engine
+Communication/email engine
+Invoice automation orchestration
+Difference detection
+Vendor reconciliation
+Payment reconciliation
+Revenue leakage detection
+AI revenue assurance
+Routing intelligence integration
+Audit/security requirements
+Database schema design
+Frontend/backend architecture
+Sprint-by-sprint implementation structure
+
+The document is structured so it can be directly used for:
+
+implementation planning,
+AI-assisted coding,
+team handoff,
+sprint execution,
+or phased enterprise development.

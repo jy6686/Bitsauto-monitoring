@@ -1,0 +1,206 @@
+i would like to implement vendor related features only 
+
+That’s actually the correct focus area right now.
+
+Because the platform’s strongest and most mature intelligence stack is now:
+
+vendor intelligence
+
+You already have:
+
+Q-score
+degradation detection
+recommendation engine
+vendor intelligence panel
+FAS analysis
+ASR/NER/PDD signals
+routing recommendations
+validation console
+
+So vendor operations is now the highest-leverage expansion area.
+
+What I Would Implement Next (Vendor-Focused Only)
+
+Here’s the best sequence based on operational value.
+
+1. Destination Prefix Intelligence (Highest Priority)
+What It Adds
+
+Inside each vendor:
+
+UK quality
+Pakistan quality
+Bangladesh quality
+mobile vs fixed
+prefix-level Q-score
+
+Example:
+
+Callntalk
+├── UK Mobile → Q82
+├── Pakistan Mobile → Q31
+├── Bangladesh → Q18
+Why It Matters
+
+Right now:
+vendor scoring is averaged too broadly.
+
+But telecom routing decisions happen at:
+
+vendor × destination
+
+This is the single biggest operational upgrade available now.
+
+2. Vendor RCA Drilldown
+
+You already discussed this — now it becomes extremely valuable.
+
+Expand recommendation:
+
+exact metrics
+thresholds crossed
+destination breakdown
+degradation correlation
+confidence weighting
+
+This becomes:
+
+explainable vendor intelligence
+3. Traffic Steering Suggestions
+
+After destination intelligence exists:
+
+Example:
+
+Move 20% Pakistan traffic:
+Vendor A → Vendor B
+
+Expected:
++14 Q-score
+-11% FAS
++6% ASR
+
+This becomes:
+
+actionable routing intelligence
+
+Very commercially valuable.
+
+4. Vendor Stability Timeline
+
+Persist:
+
+Q-score history
+degradation frequency
+instability windows
+recovery time
+
+Then show:
+
+stable vendors
+oscillating vendors
+degrading vendors
+
+This becomes:
+
+vendor reliability intelligence
+5. Vendor Performance Heatmap
+
+Very high operational value.
+
+Example grid:
+
+Vendor	UK	PK	BD	IN
+Vendor A	🟢	🔴	🟡	🟢
+Vendor B	🟡	🟢	🔴	🟢
+
+This gives routing teams:
+
+instant route quality visibility
+6. Vendor Risk Score
+
+Separate from Q-score.
+
+Measures:
+
+degradation frequency
+FAS recurrence
+instability history
+incident recurrence
+recovery reliability
+
+Example:
+
+Operational Risk: HIGH
+
+This becomes useful for:
+
+contract decisions
+routing priority
+carrier negotiations
+7. Smart Vendor Ranking
+
+Not just:
+
+highest ASR
+
+But:
+
+best quality-adjusted operational vendor
+
+Ranking formula eventually:
+
+Q-score
+cost
+stability
+FAS risk
+recovery history
+margin
+
+This becomes:
+
+carrier intelligence
+8. Vendor Auto-Watchlists
+
+System automatically flags:
+
+unstable vendors
+degrading routes
+repeated FAS offenders
+high-latency carriers
+
+Creates:
+
+persistent operational awareness
+Best Immediate Choice
+
+If you want the:
+
+strongest next vendor feature
+
+implement:
+
+Destination Prefix Intelligence
+
+because it unlocks:
+
+better recommendations
+smarter degradation detection
+traffic steering
+vendor heatmaps
+quality-aware routing
+
+Everything else compounds on top of it.
+
+Recommended Vendor-Only Roadmap
+Priority	Feature
+1	Destination Prefix Intelligence
+2	Vendor RCA Drilldown
+3	Traffic Steering Suggestions
+4	Vendor Stability Timeline
+5	Vendor Heatmap
+6	Vendor Risk Score
+7	Smart Vendor Ranking
+8	Auto-Watchlists
+
+This is now a very coherent vendor-intelligence roadmap.

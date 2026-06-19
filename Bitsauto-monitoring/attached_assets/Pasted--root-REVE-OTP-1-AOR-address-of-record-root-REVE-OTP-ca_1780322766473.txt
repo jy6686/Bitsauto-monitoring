@@ -1,0 +1,196 @@
+[root@REVE-OTP ~]# # 1. AOR (address of record)
+[root@REVE-OTP ~]# cat >> /etc/asterisk/pjsip.aor_custom_post.conf << 'EOF'
+> 
+> [sippy-aor]
+> type=aor
+> contact=sip:191.101.30.107:5060
+> EOF
+[root@REVE-OTP ~]# 
+[root@REVE-OTP ~]# # 2. Endpoint
+[root@REVE-OTP ~]# cat >> /etc/asterisk/pjsip.endpoint_custom_post.conf << 'EOF'
+> 
+> [sippy-endpoint]
+> type=endpoint
+> context=sippy-media-anchor
+> aors=sippy-aor
+> allow=!all,ulaw,alaw
+> direct_media=no
+> rtp_symmetric=yes
+> force_rport=yes
+> rewrite_contact=yes
+> EOF
+[root@REVE-OTP ~]# 
+[root@REVE-OTP ~]# # 3. Identify (match inbound calls from Sippy IP)
+[root@REVE-OTP ~]# cat >> /etc/asterisk/pjsip.identify_custom_post.conf << 'EOF'
+> 
+> [sippy-identify]
+> type=identify
+> endpoint=sippy-endpoint
+> match=191.101.30.107
+> EOF
+[root@REVE-OTP ~]# asterisk -rx "module reload res_pjsip.so"
+Module 'res_pjsip.so' reloaded successfully.
+[root@REVE-OTP ~]# asterisk -rx "pjsip show endpoint sippy-endpoint"
+
+ Endpoint:  <Endpoint/CID.....................................>  <State.....>  <Channels.>
+    I/OAuth:  <AuthId/UserName...........................................................>
+        Aor:  <Aor............................................>  <MaxContact>
+      Contact:  <Aor/ContactUri..........................> <Hash....> <Status> <RTT(ms)..>
+  Transport:  <TransportId........>  <Type>  <cos>  <tos>  <BindAddress..................>
+   Identify:  <Identify/Endpoint.........................................................>
+        Match:  <criteria.........................>
+    Channel:  <ChannelId......................................>  <State.....>  <Time.....>
+        Exten: <DialedExten...........>  CLCID: <ConnectedLineCID.......>
+==========================================================================================
+
+ Endpoint:  sippy-endpoint                                       Not in use    0 of inf
+        Aor:  sippy-aor                                          0
+      Contact:  sippy-aor/sip:191.101.30.107:5060          951fd13c35 NonQual         nan
+   Identify:  sippy-identify/sippy-endpoint
+        Match: 191.101.30.107/32
+
+
+ ParameterName                      : ParameterValue
+ ===================================================================================================
+ 100rel                             : yes
+ accept_multiple_sdp_answers        : false
+ accountcode                        : 
+ acl                                : 
+ aggregate_mwi                      : true
+ allow                              : (ulaw|alaw)
+ allow_overlap                      : true
+ allow_subscribe                    : true
+ allow_transfer                     : true
+ allow_unauthenticated_options      : false
+ aors                               : sippy-aor
+ asymmetric_rtp_codec               : false
+ auth                               : 
+ bind_rtp_to_media_address          : false
+ bundle                             : false
+ call_group                         : 
+ callerid                           : <unknown>
+ callerid_privacy                   : allowed_not_screened
+ callerid_tag                       : 
+ codec_prefs_incoming_answer        : prefer:pending, operation:intersect, keep:all, transcode:allow
+ codec_prefs_incoming_offer         : prefer:pending, operation:intersect, keep:all, transcode:allow
+ codec_prefs_outgoing_answer        : prefer:pending, operation:intersect, keep:all, transcode:allow
+ codec_prefs_outgoing_offer         : prefer:pending, operation:union, keep:all, transcode:allow
+ connected_line_method              : invite
+ contact_acl                        : 
+ context                            : sippy-media-anchor
+ cos_audio                          : 0
+ cos_video                          : 0
+ device_state_busy_at               : 0
+ direct_media                       : false
+ direct_media_glare_mitigation      : none
+ direct_media_method                : invite
+ disable_direct_media_on_nat        : false
+ dtls_auto_generate_cert            : No
+ dtls_ca_file                       : 
+ dtls_ca_path                       : 
+ dtls_cert_file                     : 
+ dtls_cipher                        : 
+ dtls_fingerprint                   : SHA-256
+ dtls_private_key                   : 
+ dtls_rekey                         : 0
+ dtls_setup                         : active
+ dtls_verify                        : No
+ dtmf_mode                          : rfc4733
+ fax_detect                         : false
+ fax_detect_timeout                 : 0
+ follow_early_media_fork            : true
+ force_avp                          : false
+ force_rport                        : true
+ from_domain                        : 
+ from_user                          : 
+ g726_non_standard                  : false
+ ice_support                        : false
+ identify_by                        : username,ip
+ ignore_183_without_sdp             : false
+ inband_progress                    : false
+ incoming_call_offer_pref           : local
+ incoming_mwi_mailbox               : 
+ language                           : 
+ mailboxes                          : 
+ max_audio_streams                  : 1
+ max_video_streams                  : 1
+ media_address                      : 
+ media_encryption                   : no
+ media_encryption_optimistic        : false
+ media_use_received_transport       : false
+ message_context                    : 
+ moh_passthrough                    : false
+ moh_suggest                        : default
+ mwi_from_user                      : 
+ mwi_subscribe_replaces_unsolicited : no
+ named_call_group                   : 
+ named_pickup_group                 : 
+ notify_early_inuse_ringing         : false
+ one_touch_recording                : false
+ outbound_auth                      : 
+ outbound_proxy                     : 
+ outgoing_call_offer_pref           : remote_merge
+ pickup_group                       : 
+ preferred_codec_only               : false
+ record_off_feature                 : automixmon
+ record_on_feature                  : automixmon
+ refer_blind_progress               : true
+ rewrite_contact                    : true
+ rpid_immediate                     : false
+ rtcp_mux                           : false
+ rtp_engine                         : asterisk
+ rtp_ipv6                           : false
+ rtp_keepalive                      : 0
+ rtp_symmetric                      : true
+ rtp_timeout                        : 0
+ rtp_timeout_hold                   : 0
+ sdp_owner                          : -
+ sdp_session                        : Asterisk
+ send_connected_line                : yes
+ send_diversion                     : true
+ send_history_info                  : false
+ send_pai                           : false
+ send_rpid                          : false
+ set_var                            : 
+ srtp_tag_32                        : false
+ stir_shaken                        : false
+ sub_min_expiry                     : 0
+ subscribe_context                  : 
+ suppress_q850_reason_headers       : false
+ t38_udptl                          : false
+ t38_udptl_ec                       : none
+ t38_udptl_ipv6                     : false
+ t38_udptl_maxdatagram              : 0
+ t38_udptl_nat                      : false
+ timers                             : yes
+ timers_min_se                      : 90
+ timers_sess_expires                : 1800
+ tone_zone                          : 
+ tos_audio                          : 0
+ tos_video                          : 0
+ transport                          : 
+ trust_connected_line               : yes
+ trust_id_inbound                   : false
+ trust_id_outbound                  : false
+ use_avpf                           : false
+ use_ptime                          : false
+ user_eq_phone                      : false
+ voicemail_extension                : 
+ webrtc                             : no
+
+[root@REVE-OTP ~]# asterisk -rx "pjsip show identify sippy-identify"
+
+ Identify:  <Identify/Endpoint...........................................................>
+      Match:  <criteria...........................>
+==========================================================================================
+
+ Identify:  sippy-identify/sippy-endpoint
+      Match: 191.101.30.107/32
+
+
+ ParameterName : ParameterValue
+ ==============================================
+ endpoint      : sippy-endpoint
+ match         : 191.101.30.107/255.255.255.255
+ match_header  : 
+ srv_lookups   : true

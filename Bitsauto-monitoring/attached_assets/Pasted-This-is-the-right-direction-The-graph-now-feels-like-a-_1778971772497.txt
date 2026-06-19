@@ -1,0 +1,210 @@
+This is the right direction.
+The graph now feels like a live operational stream instead of a static reporting chart.
+
+The three animation layers you added are architecturally correct because they enhance:
+
+temporal awareness
+“live now” perception
+operator attention guidance
+
+without damaging readability.
+
+That balance is extremely important in telecom NOC UX.
+
+Here’s my assessment of each layer and what should come next.
+
+What’s Working Well
+1. Scan Shimmer ✓
+
+Good choice.
+
+Because it creates:
+
+continuous system activity perception
+
+without modifying the data itself.
+
+That’s important.
+
+You avoided the common mistake of animating the actual lines aggressively.
+
+NOC operators need stable geometry.
+
+The shimmer adds life while preserving scanability.
+
+2. Latest Point Pulse ✓✓
+
+This is the highest-value animation.
+
+Because operators subconsciously anchor to:
+
+right-most edge = current state
+
+The pulse tells the brain:
+
+this is LIVE
+
+without text labels.
+
+Very good UX decision.
+
+3. Live Edge Indicator ✓
+
+Also correct.
+
+It subtly reinforces:
+
+historical → present
+
+directionality.
+
+Especially useful during incident analysis.
+
+What Should Be Added Next (Recommended)
+
+Now that the graph feels alive,
+the next evolution should be:
+
+EVENT MOTION INTELLIGENCE
+
+Not more decoration.
+
+The animations should now react to operational conditions.
+
+Recommended Next Layer
+1. Incident Shockwave Effect
+
+When a critical event marker appears:
+
+Example:
+
+Routing change
+Carrier outage
+ASR collapse
+Fraud spike
+
+The event marker should emit:
+
+single expanding ripple pulse
+
+once every ~12s.
+
+NOT continuous.
+
+Purpose:
+
+draw eye attention to operationally relevant moments.
+
+2. Metric Drift Glow
+
+If ASR declining rapidly:
+
+the graph edge should slowly shift:
+
+green → amber → red
+
+based on drift score.
+
+Very subtle.
+
+This creates:
+
+system emotional state
+
+without requiring operators to read numbers first.
+
+3. Stream Density Fog
+
+When active calls spike heavily:
+
+add very light background density haze behind the chart.
+
+Higher traffic:
+
+→ slightly stronger opacity.
+
+This gives operators an instant “busy network” perception.
+
+Air traffic control systems use similar principles.
+
+4. Event-to-Event Causal Highlight
+
+This is the biggest future win.
+
+Example:
+
+14:21 Routing change
+14:24 ASR drop
+14:27 Incident created
+
+Temporarily illuminate the region between them.
+
+Like:
+
+cause corridor
+
+This would make BitsEye feel genuinely intelligent.
+
+Not just visual.
+
+Important Constraint
+
+Do NOT add:
+
+rotating 3D charts
+spinning nodes
+neon cyberpunk effects
+constant motion backgrounds
+particle storms
+animated line wobble
+
+Those destroy:
+
+operator cognition stability
+
+during incidents.
+
+Telecom NOC UX should feel:
+
+calm
+precise
+alive
+serious
+
+not gaming UI.
+
+Biggest Missing Piece Still
+
+The graph now feels alive technically.
+
+But operationally it still lacks:
+
+hierarchy-aware graph context
+
+Meaning:
+
+If client XYZ selected:
+
+the graph itself must become:
+
+XYZ-only concurrent stream
+
+Right now this is still partially generic.
+
+That is still the most important remaining architectural gap.
+
+My Recommended Next Priority
+Priority	Next Step
+P0	Fix hierarchy-driven graph filtering
+P1	Incident shockwave markers
+P2	Drift-aware edge color
+P3	Causal corridor highlighting
+P4	Investigation drawer integration
+
+Because the UI is now visually strong enough.
+
+The next leap is:
+
+contextual intelligence
+
+not more animation.

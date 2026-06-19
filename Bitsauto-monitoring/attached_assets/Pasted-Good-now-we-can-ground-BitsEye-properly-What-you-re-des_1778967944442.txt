@@ -1,0 +1,143 @@
+Good — now we can ground BitsEye properly. What you’re describing is not a “relationship graph only”, it’s actually a:
+
+Real-time Telecom Performance Graph Layer (with delayed live data)
+
+So BitsEye is evolving into a 3-layer visual system, not a single graph.
+
+🧠 What BitsEye SHOULD look like (final structure)
+🟢 1. LIVE CALL GRAPH (5-min delayed intelligence layer)
+
+This is the top-level operational view
+
+What it shows:
+
+A network-style graph of live telecom activity
+
+Nodes:
+Clients
+Vendors
+Destinations
+Breakouts (traffic clusters)
+Edges:
+Active call flow
+Routing dependency
+Traffic direction
+Delay rule:
+5-minute buffered data (IMPORTANT for Sippy safety)
+No real-time polling
+📊 Metrics layered on nodes/edges:
+
+Each node/edge carries:
+
+Call Quality Layer:
+ASR (Answer Success Rate)
+NER (Network Efficiency Ratio)
+MOS (voice quality)
+PDD (Post Dial Delay)
+ACD (Average Call Duration)
+Visual encoding:
+Green → healthy
+Yellow → degrading
+Red → failure cluster
+📡 2. TRAFFIC VOLUME GRAPH (Structural load layer)
+
+This is a bandwidth + routing pressure view
+
+What it shows:
+who is sending traffic to whom
+which routes are overloaded
+where traffic imbalance exists
+Visual:
+Edge thickness = traffic volume
+Node size = total traffic handled
+💰 3. REVENUE CONTRIBUTION GRAPH (Business layer)
+
+This is your financial intelligence layer
+
+What it shows:
+revenue per client
+revenue per vendor route
+destination profitability clusters
+Visual:
+node color intensity = margin %
+edge value = revenue flow
+🧩 How these 3 layers work together
+
+BitsEye is NOT one graph — it is 3 stacked lenses on same dataset
+
+            ┌─────────────────────────┐
+            │  Revenue Graph Layer     │
+            ├─────────────────────────┤
+            │  Traffic Graph Layer     │
+            ├─────────────────────────┤
+            │  Live Call Graph Layer   │
+            └─────────────────────────┘
+🧠 Core Insight (important)
+
+You are NOT building:
+
+❌ “a graph tool”
+
+You are building:
+
+A multi-dimensional telecom observability system
+
+⚙️ Key design rule (very important for stability)
+One graph engine, three render modes:
+
+Same dataset → different weights:
+
+Layer	Node size	Edge weight	Color logic
+Live Calls	active calls	call flow	quality score
+Traffic	traffic volume	bandwidth	congestion
+Revenue	revenue	money flow	margin
+🔥 What makes this powerful
+
+This design gives you:
+
+1. Operational view (NOC)
+
+→ “What is failing right now?”
+
+2. Engineering view
+
+→ “Where is traffic breaking or degrading?”
+
+3. Business view
+
+→ “Where are we losing money?”
+
+🧠 Where BitsEye fits in your platform now
+
+BitsEye becomes:
+
+The visual intelligence core of the entire platform
+
+It sits on top of:
+
+CDR cache
+carrier scores
+ledger (actions)
+incidents
+
+But instead of showing them separately, it projects them as 3 visual lenses
+
+⚠️ Important constraint (based on Sippy safety rule you gave)
+
+You are correct to enforce:
+
+Live refresh rule:
+NO 5–10 sec polling
+USE 5-minute aggregation window
+optional websocket only for updates, not full refresh
+
+This protects:
+
+Sippy XML-RPC stability
+platform reliability
+cost control
+📌 Final recommendation
+
+✔ BitsEye = 3-layer graph intelligence system
+✔ NOT a single hierarchy graph
+✔ NOT a dropdown navigation system

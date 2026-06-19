@@ -1,0 +1,1848 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  Wallet, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
+  TrendingUp, Plus, Settings2, Loader2, Bell, BellOff,
+  CreditCard, ShieldAlert, Minus, Server, Hash, Shield,
+  Network, SlidersHorizontal, Save, History, ChevronDown, ChevronUp,
+  Play, Trash2, Globe, TriangleAlert, Mail, Webhook, Send, TestTube2,
+} from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ReferenceLine, ResponsiveContainer, Dot,
+} from "recharts";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+
+interface BalanceAccount {
+  iAccount: number;
+  username: string;
+  balance: number;
+  creditLimit: number;
+  threshold: number | null;
+  notifyByEmail: boolean | undefined;
+  status: "healthy" | "warning" | "critical";
+  currency?: string;
+  // Extended details
+  maxSessions: number | null;
+  prefix: string | null;
+  allowedIps: string[];
+}
+
+interface BalanceMonitorResponse {
+  success: boolean;
+  accounts: BalanceAccount[];
+  error?: string;
+  fromCache?: boolean;
+}
+
+function StatusBadge({ status }: { status: BalanceAccount["status"] }) {
+  if (status === "critical")
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/25">
+        <XCircle className="w-3 h-3" /> Critical
+      </span>
+    );
+  if (status === "warning")
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/25">
+        <AlertTriangle className="w-3 h-3" /> Warning
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+      <CheckCircle2 className="w-3 h-3" /> Healthy
+    </span>
+  );
+}
+
+function BalanceBar({ balance, creditLimit, threshold }: { balance: number; creditLimit: number; threshold: number | null }) {
+  const maxVal = Math.max(creditLimit, balance, threshold ?? 0, 1);
+  const balPct = Math.min(100, Math.max(0, (balance / maxVal) * 100));
+  const thrPct = threshold !== null ? Math.min(100, Math.max(0, (threshold / maxVal) * 100)) : null;
+
+  const barColor =
+    balance <= 0 ? "bg-rose-500" :
+    threshold !== null && balance <= threshold ? "bg-amber-500" :
+    "bg-emerald-500";
+
+  return (
+    <div className="relative w-full h-2.5 bg-muted/40 rounded-full overflow-visible">
+      <div
+        className={cn("h-2.5 rounded-full transition-all duration-500", barColor)}
+        style={{ width: `${balPct}%` }}
+      />
+      {thrPct !== null && (
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 bg-amber-400 rounded-full z-10"
+          style={{ left: `${thrPct}%` }}
+          title={`Low-balance threshold: $${threshold}`}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Top-Up / Debit Modal ─────────────────────────────────────────────────────
+
+function TopUpModal({
+  account,
+  open,
+  onClose,
+}: {
+  account: BalanceAccount;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<"credit" | "debit">("credit");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const actionMut = useMutation({
+    mutationFn: (body: { amount: number; currency: string; paymentNotes?: string }) =>
+      apiRequest("POST", `/api/sippy/accounts/${account.iAccount}/${mode === "credit" ? "credit" : "debit"}`, body),
+    onSuccess: () => {
+      toast({
+        title: mode === "credit" ? "Top-up applied" : "Debit applied",
+        description: `${account.currency ?? "USD"} ${amount} ${mode === "credit" ? "credited to" : "debited from"} ${account.username}.`,
+      });
+      qc.invalidateQueries({ queryKey: ["/api/sippy/balance-monitor"] });
+      setAmount("");
+      setNote("");
+      onClose();
+    },
+    onError: (e: any) => {
+      toast({
+        title: `${mode === "credit" ? "Top-up" : "Debit"} failed`,
+        description: e.message ?? "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSubmit = () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) {
+      toast({ title: "Invalid amount", description: "Enter a positive number.", variant: "destructive" });
+      return;
+    }
+    actionMut.mutate({ amount: amt, currency: account.currency ?? "USD", paymentNotes: note || undefined });
+  };
+
+  const isCredit = mode === "credit";
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); setAmount(""); setNote(""); setMode("credit"); } }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {isCredit
+              ? <Plus className="w-4 h-4 text-emerald-400" />
+              : <Minus className="w-4 h-4 text-rose-400" />}
+            {isCredit ? "Top-Up" : "Debit"} — {account.username}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Mode toggle */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              data-testid="toggle-credit-mode"
+              onClick={() => setMode("credit")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors",
+                isCredit
+                  ? "bg-emerald-600/20 text-emerald-300 border-r border-emerald-500/30"
+                  : "bg-muted/20 text-muted-foreground hover:bg-muted/40 border-r border-border"
+              )}
+            >
+              <Plus className="w-3.5 h-3.5" /> Top-Up (Credit)
+            </button>
+            <button
+              data-testid="toggle-debit-mode"
+              onClick={() => setMode("debit")}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors",
+                !isCredit
+                  ? "bg-rose-600/20 text-rose-300"
+                  : "bg-muted/20 text-muted-foreground hover:bg-muted/40"
+              )}
+            >
+              <Minus className="w-3.5 h-3.5" /> Debit
+            </button>
+          </div>
+
+          {!isCredit && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-rose-500/8 border border-rose-500/20 text-rose-300 text-xs">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span>Debit reduces the account balance. This action cannot be undone from this interface.</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between text-sm p-3 rounded-lg bg-muted/30 border border-border/50">
+            <span className="text-muted-foreground">Current balance</span>
+            <span className={cn("font-bold font-mono", account.balance <= 0 ? "text-rose-400" : "text-emerald-400")}>
+              {account.currency ?? "USD"} {account.balance.toFixed(4)}
+            </span>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="action-amount">
+              Amount to {isCredit ? "add" : "deduct"} ({account.currency ?? "USD"})
+            </Label>
+            <Input
+              id="action-amount"
+              data-testid="input-topup-amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+              placeholder="e.g. 50.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="action-note">Note (optional)</Label>
+            <Input
+              id="action-note"
+              data-testid="input-topup-note"
+              placeholder={isCredit ? "e.g. Monthly top-up" : "e.g. Correction"}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { onClose(); setAmount(""); setNote(""); setMode("credit"); }} disabled={actionMut.isPending}>
+            Cancel
+          </Button>
+          <Button
+            data-testid="button-confirm-topup"
+            onClick={handleSubmit}
+            disabled={actionMut.isPending || !amount}
+            className={isCredit
+              ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+              : "bg-rose-600 hover:bg-rose-700 text-white"}
+          >
+            {actionMut.isPending
+              ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              : isCredit
+                ? <Plus className="w-4 h-4 mr-2" />
+                : <Minus className="w-4 h-4 mr-2" />}
+            {isCredit ? "Apply Top-Up" : "Apply Debit"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Credit Adjustment Modal ──────────────────────────────────────────────────
+
+function CreditAdjustModal({
+  account,
+  open,
+  onClose,
+}: {
+  account: BalanceAccount;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<"set" | "increase" | "decrease">("set");
+  const [amount, setAmount] = useState("");
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const computedNewLimit = (): number | null => {
+    const n = parseFloat(amount);
+    if (isNaN(n) || n < 0) return null;
+    if (mode === "set") return n;
+    if (mode === "increase") return Math.max(0, account.creditLimit + n);
+    if (mode === "decrease") return Math.max(0, account.creditLimit - n);
+    return null;
+  };
+
+  const newLimit = computedNewLimit();
+
+  const adjustMut = useMutation({
+    mutationFn: (body: { creditLimit: number }) =>
+      apiRequest("PATCH", `/api/sippy/accounts/${account.iAccount}/credit-limit`, body),
+    onSuccess: () => {
+      toast({
+        title: "Credit limit updated",
+        description: `Credit limit for ${account.username} set to ${account.currency ?? "USD"} ${newLimit?.toFixed(2)}.`,
+      });
+      qc.invalidateQueries({ queryKey: ["/api/sippy/balance-monitor"] });
+      setAmount("");
+      onClose();
+    },
+    onError: (e: any) => {
+      toast({ title: "Update failed", description: e.message ?? "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const handleSubmit = () => {
+    if (newLimit === null || newLimit < 0) {
+      toast({ title: "Invalid amount", description: "Enter a valid non-negative number.", variant: "destructive" });
+      return;
+    }
+    adjustMut.mutate({ creditLimit: newLimit });
+  };
+
+  const modeClass = (m: typeof mode) =>
+    cn(
+      "flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-colors",
+      mode === m
+        ? m === "set"
+          ? "bg-blue-600/20 text-blue-300 border-r border-blue-500/30"
+          : m === "increase"
+            ? "bg-emerald-600/20 text-emerald-300 border-r border-emerald-500/30"
+            : "bg-rose-600/20 text-rose-300"
+        : "bg-muted/20 text-muted-foreground hover:bg-muted/40 border-r border-border"
+    );
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); setAmount(""); setMode("set"); } }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-blue-400" />
+            Credit Adjustment — {account.username}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Mode toggle */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button data-testid="credit-mode-set" onClick={() => setMode("set")} className={modeClass("set")}>
+              Set
+            </button>
+            <button data-testid="credit-mode-increase" onClick={() => setMode("increase")} className={modeClass("increase")}>
+              <Plus className="w-3.5 h-3.5" /> Increase
+            </button>
+            <button data-testid="credit-mode-decrease" onClick={() => setMode("decrease")} className={cn(modeClass("decrease"), "border-r-0")}>
+              <Minus className="w-3.5 h-3.5" /> Decrease
+            </button>
+          </div>
+
+          {/* Current values */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-0.5 p-3 rounded-lg bg-muted/30 border border-border/50">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Current Balance</span>
+              <span className={cn("text-sm font-bold font-mono", account.balance <= 0 ? "text-rose-400" : "text-emerald-400")}>
+                {account.currency ?? "USD"} {account.balance.toFixed(4)}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 p-3 rounded-lg bg-muted/30 border border-border/50">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">Current Limit</span>
+              <span className="text-sm font-bold font-mono text-blue-400">
+                {account.currency ?? "USD"} {account.creditLimit.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* Amount input */}
+          <div className="space-y-1.5">
+            <Label htmlFor="credit-amount">
+              {mode === "set" ? "New credit limit" : mode === "increase" ? "Increase by" : "Decrease by"} ({account.currency ?? "USD"})
+            </Label>
+            <Input
+              id="credit-amount"
+              data-testid="input-credit-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder={mode === "set" ? `e.g. ${account.creditLimit.toFixed(2)}` : "e.g. 50.00"}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </div>
+
+          {/* Preview */}
+          {newLimit !== null && (
+            <div className={cn(
+              "flex items-center justify-between p-3 rounded-lg border text-sm",
+              mode === "decrease" && newLimit < account.creditLimit
+                ? "bg-rose-500/8 border-rose-500/20 text-rose-300"
+                : "bg-emerald-500/8 border-emerald-500/20 text-emerald-300"
+            )}>
+              <span className="text-muted-foreground text-xs">New credit limit will be</span>
+              <span className="font-bold font-mono">
+                {account.currency ?? "USD"} {newLimit.toFixed(2)}
+              </span>
+            </div>
+          )}
+
+          {mode === "decrease" && newLimit !== null && newLimit === 0 && account.creditLimit > 0 && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/8 border border-amber-500/20 text-amber-300 text-xs">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span>Reducing to zero removes all prepaid credit from this account.</span>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { onClose(); setAmount(""); setMode("set"); }} disabled={adjustMut.isPending}>
+            Cancel
+          </Button>
+          <Button
+            data-testid="button-confirm-credit-adjust"
+            onClick={handleSubmit}
+            disabled={adjustMut.isPending || newLimit === null}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {adjustMut.isPending
+              ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              : <SlidersHorizontal className="w-4 h-4 mr-2" />}
+            Apply Adjustment
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Alert Config Modal ───────────────────────────────────────────────────────
+
+function ThresholdModal({
+  account,
+  open,
+  onClose,
+}: {
+  account: BalanceAccount;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [threshold, setThreshold] = useState(account.threshold !== null ? String(account.threshold) : "");
+  const [notify, setNotify]       = useState(account.notifyByEmail ?? false);
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const patchMut = useMutation({
+    mutationFn: (body: { threshold?: number | null; notifyByEmail?: boolean }) =>
+      apiRequest("PATCH", `/api/sippy/accounts/${account.iAccount}/low-balance`, body),
+    onSuccess: () => {
+      toast({ title: "Alert settings saved", description: `Low-balance config updated for ${account.username}.` });
+      qc.invalidateQueries({ queryKey: ["/api/sippy/balance-monitor"] });
+      onClose();
+    },
+    onError: (e: any) => {
+      toast({ title: "Save failed", description: e.message ?? "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const handleSave = () => {
+    const thr = threshold === "" ? null : parseFloat(threshold);
+    if (threshold !== "" && (isNaN(thr as number) || (thr as number) < 0)) {
+      toast({ title: "Invalid threshold", description: "Enter a non-negative number or leave blank to disable.", variant: "destructive" });
+      return;
+    }
+    patchMut.mutate({ threshold: thr, notifyByEmail: notify });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Settings2 className="w-4 h-4 text-blue-400" />
+            Alert Settings — {account.username}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="thr-value">Low-balance threshold ({account.currency ?? "USD"})</Label>
+            <p className="text-xs text-muted-foreground">When balance drops to or below this value, the account is flagged as Warning. Leave blank to disable.</p>
+            <Input
+              id="thr-value"
+              data-testid="input-threshold"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="e.g. 10.00 (blank = disabled)"
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border/50">
+            <button
+              data-testid="toggle-notify-email"
+              type="button"
+              onClick={() => setNotify(!notify)}
+              className={cn(
+                "relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                notify ? "bg-blue-600" : "bg-muted"
+              )}
+            >
+              <span className={cn("pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out", notify ? "translate-x-4" : "translate-x-0")} />
+            </button>
+            <div>
+              <p className="text-sm font-medium">Email notification</p>
+              <p className="text-xs text-muted-foreground">Sippy sends alert when balance hits threshold</p>
+            </div>
+            {notify ? <Bell className="w-4 h-4 text-blue-400 ml-auto" /> : <BellOff className="w-4 h-4 text-muted-foreground ml-auto" />}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={patchMut.isPending}>Cancel</Button>
+          <Button
+            data-testid="button-save-threshold"
+            onClick={handleSave}
+            disabled={patchMut.isPending}
+          >
+            {patchMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Settings2 className="w-4 h-4 mr-2" />}
+            Save Settings
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Notification Settings Panel ─────────────────────────────────────────────
+
+interface NotifSettings {
+  id?: number;
+  emailList: string | null;
+  webhookUrl: string | null;
+  notifyOnWarning: boolean;
+  notifyOnUrgent: boolean;
+  notifyOnCritical: boolean;
+  enabled: boolean;
+}
+
+const NOTIF_DEFAULT: NotifSettings = {
+  emailList: '',
+  webhookUrl: '',
+  notifyOnWarning: true,
+  notifyOnUrgent: true,
+  notifyOnCritical: true,
+  enabled: true,
+};
+
+function NotificationSettingsPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { role } = useAuth();
+  const canEdit = role === 'admin' || role === 'management';
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<NotifSettings | null>(null);
+
+  const { data, isLoading } = useQuery<{ settings: NotifSettings | null }>({
+    queryKey: ['/api/balance-alert-notification-settings'],
+    staleTime: 30_000,
+  });
+  const saved = data?.settings ?? null;
+  const current = draft ?? (saved ? { ...NOTIF_DEFAULT, ...saved } : { ...NOTIF_DEFAULT });
+
+  const saveMut = useMutation({
+    mutationFn: (body: NotifSettings) => apiRequest('PUT', '/api/balance-alert-notification-settings', body).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-notification-settings'] });
+      setDraft(null);
+      toast({ title: 'Notification settings saved' });
+    },
+    onError: (e: any) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const testMut = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/balance-alert-notification-settings/test').then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.ok) toast({ title: 'Test sent', description: `Delivered to ${d.sent?.join(', ') ?? 'configured destinations'}.` });
+      else toast({ title: 'Test partially failed', description: d.errors?.join(', '), variant: 'destructive' });
+    },
+    onError: (e: any) => toast({ title: 'Test failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const dirty = draft !== null;
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+      <button
+        data-testid="button-toggle-notification-panel"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Bell className="w-4 h-4 text-blue-400" />
+          <span className="font-semibold text-sm">Balance Alert Notifications</span>
+          {saved && (
+            <span className={cn(
+              "text-[10px] px-1.5 py-0.5 rounded border font-mono",
+              saved.enabled
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                : "bg-slate-500/10 border-slate-500/20 text-slate-400"
+            )}>
+              {saved.enabled ? 'enabled' : 'disabled'}
+            </span>
+          )}
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+      </button>
+
+      {open && (
+        <div className="border-t border-border/60 p-4 space-y-4">
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm py-3">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+            </div>
+          ) : (
+            <>
+              {/* Enable toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Enable notifications</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Send emails and/or webhooks when a balance alert fires</p>
+                </div>
+                <Switch
+                  data-testid="switch-notif-enabled"
+                  checked={current.enabled}
+                  onCheckedChange={v => setDraft(d => ({ ...(d ?? current), enabled: v }))}
+                  disabled={!canEdit}
+                />
+              </div>
+
+              <Separator />
+
+              {/* Email list */}
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-email-list" className="flex items-center gap-1.5 text-sm">
+                  <Mail className="w-3.5 h-3.5 text-blue-400" /> Email recipients
+                </Label>
+                <Input
+                  id="notif-email-list"
+                  data-testid="input-notif-email-list"
+                  placeholder="ops@company.com, noc@company.com"
+                  value={current.emailList ?? ''}
+                  onChange={e => setDraft(d => ({ ...(d ?? current), emailList: e.target.value }))}
+                  disabled={!canEdit}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">Comma-separated. Uses the SMTP credentials configured in Settings.</p>
+              </div>
+
+              {/* Webhook URL */}
+              <div className="space-y-1.5">
+                <Label htmlFor="notif-webhook-url" className="flex items-center gap-1.5 text-sm">
+                  <Webhook className="w-3.5 h-3.5 text-purple-400" /> Webhook URL
+                </Label>
+                <Input
+                  id="notif-webhook-url"
+                  data-testid="input-notif-webhook-url"
+                  placeholder="https://hooks.slack.com/… or https://…/webhook"
+                  value={current.webhookUrl ?? ''}
+                  onChange={e => setDraft(d => ({ ...(d ?? current), webhookUrl: e.target.value }))}
+                  disabled={!canEdit}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">Receives a JSON POST with alert details. Compatible with Slack, Teams, and generic HTTP webhooks.</p>
+              </div>
+
+              <Separator />
+
+              {/* Severity filters */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Notify on severity</p>
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    { key: 'notifyOnWarning' as const,  label: 'Warning',  cls: 'text-amber-400' },
+                    { key: 'notifyOnUrgent' as const,   label: 'Urgent',   cls: 'text-orange-400' },
+                    { key: 'notifyOnCritical' as const, label: 'Critical', cls: 'text-red-400' },
+                  ].map(s => (
+                    <label key={s.key} className="flex items-center gap-2 cursor-pointer select-none">
+                      <Switch
+                        data-testid={`switch-notif-${s.key}`}
+                        checked={current[s.key]}
+                        onCheckedChange={v => setDraft(d => ({ ...(d ?? current), [s.key]: v }))}
+                        disabled={!canEdit}
+                      />
+                      <span className={cn("text-sm font-medium", s.cls)}>{s.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">Critical alerts are always sent immediately. Warning/Urgent are sent on first detection.</p>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center gap-2 pt-1">
+                {canEdit && (
+                  <>
+                    <Button
+                      data-testid="button-save-notif-settings"
+                      size="sm"
+                      onClick={() => saveMut.mutate(current)}
+                      disabled={saveMut.isPending || !dirty}
+                      className="gap-1.5"
+                    >
+                      {saveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      Save
+                    </Button>
+                    <Button
+                      data-testid="button-test-notif"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => testMut.mutate()}
+                      disabled={testMut.isPending || !saved?.enabled}
+                      className="gap-1.5"
+                    >
+                      {testMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <TestTube2 className="w-3.5 h-3.5" />}
+                      Send Test
+                    </Button>
+                  </>
+                )}
+                {!canEdit && (
+                  <p className="text-xs text-muted-foreground">Admin or Management role required to edit notification settings.</p>
+                )}
+                {dirty && !saveMut.isPending && (
+                  <span className="text-[11px] text-amber-400 font-mono ml-auto">unsaved changes</span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Global Thresholds Panel ──────────────────────────────────────────────────
+
+const SEVERITIES: Array<{ key: 'warning' | 'urgent' | 'critical'; label: string; color: string; bgCls: string }> = [
+  { key: 'warning',  label: 'Warning',  color: 'text-amber-400',  bgCls: 'bg-amber-500/10 border-amber-500/20'  },
+  { key: 'urgent',   label: 'Urgent',   color: 'text-orange-400', bgCls: 'bg-orange-500/10 border-orange-500/20' },
+  { key: 'critical', label: 'Critical', color: 'text-red-400',    bgCls: 'bg-red-500/10 border-red-500/20'      },
+];
+
+function GlobalThresholdsPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { role } = useAuth();
+  const canEdit = role === 'admin' || role === 'management';
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Record<string, string>>({});
+
+  // Per-account override editor state
+  const [showAddOverride, setShowAddOverride] = useState(false);
+  const [overrideAcctId, setOverrideAcctId]   = useState('');
+  const [overrideAcctName, setOverrideAcctName] = useState('');
+  const [overrideVals, setOverrideVals]         = useState<Record<string, string>>({ warning: '', urgent: '', critical: '' });
+
+  const { data, isLoading } = useQuery<{ thresholds: any[] }>({
+    queryKey: ['/api/balance-alert-thresholds'],
+    staleTime: 30_000,
+  });
+  const thresholds = data?.thresholds ?? [];
+  const globals = thresholds.filter((t: any) => !t.accountId);
+
+  const runMut = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/noc/balance-alerts/run').then(r => r.json()),
+    onSuccess: (d: any) => {
+      qc.invalidateQueries({ queryKey: ['/api/noc/balance-alerts'] });
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Balance check complete', description: `Checked ${d.checked ?? 0} accounts, ${d.triggered ?? 0} triggered.` });
+    },
+    onError: (e: any) => toast({ title: 'Check failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (body: { severity: string; thresholdUsd: number; accountId?: null }) =>
+      apiRequest('POST', '/api/balance-alert-thresholds', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Threshold saved' });
+      setEditing({});
+    },
+    onError: (e: any) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/balance-alert-thresholds/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Threshold removed' });
+    },
+    onError: (e: any) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
+  });
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+      <button
+        data-testid="button-toggle-thresholds-panel"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <TriangleAlert className="w-4 h-4 text-amber-500" />
+          <span className="font-semibold text-sm">Balance Alert Thresholds</span>
+          <span className="text-xs text-muted-foreground">
+            Global defaults + per-account overrides
+          </span>
+          {globals.length === 0 && !isLoading && (
+            <Badge variant="destructive" className="text-xs ml-1">No defaults set</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1"
+            onClick={(e) => { e.stopPropagation(); runMut.mutate(); }}
+            disabled={runMut.isPending}
+            data-testid="button-run-alert-check"
+          >
+            {runMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+            Run check
+          </Button>
+          {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-border/60 p-4 space-y-4">
+          {/* Global defaults */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+              <Globe className="w-3 h-3" /> Global defaults (apply to all accounts without overrides)
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {SEVERITIES.map(({ key, label, color, bgCls }) => {
+                const existing = globals.find((t: any) => t.severity === key);
+                const editKey = `global-${key}`;
+                const editVal = editing[editKey];
+                const displayVal = editVal !== undefined ? editVal : (existing ? String(existing.thresholdUsd) : '');
+                return (
+                  <div key={key} className={`p-3 rounded-lg border ${bgCls}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-xs font-bold uppercase tracking-wide ${color}`}>{label}</span>
+                      {existing && canEdit && (
+                        <button
+                          data-testid={`button-delete-threshold-${key}`}
+                          onClick={() => deleteMut.mutate(existing.id)}
+                          className="text-muted-foreground/50 hover:text-red-400 transition-colors"
+                          title="Remove threshold"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    {canEdit ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground">$</span>
+                        <Input
+                          data-testid={`input-global-threshold-${key}`}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={displayVal}
+                          placeholder={key === 'warning' ? '100' : key === 'urgent' ? '50' : '10'}
+                          onChange={e => setEditing(prev => ({ ...prev, [editKey]: e.target.value }))}
+                          className="h-7 text-xs px-2 bg-background/60"
+                        />
+                        <Button
+                          data-testid={`button-save-threshold-${key}`}
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          disabled={saveMut.isPending || editVal === undefined || editVal === ''}
+                          onClick={() => {
+                            const v = parseFloat(displayVal);
+                            if (isNaN(v) || v < 0) return;
+                            saveMut.mutate({ severity: key, thresholdUsd: v, accountId: null });
+                          }}
+                        >
+                          <Save className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className={`text-base font-bold font-mono ${color}`}>
+                        {existing ? `$${existing.thresholdUsd}` : '—'}
+                      </p>
+                    )}
+                    {existing && (
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        Alert when balance &lt; ${existing.thresholdUsd}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Per-account overrides section */}
+          <Separator />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Per-account overrides
+              </p>
+              {canEdit && (
+                <Button
+                  data-testid="button-add-account-override"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setShowAddOverride(o => !o)}
+                >
+                  <Plus className="w-3 h-3" />
+                  {showAddOverride ? 'Cancel' : 'Add override'}
+                </Button>
+              )}
+            </div>
+
+            {/* Add per-account override form */}
+            {showAddOverride && canEdit && (
+              <div className="mb-3 p-3 rounded-lg border border-border/60 bg-muted/20 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Set custom warning / urgent / critical thresholds for a specific account.
+                  Leave a level blank to inherit the global default.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Account ID</Label>
+                    <Input
+                      data-testid="input-override-account-id"
+                      placeholder="e.g. 12345"
+                      value={overrideAcctId}
+                      onChange={e => setOverrideAcctId(e.target.value.trim())}
+                      className="h-7 text-xs mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Account name (label)</Label>
+                    <Input
+                      data-testid="input-override-account-name"
+                      placeholder="e.g. Acme Corp"
+                      value={overrideAcctName}
+                      onChange={e => setOverrideAcctName(e.target.value)}
+                      className="h-7 text-xs mt-1"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {SEVERITIES.map(({ key, label, color }) => (
+                    <div key={key}>
+                      <Label className={`text-xs ${color}`}>{label} ($)</Label>
+                      <Input
+                        data-testid={`input-override-${key}`}
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder={key === 'warning' ? '100' : key === 'urgent' ? '50' : '10'}
+                        value={overrideVals[key] ?? ''}
+                        onChange={e => setOverrideVals(p => ({ ...p, [key]: e.target.value }))}
+                        className="h-7 text-xs mt-1"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    data-testid="button-save-account-override"
+                    size="sm"
+                    className="h-7 text-xs gap-1"
+                    disabled={saveMut.isPending || !overrideAcctId}
+                    onClick={async () => {
+                      if (!overrideAcctId) return;
+                      const tasks = SEVERITIES
+                        .filter(({ key }) => overrideVals[key] && !isNaN(parseFloat(overrideVals[key])))
+                        .map(({ key }) =>
+                          saveMut.mutateAsync({
+                            severity: key,
+                            thresholdUsd: parseFloat(overrideVals[key]),
+                            accountId: overrideAcctId as any,
+                            accountName: overrideAcctName || undefined,
+                          } as any)
+                        );
+                      if (tasks.length === 0) {
+                        toast({ title: 'Enter at least one threshold value', variant: 'destructive' });
+                        return;
+                      }
+                      await Promise.all(tasks);
+                      setShowAddOverride(false);
+                      setOverrideAcctId('');
+                      setOverrideAcctName('');
+                      setOverrideVals({ warning: '', urgent: '', critical: '' });
+                    }}
+                  >
+                    <Save className="w-3 h-3" /> Save override
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {thresholds.filter((t: any) => t.accountId).length === 0 && !showAddOverride ? (
+              <p className="text-xs text-muted-foreground py-1">
+                No per-account overrides. Global defaults apply to all accounts.
+              </p>
+            ) : (
+              <div className="divide-y divide-border/40">
+                {/* Group by account */}
+                {Object.entries(
+                  thresholds
+                    .filter((t: any) => t.accountId)
+                    .reduce((acc: Record<string, any[]>, t: any) => {
+                      const key = t.accountId;
+                      acc[key] = acc[key] ?? [];
+                      acc[key].push(t);
+                      return acc;
+                    }, {})
+                )
+                  .sort(([, a], [, b]) => ((a[0]?.accountName ?? '') as string).localeCompare((b[0]?.accountName ?? '') as string))
+                  .map(([acctId, rows]) => (
+                    <div key={acctId} className="py-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{(rows[0] as any)?.accountName ?? `#${acctId}`}</span>
+                        <span className="text-muted-foreground font-mono text-[10px]">#{acctId}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {(rows as any[]).sort((a, b) => {
+                          const rank: Record<string, number> = { warning: 0, urgent: 1, critical: 2 };
+                          return (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3);
+                        }).map((t: any) => {
+                          const sev = SEVERITIES.find(s => s.key === t.severity);
+                          return (
+                            <span key={t.id} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${sev?.bgCls ?? ''}`}>
+                              <span className={`font-mono font-bold uppercase text-[10px] ${sev?.color ?? ''}`}>{t.severity}</span>
+                              <span className="text-muted-foreground text-[10px]">&lt;${t.thresholdUsd}</span>
+                              {canEdit && (
+                                <button
+                                  data-testid={`button-delete-override-${t.id}`}
+                                  onClick={() => deleteMut.mutate(t.id)}
+                                  className="text-muted-foreground/40 hover:text-red-400 transition-colors"
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Per-Account Alert History ─────────────────────────────────────────────────
+
+// ─── Severity colour helpers ───────────────────────────────────────────────
+function sevColor(severity: string) {
+  if (severity === 'critical') return '#f87171'; // red-400
+  if (severity === 'urgent')   return '#fb923c'; // orange-400
+  return '#fbbf24'; // amber-400
+}
+
+// Custom dot renderer: colours each point by severity
+function SeverityDot(props: any) {
+  const { cx, cy, payload } = props;
+  if (cx == null || cy == null) return null;
+  return <circle cx={cx} cy={cy} r={4} fill={sevColor(payload.severity)} stroke="none" />;
+}
+
+// Tooltip for the balance chart
+function BalanceTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/95 backdrop-blur px-3 py-2 shadow-lg text-[11px] space-y-1">
+      <p className="font-semibold" style={{ color: sevColor(d.severity) }}>{d.severity.toUpperCase()}</p>
+      <p className="font-mono text-foreground">${Number(d.balance).toFixed(2)}</p>
+      <p className="text-muted-foreground">{new Date(d.ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+      {d.resolved && <p className="text-emerald-400">✓ resolved</p>}
+    </div>
+  );
+}
+
+function AccountAlertHistory({ accountId, accountName, threshold, currency }: {
+  accountId: number;
+  accountName: string;
+  threshold: number | null;
+  currency?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const cur = currency ?? 'USD';
+
+  const { data, isLoading } = useQuery<{ events: any[]; history: any[] }>({
+    queryKey: ['/api/accounts', String(accountId), 'balance-alert-history'],
+    queryFn: () => apiRequest('GET', `/api/accounts/${accountId}/balance-alert-history`).then(r => r.json()),
+    enabled: open,
+    staleTime: 60_000,
+  });
+  const events = data?.events ?? data?.history ?? [];
+
+  // Sort ascending by triggeredAt for the chart
+  const sorted = [...events].sort((a, b) => new Date(a.triggeredAt).getTime() - new Date(b.triggeredAt).getTime());
+
+  const chartData = sorted.map(e => ({
+    ts: new Date(e.triggeredAt).getTime(),
+    balance: Number(e.currentBalance),
+    severity: e.severity,
+    resolved: !!e.resolvedAt,
+  }));
+
+  const balances = chartData.map(d => d.balance);
+  const minBal = balances.length ? Math.min(...balances) : 0;
+  const maxBal = balances.length ? Math.max(...balances) : 10;
+  const yPad = (maxBal - minBal) * 0.15 || 1;
+  const yMin = Math.max(0, minBal - yPad);
+  const yMax = maxBal + yPad;
+
+  return (
+    <div className="border-t border-border/40 mt-2 pt-2">
+      <button
+        data-testid={`button-toggle-history-${accountId}`}
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        <History className="w-3 h-3" />
+        Alert history
+        {events.length > 0 && !isLoading && open && (
+          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[10px] font-medium">
+            {events.length}
+          </span>
+        )}
+        {open ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              <Loader2 className="w-3 h-3 animate-spin" /> Loading history…
+            </div>
+          ) : events.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-1">No alerts in the last 30 days.</p>
+          ) : (
+            <>
+              {/* ── Balance trend mini-chart ─────────────────────────────── */}
+              <div
+                data-testid={`chart-balance-history-${accountId}`}
+                className="rounded-lg border border-border/30 bg-muted/10 p-2 pb-1"
+              >
+                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mb-1 px-1">
+                  Balance at alert time ({cur}) — last 30 days
+                </p>
+                <ResponsiveContainer width="100%" height={100}>
+                  <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                    <defs>
+                      <linearGradient id={`balGrad-${accountId}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="#fbbf24" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#fbbf24" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                    <XAxis
+                      dataKey="ts"
+                      type="number"
+                      domain={['dataMin', 'dataMax']}
+                      scale="time"
+                      tick={false}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      domain={[yMin, yMax]}
+                      tick={{ fontSize: 9, fill: 'rgba(255,255,255,0.35)' }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={36}
+                      tickFormatter={(v: number) => `$${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)}`}
+                    />
+                    <Tooltip content={<BalanceTooltip />} />
+                    {threshold !== null && (
+                      <ReferenceLine
+                        y={threshold}
+                        stroke="#fbbf24"
+                        strokeDasharray="4 3"
+                        strokeOpacity={0.55}
+                        label={{ value: 'threshold', position: 'insideTopRight', fontSize: 8, fill: '#fbbf24', opacity: 0.7 }}
+                      />
+                    )}
+                    <Area
+                      type="monotone"
+                      dataKey="balance"
+                      stroke="#fbbf24"
+                      strokeWidth={1.5}
+                      strokeOpacity={0.6}
+                      fill={`url(#balGrad-${accountId})`}
+                      dot={<SeverityDot />}
+                      activeDot={{ r: 5, strokeWidth: 0 }}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+                {/* Severity legend */}
+                <div className="flex items-center gap-3 px-1 pt-1 pb-0.5">
+                  {[['critical', '#f87171'], ['urgent', '#fb923c'], ['warning', '#fbbf24']].map(([label, color]) => (
+                    <span key={label} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Event timeline list ──────────────────────────────────── */}
+              <div className="space-y-0.5" data-testid={`list-alert-history-${accountId}`}>
+                {events.slice(0, 10).map((e: any) => {
+                  const resolvedAt  = e.resolvedAt ? new Date(e.resolvedAt) : null;
+                  const triggeredAt = new Date(e.triggeredAt);
+                  const color = sevColor(e.severity);
+                  return (
+                    <div
+                      key={e.id}
+                      data-testid={`row-alert-event-${e.id}`}
+                      className="flex items-center gap-2 text-[10px] py-1 border-b border-border/20 last:border-0"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />
+                      <span className="font-mono font-bold uppercase shrink-0" style={{ color }}>
+                        {e.severity}
+                      </span>
+                      <span className="font-mono text-foreground/80 shrink-0">
+                        {cur} {Number(e.currentBalance).toFixed(2)}
+                      </span>
+                      <span className="text-muted-foreground flex-1 text-right">
+                        {triggeredAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                        {' '}
+                        {triggeredAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {resolvedAt ? (
+                        <span className="shrink-0 text-emerald-500 font-medium">✓</span>
+                      ) : (
+                        <span className="shrink-0 text-amber-500 font-medium">●</span>
+                      )}
+                    </div>
+                  );
+                })}
+                {events.length > 10 && (
+                  <p className="text-[10px] text-muted-foreground text-center pt-1">
+                    +{events.length - 10} older events
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Per-Account Balance Thresholds Panel ─────────────────────────────────────
+
+function AccountThresholdsPanel({ accountId, accountName }: { accountId: number; accountName: string }) {
+  const [open, setOpen] = useState(false);
+  const { role } = useAuth();
+  const canEdit = role === 'admin' || role === 'management';
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<Record<string, string>>({});
+
+  const { data, isLoading } = useQuery<{ thresholds: any[] }>({
+    queryKey: ['/api/balance-alert-thresholds'],
+    staleTime: 30_000,
+    enabled: open,
+  });
+
+  const thresholds = data?.thresholds ?? [];
+  const accountThresholds = thresholds.filter((t: any) => String(t.accountId) === String(accountId));
+  const globals = thresholds.filter((t: any) => !t.accountId);
+  const hasOverrides = accountThresholds.length > 0;
+
+  const saveMut = useMutation({
+    mutationFn: (body: { severity: string; thresholdUsd: number; accountId: string; accountName: string }) =>
+      apiRequest('POST', '/api/balance-alert-thresholds', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Threshold saved', description: `Custom threshold set for ${accountName}.` });
+      setEditing({});
+    },
+    onError: (e: any) => toast({ title: 'Save failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiRequest('DELETE', `/api/balance-alert-thresholds/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/balance-alert-thresholds'] });
+      toast({ title: 'Override removed', description: 'Global defaults now apply to this account.' });
+    },
+    onError: (e: any) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
+  });
+
+  const handleResetAll = async () => {
+    await Promise.all(accountThresholds.map((t: any) => deleteMut.mutateAsync(t.id)));
+  };
+
+  return (
+    <div className="border-t border-border/40 mt-2 pt-2">
+      <button
+        data-testid={`button-toggle-thresholds-${accountId}`}
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        <TriangleAlert className="w-3 h-3" />
+        Balance thresholds
+        {hasOverrides && (
+          <span className="ml-1 px-1.5 py-0 rounded text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+            custom
+          </span>
+        )}
+        {open ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-2">
+          {isLoading ? (
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" /> Loading…
+            </p>
+          ) : (
+            <>
+              <p className="text-[10px] text-muted-foreground">
+                {hasOverrides
+                  ? 'Custom thresholds are active for this account. Blank levels inherit global defaults.'
+                  : 'No per-account overrides — global defaults apply. Enter a value to add a custom threshold.'}
+              </p>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                {SEVERITIES.map(({ key, label, color, bgCls }) => {
+                  const override = accountThresholds.find((t: any) => t.severity === key);
+                  const global   = globals.find((t: any) => t.severity === key);
+                  const editKey  = key;
+                  const editVal  = editing[editKey];
+                  const displayVal = editVal !== undefined ? editVal : (override ? String(override.thresholdUsd) : '');
+                  const placeholder = global
+                    ? `global: $${global.thresholdUsd}`
+                    : (key === 'warning' ? '100' : key === 'urgent' ? '50' : '10');
+
+                  return (
+                    <div key={key} className={`p-2 rounded-lg border ${bgCls}`}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className={`text-[9px] font-bold uppercase tracking-wide ${color}`}>{label}</span>
+                        {override && canEdit && (
+                          <button
+                            data-testid={`button-delete-acct-threshold-${accountId}-${key}`}
+                            onClick={() => deleteMut.mutate(override.id)}
+                            disabled={deleteMut.isPending}
+                            className="text-muted-foreground/50 hover:text-red-400 transition-colors disabled:opacity-40"
+                            title="Remove override — fall back to global"
+                          >
+                            <Trash2 className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {canEdit ? (
+                        <div className="flex items-center gap-0.5">
+                          <span className="text-[10px] text-muted-foreground shrink-0">$</span>
+                          <Input
+                            data-testid={`input-acct-threshold-${accountId}-${key}`}
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={displayVal}
+                            placeholder={global ? String(global.thresholdUsd) : (key === 'warning' ? '100' : key === 'urgent' ? '50' : '10')}
+                            onChange={e => setEditing(p => ({ ...p, [editKey]: e.target.value }))}
+                            className="h-6 text-[10px] px-1.5 bg-background/60 min-w-0"
+                          />
+                          <button
+                            data-testid={`button-save-acct-threshold-${accountId}-${key}`}
+                            className="h-6 w-6 shrink-0 flex items-center justify-center rounded hover:bg-muted/60 disabled:opacity-40 transition-colors"
+                            disabled={saveMut.isPending || editVal === undefined || editVal === ''}
+                            title="Save threshold"
+                            onClick={() => {
+                              const v = parseFloat(editVal ?? '');
+                              if (isNaN(v) || v < 0) return;
+                              saveMut.mutate({ severity: key, thresholdUsd: v, accountId: String(accountId), accountName });
+                            }}
+                          >
+                            <Save className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <p className={`text-sm font-bold font-mono ${color}`}>
+                          {override ? `$${override.thresholdUsd}` : (
+                            <span className="text-muted-foreground/60 text-[10px] font-normal">
+                              {global ? `$${global.thresholdUsd} (global)` : '—'}
+                            </span>
+                          )}
+                        </p>
+                      )}
+
+                      {canEdit && (
+                        <p className="text-[9px] text-muted-foreground/60 mt-0.5 truncate">
+                          {override
+                            ? `override${global ? ` (global: $${global.thresholdUsd})` : ''}`
+                            : (global ? `global: $${global.thresholdUsd}` : 'no default')}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {hasOverrides && canEdit && (
+                <button
+                  data-testid={`button-reset-thresholds-${accountId}`}
+                  onClick={handleResetAll}
+                  disabled={deleteMut.isPending}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-red-400 transition-colors mt-1 disabled:opacity-40"
+                >
+                  {deleteMut.isPending
+                    ? <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    : <Trash2 className="w-2.5 h-2.5" />}
+                  Reset to global defaults
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Account Card ─────────────────────────────────────────────────────────────
+
+function AccountCard({ account }: { account: BalanceAccount }) {
+  const [showTopUp, setShowTopUp]           = useState(false);
+  const [showThreshold, setShowThreshold]   = useState(false);
+  const [showCreditAdj, setShowCreditAdj]   = useState(false);
+  const { role } = useAuth();
+  const canEdit = role === "admin" || role === "management";
+
+  const cur = account.currency ?? "USD";
+  const cardBorder =
+    account.status === "critical" ? "border-rose-500/30 bg-rose-500/5" :
+    account.status === "warning"  ? "border-amber-500/30 bg-amber-500/5" :
+    "border-border/50 bg-card";
+
+  const portLabel =
+    account.maxSessions === null  ? "—" :
+    account.maxSessions === 0     ? "Unlimited" :
+    account.maxSessions === -1    ? "Unlimited" :
+    String(account.maxSessions);
+
+  return (
+    <>
+      <div data-testid={`card-account-${account.iAccount}`} className={cn("rounded-xl border p-5 space-y-3.5 transition-all", cardBorder)}>
+
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <CreditCard className={cn("w-4 h-4", account.status === "critical" ? "text-rose-400" : account.status === "warning" ? "text-amber-400" : "text-emerald-400")} />
+              <span data-testid={`text-account-name-${account.iAccount}`} className="font-semibold text-sm">{account.username}</span>
+            </div>
+            <span className="text-[11px] text-muted-foreground font-mono">iAccount={account.iAccount}</span>
+          </div>
+          <StatusBadge status={account.status} />
+        </div>
+
+        {/* Balance number */}
+        <div className="space-y-1">
+          <div className="flex items-end justify-between">
+            <span data-testid={`text-balance-${account.iAccount}`} className={cn("text-2xl font-bold font-mono tracking-tight", account.balance <= 0 ? "text-rose-400" : account.balance <= (account.threshold ?? Infinity) ? "text-amber-400" : "text-emerald-400")}>
+              {cur} {account.balance.toFixed(4)}
+            </span>
+            {account.creditLimit > 0 && (
+              <span className="text-xs text-muted-foreground">limit: {cur} {account.creditLimit.toFixed(2)}</span>
+            )}
+          </div>
+          <BalanceBar balance={account.balance} creditLimit={account.creditLimit} threshold={account.threshold} />
+        </div>
+
+        {/* Extra details grid */}
+        <div className="grid grid-cols-3 gap-2 pt-0.5">
+          {/* Allocated Ports */}
+          <div className="flex flex-col gap-0.5 p-2 rounded-lg bg-muted/20 border border-border/30">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+              <Server className="w-2.5 h-2.5" /> Ports
+            </div>
+            <span data-testid={`text-ports-${account.iAccount}`} className="text-xs font-semibold font-mono text-foreground">
+              {portLabel}
+            </span>
+          </div>
+
+          {/* Prefix */}
+          <div className="flex flex-col gap-0.5 p-2 rounded-lg bg-muted/20 border border-border/30">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+              <Hash className="w-2.5 h-2.5" /> Prefix
+            </div>
+            <span data-testid={`text-prefix-${account.iAccount}`} className="text-xs font-semibold font-mono text-foreground truncate" title={account.prefix ?? undefined}>
+              {account.prefix ?? "—"}
+            </span>
+          </div>
+
+          {/* Allowed IPs count */}
+          <div className="flex flex-col gap-0.5 p-2 rounded-lg bg-muted/20 border border-border/30">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+              <Shield className="w-2.5 h-2.5" /> IPs
+            </div>
+            <span data-testid={`text-ip-count-${account.iAccount}`} className="text-xs font-semibold font-mono text-foreground">
+              {account.allowedIps.length > 0 ? account.allowedIps.length : "—"}
+            </span>
+          </div>
+        </div>
+
+        {/* Allowed IPs list (if any) */}
+        {account.allowedIps.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium uppercase tracking-wide">
+              <Network className="w-2.5 h-2.5" /> Allowed IPs
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {account.allowedIps.map((ip, i) => (
+                <span
+                  key={i}
+                  data-testid={`badge-ip-${account.iAccount}-${i}`}
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono bg-blue-500/10 border border-blue-500/20 text-blue-300"
+                >
+                  {ip}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Threshold row */}
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            {account.threshold !== null ? (
+              <>
+                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                <span>Alert at <span className="font-mono text-amber-400">{cur} {account.threshold.toFixed(2)}</span></span>
+              </>
+            ) : (
+              <>
+                <ShieldAlert className="w-3 h-3 text-muted-foreground/50" />
+                <span className="text-muted-foreground/60">No threshold set</span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            {account.notifyByEmail ? (
+              <Bell className="w-3 h-3 text-blue-400" />
+            ) : (
+              <BellOff className="w-3 h-3 text-muted-foreground/40" />
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        {canEdit && (
+          <div className="space-y-2 pt-0.5">
+            <div className="flex gap-2">
+              <Button
+                data-testid={`button-topup-${account.iAccount}`}
+                size="sm"
+                className="flex-1 bg-emerald-600/90 hover:bg-emerald-600 text-white text-xs h-8"
+                onClick={() => setShowTopUp(true)}
+              >
+                <Plus className="w-3 h-3 mr-1" /> Top-Up / Debit
+              </Button>
+              <Button
+                data-testid={`button-configure-${account.iAccount}`}
+                size="sm"
+                variant="outline"
+                className="flex-1 text-xs h-8"
+                onClick={() => setShowThreshold(true)}
+              >
+                <Settings2 className="w-3 h-3 mr-1" /> Alert Config
+              </Button>
+            </div>
+            <Button
+              data-testid={`button-credit-adjust-${account.iAccount}`}
+              size="sm"
+              variant="outline"
+              className="w-full text-xs h-8 border-blue-500/30 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300"
+              onClick={() => setShowCreditAdj(true)}
+            >
+              <SlidersHorizontal className="w-3 h-3 mr-1" /> Credit Adjustment
+            </Button>
+          </div>
+        )}
+
+        {/* Per-account balance thresholds (expandable) */}
+        <AccountThresholdsPanel accountId={account.iAccount} accountName={account.username} />
+
+        {/* Alert history expandable */}
+        <AccountAlertHistory accountId={account.iAccount} accountName={account.username} threshold={account.threshold} currency={account.currency} />
+      </div>
+
+      <TopUpModal account={account} open={showTopUp} onClose={() => setShowTopUp(false)} />
+      <ThresholdModal account={account} open={showThreshold} onClose={() => setShowThreshold(false)} />
+      <CreditAdjustModal account={account} open={showCreditAdj} onClose={() => setShowCreditAdj(false)} />
+    </>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function BalanceMonitorPage() {
+  const qc = useQueryClient();
+  const { role } = useAuth();
+  const isViewer = role === 'viewer';
+
+  const { data, isLoading, error, dataUpdatedAt } = useQuery<BalanceMonitorResponse>({
+    queryKey: ["/api/sippy/balance-monitor"],
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  // For viewers: fetch their assigned accounts (via KAM email match) to filter the list
+  const { data: assignedAccountsData } = useQuery<{ kamId: number | null; kamName: string | null; accountIds: string[]; clientNames: string[] }>({
+    queryKey: ["/api/user/assigned-accounts"],
+    enabled: isViewer,
+    staleTime: 60_000,
+  });
+
+  const allAccounts = data?.accounts ?? [];
+  // Viewers with specific KAM account assignments see only their accounts;
+  // if no KAM mapping exists, they see all accounts (balance_monitor was still granted by admin)
+  const assignedIds = assignedAccountsData?.accountIds ?? [];
+  const accounts = isViewer && assignedIds.length > 0
+    ? allAccounts.filter(a => assignedIds.includes(String(a.iAccount)))
+    : allAccounts;
+
+  const [statusFilter, setStatusFilter] = useState<"critical" | "warning" | "healthy" | null>(null);
+
+  const criticalCount = accounts.filter((a) => a.status === "critical").length;
+  const warningCount  = accounts.filter((a) => a.status === "warning").length;
+  const healthyCount  = accounts.filter((a) => a.status === "healthy").length;
+
+  const displayedAccounts = statusFilter
+    ? accounts.filter((a) => a.status === statusFilter)
+    : accounts;
+
+  const lastUpdated = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <Wallet className="w-6 h-6 text-blue-400" />
+            <h2 className="text-2xl font-bold tracking-tight">Account Balance Monitor</h2>
+          </div>
+          <p className="text-muted-foreground text-sm mt-1">
+            Live balances · auto-refresh every 5 min · alert thresholds enforced
+            {lastUpdated && <span className="ml-2 text-muted-foreground/60">· updated {lastUpdated}</span>}
+          </p>
+          {isViewer && assignedIds.length > 0 && assignedAccountsData?.kamName && (
+            <p className="text-xs text-blue-400/80 mt-1 flex items-center gap-1">
+              <Shield className="w-3 h-3" />
+              Showing accounts assigned to {assignedAccountsData.kamName}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {!isLoading && accounts.length > 0 && (
+            <div className="flex items-center gap-2 text-xs">
+              {criticalCount > 0 && (
+                <button
+                  data-testid="badge-filter-critical"
+                  onClick={() => setStatusFilter(f => f === "critical" ? null : "critical")}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded-lg border font-semibold transition-all",
+                    statusFilter === "critical"
+                      ? "bg-rose-500/25 border-rose-500/60 text-rose-300 ring-1 ring-rose-500/40"
+                      : "bg-rose-500/10 border-rose-500/25 text-rose-400 hover:bg-rose-500/20"
+                  )}
+                >
+                  <XCircle className="w-3 h-3" /> {criticalCount} Critical
+                </button>
+              )}
+              {warningCount > 0 && (
+                <button
+                  data-testid="badge-filter-warning"
+                  onClick={() => setStatusFilter(f => f === "warning" ? null : "warning")}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded-lg border font-semibold transition-all",
+                    statusFilter === "warning"
+                      ? "bg-amber-500/25 border-amber-500/60 text-amber-300 ring-1 ring-amber-500/40"
+                      : "bg-amber-500/10 border-amber-500/25 text-amber-400 hover:bg-amber-500/20"
+                  )}
+                >
+                  <AlertTriangle className="w-3 h-3" /> {warningCount} Warning
+                </button>
+              )}
+              {healthyCount > 0 && (
+                <button
+                  data-testid="badge-filter-healthy"
+                  onClick={() => setStatusFilter(f => f === "healthy" ? null : "healthy")}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded-lg border font-semibold transition-all",
+                    statusFilter === "healthy"
+                      ? "bg-emerald-500/25 border-emerald-500/60 text-emerald-300 ring-1 ring-emerald-500/40"
+                      : "bg-emerald-500/10 border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/20"
+                  )}
+                >
+                  <CheckCircle2 className="w-3 h-3" /> {healthyCount} Healthy
+                </button>
+              )}
+            </div>
+          )}
+          <Button
+            data-testid="button-refresh-balances"
+            variant="outline"
+            size="sm"
+            onClick={() => qc.invalidateQueries({ queryKey: ["/api/sippy/balance-monitor"] })}
+            disabled={isLoading}
+          >
+            <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Notification Settings Panel */}
+      <NotificationSettingsPanel />
+
+      {/* Global Alert Thresholds Panel */}
+      <GlobalThresholdsPanel />
+
+      {/* Cache-fallback notice — shown when live XML-RPC balance fetch failed */}
+      {data?.fromCache && (
+        <div className="flex items-start gap-3 p-3.5 rounded-xl border border-amber-500/25 bg-amber-500/8 text-amber-300 text-sm">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div>
+            <span className="font-semibold">Limited mode — live balance fetch unavailable</span>
+            <p className="text-xs mt-0.5 opacity-75">
+              Account list is sourced from cached data. Balance figures may show as zero.
+              This usually resolves on its own — try <strong>refreshing the page</strong>. If it persists, verify the XML-RPC API Password in <strong>Settings → Sippy Connection</strong>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Alert Banner */}
+      {(criticalCount > 0 || warningCount > 0) && (
+        <button
+          data-testid="banner-alert-accounts"
+          onClick={() => {
+            const target = criticalCount > 0 ? "critical" : "warning";
+            setStatusFilter(f => f === target ? null : target);
+          }}
+          className={cn(
+            "w-full flex items-start gap-3 p-4 rounded-xl border text-sm text-left transition-all",
+            criticalCount > 0
+              ? "bg-rose-500/8 border-rose-500/25 text-rose-300 hover:bg-rose-500/15 hover:border-rose-500/40"
+              : "bg-amber-500/8 border-amber-500/25 text-amber-300 hover:bg-amber-500/15 hover:border-amber-500/40"
+          )}
+        >
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <span className="font-semibold">
+              {criticalCount > 0
+                ? `${criticalCount} account${criticalCount > 1 ? "s" : ""} at zero balance — calls may be failing`
+                : `${warningCount} account${warningCount > 1 ? "s" : ""} below alert threshold`}
+            </span>
+            <p className="text-xs mt-0.5 opacity-75">
+              {statusFilter === (criticalCount > 0 ? "critical" : "warning")
+                ? "Click to show all accounts"
+                : "Click to view affected accounts"}
+            </p>
+          </div>
+          <span className="text-xs opacity-60 mt-0.5 flex-shrink-0">
+            {statusFilter === (criticalCount > 0 ? "critical" : "warning") ? "← clear" : "view →"}
+          </span>
+        </button>
+      )}
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-16 gap-3 text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span>Fetching live account details from Sippy…</span>
+        </div>
+      )}
+
+      {/* Error */}
+      {!isLoading && error && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border border-rose-500/25 bg-rose-500/8 text-rose-300 text-sm">
+          <XCircle className="w-4 h-4 flex-shrink-0" />
+          <span>{(error as any)?.message ?? "Failed to load balance data."}</span>
+        </div>
+      )}
+
+      {/* No accounts */}
+      {!isLoading && !error && accounts.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+          <Wallet className="w-10 h-10 opacity-20" />
+          <p className="text-sm">No accounts found. Check your Sippy connection in Settings.</p>
+        </div>
+      )}
+
+      {/* Account Cards Grid */}
+      {accounts.length > 0 && (
+        <>
+          {statusFilter && (
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                Showing <span className="font-semibold text-foreground">{displayedAccounts.length}</span> {statusFilter} account{displayedAccounts.length !== 1 ? "s" : ""}
+              </span>
+              <button
+                data-testid="button-clear-filter"
+                onClick={() => setStatusFilter(null)}
+                className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              >
+                Show all {accounts.length}
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayedAccounts.map((a) => (
+              <AccountCard key={a.iAccount} account={a} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Legend */}
+      {accounts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground/60 pt-2">
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-1.5 rounded-full bg-emerald-500" /> Healthy — above threshold
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-1.5 rounded-full bg-amber-500" /> Warning — at or below threshold
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-1.5 rounded-full bg-rose-500" /> Critical — balance ≤ 0
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-0.5 h-3 rounded-full bg-amber-400" /> Threshold marker
+          </div>
+          <div className="flex items-center gap-1.5">
+            <TrendingUp className="w-3 h-3" /> Refreshes every 2 minutes automatically
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,127 @@
+Perfect — this was the correct fix.
+
+You removed the biggest operational risk in the map layer:
+
+external dependency for core NOC rendering
+
+That’s extremely important for telecom monitoring systems.
+
+What improved architecturally
+
+Before:
+
+BitsEye 2 map depended on external CDN uptime
+
+Problems:
+
+CDN failures
+CORS
+rate limits
+partial rendering
+blank wallboards
+unreliable NOC screens
+
+Now:
+
+map assets are part of the platform itself
+
+Correct production architecture.
+
+The fallback behavior is also excellent
+
+Instead of:
+
+empty white panel
+
+you now have:
+
+graceful degradation
+
+This is exactly how operational systems should behave.
+
+Even if geography fails:
+
+country visibility survives
+drilldowns survive
+monitoring survives
+operators are not blocked
+
+Very strong resilience design.
+
+Current World Map maturity
+
+Your map layer now supports:
+
+Capability	Status
+Local geography assets	✅
+Country glow intensity	✅
+Pulse markers	✅
+Click drilldowns	✅
+Live counts	✅
+Fallback state	✅
+No external dependency	✅
+Auto refresh	✅
+
+That is already beyond many telecom dashboards.
+
+Recommended next visual refinement
+
+Now that rendering is stable:
+
+Add subtle country fills
+
+Current behavior likely emphasizes dots more than geography.
+
+Recommended:
+
+low-opacity base world layer
+active countries softly illuminated
+inactive countries muted grey
+hover brightening
+
+This dramatically improves:
+
+instant geographic readability
+Another high-value enhancement later
+Traffic Flow Arcs
+
+Example:
+
+Pakistan → Callntalk
+Bangladesh → BICS
+
+animated as:
+
+glowing curved SVG paths
+subtle moving particles
+low-opacity lines
+
+Very premium NOC feel.
+
+But:
+
+only after base map stability
+
+which you correctly prioritized.
+
+Current product positioning
+
+BitsEye 2 is now evolving into:
+
+Live Telecom Traffic Observatory
+
+not:
+
+static VoIP dashboard
+
+That distinction is becoming very clear from the architecture choices:
+
+persistence
+topology continuity
+live hierarchy
+operational visibility
+graceful degradation
+no-reporting contamination
+zero-dependency live rendering
+
+Very strong direction.

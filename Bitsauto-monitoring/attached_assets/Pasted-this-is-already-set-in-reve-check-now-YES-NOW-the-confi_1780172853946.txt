@@ -1,0 +1,571 @@
+this is already set in reve 
+check now
+
+YES — NOW the configuration finally looks CORRECT.
+
+The important line is now:
+
+"url": "https://vo-ip-watcher--junaid70.replit.app/api/bhaoo/receive"
+
+No escaped quotes.
+No embedded JSON.
+No malformed serialization.
+
+So:
+
+REVE Submit URL is now properly configured.
+
+This is a BIG improvement.
+
+Current Status NOW
+Layer	Status
+REVE HTTP profile	✅ correct
+BitsAuto receive API	✅
+OTP extraction	✅
+AMI originate	✅
+DIRECT_SIP	✅
+Sippy routing	✅
+Carrier delivery	✅
+
+Meaning:
+
+your full architecture is now basically operational.
+VERY IMPORTANT
+
+The Preview JSON now looks valid:
+
+{
+  "requestType": "GET",
+  "url": "https://vo-ip-watcher--junaid70.replit.app/api/bhaoo/receive"
+}
+
+That is exactly what REVE should generate.
+
+NEXT MOST IMPORTANT THING
+
+Now:
+
+Save the profile
+
+AND
+
+restart/reload the route if REVE caches profiles.
+
+Very important because older bad configs may still be cached.
+
+Then Run One CLEAN TEST
+
+Recommended:
+
+single destination
+your own mobile
+short OTP
+
+Example:
+
+Your OTP is 1234
+What You Should Expect NOW
+
+Flow should become:
+
+REVE
+↓ HTTPS GET
+BitsAuto /receive
+↓
+OTP extraction
+↓
+AMI originate
+↓
+Asterisk
+↓ DIRECT_SIP
+Sippy
+↓
+Vendor
+↓
+Carrier
+↓
+Phone rings
+MOST IMPORTANT OBSERVATION
+
+At this stage:
+
+DLR is NOT your blocker anymore.
+
+And:
+
+REVE → BitsAuto is now correctly configured.
+
+So if any remaining issue exists:
+it will now MOST likely be:
+
+answered-call behavior
+audio playback
+RTP/media
+carrier handling
+
+NOT:
+
+HTTP profile syntax.
+Immediate Things To Watch
+
+After next test:
+
+In BitsAuto logs
+
+You should see:
+
+[bhaoo-receive]
+
+and:
+
+[ami] sending originate
+In Asterisk
+
+You should see:
+
+INVITE sip:923xxxxxxxxx@191.101.30.107
+On Phone
+
+Expected:
+
+ring
+answer
+hear digits
+MOST IMPORTANT NEXT MILESTONE
+
+You are now VERY close to:
+
+first fully answered live Voice OTP call.
+
+That is the real milestone now.
+
+Final Assessment
+
+This screenshot finally shows:
+
+REVE HTTP profile is now clean and valid.
+
+Your architecture is now functioning as intended:
+
+REVE
+↓ HTTP
+BitsAuto
+↓ AMI
+Asterisk
+↓ DIRECT_SIP
+Sippy
+↓
+Vendor
+↓
+Carrier
+
+This is a proper telecom-grade Voice OTP pipeline.
+
+This DLR configuration now also looks CORRECT.
+
+The important parts are:
+
+Field	Status
+DLR Mode	Query ✅
+Delivery Method	GET ✅
+Delivery URL	correct ✅
+Preview JSON	valid ✅
+
+Most important line:
+
+"url": "https://vo-ip-watcher--junaid70.replit.app/api/bhaoo/dlr"
+
+That is now properly serialized.
+
+So:
+
+both Submit URL and DLR URL are finally configured correctly.
+Your Architecture Is Now Properly Wired
+Submit Flow
+REVE
+↓ GET /receive
+BitsAuto
+↓
+OTP extraction
+↓
+AMI originate
+↓
+Asterisk
+↓ DIRECT_SIP
+Sippy
+↓
+Carrier
+DLR Flow
+REVE
+↓ GET /dlr
+BitsAuto
+↓
+ACK response
+↓
+REVE marks success
+MOST IMPORTANT THING NOW
+
+At this point:
+
+configuration problems are mostly solved.
+
+The next stage is:
+
+live operational validation.
+What You Should Test NOW
+1. Save profile
+
+VERY important.
+
+2. Restart/reload route if REVE caches HTTP profiles
+
+Some REVE deployments cache:
+
+HTTP profiles
+routes
+termination settings
+
+So:
+
+restart route service if possible.
+3. Send ONE clean OTP
+
+Example:
+
+Your OTP is 1234
+4. Watch ALL layers simultaneously
+In REVE
+
+Expected:
+
+Submitted = 1
+no “Failed”
+In BitsAuto
+
+Expected logs:
+
+[bhaoo-receive]
+
+and:
+
+[ami] sending originate
+In Asterisk
+
+Expected:
+
+INVITE sip:923xxxxxxxxx@191.101.30.107
+On Phone
+
+Expected:
+
+ring
+answer
+digits audible
+MOST IMPORTANT
+
+You are now beyond:
+
+malformed URLs
+broken serialization
+protocol issues
+
+Those were the main REVE-side blockers earlier.
+
+If REVE STILL Shows Failed
+
+Then next likely issue becomes:
+
+DLR response body mapping
+
+Meaning:
+REVE may still expect exact fields like:
+
+{
+  "Text": "ACCEPTD",
+  "message_id": "12345"
+}
+
+instead of:
+
+lowercase
+different names
+different casing
+
+BUT:
+
+the transport configuration itself is now correct.
+BIG PICTURE
+
+Your telecom stack is now essentially operational:
+
+Layer	Status
+REVE HTTP submit	✅
+BitsAuto orchestration	✅
+AMI originate	✅
+DIRECT_SIP	✅
+Sippy routing	✅
+Carrier delivery	✅
+
+Now the remaining work is mostly:
+
+operational testing
+media validation
+DLR formatting cleanup
+MOST IMPORTANT NEXT MILESTONE
+Successfully answer ONE live OTP call
+
+and hear:
+
+1 ... 2 ... 3 ... 4
+
+That is now your primary target.
+
+this complete process is not using API and Secret key, because we have choose Query, not POST , if we choos post then API option enable otherwise it is hide 
+
+
+Yes — exactly.
+You identified a VERY important architectural limitation of REVE HTTP Query mode.
+
+And your understanding is correct.
+
+Current Mode
+
+You are using:
+
+DLR = Query
+Method = GET
+
+In this mode:
+REVE behaves like:
+
+GET https://your-url?param=value
+
+This mode:
+
+does NOT support auth headers
+does NOT support bearer token
+does NOT support API secret section
+does NOT support JSON body auth
+
+That is why:
+
+API key fields disappear.
+
+This is expected behavior.
+
+What REVE Is Doing Right Now
+
+Effectively:
+
+GET /api/bhaoo/receive?to=923xxxx&smsText=1234
+
+No:
+
+Authorization header
+API secret
+bearer token
+Is This BAD?
+
+For testing:
+
+NO
+
+For production:
+
+YES, risky.
+
+Because anyone who discovers endpoint could:
+
+spam Voice OTP
+trigger fake calls
+abuse routing
+Recommended Production Solution
+
+You have TWO good options.
+
+OPTION 1 — Keep GET/Query
+
+(Simple MVP)
+
+Use:
+
+IP whitelisting
+
+Inside BitsAuto:
+
+Allow ONLY:
+
+REVE server IP
+
+Example:
+
+149.20.185.6
+
+Then:
+reject all other traffic.
+
+This is actually COMMON in telecom systems.
+
+Architecture
+REVE IP
+↓
+BitsAuto GET endpoint
+↓
+Allowed
+
+Everything else:
+
+blocked.
+OPTION 2 — Switch To POST
+
+(RECOMMENDED LONG TERM)
+
+If REVE supports POST properly:
+
+Then:
+
+API auth fields become available.
+
+Meaning:
+
+Authorization: Bearer xxxxxx
+
+or:
+
+X-API-Key: abc123
+
+This is MUCH cleaner.
+
+Recommended Production Architecture
+POST /api/bhaoo/receive
+Authorization: Bearer xxxxx
+Content-Type: application/json
+
+Payload:
+
+{
+  "to": "923xxxxxxxxx",
+  "otp": "1234"
+}
+
+BEST long-term design.
+
+BUT IMPORTANT
+
+Right now:
+
+do NOT change architecture again.
+
+You are VERY close operationally.
+
+Current priority:
+
+prove full live OTP call.
+
+NOT:
+
+redesign authentication.
+My Recommendation RIGHT NOW
+
+For now:
+
+KEEP GET/Query mode
+
+AND:
+
+secure by IP whitelist.
+
+This is perfectly acceptable for telecom internal integration.
+
+Inside BitsAuto
+
+Add:
+
+Allowed source IPs:
+149.20.185.6
+
+Reject everything else.
+
+This gives:
+
+simple integration
+stable REVE compatibility
+enough security for MVP
+VERY IMPORTANT
+
+Many telecom systems STILL use:
+
+HTTP GET
+IP authentication
+no bearer token
+
+especially:
+
+SMPP gateways
+routing engines
+DLR systems
+
+So this is NOT unusual.
+
+Long-Term Better Version
+
+Later:
+
+switch to POST + API keys.
+
+ONLY after:
+
+OTP pipeline stable
+SIP stable
+delivery stable
+media stable
+MOST IMPORTANT THING NOW
+
+At this point:
+
+your architecture is already correct.
+
+The only remaining real milestone is:
+
+Phone rings
+↓
+Call answered
+↓
+Digits audible
+
+That is the current operational target.
+
+Final Recommendation
+Short Term
+
+(GET + IP whitelist)
+
+REVE
+↓ GET
+BitsAuto
+↓
+Voice OTP
+
+Good enough.
+
+Long Term
+
+(POST + API auth)
+
+REVE
+↓ POST + API key
+BitsAuto
+↓
+Voice OTP
+
+Better enterprise security.
+
+Strategic Assessment
+
+You are no longer solving architecture problems.
+
+You are now:
+
+production-hardening telecom orchestration.
+
+That is a major shift forward for BitsAuto.

@@ -1,0 +1,129 @@
+But with one important condition: implement it as a controlled change, not a rewrite of the whole provisioning flow at once.
+
+✅ Why this is safe to implement now
+
+What you’ve already achieved:
+
+✔ Tariff creation works
+✔ Service plan logic is now fixed (login bug resolved)
+✔ Account creation works in Sippy Softswitch
+✔ Auth rules are already being pushed
+✔ Naming conventions are stable (-TARIFF, -SP)
+
+So the system is now functionally complete, just needs tightening.
+
+🧠 What your proposed implementation actually is
+
+From everything you’ve shared, your final design is:
+
+Control-plane provisioning model (correct architecture)
+Wizard → DB only (no Sippy calls)
+IPs → PENDING state
+Admin approval required
+ONE action: Provision to Sippy
+System creates in strict order:
+Tariff
+Service Plan
+Account
+Auth Rules
+Everything logged + auditable
+Incremental sync after provisioning
+
+This is exactly the right telecom-grade model.
+
+⚠️ What NOT to change during implementation
+
+Do NOT touch:
+
+Sippy login fix (already correct)
+Tariff/service plan creation logic (already fixed)
+Auth rule push logic (already working)
+Existing Sippy integration layer
+
+These are stable now.
+
+🔥 What you SHOULD implement now (safe order)
+Phase 1 — DB state (critical foundation)
+
+Add:
+
+client.status
+DRAFT
+PENDING_APPROVAL
+PROVISIONED
+ip.status
+PENDING
+APPROVED
+REJECTED
+Phase 2 — Disable wizard Sippy writes
+
+Wizard must:
+
+STOP calling Sippy entirely
+Only save to BitsAuto DB
+
+This is safe because nothing breaks downstream yet.
+
+Phase 3 — Provision button (core feature)
+
+Add:
+
+“Provision to Sippy”
+
+Backend flow:
+
+validate all IPs resolved
+→ create tariff
+→ create service plan
+→ create account
+→ push auth rules
+→ mark PROVISIONED
+→ write provisioning log
+Phase 4 — Backend enforcement (VERY IMPORTANT)
+
+Hard rule:
+
+if (!ip.approved) {
+  throw new Error("IP not approved")
+}
+
+This is your security gate.
+
+Phase 5 — Incremental sync
+
+After provisioning:
+
+IP approved → push auth rule immediately
+IP revoked → remove from Sippy
+🧠 Final decision point (your question)
+
+“shall we implement what I shared?”
+
+✔ Answer: YES — implement it
+
+But in this order:
+
+👉 DB state first
+👉 Disable wizard Sippy writes second
+👉 Provision button third
+👉 Security guard fourth
+👉 Incremental sync last
+
+🚨 One honest warning (important)
+
+If you skip DB state + go straight to UI changes:
+
+you will get inconsistent provisioning states
+orphan Sippy accounts will reappear
+debugging will become very hard again
+👍 My recommendation
+
+Proceed.
+
+This is the point where BitsAuto transitions from:
+
+“wizard-driven tool”
+
+to
+
+“controlled provisioning system (telecom-grade)”

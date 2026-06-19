@@ -1,0 +1,358 @@
+# NEXT IMPLEMENTATION PHASE — ADAPTIVE OPERATIONAL PRIORITIZATION PROMPT
+
+Goal:
+Now that:
+
+* enterprise navigation
+* workspace homes
+* operational card grids
+* contextual rails
+* recommendation engines
+* vendor intelligence
+
+are complete,
+
+the next phase is:
+
+# Adaptive Operational Prioritization
+
+This is the point where the platform starts behaving like:
+“live telecom operational intelligence”
+
+instead of:
+“static enterprise software”.
+
+====================================================
+PRIMARY OBJECTIVE
+=================
+
+Make the platform dynamically prioritize:
+
+* degraded workflows
+* urgent RCA
+* active fraud
+* unstable vendors
+* critical recommendations
+
+across:
+
+* workspace cards
+* sidebar rail
+* operational feeds
+* command palette ranking
+
+WITHOUT:
+
+* changing navigation architecture
+* creating UI chaos
+* causing layout instability
+
+====================================================
+PHASE A — URGENCY ENGINE
+========================
+
+Create:
+server/operational-priority-engine.ts
+
+Purpose:
+Compute normalized urgency scores (0–100) for:
+
+* vendors
+* workspaces
+* cards
+* recommendations
+* incidents
+
+Inputs:
+
+* active incidents
+* degradation engine
+* recommendation engine
+* FAS events
+* low balances
+* pending approvals
+* RCA severity
+* Q-score degradation
+* instability classification
+
+Output example:
+
+{
+vendors: {
+"callntalk": 82,
+"vendor-x": 64
+},
+workspaces: {
+vendors: 88,
+security: 61,
+finance: 34
+},
+cards: {
+vendorRca: 91,
+recommendations: 85,
+fraudEngine: 77
+}
+}
+
+====================================================
+URGENCY SCORING RULES
+=====================
+
+Suggested weights:
+
+CRITICAL incident:
++35
+
+HIGH incident:
++20
+
+FAS spike:
++25
+
+Vendor Q-score < 30:
++20
+
+Vendor degrading:
++15
+
+Recommendation INVESTIGATE:
++20
+
+Pending approvals:
++10
+
+Low balance:
++10
+
+Do NOT:
+
+* allow score inflation
+* stack endlessly
+* exceed 100
+
+Normalize scores.
+
+====================================================
+PHASE B — ADAPTIVE WORKSPACE CARDS
+==================================
+
+Goal:
+Workspace home cards reorder themselves intelligently.
+
+Examples:
+
+If:
+
+* Vendor RCA critical
+* degradation active
+
+Then:
+
+* Vendor RCA card rises to top
+* Recommendations becomes primary
+* Stability Timeline gains emphasis
+
+Rules:
+
+* only reorder within logical groups
+* preserve operator muscle memory
+* avoid excessive movement
+
+DO NOT:
+
+* constantly shuffle cards
+* animate aggressively
+
+Changes should feel:
+“smart and calm”
+
+====================================================
+PHASE C — ADAPTIVE SIDEBAR RAIL
+===============================
+
+Goal:
+Contextual rail becomes operationally aware.
+
+Examples:
+
+Normal Vendors rail:
+
+* Vendor RCA
+* Routing Manager
+* LCR
+* Balances
+
+During degradation:
+
+* Vendor RCA
+* Recommendations
+* Prefix Intelligence
+* Stability Timeline
+
+During fraud event:
+
+* Fraud Engine
+* Approvals
+* Audit Log
+
+Implementation:
+
+* derive ordering from urgency engine
+* preserve 5–7 shortcut limit
+
+====================================================
+PHASE D — COMMAND PALETTE PRIORITIZATION
+========================================
+
+Goal:
+Search results rank operationally.
+
+Examples:
+
+Search:
+“vendor”
+
+Results:
+
+1. Vendor RCA (critical)
+2. Recommendations (urgent)
+3. Stability Timeline
+4. Vendor List
+
+NOT alphabetical.
+
+Ranking factors:
+
+* urgency score
+* active incidents
+* degradation state
+* current workspace
+* operator context
+
+====================================================
+PHASE E — LIVE WORKSPACE SIGNALS
+================================
+
+Workspace tabs themselves gain live urgency indicators.
+
+Examples:
+
+Vendors ●
+Security ●
+Finance
+
+Indicators:
+
+* pulsing dot
+* urgency color
+* critical count badge
+
+Rules:
+
+* subtle
+* enterprise-grade
+* non-distracting
+
+====================================================
+PHASE F — OPERATOR PINNING
+==========================
+
+Allow operators to:
+
+* pin cards
+* pin sidebar shortcuts
+* override adaptive ordering
+* save workspace preferences
+
+Persistence:
+
+* per-user
+* DB-backed
+
+Pinned items:
+always remain top-priority.
+
+====================================================
+IMPLEMENTATION RULES
+====================
+
+DO:
+
+* use existing APIs only
+* reuse existing operational engines
+* preserve enterprise UX architecture
+* preserve dense operational pages
+
+DO NOT:
+
+* create fake urgency
+* use random animations
+* constantly reorder layouts
+* break operator muscle memory
+* introduce autonomous actions
+
+====================================================
+VISUAL UX RULES
+===============
+
+Urgency should feel:
+
+* calm
+* operational
+* trustworthy
+* carrier-grade
+
+NOT:
+
+* flashy
+* gaming-style
+* consumer-app-like
+
+Allowed:
+
+* subtle pulse
+* left accent
+* badge count
+* ordering priority
+
+Avoid:
+
+* bouncing
+* flashing
+* large transitions
+* layout jumps
+
+====================================================
+SUCCESS CRITERIA
+================
+
+An operator opening the platform should instantly see:
+
+* what is degrading
+* what requires attention
+* what workflows matter right now
+* where to act first
+
+without:
+
+* searching manually
+* opening multiple pages
+* scanning large menus
+
+====================================================
+FINAL TARGET
+============
+
+Transform the platform from:
+“enterprise telecom software”
+
+into:
+“adaptive telecom operational intelligence platform”
+
+where:
+
+* workflows reprioritize intelligently
+* incidents influence navigation
+* recommendations influence visibility
+* urgency shapes operator attention
+* operational context drives UX

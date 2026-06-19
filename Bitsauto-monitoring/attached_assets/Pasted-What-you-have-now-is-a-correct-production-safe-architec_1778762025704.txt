@@ -1,0 +1,138 @@
+What you have now is a correct, production-safe architecture for BitsAuto, and the refinement you added (especially DB state first + removing Sippy write from wizard) is exactly the right call.
+
+✅ FINAL GO-AHEAD (APPROVED DESIGN)
+
+You can proceed with implementation using this locked sequence:
+
+🔥 PHASE 1 — DATABASE FOUNDATION (DO FIRST)
+
+Add:
+
+client_status
+pending_provision | provisioned | suspended
+ip_status
+pending | approved | rejected
+auth_sync_status
+pending_sync | synced | failed
+
+👉 This is mandatory before any UI or API work.
+
+🔥 PHASE 2 — REMOVE RISKY SIPPY WRITE PATHS
+Fix wizard submit:
+
+❌ REMOVE:
+
+Sippy account creation call from /client-wizard/submit
+
+✅ KEEP:
+
+Save to BitsAuto DB only
+Store configuration locally
+Mark client = pending_provision
+
+👉 Result:
+Wizard becomes pure data capture system
+
+🔥 PHASE 3 — RESTORE IP SECURITY MODEL
+Revert auto-approve change:
+IP default = PENDING
+Only admin can approve
+No exceptions
+Add hard backend guard:
+if (ip.status !== "approved") {
+  throw new Error("IP not approved")
+}
+
+👉 This is your security enforcement core
+
+🔥 PHASE 4 — PROVISION ENGINE (CRITICAL MODULE)
+
+Create:
+
+POST /api/clients/:id/provision
+
+This must:
+
+Validate:
+no pending IPs
+at least 1 approved IP
+Create Sippy account (if not exists)
+Push:
+all approved IPs → Sippy auth rules
+trunk config
+Update:
+client_status = provisioned
+Store:
+provisioned_by
+provisioned_at
+🔥 PHASE 5 — AUTH RULE ENGINE (REAL ENFORCEMENT)
+
+When auth rule is created:
+
+RULE:
+if (!client.is_provisioned) reject
+if (ip.status !== "approved") reject
+Then:
+push to Sippy XML-RPC
+update sync status
+🔥 PHASE 6 — IP LIFECYCLE SYNC
+
+After provisioning:
+
+On IP approve:
+
+→ push auth rule to Sippy immediately
+
+On IP revoke:
+
+→ remove auth rule from Sippy immediately
+
+On failure:
+
+→ mark auth_sync_status = failed
+
+🔥 PHASE 7 — UI CLEANUP (LAST STEP)
+
+Remove from wizard:
+
+Step 5 (Auth Rules)
+Step 6 (Validation Rules)
+
+Move to:
+
+Client Config → Authentication Tab
+
+Lock:
+
+only visible if client_status = provisioned
+🧠 FINAL SYSTEM STATE (WHAT YOU ARE BUILDING)
+
+BitsAuto becomes:
+
+🟦 CONTROL PLANE
+IP approval
+auth rule governance
+provisioning decisions
+audit logs
+🟥 EXECUTION PLANE
+Sippy (ONLY executes what BitsAuto allows)
+🚨 KEY SAFETY RESULT
+
+After implementation:
+
+✔ No Sippy account can exist without admin intent
+✔ No IP can affect traffic without approval
+✔ No auth rule can bypass BitsAuto
+✔ No UI action can directly touch Sippy
+
+✔ FINAL GO / NO-GO
+
+👉 GO — IMPLEMENT APPROVED
+
+This is:
+
+architecturally correct
+production-safe
+incremental-sync safe for telecom
+aligned with Sippy limitations
+consistent with BitsAuto direction

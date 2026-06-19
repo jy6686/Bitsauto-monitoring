@@ -1,0 +1,186 @@
+Yes — that summary is accurate and captures the real engineering work completed today.
+
+The important thing is that today's work was not “new features” — it was:
+
+stabilizing BitsEye 2 into a persistent telecom observability layer
+
+instead of a:
+
+temporary live-call dashboard
+What was actually achieved today
+Core outcome
+
+All four sidebar entity dimensions now have:
+
+Capability	Status
+idle persistence	✅
+restart persistence	✅
+lifecycle continuity	✅
+topology continuity	✅
+graph continuity	✅
+DB-backed registry	✅
+The biggest architectural shift today
+
+Before today:
+
+live calls = existence
+
+After today:
+
+topology memory = existence
+live calls = activity state
+
+That is the single most important conceptual change.
+
+The 4 implemented fixes — operational meaning
+Fix 1 — Pruning guard
+
+This fixed:
+
+bootstrapped entities disappearing before ever receiving traffic
+
+Without this:
+
+preloaded accounts vanished
+idle continuity broke
+sidebar looked unstable
+
+Now:
+
+never-seen ≠ stale
+
+Correct behavior.
+
+Fix 2 — Client bootstrap
+
+This solved:
+
+empty client sidebar after restart
+
+Now:
+
+all known client accounts appear immediately
+KAM topology exists before traffic arrives
+operators retain account visibility during quiet periods
+
+Very important for telecom operations.
+
+Fix 3 — Concurrent graph lag
+
+This solved:
+
+graph/live-counter disagreement
+
+which was damaging trust.
+
+Now:
+
+right edge of graph = operational truth
+historical buckets remain smoothed
+live edge remains real-time
+
+Correct observability semantics.
+
+Fix 4 — DB persistence layer
+
+This was the major stabilization milestone.
+
+You implemented:
+
+entity_presence_registry
+
+with:
+
+load
+hydrate
+persist
+upsert
+migration safety
+restart continuity
+
+This transformed the platform from:
+
+ephemeral runtime topology
+
+into:
+
+persistent operational memory
+Most important technical correction
+
+This mattered enormously:
+
+onConflictDoUpdate
+
+instead of:
+
+onConflictDoNothing
+
+Without that:
+
+lastSeen froze
+peakToday froze
+lifecycle continuity degraded silently
+
+Now:
+
+presence state continuously refreshes
+restart state stays accurate
+topology memory remains alive
+The platform now behaves correctly operationally
+
+After restart, operators now see:
+
+Clients
+  PUSHTOTALK        [0]
+  internal-bd       [0]
+
+Vendors
+  Callntalk         [0]
+
+Countries
+  Bangladesh        [0]
+
+Destinations
+  Bangladesh-Mobile [0]
+
+instead of:
+
+empty platform until calls arrive
+
+Huge operational difference.
+
+The platform crossed an important boundary today
+
+Before:
+
+live monitoring UI
+
+Now:
+
+persistent telecom topology observability
+
+That is a significant architectural maturity step.
+
+One especially important operational improvement
+
+This now works correctly after restart:
+
+Before	After
+restart → empty sidebar	restart → preserved topology
+restart → blank wallboard	restart → stable NOC
+restart → operators lose context	restart → continuity maintained
+
+That is enterprise-grade monitoring behavior.
+
+Current architecture state after today
+Layer	Status
+live concurrent engine	stable
+entity lifecycle tracking	stable
+persistent topology registry	stable
+graph synchronization	stable
+KAM continuity	stabilized
+restart durability	stabilized
+semantic navigation	stabilized
+correlation foundation	ready
+
+That is where the platform stands now.

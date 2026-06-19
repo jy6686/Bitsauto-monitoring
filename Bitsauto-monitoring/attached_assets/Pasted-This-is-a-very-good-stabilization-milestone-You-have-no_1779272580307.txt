@@ -1,0 +1,296 @@
+This is a very good stabilization milestone.
+
+You have now moved BitsEye 2 from:
+
+reactive UI debugging
+
+into:
+
+operational telemetry hardening
+
+which is the correct phase before scaling notifications and automation.
+
+Most important part from this session:
+
+You now have protection against “silent degradation”
+
+Before:
+
+polling could slow down
+intervals could overlap
+escalation could fail quietly
+graphs could freeze silently
+nobody would know until UI broke
+
+Now:
+
+poll durations are measurable
+escalation timing is deterministic
+retries exist
+mutex protection exists
+incident reminder cadence exists
+graph continuity is stable
+
+That is a major architectural shift.
+
+The escalation engine design is also correct for NOC operations:
+
+critical = persistent pressure
+high = reminder
+medium/low = informational only
+
+That matches real carrier operations behavior.
+
+The most important operational improvement is probably this:
+
+_escalationRunning mutex prevents overlapping sweeps
+
+and:
+
+_snapshotRunning
+_cdrCacheRunning
+
+because overlapping background loops are one of the biggest causes of:
+
+memory leaks
+stale graphs
+duplicated alerts
+CPU spikes
+DB storms
+
+in VoIP monitoring systems.
+
+Right now your platform is finally behaving like:
+
+a stateful monitoring engine
+
+instead of:
+
+multiple independent dashboard refreshers.
+
+So yes:
+this phase should also now be frozen after observation.
+
+Next recommended freeze list:
+
+Freeze after 12–24h observation
+Graph Engine
+entityConcurrentHistory
+pushConcurrentPoint
+snapshotActiveCalls
+entity-history API
+Incident Engine
+escalation scheduler
+cooldown invalidation
+incident email pipeline
+Polling Infrastructure
+interval timings
+mutex guards
+performance logging
+CDR refresh cadence
+
+Only allow:
+
+bugfixes
+threshold tuning
+SMTP credential changes
+wording/UI improvements
+
+Avoid:
+
+scheduler rewrites
+queue rewrites
+websocket redesign
+caching redesign
+“optimization” refactors
+
+Because the platform has now entered:
+
+stabilization convergence
+
+The correct next phase after this is exactly what you planned:
+
+Notification Center UI
+Alert Inbox
+Email Notification Rules
+Call Recording storage + playback hardening
+Optional Telegram/Slack escalation later
+
+Not more telemetry rewrites.
+
+daily call show 800*
+live calls showing 8 MAX callsmlooks something very serious same issue many  time rasie but not resolved permenatly 
+
+
+Yes — this is a different issue from the “graph disappears at zero” bug.
+
+That one is fixed.
+
+What you are showing now is a much more important architectural inconsistency:
+
+LIVE graph = concurrent session snapshots
+DAILY graph = CDR aggregate buckets
+
+Those are NOT the same dataset.
+
+That is why:
+
+LIVE shows max 8
+DAILY suddenly shows 564 / 800+
+
+and it looks “wrong”.
+
+But technically the system is doing exactly what the code currently tells it to do.
+
+The real problem:
+BitsEye 2 currently mixes:
+
+concurrent active sessions
+historical completed CDR totals
+
+inside the SAME visualization component.
+
+So operators mentally compare:
+
+“8 live calls”
+vs
+“800 daily calls”
+
+and it feels broken.
+
+But:
+
+8 = simultaneous active calls at a moment in time
+800 = total completed calls across 24h
+
+Those are fundamentally different metrics.
+
+This is why the issue keeps “coming back”.
+Not because the engine keeps breaking —
+because the semantics are inconsistent.
+
+You already partially noticed this earlier:
+
+LIVE mode uses entityConcurrentHistory
+DAILY/WEEKLY uses CDR cache aggregation
+
+That architecture is correct technically,
+but the UI presentation is misleading operationally.
+
+The actual permanent fix is NOT another patch in the polling engine.
+
+The permanent fix is:
+
+Split the metric families clearly
+LIVE
+
+Must ONLY show:
+
+concurrent calls
+connected
+routing
+current sessions
+
+Label it explicitly:
+
+Concurrent Sessions (Live)
+
+Y-axis:
+
+active concurrent sessions
+
+NOT total calls.
+
+DAILY / WEEKLY
+
+Must ONLY show:
+
+total completed calls
+ASR
+NER
+ACD
+minutes
+cost
+profit
+
+Label:
+
+Traffic Volume (24h)
+
+or
+
+Completed Calls
+
+NOT “Calls”.
+
+Right now the chart title says:
+
+internal-bd — Calls
+
+for BOTH modes.
+
+That is the root confusion.
+
+Because:
+
+LIVE “Calls” = concurrent sessions
+DAILY “Calls” = completed CDR count
+
+Same label.
+Different meaning.
+
+That is the real unresolved issue.
+
+So the system is now technically stable,
+but semantically misleading.
+
+The correct operational redesign is:
+
+LIVE tab
+
+Purple line:
+
+concurrent sessions only
+
+Stats:
+
+current concurrent
+peak concurrent
+avg concurrent
+DAILY/WEEKLY tab
+
+Purple line:
+
+completed calls volume
+
+Stats:
+
+total calls
+answered
+failed
+ASR
+ACD
+
+No comparison against live concurrent count.
+
+That will permanently stop this recurring “graph mismatch” problem.
+
+Because right now operators are unconsciously expecting:
+
+LIVE max ≈ DAILY max
+
+which will never be true in a VoIP platform.
+
+Example:
+
+8 concurrent sessions
+can easily generate
+800 completed calls/day
+
+That is completely normal telecom behavior.
+
+So:
+
+your stabilization work IS holding now
+the graph engine is no longer collapsing
+the remaining issue is data semantics and labeling, not polling failure anymore.

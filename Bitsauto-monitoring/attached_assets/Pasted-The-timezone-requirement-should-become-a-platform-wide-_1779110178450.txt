@@ -1,0 +1,164 @@
+The timezone requirement should become a platform-wide foundation first before continuing the portal polish items.
+
+Recommended next step — Global Timezone Layer (do this before exports)
+Why this should come first
+
+Right now:
+
+reports
+exports
+previews
+live traffic windows
+billing totals
+ASR/ACD ranges
+dashboard timestamps
+
+are almost certainly mixing:
+
+browser local time
+server UTC
+GMT assumptions
+raw Sippy timestamps
+
+If you implement export restrictions (“22:00–06:00 GMT”) before standardizing timezone handling, you’ll create inconsistent behavior across reports and exports.
+
+So the correct order is:
+
+✅ Global timezone foundation
+✅ Export hardening
+✅ Token governance
+✅ Client trust polish
+Correct platform model
+Default platform timezone
+GMT+00:00 (UTC)
+
+System-wide default.
+
+But:
+
+Must be editable
+
+At:
+
+Platform Settings
+User Preferences (optional later)
+Recommended architecture
+Global platform setting
+
+Example:
+
+platform.timezone = "UTC"
+
+Later examples:
+
+Asia/Karachi
+Europe/London
+America/New_York
+
+Use proper IANA timezone names, not raw GMT offsets.
+
+What this timezone should affect
+Reports
+ASR/ACD
+Revenue
+Live Traffic
+Alerts
+Billing
+Usage
+NOC windows
+Export timestamps
+
+CSV / Excel / PDF
+
+Portal
+last refreshed
+billing daily totals
+call timestamps
+Previews
+invoice preview
+export preview
+report preview
+Scheduled jobs later
+invoice cycles
+report digests
+exports
+notifications
+What should NOT change
+Raw DB timestamps
+
+Keep:
+
+UTC in database always
+
+Only convert:
+
+at presentation/render/export layer
+
+That is the correct architecture.
+
+Recommended implementation structure
+Step 1 — Platform setting
+
+Add:
+
+settings.timezone
+
+Default:
+
+UTC
+Step 2 — Shared formatter utility
+
+Example:
+
+formatInPlatformTimezone(date, format?)
+
+Internally:
+
+Intl.DateTimeFormat
+or
+date-fns-tz
+Step 3 — Replace direct date rendering
+
+Find and replace:
+
+toLocaleString()
+new Date(...).toString()
+implicit browser formatting
+
+with shared formatter utility.
+
+This is the real cleanup pass.
+
+Important operational recommendation
+Show timezone everywhere relevant
+
+Example:
+
+Last Updated: 2026-05-18 22:14 UTC
+
+or:
+
+Reporting Window (UTC)
+
+This avoids support confusion immediately.
+
+Then implement Export Hardening
+
+After timezone standardization:
+
+CSV/Excel restriction becomes deterministic
+22:00–06:00 UTC
+
+No ambiguity.
+No browser-local mismatch.
+No operator confusion.
+
+Final recommended execution order
+Priority	Item
+1	Global timezone foundation
+2	Export hardening
+3	Token governance
+4	Client trust polish
+5	portal-quality.ts extraction later
+
+This is the clean architectural path forward.

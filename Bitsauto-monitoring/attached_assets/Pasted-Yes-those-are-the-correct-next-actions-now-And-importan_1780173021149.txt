@@ -1,0 +1,160 @@
+Yes — those are the correct next actions now.
+
+And importantly:
+
+these are production-hardening tasks,
+
+not architecture/debugging anymore.
+
+That is a very good sign.
+
+Action 1 — IP Whitelist
+HIGH PRIORITY
+
+This is absolutely correct for your current GET/Query architecture.
+
+Since REVE Query mode cannot send:
+
+bearer token
+API key
+auth header
+
+then:
+
+IP restriction becomes the security layer.
+
+Your proposed flow is correct:
+
+149.20.185.6
+    ↓
+/api/bhaoo/receive
+    ↓
+allowed
+
+Any other IP
+    ↓
+403 Forbidden
+
+This is VERY common in telecom systems.
+
+Recommended Enhancement
+
+Instead of hardcoding:
+
+149.20.185.6
+
+better:
+
+REVE_ALLOWED_IPS=149.20.185.6
+
+Later you can add:
+
+backup REVE nodes
+DR servers
+staging
+
+without code changes.
+
+Very good design.
+
+Action 2 — AMI Reason Mapping
+Correct
+
+Yes:
+
+Reason=3 should NOT be “Unknown”.
+
+Recommended mapping:
+
+Reason	Meaning
+3	Busy / Cancelled
+5	Ringing / No Answer
+8	Congestion
+
+This improves:
+
+monitoring
+analytics
+troubleshooting
+
+Very useful operationally.
+
+Action 3 — Live Validation Logs
+MOST IMPORTANT
+
+These two logs are now your key operational checkpoints:
+
+[bhaoo-receive]
+
+and:
+
+[ami] sending originate:
+
+If BOTH appear:
+
+the orchestration pipeline is confirmed.
+
+Then remaining debugging is ONLY:
+
+SIP delivery
+answer behavior
+media playback
+MOST IMPORTANT ARCHITECTURAL OBSERVATION
+
+You are now successfully using:
+
+REVE = SMPP ingress
+BitsAuto = orchestration
+Asterisk = media engine
+Sippy = routing engine
+
+This is now a real telecom service architecture.
+
+Recommended NEXT Operational Step
+
+After whitelist + mapping:
+
+Do ONE fully monitored live call test
+
+Track:
+
+Layer	Expected
+REVE submit	success
+BitsAuto receive	yes
+AMI originate	yes
+SIP INVITE	yes
+Sippy routing	yes
+phone rings	yes
+answer	yes
+hear digits	yes
+
+This is your current milestone.
+
+MOST IMPORTANT
+
+Do NOT redesign:
+
+POST auth
+API keys
+webhook structure
+
+yet.
+
+Current architecture is:
+
+stable enough for MVP.
+My Recommendation
+
+YES:
+
+implement IP whitelist now.
+
+YES:
+
+implement Reason=3 mapping now.
+
+THEN:
+
+focus entirely on live answered-call testing.
+
+That is the correct sequence.

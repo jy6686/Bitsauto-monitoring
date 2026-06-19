@@ -1,0 +1,279 @@
+Exactly — this confirms the core issue again:
+
+the platform is STILL behaving like:
+sidebar-first architecture
+
+instead of:
+
+workspace-first top-navigation architecture.
+
+And the audit you shared is actually excellent because it finally maps:
+
+duplicates,
+overlaps,
+wrong ownership,
+excessive menu depth,
+and contextual actions correctly.
+
+The Most Important Conclusion
+
+You do NOT have:
+
+too many features
+
+You have:
+
+too many exposed destinations.
+
+Huge difference.
+
+The platform actually has around:
+
+20–25 real operational engines
+
+but they are exposed as:
+
+110+ standalone routes/pages.
+
+That is why navigation feels broken.
+
+Your Current Navigation Problem
+
+Right now users see:
+
+pages,
+tools,
+utilities,
+diagnostics,
+workflows,
+engines,
+admin tooling
+
+ALL mixed together.
+
+Enterprise UX should expose:
+
+workflows,
+
+NOT:
+
+implementation details.
+BEST STRATEGIC DECISION
+
+The report’s strongest recommendation is correct:
+
+Move from:
+flat route navigation
+
+to:
+
+Workspace Navigation Architecture
+What Should Happen Now
+LEVEL 1 — PORTALS
+
+Top-most persistent bar:
+
+KAM | Finance | NOC | Partner | Admin
+
+These define:
+
+workspace identity,
+dashboard,
+terminology,
+theme,
+permissions,
+workflow personality.
+LEVEL 2 — DOMAINS
+
+Inside Finance:
+
+Billing Ops
+Revenue Assurance
+Governance
+Analytics
+
+Inside NOC:
+
+Monitoring
+Incidents
+Routing
+Security
+
+Inside KAM:
+
+Clients
+Commercial
+Health
+Reports
+LEVEL 3 — WORKSPACE TABS
+
+Example:
+
+Revenue Assurance Workspace
+
+Tabs:
+
+Daily Assurance
+Reconciliation
+AI Alerts
+Margin
+Forecasting
+
+NOT:
+5 separate routes in menus.
+
+LEVEL 4 — CONTEXT ACTIONS
+
+NOT menu items.
+
+Examples:
+
+Run Reconciliation
+Generate Defense Package
+Replay Call
+Send Rate Card
+Verify Rating
+
+These belong:
+
+inside records/pages.
+
+This is the biggest cleanup opportunity.
+
+MOST IMPORTANT CONSOLIDATIONS
+1. Revenue Assurance Workspace
+
+Merge:
+
+DMR
+Client Recon
+Carrier Recon
+AI Assurance
+Margin Intelligence
+Revenue Heatmap
+Forecasting
+
+Into:
+
+ONE workspace.
+
+This alone removes massive menu clutter.
+
+2. Billing Operations Workspace
+
+Merge:
+
+Billing
+Invoices
+Queue
+Templates
+Credits
+Collections
+Rate Cards
+
+Into:
+
+ONE finance workflow.
+3. Diagnostics Workspace
+
+Merge:
+
+Troubleshooting
+Intelligence
+SIP Tools
+Replay
+Vendor RCA
+Routing Intelligence
+
+This is currently your MOST fragmented area.
+
+Biggest UX Rule Going Forward
+STOP exposing:
+every database-backed page
+
+to operators.
+
+Instead expose:
+
+operational workflows.
+Sidebar Should Become
+
+ONLY:
+
+contextual,
+temporary,
+narrow,
+workspace-specific.
+
+NOT:
+
+global navigation source.
+Strong Recommendation
+
+You should now formally declare:
+
+Navigation Freeze
+
+No more:
+
+standalone pages,
+standalone menu items,
+duplicate analytics pages,
+duplicate diagnostics pages,
+duplicate finance pages.
+
+Everything new must become:
+
+workspace tab,
+contextual action,
+adapter view,
+embedded workflow.
+Most Important Missing Phase
+
+You already built:
+
+portal architecture,
+governance,
+adapters,
+routing,
+themes.
+
+Now you need:
+
+Workspace Composition Phase.
+
+That is:
+
+merging routes into workspaces,
+converting pages into tabs,
+reducing top domains,
+contextualizing actions,
+hiding architecture tooling.
+Final Recommendation
+Immediate Next Refactor Sprint
+T001 — Workspace Consolidation
+
+Merge 110+ routes into:
+
+~8 workspaces,
+~5 domains,
+~5 portals.
+T002 — Navigation Cleanup
+remove duplicate menu exposure,
+remove contextual actions from menus,
+hide admin tooling.
+T003 — Portal-Aware Workspaces
+Finance workspace,
+NOC workspace,
+KAM workspace,
+Partner workspace.
+Strategic Result
+
+After this:
+the platform will stop feeling like:
+
+a collection of telecom tools
+
+and finally feel like:
+
+an enterprise telecom operations platform.

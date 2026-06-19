@@ -1,0 +1,306 @@
+This adds another very important architectural dimension.
+
+You are no longer building only:
+
+telecom billing
+
+You are building:
+
+Multi-Product Telecom ERP + Revenue Platform
+
+because now you have:
+
+wholesale voice billing
+multiple product classes
+QuickBooks integration
+finance reconciliation
+customer-specific invoiceing
+routing-aware economics
+and product-aware revenue reporting
+
+all together.
+
+Also, integrating with Sippy Soft Support Portal is the correct long-term strategy because:
+
+Sippy remains switch/routing authority
+BitsAuto becomes intelligence + finance orchestration layer
+
+That separation is excellent architecture.
+
+VERY IMPORTANT ARCHITECTURAL CHANGE
+
+You mentioned:
+
+First Class
+Business Class
+Charlie
+Bravo
+
+These are effectively:
+
+product/service categories
+
+This means the billing engine must support:
+
+product-aware billing segmentation.
+Revised Platform Architecture
+
+The architecture now becomes:
+
+Sippy Switch
+    ↓
+CDRs
+    ↓
+Unified Telecom Rating Engine
+    ↓
+Product Classification Layer
+    ↓
+Immutable Snapshots
+    ↓
+Invoice Engine
+    ↓
+QuickBooks Sync
+    ↓
+Revenue Intelligence
+NEW REQUIRED ENTITY
+telecom_products
+
+Create:
+
+telecom_products
+
+id
+name
+code
+description
+billing_strategy
+default_currency
+default_tax_profile
+invoice_template_id
+quickbooks_item_id
+is_active
+created_at
+Example Products
+FIRST_CLASS
+BUSINESS_CLASS
+CHARLIE
+BRAVO
+WHOLESALE_VOICE
+PREMIUM_ROUTE
+RETAIL_VOICE
+SIP_TRUNK
+DID_SERVICE
+Why This Matters
+
+Because:
+
+different products may use different invoices
+different taxes
+different branding
+different accounting mappings
+different QuickBooks accounts
+different approval flows
+QuickBooks Integration Architecture
+
+(VERY IMPORTANT)
+
+Do NOT make QuickBooks:
+
+the source of telecom billing logic.
+
+QuickBooks should ONLY receive:
+
+finalized finance objects.
+
+Correct flow:
+
+Sippy
+→ BitsAuto Rating Engine
+→ Immutable Finance Snapshot
+→ Invoice Approval
+→ QuickBooks Sync
+
+NOT:
+
+Sippy → QuickBooks directly
+Correct Role of QuickBooks
+
+QuickBooks should handle:
+
+accounting ledger
+receivables
+payments
+bookkeeping
+tax records
+accounting exports
+
+BitsAuto should handle:
+
+telecom rating
+interval billing
+routing economics
+reconciliation
+invoice orchestration
+disputes
+QoS-aware finance
+telecom intelligence
+
+That separation is extremely important.
+
+REQUIRED QUICKBOOKS TABLES
+quickbooks_sync_jobs
+id
+entity_type
+entity_id
+sync_status
+sync_direction
+quickbooks_reference
+payload_snapshot
+last_sync_at
+error_message
+REQUIRED ACCOUNTING MAPPINGS
+accounting_mappings
+id
+product_id
+quickbooks_income_account
+quickbooks_expense_account
+quickbooks_tax_code
+quickbooks_item_id
+currency
+WHY PRODUCT SEGMENTATION MATTERS
+
+Example:
+
+FIRST CLASS
+
+May require:
+
+premium invoice template
+detailed QoS reporting
+white-label branding
+dedicated banking profile
+BRAVO
+
+May require:
+
+simplified invoice
+prepaid handling
+no CDR attachment
+BUSINESS CLASS
+
+May require:
+
+tax-compliant invoice
+department billing
+PO numbers
+Revised Billing Profile Design
+client_billing_profiles
+
+Must now support:
+
+product_id
+quickbooks_customer_id
+tax_profile_id
+revenue_account_mapping
+Invoice Template Logic Must Become Product-Aware
+
+Example:
+
+IF product = FIRST_CLASS
+THEN:
+- use premium template
+- include QoS analytics
+- include ASR/ACD report
+- attach XLSX
+
+IF product = BRAVO
+THEN:
+- summary invoice only
+Sippy Integration Strategy
+
+The correct approach is:
+
+BitsAuto becomes telecom intelligence middleware.
+
+Meaning:
+
+Sippy handles switching/routing
+BitsAuto handles finance intelligence
+Recommended Sippy Sync Services
+
+Create:
+
+sippy-cdr-sync.service.ts
+sippy-rate-sync.service.ts
+sippy-client-sync.service.ts
+sippy-invoice-sync.service.ts
+MOST IMPORTANT FUTURE FEATURE
+Cross-System Reconciliation
+
+Compare:
+
+Sippy totals
+vs
+BitsAuto rated totals
+vs
+QuickBooks invoice totals
+
+This becomes:
+
+enterprise telecom finance governance.
+NEW HIGH-VALUE FEATURE
+Multi-Product Profitability Intelligence
+
+Dashboard:
+
+Revenue by Product
+Margin by Product
+QoS-adjusted Profitability
+Product Churn Risk
+Top Loss-Making Product
+
+This becomes very powerful commercially.
+
+CORRECT FINAL ARCHITECTURE
+Sippy
+    ↓
+Unified Telecom Rating Engine
+    ↓
+Product Classification Layer
+    ↓
+Immutable Finance Snapshots
+    ↓
+Invoice Automation
+    ↓
+Approval Workflow
+    ↓
+QuickBooks Accounting Sync
+    ↓
+Revenue Intelligence
+    ↓
+AI Assurance
+IMPORTANT IMPLEMENTATION WARNING
+
+Never let:
+
+QuickBooks,
+invoice templates,
+or UI components
+
+recalculate telecom costs.
+
+ONLY:
+
+rating-engine.service.ts
+
+may determine:
+
+billed seconds
+effective CPM
+telecom margin
+sell revenue
+buy cost
+
+Everything else consumes those results.
+
+That rule protects the entire platform architecture.

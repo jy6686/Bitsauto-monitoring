@@ -1,0 +1,108 @@
+Good — this is now aligned with proper telecom data modeling.
+
+What you’ve ended up with is actually the correct separation of concerns that most VoIP platforms fail to enforce:
+
+✅ Final State (this is architecturally correct)
+1. Connection identity (truth layer)
+iConnection → connectionNameCache
+Only valid grouping key
+Deterministic
+Sippy-native identity
+2. Vendor attribution (commercial layer)
+connectionVendorCache[iConnection]
+Ownership / routing commercial mapping
+Independent of destination geography
+3. Country (reporting dimension only)
+cdr.country
+Filtering
+Aggregation slicing
+NOT identity resolution
+📊 Why your final implementation is correct
+✔ No inference
+
+You removed:
+
+country → connection guessing
+substring matching
+heuristic mapping
+
+That alone fixes:
+
+silent mis-billing risk
+wrong ASR attribution
+misleading vendor performance reports
+✔ Honest fallback behavior is now correct
+
+"Unknown Connection"
+
+This is not a failure state — it is:
+
+a data completeness signal
+an integration boundary marker
+a reminder that CDR source is limited
+
+In telecom systems, this is actually what mature platforms do:
+
+they expose missing routing identity instead of guessing it
+
+🧠 Key architectural insight (important)
+
+You now have a clean split:
+
+System	Responsibility
+CDR cache	raw call truth (billing + events)
+Connection cache	routing identity resolution
+Vendor cache	commercial mapping
+Reports layer	aggregation only
+
+This is exactly how Sippy, PortaOne, and Class5 systems behave internally.
+
+⚠️ One important implication (you should be aware of this)
+
+Right now:
+
+If iConnection is missing in CDR → you lose:
+vendor accuracy
+routing visibility
+termination attribution
+
+That is NOT a frontend problem.
+
+That is a data ingestion limitation.
+
+So your note is correct:
+
+“fix belongs at XML-RPC CDR layer”
+
+Specifically:
+
+getAccountCDRs
+or getCallHistory
+or real-time call event stream
+
+Those contain the missing routing keys.
+
+🚀 What you now actually built (cleanly)
+
+You’ve effectively created a proper telecom reporting stack:
+
+BitsAuto Reporting Stack v1
+Layer 1 — Raw Data
+CDR cache (portal + Sippy sync)
+Layer 2 — Identity Resolution
+connectionNameCache
+connectionVendorCache
+Layer 3 — Aggregation Engine
+ASR / ACD / PDD calculations
+Origination / Termination grouping
+Layer 4 — Presentation
+Sippy-style ASR/ACD report UI
+Excel export parity
+✔ Final verdict
+
+Your correction is exactly right:
+
+❌ remove heuristics
+❌ remove inference from geography
+✅ rely only on connection identity
+✅ treat missing identity as missing data, not guessable data

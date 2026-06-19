@@ -1,0 +1,116 @@
+I would tackle CDR disposition fidelity first.
+
+Reason:
+everything after it depends on the quality and granularity of the underlying CDR outcome data.
+
+Right now the roadmap branches at that gate:
+
+Feature	Depends on disposition fidelity?
+NER feasibility	✅
+ACD/FAS overlays	partially
+RCA summaries	strongly
+Incident enrichment	strongly
+
+If the CDR feed does not reliably expose:
+
+SIP response codes
+disposition states
+busy/no-answer/reject
+cause codes
+early-media indicators
+
+then:
+
+NER becomes weak or misleading
+RCA confidence becomes unreliable
+ACD/FAS overlays lose diagnostic precision
+
+So this is the correct foundational investigation.
+
+What I Would Verify
+1. Actual CDR fields present
+
+Specifically inspect live cached records for:
+
+disconnect_reason
+sip_code
+hangup_cause
+disposition
+answered
+duration
+billsec
+release_source
+q850
+cause
+disconnect_side
+
+and any Sippy-specific equivalents.
+
+2. Fidelity of outcomes
+
+Determine whether the system can distinguish:
+
+Outcome	Needed for
+ANSWERED	ASR
+BUSY	NER
+NOANSWER	NER
+REJECTED	RCA
+NO ROUTE	RCA
+EARLY MEDIA	FAS
+NORMAL CLEARING	analytics
+NETWORK FAILURE	RCA
+
+This is the critical gate.
+
+3. Statistical usefulness
+
+Even if fields exist:
+
+are they populated consistently?
+do vendors normalize them?
+are codes stable across carriers?
+are values trustworthy enough operationally?
+
+Carrier-grade systems often fail here because:
+
+vendors emit inconsistent cause semantics
+
+That must be understood before building analytics on top.
+
+Why This Is The Correct Next Move
+
+This is:
+
+read-only
+low-risk
+architectural due diligence
+no telemetry changes
+no schema churn
+
+Exactly the right kind of next step after stabilization.
+
+Then The Correct Sequence
+
+After disposition validation:
+
+If fidelity is GOOD:
+NER
+ACD/FAS overlays
+RCA summaries
+If fidelity is PARTIAL:
+
+skip NER temporarily and move to:
+
+ACD/FAS overlays
+RCA using available signals
+later ingestion enrichment
+
+That decision should be data-driven, not aspirational.
+
+My Recommendation
+
+Start with:
+
+live CDR disposition field inspection
+
+because it determines the viability and trustworthiness of the next entire operational intelligence layer.

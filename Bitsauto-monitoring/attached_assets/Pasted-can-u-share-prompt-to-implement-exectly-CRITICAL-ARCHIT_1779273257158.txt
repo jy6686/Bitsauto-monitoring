@@ -1,0 +1,213 @@
+can u share prompt to implement exectly 
+
+CRITICAL ARCHITECTURE FIX — CALLS METRIC MUST ALWAYS USE CONCURRENT SESSION HISTORY
+
+Problem:
+The current EntityIntelligenceChart mixes two different data sources under the same CALLS metric:
+
+LIVE:
+
+Uses entityConcurrentHistory (correct)
+
+DAILY/WEEKLY:
+
+Uses CDR aggregation totals (wrong for CALLS)
+
+This causes:
+
+LIVE max = 8
+DAILY max = 564
+for the SAME entity.
+
+Operators expect CALLS to always represent concurrent live sessions, not completed CDR totals.
+
+Target Behavior (match classic BitsEye semantics):
+If peak concurrent live calls today were 8:
+
+LIVE max = 8
+DAILY max = 8
+WEEKLY max = historical concurrent peak
+NOT 800+ completed calls.
+
+IMPLEMENTATION REQUIREMENTS
+
+CALLS METRIC MUST NEVER USE CDR AGGREGATION
+
+Current incorrect logic:
+
+DAILY/WEEKLY CALLS are generated from CDR bucket totals
+
+Remove this behavior entirely.
+
+CALLS must ONLY use:
+
+entityConcurrentHistory
+persisted concurrent snapshots
+live concurrent telemetry
+
+across ALL spans:
+
+LIVE
+DAILY
+WEEKLY
+KEEP CDR AGGREGATION ONLY FOR KPI METRICS
+
+These metrics SHOULD continue using CDR aggregation:
+
+ASR
+ACD
+NER
+Minutes
+Cost
+Profit
+
+Only CALLS is wrong today.
+
+BACKEND FIX — /api/bitseye/entity-history
+
+Current behavior:
+if metric === "calls":
+if span === "live":
+use concurrent snapshots
+else:
+use CDR totals
+
+REMOVE THIS SPLIT.
+
+New behavior:
+if metric === "calls":
+ALWAYS use concurrent session history
+regardless of span
+
+Required spans:
+LIVE:
+
+existing 45s snapshots
+existing entityConcurrentHistory
+
+DAILY:
+
+aggregate historical concurrent snapshots into hourly buckets
+use MAX concurrent sessions per hour
+NOT sum of completed calls
+
+WEEKLY:
+
+aggregate historical concurrent snapshots into 6h buckets
+use MAX concurrent sessions per bucket
+NOT CDR totals
+
+IMPORTANT:
+Use MAX concurrency inside bucket.
+NOT SUM.
+
+We are graphing:
+"how many calls were simultaneously active"
+
+NOT:
+"how many calls completed"
+
+STORAGE REQUIREMENT
+
+If current entityConcurrentHistory only stores ~8h:
+extend persistence.
+
+Options:
+A) preferred
+Create concurrent_history table:
+
+entityType
+entityName
+ts
+active
+connected
+routing
+
+Retention:
+
+7 days minimum
+
+OR
+
+B)
+Persist snapshot buckets into entity_presence_registry
+
+But DO NOT use CDR totals for CALLS anymore.
+
+FRONTEND LABELING
+
+After backend fix:
+CALLS semantics become consistent again.
+
+Update labels:
+
+LIVE:
+"Concurrent Sessions"
+
+DAILY:
+"Concurrent Sessions (24h)"
+
+WEEKLY:
+"Concurrent Sessions (7d)"
+
+Remove any wording implying:
+
+completed calls
+CDR totals
+traffic volume
+
+for CALLS mode.
+
+KPI METRICS BEHAVIOR
+
+When switching to:
+
+ASR
+ACD
+NER
+Minutes
+Cost
+Profit
+
+THEN:
+
+switch to CDR analytics path
+DAILY/WEEKLY only
+
+LIVE should remain disabled for these.
+
+EXPECTED RESULT
+
+After fix:
+if peak live concurrency today = 8
+
+graphs should show:
+LIVE max = 8
+DAILY max = 8
+WEEKLY max = historical concurrent peak
+
+No more:
+
+564
+800+
+inflated totals
+
+unless actual simultaneous concurrency reached those values.
+
+DO NOT CHANGE
+
+Do NOT modify:
+
+polling cadence
+snapshotActiveCalls
+zero-snapshot logic
+entityPresenceCache
+graph continuity fix
+escalation engine
+notification engine
+
+This is ONLY:
+
+metric semantics correction
+backend history-source correction
+concurrent history persistence expansion

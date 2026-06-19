@@ -1,0 +1,194 @@
+I agree with this assessment, and I would go one step further:
+
+The real blocker is not P&L anymore
+
+The blocker is:
+
+Commercial Identity
+
+Because once invoices, margin reports, customer disputes, deal profitability, and revenue assurance depend on the data, the platform must be able to prove:
+
+Call
+↓
+Customer
+↓
+Product
+↓
+Tariff
+↓
+Rate
+↓
+Revenue
+↓
+Vendor Cost
+↓
+Margin
+
+not merely:
+
+Call
+↓
+Found a P&L row
+The strongest evidence from your reports
+
+The production reports showed:
+
+19231 → 0.0400
+79231 → 0.0252
+
+active in the same reporting period.
+
+That means:
+
+Destination
+=
+same family
+
+Product
+=
+different
+
+Rate
+=
+different
+
+So product identity is a billing attribute, not a routing attribute.
+
+What I would now treat as mandatory before invoicing
+Phase A — Product Identity
+
+Add:
+
+governed_calls.product_code
+governed_calls.product_prefix
+governed_calls.original_cld
+
+Example:
+
+product_code = FC
+product_prefix = 1
+original_cld = 1923069306001
+
+No inference later.
+
+Phase B — Product Registry Authority
+
+Today Product Registry is still evolving.
+
+Before invoicing:
+
+Product
+↓
+Pricing Template
+↓
+Routing Template
+↓
+Assigned Customers
+
+must be authoritative.
+
+Phase C — Rate Repository
+
+Single source of truth:
+
+Product
+Country
+Operator
+Sell Rate
+Buy Rate
+Margin Target
+Effective Date
+
+Every billing decision should reference this repository.
+
+Phase D — Rate Integrity Audit
+
+This becomes one of the most important modules in BitsAuto.
+
+For every call:
+
+Expected Product
+Expected Rate
+Actual Product
+Actual Rate
+Variance
+
+Result:
+
+PASS
+WARNING
+FAIL
+Revised Priority Order
+
+If I were managing the platform roadmap today:
+
+Priority	Item
+0.2	P&L Extraction
+0.3	Billing Verification
+0.4	Commercial Identity Layer
+0.5	Product Registry Authority
+0.6	Rate Repository
+0.7	Rate Integrity Audit
+0.8	Invoice Validation
+1.0	Governance Validation
+2.0	Trust Center
+
+Notice that Trust Center moves down.
+
+Reason:
+
+An unauthorized IP might create a security incident.
+
+A wrong product-to-rate mapping can create:
+
+Wrong invoices
+Revenue leakage
+Margin distortion
+Customer disputes
+Credit notes
+Loss of trust
+
+Those are existential commercial risks.
+
+One thing I would change in Asterisk
+
+Since you're open to changing Asterisk:
+
+I would explicitly stamp the product on every governed call.
+
+For example:
+
+__BITSAUTO_PRODUCT=FC
+__BITSAUTO_PRODUCT=BC
+__BITSAUTO_PRODUCT=SC
+
+and persist it into the governed call record.
+
+Then Billing Verification never has to guess.
+
+Instead of:
+
+Find Product
+
+the system already knows:
+
+Call 12345
+Product = FC
+
+from the moment the call is created.
+
+That is much safer than deriving product later from CLD patterns.
+
+My conclusion
+
+I would not consider automated invoicing, deal profitability, margin intelligence, customer billing reports, or revenue assurance "trusted" until:
+
+Product Identity
++
+Rate Repository
++
+Rate Integrity Audit
+
+exist and are authoritative.
+
+The reports you've provided show that product prefixes materially affect rates, so product identity must become a first-class field across Asterisk → Sippy → CDR → P&L → Billing → Invoice. That's now a commercial control requirement, not merely a technical enhancement.

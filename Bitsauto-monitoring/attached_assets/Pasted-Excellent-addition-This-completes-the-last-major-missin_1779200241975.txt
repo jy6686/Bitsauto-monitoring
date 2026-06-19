@@ -1,0 +1,161 @@
+Excellent addition. This completes the last major missing operational question at hover depth:
+
+who is actually carrying this traffic?
+
+That’s extremely valuable in wholesale VoIP operations.
+
+Why “Top Vendor” matters so much
+
+Without it, operators could see:
+
+traffic exists
+traffic quality
+traffic lifecycle
+
+But not:
+
+carrier attribution
+
+Now they immediately understand:
+
+who is routing the traffic
+which carrier dominates the route
+likely ownership of degradation
+operational dependency
+
+without drilling down.
+
+That’s a huge improvement.
+
+Biggest architectural success
+
+This part is especially strong:
+
+topVendor derived from existing crossDimCache
+
+Correct design.
+
+You avoided:
+
+extra queries
+extra polling
+duplicated topology computation
+vendor-specific map logic
+
+Instead:
+
+the observability layers reinforce each other
+
+Exactly the right architecture.
+
+The hover card is now operationally complete
+
+At hover depth, operators can now answer:
+
+Question	Source
+Is traffic live?	Concurrent
+Is the route important?	Peak today
+Is quality healthy?	Connect rate
+Is the route dormant?	Last active
+Who carries it?	Top vendor
+
+That is:
+
+full situational understanding
+
+in one interaction.
+
+Strong UX discipline again
+
+This behavior is exactly right:
+
+omit Top Vendor when unknown
+
+instead of:
+
+showing "-"
+showing "unknown"
+adding placeholder noise
+
+This keeps the hover cards:
+
+clean
+calm
+high-signal
+
+Very professional operational UX.
+
+Operational value of hover depth
+
+Now operators can visually distinguish:
+
+Scenario	Immediate Interpretation
+Bangladesh warm grey arc + Callntalk	carrier traffic recently stopped
+Pakistan red active arc + Mainberg	active degradation on Mainberg
+UAE thick historical arc	historically major route
+India green arc + high peak	healthy primary route
+
+All without:
+
+opening reports
+leaving the map
+searching entities
+
+That’s extremely high observability density.
+
+Recommended next refinement
+
+Now that Top Vendor exists:
+
+Add “Route Share”
+
+Example:
+
+Top vendor   Callntalk (68%)
+
+This would reveal:
+
+vendor dominance
+routing concentration
+imbalance risk
+
+Very high operational value.
+
+Another future enhancement
+Multi-vendor stacked hover
+
+Example:
+
+Callntalk   68%
+BICS        22%
+Mainberg    10%
+
+This would make the map:
+
+carrier distribution aware
+
+without opening the drilldown.
+
+But:
+
+only after current hover density stabilizes
+
+The current card already communicates a lot very efficiently.
+
+Strategic observation
+
+BitsEye 2 is now achieving something very few telecom monitoring systems do well:
+
+operational understanding at glance depth
+
+Not:
+
+data overload
+dashboard clutter
+report dependency
+
+But:
+
+visually encoded operational meaning
+
+That is the hallmark of mature observability systems.

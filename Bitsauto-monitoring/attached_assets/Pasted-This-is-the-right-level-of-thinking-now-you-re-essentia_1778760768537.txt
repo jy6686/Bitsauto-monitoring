@@ -1,0 +1,135 @@
+This is the right level of thinking now — you’re essentially designing a telecom provisioning state machine, not just a wizard.
+
+Your question is the most important architectural decision left:
+
+When does Sippy account creation happen relative to IP approval?
+
+Let’s settle it cleanly.
+
+🧠 1. First principle (this decides everything)
+
+In BitsAuto terms:
+
+IP approval is a trust decision.
+Sippy provisioning is an execution decision.
+
+These two should NOT be tightly coupled.
+
+Why?
+Because:
+
+IP approval is often incremental (1, 2, 10 IPs over time)
+provisioning should be intentional and auditable
+Sippy is sensitive (once created, it becomes a live telecom object)
+⚖️ 2. Option A vs Option B (real telecom impact)
+🅰 Option A — Auto provision on first IP approval
+
+First IP approved → Sippy account created → each IP pushes auth rules immediately
+
+👍 Pros
+Fully automatic
+Less UI friction
+Faster onboarding
+👎 Cons (important)
+Sippy account gets created before full intent is known
+Partial IP approvals create “half-live systems”
+Harder rollback (account already exists in Sippy)
+Can trigger accidental exposure earlier than needed
+🅱 Option B — Explicit “Provision to Sippy” button (recommended)
+
+Admin approves all IPs → then explicitly clicks “Provision”
+
+👍 Pros (strong)
+Clean audit trail (“who approved + who provisioned”)
+No premature Sippy objects
+Full batch control (all IPs in one atomic push)
+Easier rollback (nothing exists in Sippy until final step)
+Matches telecom NOC workflows (very important)
+👎 Cons
+One extra step (but that’s acceptable in ops systems)
+🔥 3. Final recommendation (for BitsAuto specifically)
+
+Given your system is:
+
+internal NOC tool
+multi-user (admin, KAM, management)
+high fraud sensitivity
+Sippy integration risk-aware
+
+👉 Option B is the correct design
+
+🧱 4. Final Flow (production-grade)
+🔵 STEP 1 — Wizard
+Create company
+Create client
+Add IPs → PENDING
+NO Sippy call
+🔵 STEP 2 — IP Approval (admin-only)
+
+Admin actions:
+
+Approve / reject IPs
+Nothing sent to Sippy yet
+🔵 STEP 3 — Provisioning Button (critical step)
+Button:
+
+🚀 “Provision Client to Sippy”
+
+This action:
+Creates Sippy account
+Pushes ALL approved IPs
+Creates auth rules in batch
+Locks provisioning state
+🔵 STEP 4 — Post-provision control
+
+After provisioning:
+
+Only approved IPs can create auth rules
+Any new IP approval triggers incremental sync OR requires re-provision (your choice)
+🔵 STEP 5 — Auth rule lifecycle
+BitsAuto = source of truth
+Sippy = mirror only
+Every change goes through guard:
+if ip.status != APPROVED:
+    block
+🔐 5. Why Option B is actually safer (important insight)
+
+Most people assume automation = safer.
+
+In telecom systems, it's the opposite:
+
+❗ Controlled provisioning is safer than automatic provisioning
+
+Because it ensures:
+
+no accidental live accounts
+no partial trust states
+no invisible Sippy objects
+no audit confusion
+no timing-based fraud window
+🧭 6. Final architecture decision (lock this in)
+✔ BitsAuto final model:
+Control plane:
+IP approval
+provisioning decision
+auth rule lifecycle
+Execution plane:
+Sippy account creation
+SIP authentication enforcement
+📌 7. Clean rule set (final version)
+🔴 Must NOT happen
+auto Sippy account creation on wizard submit
+auto auth rule push before IP approval
+direct Sippy UI access
+🟢 Must happen
+IP approval first
+explicit provisioning step
+batch push to Sippy
+rule-level enforcement via backend guard
+🧠 Final answer to your question
+
+Which is better: A or B?
+
+✔ Final verdict:
+
+Option B — explicit “Provision to Sippy” after full IP approval — is the correct BitsAuto design.

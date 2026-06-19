@@ -1,0 +1,49 @@
+Asterisk 18.6.0, Copyright (C) 1999 - 2021, Sangoma Technologies Corporation and others.
+Created by Mark Spencer <markster@digium.com>
+Asterisk comes with ABSOLUTELY NO WARRANTY; type 'core show warranty' for details.
+This is free software, with components licensed under the GNU General Public
+License version 2 and other licenses; you are welcome to redistribute it under
+certain conditions. Type 'core show license' for details.
+=========================================================================
+Connected to Asterisk 18.6.0 currently running on REVE-OTP (pid = 7232)
+[2026-06-01 13:49:39] NOTICE[27656]: res_pjsip/pjsip_distributor.c:676 log_failed_request: Request 'INVITE' from '<sip:13613445240@191.101.30.107>' failed for '191.101.30.107:5060' (callid: isbcjthtihmlnjitstrnovhn22nol722tjjo@SoftX3000-b2b_1-b2b_2) - No matching endpoint found
+Reliably Transmitting (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK180c00ec;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as59d876bb
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 46a2c6e84a154b67523b52a22ed41426@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:49:39 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+
+<--- SIP read from UDP:191.101.30.107:5060 --->
+SIP/2.0 200 OK
+Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK180c00ec;rport=5160
+To: <sip:191.101.30.107>;tag=0b46.90ee723717c4284e9b679cc6fd64c79c
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as59d876bb
+Call-ID: 46a2c6e84a154b67523b52a22ed41426@159.223.32.59:5160
+CSeq: 102 OPTIONS
+Server: Sippy Softswitch v2024-PRODUCTION.485
+Content-Length: 0
+
+<------------->
+--- (8 headers 0 lines) ---
+Really destroying SIP dialog '46a2c6e84a154b67523b52a22ed41426@159.223.32.59:5160' Method: OPTIONS
+[2026-06-01 13:49:40] NOTICE[27656]: res_pjsip/pjsip_distributor.c:676 log_failed_request: Request 'INVITE' from '<sip:+3703709704653@191.101.30.107>' failed for '191.101.30.107:5060' (callid: fcffc50-52153499-189286a-7ff3a167a410-3400140a-13c5-764-b2b_1-b2b_2) - No matching endpoint found
+[2026-06-01 13:49:40] NOTICE[27656]: res_pjsip/pjsip_distributor.c:676 log_failed_request: Request 'INVITE' from '<sip:+96415446980@191.101.30.107>' failed for '191.101.30.107:5060' (callid: 8343ad41463616c6c00013473@77.93.152.193-b2b_2-b2b_2) - No matching endpoint found
+[2026-06-01 13:49:40] NOTICE[27656]: res_pjsip/pjsip_distributor.c:676 log_failed_request: Request 'INVITE' from '<sip:923310158296@191.101.30.107>' failed for '191.101.30.107:5060' (callid: 42c90119263616c6c068e05e0@149.20.187.181-b2b_3-b2b_2) - No matching endpoint found
+[2026-06-01 13:49:42] NOTICE[27656]: res_pjsip/pjsip_distributor.c:676 log_failed_request: Request 'INVITE' from '<sip:+97230025438@191.101.30.107>' failed for '191.101.30.107:5060' (callid: 17488b99863616c6c00013477@77.93.152.193-b2b_1-b2b_2) - No matching endpoint found
+[2026-06-01 13:49:43] NOTICE[27656]: res_pjsip/pjsip_distributor.c:676 log_failed_request: Request 'INVITE' from '<sip:923311400982@191.101.30.107>' failed for '191.101.30.107:5060' (callid: 40e1af37563616c6c00000d53@176.9.19.216-b2b_1-b2b_2) - No matching endpoint found
+[2026-06-01 13:49:45] NOTICE[27656]: res_pjsip/pjsip_distributor.c:676 log_failed_request: Request 'INVITE' from '<sip:14175157517@191.101.30.107>' failed for '191.101.30.107:5060' (callid: isbcnrlrnvhft7kti2j7tfolimfjvr2ofron@SoftX3000-b2b_1-b2b_2) - No matching endpoint found
+[2026-06-01 13:49:48] NOTICE[27656]: res_pjsip/pjsip_distributor.c:676 log_failed_request: Request 'INVITE' from '<sip:15793004852@191.101.30.107>' failed for '191.101.30.107:5060' (callid: isbcnmfrlfittnmvh42ln7s7s4moljkjimj7@SoftX3000-b2b_1-b2b_2) - No matching endpoint found
+[2026-06-01 13:49:53] NOTICE[27656]: res_pjsip/pjsip_distributor.c:676 log_failed_request: Request 'INVITE' from '<sip:maint@159.223.32.59>' failed for '31.70.77.205:57015' (callid: 1405197367-1677286160-1752474428) - No matching endpoint found
+REVE-OTP*CLI> 

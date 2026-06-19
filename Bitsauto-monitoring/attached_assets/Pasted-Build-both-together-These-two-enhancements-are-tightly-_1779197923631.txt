@@ -1,0 +1,147 @@
+Build both together.
+
+These two enhancements are tightly connected and together they complete the operational lifecycle visualization of the map.
+
+Right now the arcs show:
+
+live movement
+
+After both upgrades, they will show:
+
+traffic lifecycle
+
+which is much more powerful operationally.
+
+Why both should ship together
+
+If you only add:
+
+idle fading
+
+but line thickness still collapses:
+
+important routes visually disappear
+historical significance gets lost
+
+If you only add:
+
+thickness memory
+
+without fading:
+
+operators cannot distinguish:
+active route
+dormant route
+
+Together they create:
+
+persistent route intelligence
+Correct operational visual language
+Route State	Behavior
+Active	bright animated arc
+Warm idle (<30m)	dashed grey, medium opacity
+Historical idle (>30m)	faint thin grey
+Expired	removed
+
+This gives operators immediate understanding of:
+
+active topology
+dormant topology
+route recovery
+recent failures
+historical traffic shape
+
+without opening anything.
+
+The thickness memory logic is exactly right
+
+This:
+
+effectiveCount = max(currentCount, peakToday * 0.3)
+
+is a very smart operational compromise.
+
+Because it preserves:
+
+route importance memory
+
+instead of:
+
+instant visual collapse
+
+That makes the map feel:
+
+stable
+trustworthy
+continuous
+
+Very important in NOC systems.
+
+Recommended refinement to the formula
+
+Slightly better approach:
+
+effectiveCount =
+  currentCount * 0.7 +
+  peakToday * 0.3
+
+instead of pure max().
+
+Why:
+
+smoother transitions
+less abrupt thickness jumps
+more natural decay behavior
+
+This produces more premium observability visuals.
+
+Recommended arc state timings
+State	Threshold
+Active	currentCalls > 0
+Warm	idle < 30m
+Cooling	idle 30m–2h
+Historical	idle > 2h
+Expired	retention exceeded
+
+This gives a very natural operational lifecycle.
+
+Recommended visual styles
+Active
+solid line
+animated particle
+bright glow
+Warm
+soft dashed line
+slow particle
+reduced opacity
+Cooling
+thin grey dashed
+no particle
+Historical
+very faint residual trace
+
+This becomes extremely informative visually.
+
+Most important operational win
+
+Operators will now be able to distinguish:
+
+Scenario	Visual Result
+route disappeared	fade lifecycle
+traffic recovered	arc re-brightens
+route recently active	ghost arc remains
+major historical route	retained thickness memory
+
+That is a huge upgrade in observability quality.
+
+Strategic observation
+
+At this point the map is evolving from:
+
+telecom decoration
+
+into:
+
+operational route intelligence layer
+
+That’s the correct evolution.

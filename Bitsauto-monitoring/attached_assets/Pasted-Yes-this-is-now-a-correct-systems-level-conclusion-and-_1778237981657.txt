@@ -1,0 +1,131 @@
+Yes — this is now a correct systems-level conclusion, and importantly: it is stable enough to build on without further “debug churn.”
+
+I’ll just tighten it into a production-grade framing and remove the last bit of ambiguity so you don’t accidentally over-engineer the next step.
+
+🧠 FINAL TRUTH (NO OVER-ENGINEERING)
+✅ 1. Root cause is confirmed
+
+Sippy is enforcing:
+
+🔒 RBAC at server level (not API or client level)
+
+Meaning:
+
+ssp-root (customer) → read/limited operations only
+reseller/admin → write authority (INSERT/UPDATE)
+
+✔ This is not bypassable in code
+✔ This is not a bug
+✔ This is expected platform behavior
+
+🏗️ CORRECT ARCHITECTURE (FINAL FORM)
+
+Your split-role model is correct, but here is the production-safe version:
+
+🔵 Monitoring Plane (Read-only system)
+
+Identity:
+
+customer session (ssp-root)
+
+Responsibilities:
+
+live calls
+CDRs
+balances
+dashboards
+analytics / Bitseye
+
+✔ High frequency
+✔ Safe to cache
+✔ Stateless-friendly
+
+🔴 Provisioning Plane (Write system)
+
+Identity:
+
+reseller/admin credentials (separate account)
+
+Responsibilities:
+
+tariff creation
+service plan creation
+account provisioning
+any INSERT/UPDATE
+
+✔ Low frequency
+✔ Strictly controlled
+✔ Must be audited
+
+⚙️ EXECUTION MODEL (IMPORTANT)
+
+Instead of “session switching”, use:
+
+🧭 Operation Routing Layer
+
+IF operation.type == READ  → Monitoring Session
+IF operation.type == WRITE → Provisioning Session
+🔐 SECRET MANAGEMENT (CORRECT WAY)
+SIPPY_MONITOR_USER=ssp-root
+SIPPY_MONITOR_PASS=***
+
+SIPPY_PROVISION_USER=reseller_admin
+SIPPY_PROVISION_PASS=***
+⚠️ CRITICAL DESIGN RULE (MOST IMPORTANT POINT)
+❌ WRONG APPROACH:
+trying to “upgrade” customer session
+trying to reuse session for writes
+trying to detect role dynamically
+✅ CORRECT APPROACH:
+
+completely separate authentication contexts
+
+🧩 WHY YOUR CURRENT FALLBACK IS ACTUALLY GOOD
+
+This is often missed:
+
+Your current behavior:
+
+“Tariff created → service plan manual step”
+
+is actually:
+
+✔ safe
+✔ compliant with RBAC
+✔ production-acceptable fallback
+
+So you are NOT blocked — you are degraded gracefully
+
+🚀 EVOLUTION PATH (REALISTIC)
+Phase 1 (NOW)
+dual-session design defined
+manual provisioning fallback
+monitoring fully functional
+Phase 2 (when creds available)
+enable provisioning engine
+fully automated service plan creation
+Phase 3 (optional)
+rule-based provisioning (KAM intelligence layer)
+auto-plan assignment based on traffic
+💡 KEY INSIGHT (IMPORTANT)
+
+This is no longer a “fix Sippy integration” problem.
+
+It is now:
+
+🧠 “Design a two-plane telecom control system around a legacy RBAC backend”
+
+🟢 FINAL VERDICT
+
+✔ Your architecture is correct
+✔ Your role split is correct
+✔ Your fallback strategy is correct
+✔ No code workaround exists (and none is needed)
+
+If you want next step, I can help you design:
+
+🧠 Full VoIP Intelligence Control Plane
+automatic KAM routing rules
+client-tier provisioning logic
+fraud + anomaly detection layer
+traffic-based service plan suggestions

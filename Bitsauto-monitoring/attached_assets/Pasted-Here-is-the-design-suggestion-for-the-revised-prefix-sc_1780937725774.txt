@@ -1,0 +1,92 @@
+Here is the design suggestion for the revised prefix scheme:
+
+Revised Prefix Design: Random Unique 4-Digit + Product Code
+Structure
+[ 4-digit vendor prefix ] + [ 1-digit product code ]
+= 5-digit total dial prefix
+
+The 4-digit vendor prefix is randomly generated once per canonical vendor and never changes. The product code digit is appended and follows the existing platform encoding.
+
+Layer	Digits	Source	Example
+Vendor Prefix	4	Random, unique, assigned at registration	2012
+Product Code	1	Platform encoding (1/2/6/7)	1 (FC)
+Full Prefix	5	Combined	20121
+Why 4-digit vendor + 1-digit product (not 4-digit per combo)
+If you assign a completely independent random prefix per vendor+product combination, you lose the ability to see at a glance that two prefixes belong to the same vendor. With this approach, an operator looking at call records immediately knows:
+
+20121, 20122, 20126, 20127 → all ASTRA connections
+38471, 38472 → all QUICKCOM connections
+This mirrors how phone number blocks work — the vendor "owns" a prefix block.
+
+Prefix Assignment Rules
+Vendor prefix range: 1000–9999 (9000 possible vendor codes — far more than 45 carriers)
+Excluded ranges: Avoid 1000–1999 if any existing Sippy dial rules already use that range (check for conflicts)
+Product code digits appended: 1=FC, 2=BC, 6=SB, 7=SC
+Assignment: Random draw from available pool at the time the canonical vendor is registered — stored permanently in DB
+Uniqueness: Enforce a unique constraint on the 5-digit full prefix
+Proposed Data Model (for when implementation begins)
+canonical_vendors
+  id             INT PK
+  name           VARCHAR        -- "ASTRA"
+  vendor_prefix  CHAR(4) UNIQUE -- "2012" (randomly assigned, immutable)
+  description    VARCHAR
+  created_at     TIMESTAMP
+vendor_cvc_mappings
+  id               INT PK
+  canonical_id     FK → canonical_vendors.id
+  sippy_i_vendor   INT            -- e.g. 139 (ASTRA-PR-PR), 141 (astra-global)
+  sippy_name       VARCHAR        -- original Sippy vendor name
+governance_prefix_rules
+  id               INT PK
+  canonical_id     FK → canonical_vendors.id
+  product_code     CHAR(1)        -- "1","2","6","7"
+  full_prefix      CHAR(5) UNIQUE -- "20121" (vendor_prefix + product_code)
+  rule_name        VARCHAR        -- "10-Second Disconnect Rule"
+  rule_config      JSONB          -- { action: "disconnect", after_seconds: 10 }
+                                 -- { action: "play_audio", file: "..." }
+                                 -- { action: "block" }
+  active           BOOLEAN
+  created_at       TIMESTAMP
+
+What the Operator Sees — Connection Config Display
+┌─────────────────────────────────────────────────────────┐
+│  Connection: ASTRA-PR-PR                                │
+│  Canonical Vendor: ASTRA                                │
+│  Vendor Prefix: 2012                                    │
+│                                                         │
+│  Active Governance Rules:                               │
+│  ┌──────────┬──────────────┬──────────────────────────┐ │
+│  │ Prefix   │ Product      │ Rule                     │ │
+│  ├──────────┼──────────────┼──────────────────────────┤ │
+│  │ 20121    │ First Class  │ 10-Second Disconnect     │ │
+│  │ 20122    │ Business     │ Monitor Only             │ │
+│  │ 20126    │ Special Bravo│ Block + Alert            │ │
+│  └──────────┴──────────────┴──────────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+
+This panel would live on the existing Call Governance page and link from the vendor's connection entry.
+
+Sample Prefix Assignments (suggestion — final values would be randomly generated)
+Canonical Vendor	Vendor Prefix	FC	BC	SB	SC
+ASTRA	2012	20121	20122	20126	20127
+PTCL	3847	38471	38472	38476	38477
+QUICKCOM	5291	52911	52912	52916	52917
+SKY-TELECOM-UK	7634	76341	76342	76346	76347
+TELSTRA	4156	41561	41562	41566	41567
+CALLNTALK	6823	68231	68232	68236	68237
+ZONG	1492	14921	14922	14926	14927
+Governance Rule Types (reference for implementation phase)
+disconnect_after     { after_seconds: N }
+play_audio           { file: "warning.wav", then: "disconnect" | "continue" }
+block                { reason: "fraud" | "test" | "suspended" }
+monitor_only         { alert: true, record: true }
+rate_limit           { max_calls: N, window_seconds: W }
+
+Summary of what changes vs. the previous design:
+
+❌ No longer derived from i_vendor ID
+✅ Random 4-digit vendor prefix — opaque, collision-proof, permanent
+✅ Product code still appended (keeps product identity visible)
+✅ One canonical vendor = one 4-digit prefix block (all products under same vendor share same prefix root)
+✅ Governance rules stored per full 5-digit prefix, visible in connection config
+Ready to implement when you confirm this direction.

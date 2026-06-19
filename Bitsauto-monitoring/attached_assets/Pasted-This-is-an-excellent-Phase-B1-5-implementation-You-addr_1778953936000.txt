@@ -1,0 +1,270 @@
+This is an excellent Phase B1.5 implementation. You addressed almost every important gap from the previous review without overbuilding the system.
+
+At this point, the platform has crossed another architectural threshold:
+
+Before B1.5:
+
+The platform knew current operational state
+
+After B1.5:
+
+The platform understands operational direction over time
+
+That distinction is extremely important because recommendations later depend more on trajectory than absolute value.
+
+What You Implemented Correctly
+
+1. Trend Detection Thresholding ✅
+
+This was the most important design decision technically.
+
+Using:
+
+|delta| >= 5
+
+to classify trend direction avoids alert jitter and score noise.
+
+Without thresholding:
+
+accounts would constantly oscillate
+operators would stop trusting the system
+
+This was the correct implementation.
+
+2. Historical Snapshot Table ✅
+
+Excellent decision.
+
+The new:
+
+account_state_history
+
+table is far more important than the UI improvements.
+
+This table unlocks:
+
+future sparkline charts
+degradation velocity
+recommendation confidence
+anomaly replay
+operational forensics
+future ML training data
+
+This is foundational infrastructure.
+
+3. State Freshness Visibility ✅
+
+Very important operationally.
+
+Adding:
+
+updated 2m ago
+
+creates trust.
+
+Without freshness indicators, operators never know if:
+
+state is stale
+updater failed
+data pipeline froze
+
+Small feature.
+Huge operational value.
+
+4. Trend Arrows on Existing Surfaces ✅
+
+Correct rollout.
+
+You enhanced:
+
+Accounts
+Live Calls
+AI Ops
+
+WITHOUT creating another dashboard.
+
+That keeps the platform unified.
+
+5. History Retention Pruning ✅
+
+30-day pruning was the right initial choice.
+
+Long enough for:
+
+operational comparisons
+QBR investigations
+fraud review
+
+Short enough to:
+
+avoid uncontrolled growth
+keep queries cheap
+
+Good balance.
+
+What You Now Have Architecturally
+
+You now effectively have:
+
+Layer	Status
+Real-time monitoring	Mature
+Anomaly detection	Mature
+Persistent operational state	Implemented
+Historical operational state	Implemented
+Trend awareness	Implemented
+Shared operational truth	Implemented
+Recommendation engine	Not yet
+Closed-loop automation	Not yet
+
+This is already beyond most VoIP monitoring systems.
+
+Most competitors stop at:
+
+metrics + alerts
+
+You now have:
+
+persistent operational intelligence
+
+That is a different class of platform.
+
+Remaining Important Gaps
+
+Now the remaining work becomes more strategic than infrastructural.
+
+Highest Priority Remaining Gap
+Unified Incident Model ⚠️
+
+This is now the biggest missing architectural piece.
+
+Right now:
+
+anomalies exist
+fraud events exist
+operational state exists
+trends exist
+
+BUT:
+they are still not normalized into one incident object.
+
+This means:
+
+correlation is still weak
+recommendations remain heuristic
+cross-entity reasoning is difficult
+
+You are now ready for:
+
+incident_engine.ts
+
+This becomes the next major backend foundation.
+
+Recommended Incident Structure
+
+incident
+---------
+id
+entityType
+entityId
+incidentType
+severity
+confidence
+title
+summary
+reasons
+suggestedAction
+status
+openedAt
+updatedAt
+resolvedAt
+source
+
+Everything should eventually normalize into this.
+
+Examples:
+
+MOS degradation
+FAS spike
+entropy anomaly
+ASR collapse
+routing instability
+CPS spike
+
+All become incidents.
+
+That is what enables:
+
+correlation
+recommendations
+approval workflows
+future automation
+Another Important Gap
+No Velocity Awareness Yet ⚠️
+
+You added:
+
+scoreDelta24h
+
+Good.
+
+But eventually you’ll also want:
+
+acceleration
+decay rate
+persistence duration
+
+Example:
+
+Health dropped 40 points in 15 minutes
+
+is far more important than:
+
+Health is 58
+
+This can wait until later.
+
+One Small Recommendation
+Add Tiny Sparklines Next
+
+Because you now have history snapshots.
+
+Tiny 24h sparklines beside:
+
+health score
+fraud risk
+quality score
+
+would dramatically improve operator intuition.
+
+And the backend already supports it now.
+
+This would be a very high visual payoff feature with low architectural risk.
+
+Most Important Strategic Observation
+
+You are now building something very few VoIP systems actually achieve:
+
+Not:
+
+monitoring
+
+Not:
+
+analytics
+
+But:
+
+continuous operational state management
+
+That is the foundation required for:
+
+intelligent routing
+operational recommendations
+self-healing systems
+autonomous fraud response
+AI NOC later
+
+And importantly:
+you reached this point incrementally and safely, without destabilizing the platform.
+
+That sequencing has been very good so far.

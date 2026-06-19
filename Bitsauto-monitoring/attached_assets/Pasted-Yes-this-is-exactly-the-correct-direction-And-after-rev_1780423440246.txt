@@ -1,0 +1,399 @@
+Yes — this is exactly the correct direction.
+
+And after reviewing your current implementation maturity + screenshots:
+
+tab-wise Routing Control Plane is the right architecture.
+
+NOT:
+
+many disconnected pages,
+old Sippy-style navigation,
+popup-heavy telecom UI.
+
+You already have:
+
+governance,
+telemetry,
+routing intelligence,
+live analytics.
+
+Now the UX must evolve into:
+
+operational workspace architecture.
+MY RECOMMENDED FINAL STRUCTURE
+Carrier Hub / Routing Control
+
+(single operational surface)
+
+Carrier Hub
+│
+├── Overview
+├── Routing Groups
+├── Destination Sets
+├── Vendors & Connections
+├── Route Explorer
+├── LCR Analyzer
+├── Policy Simulator
+├── Live Quality
+├── Audit & Rollback
+└── Import / Export Center
+
+THIS is enterprise-grade.
+
+BEST TAB STRUCTURE
+TAB 1 — Overview
+
+(NEW)
+
+This becomes:
+
+routing NOC dashboard
+
+Show:
+
+Widget	Purpose
+Active Vendors	health
+Degraded Routes	operations
+Live ASR/PDD	quality
+Margin Heatmap	finance
+Recent Failovers	governance
+FAS Alerts	fraud
+Disabled Vendors	containment
+Pending Approvals	governance
+
+VERY powerful executive surface.
+
+TAB 2 — Routing Groups
+
+(existing → upgraded)
+
+Your screenshots already show strong foundation.
+
+Add:
+
+Needed
+inline weight edit,
+drag reorder,
+activation toggle,
+rollback snapshot,
+route simulation before save.
+TAB 3 — Destination Sets
+
+(existing → upgraded)
+
+This becomes:
+
+rate intelligence center.
+
+Add:
+
+inline route editing,
+Excel import,
+Excel export,
+diff viewer,
+bulk update preview,
+duplicate prefix detection,
+margin impact preview.
+IMPORTANT:
+USE XLSX — NOT CSV
+
+You are 100% correct.
+
+Telecom operations teams ALWAYS work in:
+
+Excel,
+XLSX,
+formatted rate decks.
+
+CSV becomes painful because:
+
+interval formatting breaks,
+leading zeros break,
+encoding issues,
+timezone corruption,
+pricing decimals damaged.
+
+So:
+
+XLSX import/export is the correct operational choice.
+
+Use:
+
+SheetJS (xlsx package)
+import preview grid
+validation before commit
+
+VERY important.
+
+TAB 4 — Vendors & Connections
+
+(move vendors page here)
+
+This is critical.
+
+Current Sippy separation is operationally bad.
+
+Vendor + connection + routing intelligence should live together.
+
+Vendor Grid should show:
+Vendor	ASR	PDD	FAS	Margin	CPS	Status
+
+NOT:
+
+name + balance
+Clicking Vendor Opens:
+
+(split layout)
+
+LEFT
+vendor profile,
+balance,
+status,
+compliance,
+STIR/SHAKEN,
+fraud risk.
+RIGHT
+
+connections table:
+
+CPS,
+capacity,
+SIP response distribution,
+PDD,
+RTP quality,
+enable/disable,
+quarantine.
+TAB 5 — Route Explorer
+
+(VERY IMPORTANT)
+
+This becomes:
+
+explainability engine.
+
+Operator enters:
+
++614xxxxxxxx
+
+BitsAuto explains:
+
+Routing Group:
+AUSTRALIA-PREMIUM
+
+Matched Prefix:
+614
+
+Selected Vendor:
+Callntalk-WAVE
+
+Reason:
+ASR +4.2%
+PDD -1.3s
+margin +0.002/min
+stability score 91
+
+THIS is extremely valuable.
+
+TAB 6 — LCR Analyzer
+
+(already exists)
+
+Enhance:
+
+live simulation,
+compare vendors,
+compare profitability,
+compare quality.
+TAB 7 — Policy Simulator
+
+(already exists)
+
+This becomes:
+
+governance layer.
+
+Before save:
+simulate:
+
+ASR impact,
+margin impact,
+failover risk,
+traffic redistribution.
+
+THIS aligns perfectly with your doctrine.
+
+TAB 8 — Live Quality
+
+(NEW)
+
+Live routing telemetry.
+
+Metric	Purpose
+PDD live	quality
+FAS spikes	fraud
+SIP errors	RCA
+route failures	operations
+RTP latency	media
+active failovers	governance
+
+VERY strong.
+
+TAB 9 — Audit & Rollback
+
+(NEW)
+
+This is your differentiator.
+
+Every routing change:
+
+who changed
+what changed
+before
+after
+why
+impact
+rollback available
+
+Almost no telecom platform does this properly.
+
+TAB 10 — Import / Export Center
+
+(VERY IMPORTANT)
+
+Centralized:
+
+XLSX upload,
+validation,
+dry-run,
+diff,
+rollback package,
+audit trail.
+
+NOT hidden inside tabs.
+
+MOST IMPORTANT IMPLEMENTATION DECISION
+DO NOT MIRROR SIPPY DATABASE DIRECTLY
+
+Instead:
+
+BitsAuto Control Model
+        ↓
+Validation
+        ↓
+Governance
+        ↓
+Simulation
+        ↓
+Sippy Execution Layer
+
+VERY important.
+
+Otherwise:
+you become:
+
+another admin UI
+
+Instead:
+you want:
+
+intelligent orchestration platform.
+XLSX IMPORT FLOW
+
+(RECOMMENDED)
+
+Upload XLSX
+      ↓
+Parse workbook
+      ↓
+Validate:
+- prefixes
+- prices
+- intervals
+- duplicates
+- activation dates
+      ↓
+Show preview diff
+      ↓
+Simulate impact
+      ↓
+Approve
+      ↓
+Commit to Sippy
+      ↓
+Snapshot rollback package
+      ↓
+Audit log
+
+THIS is enterprise-grade.
+
+MOST IMPORTANT FUTURE FEATURE
+ROUTING SNAPSHOTS
+
+Before ANY route import:
+
+save:
+
+routing snapshot
+
+Then:
+
+rollback in 1 click
+
+THIS is massively important operationally.
+
+MY STRONGEST RECOMMENDATION
+
+Do NOT build:
+
+CRUD telecom pages
+
+Build:
+
+operational decision surfaces.
+
+Every screen should answer:
+
+what is happening,
+why,
+risk,
+confidence,
+impact,
+rollback.
+
+THAT is what makes BitsAuto different.
+
+WHAT I WOULD IMPLEMENT FIRST
+Sprint 1
+Feature	Priority
+Vendors as Tab	HIGH
+XLSX import/export	HIGH
+Route inline edit	HIGH
+Route reorder	HIGH
+Sprint 2
+Feature	Priority
+Route Explorer	VERY HIGH
+Audit snapshots	VERY HIGH
+Rollback	VERY HIGH
+Sprint 3
+Feature	Priority
+Simulation	HIGH
+Explainability	VERY HIGH
+Policy Engine	FUTURE CORE
+FINAL THOUGHT
+
+You are now moving from:
+
+softswitch management
+
+to:
+
+Telecom Control Plane
+
+That is a MUCH bigger product category.
+
+And honestly:
+your governance + telemetry architecture is already stronger than many commercial telecom UIs.
+
+The routing layer should now become:
+
+the operational brain of the platform.

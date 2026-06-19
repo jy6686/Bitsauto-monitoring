@@ -1,0 +1,148 @@
+Good — and this is exactly the constraint that should shape the design going forward.
+
+You’re right to anchor this around Sippy behavior. Let me lock the key engineering rule so nothing drifts later:
+
+⚠️ HARD CONSTRAINT (IMPORTANT)
+Sippy is a source system, not a compute system
+
+So:
+
+❌ No repeated polling loops for analytics
+❌ No “replay by re-pulling Sippy”
+❌ No high-frequency historical backfills from Sippy
+✔ Only cached / stored CDR snapshots
+✔ Only existing portal-view / cached ingestion layer
+✔ Replay must be purely local recomputation
+🧠 WHAT YOUR REPLAY DESIGN SHOULD REALLY BE
+
+Your current proposal is 90% correct, but one refinement is critical:
+
+❗ Replay must NOT hit Sippy at all
+
+Even “last 24h replay” must be:
+
+replay(alerts from DB snapshot) → groupAlerts → incidents
+
+NOT:
+
+replay → fetch Sippy → rebuild CDR → recompute
+
+Because your own concern is valid:
+
+frequent Sippy pulls = risk of throttling / instability / data loss
+
+✅ FINAL MVP REPLAY ARCHITECTURE (SAFE VERSION)
+🔹 Backend (read-only)
+GET /api/console/replay
+
+Input:
+
+{
+  from: timestamp,
+  to: timestamp,
+  entity?: string
+}
+
+Execution:
+
+Fetch from local DB only
+alerts
+optionally aiOpsIncidents (for comparison mode later)
+Run:
+groupAlertsToIncidents(alerts)
+Return:
+{
+  replayIncidents,
+  rawAlerts,
+  summary: {
+    totalAlerts,
+    incidentCount,
+    mergeRatio,
+    dominantEntities
+  }
+}
+
+🚫 No Sippy calls
+🚫 No CDR recomputation
+🚫 No external dependency
+
+🔹 Frontend (Console panel)
+“Replay Mode” panel (minimal UI)
+
+Controls:
+
+Last 1h / 24h / 7d
+Entity filter (optional dropdown)
+Run button
+
+Output:
+
+Left:
+Incident list (recomputed)
+Right:
+Selected incident breakdown:
+grouped alerts
+merge logic explanation
+root cause result
+Optional debug line:
+“Grouped 128 alerts into 4 incidents using current engine”
+🧠 WHAT THIS GIVES YOU (REAL VALUE)
+
+This is NOT just debugging.
+
+It gives you:
+
+1. Pre-SLA validation layer
+
+Before PDF goes out:
+
+“Does this incident grouping look reasonable?”
+
+2. Safe tuning mechanism
+
+You can adjust:
+
+10-minute window
+severity thresholds
+entity normalization
+
+…without touching production logic blindly
+
+3. Incident explainability (critical for Phase 3)
+
+SLA reports will say:
+
+“2 major incidents occurred affecting routing stability”
+
+Replay explains:
+
+“why those 2 incidents were formed”
+
+🔒 ALIGNMENT WITH YOUR SIPPY CONSTRAINT (VERY IMPORTANT)
+
+This design guarantees:
+
+Risk	Status
+Sippy overload	❌ eliminated
+real-time dependency	❌ none
+analytics loop instability	❌ none
+production impact	❌ none
+deterministic replay	✅ fully preserved
+🚀 FINAL RECOMMENDATION
+
+Yes — this is the right next step.
+
+But implement it as:
+
+Replay over stored telemetry, not live system reconstruction
+
+👉 If you say “go”
+
+I’ll design:
+
+exact endpoint implementation
+console UI replay panel (minimal + operator-friendly)
+diff mode (optional Phase 2.1 upgrade)
+safe guardrails so it never touches Sippy again
+
+This is the correct “confidence layer” before SLA PDFs.

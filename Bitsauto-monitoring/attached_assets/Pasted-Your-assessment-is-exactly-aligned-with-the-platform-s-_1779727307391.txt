@@ -1,0 +1,191 @@
+Your assessment is exactly aligned with the platform’s current maturity.
+
+This is the correct transition point:
+
+Monitoring Platform
+        ↓
+Decision Intelligence Platform
+        ↓
+Operational Automation Platform
+
+And the three-feature bundle is the ideal bridge.
+
+Final Recommended Implementation Order
+
+(inside the same release)
+
+Phase 1 — Automated Route Optimisation Recommendations
+
+Build first because it becomes:
+
+the intelligence brain
+
+Everything else references this engine.
+
+What It Should Produce
+
+Example recommendation object:
+
+{
+  "prefix": "88017",
+  "country": "Bangladesh",
+  "currentVendor": "Callntalk",
+  "recommendedVendor": "CarrierX",
+  "confidence": 87,
+  "reasoning": {
+    "asrDelta": "+12%",
+    "acdDelta": "+18%",
+    "marginDelta": "+7%",
+    "fasReduction": "-41%",
+    "stabilityScore": "+22"
+  },
+  "suggestedTrafficShift": "20%"
+}
+Recommended UI Placement
+INTELLIGENCE
+Optimisation
+Route Optimisation
+Traffic Steering
+Margin Intelligence
+Phase 2 — Geographic Revenue Heatmap V2
+
+Now the recommendation engine gains:
+
+geographic financial context
+
+Examples:
+
+low-margin regions
+unstable regions
+fraud-heavy destinations
+high-profit routes
+carrier concentration risk
+Key Enhancement
+
+Current heatmap:
+
+revenue visualization
+
+New heatmap:
+
+telecom intelligence overlay
+
+with:
+
+margin layer
+Q-score layer
+fraud layer
+route concentration layer
+carrier contribution layer
+Recommended UI
+ANALYTICS & REPORTS
+Revenue Intelligence
+Phase 3 — Traffic Steering Suggestions
+
+This is:
+
+the operational action layer
+
+Now the system not only says:
+
+this vendor is degrading
+
+It says:
+
+move 15% traffic here
+expected ASR gain: +9%
+expected margin gain: +6%
+expected fraud reduction: -38%
+
+That is:
+
+telecom decision support
+MOST IMPORTANT ARCHITECTURAL RULE
+
+Keep this release:
+
+advisory only
+
+DO NOT auto-modify routing yet.
+
+The system should:
+
+recommend
+explain
+simulate
+estimate impact
+
+BUT:
+
+human approves routing change
+
+This is critical for telecom operational trust.
+
+Recommended Release Naming
+Telecom Decision Intelligence Layer
+
+or
+
+Intelligence Optimisation Suite
+
+Both are excellent.
+
+Recommended Shared Architecture
+
+(All 3 Features)
+
+Shared Data Sources
+carrier_quality_scores
+vendor_stability_snapshots
+fas_events
+route_performance_cache
+prefix intelligence
+revenue analytics
+margin analytics
+recommendation engine
+Shared Backend Services
+optimisation-engine.ts
+steering-engine.ts
+margin-intelligence.ts
+geo-intelligence.ts
+Shared Frontend Components
+RecommendationCard
+ImpactProjectionCard
+RouteShiftDrawer
+GeoMarginOverlay
+OptimisationTimeline
+MOST IMPORTANT PRODUCT INSIGHT
+
+You are now entering the category occupied by:
+
+Subex
+Mobileum
+TEOCO
+Netcracker
+Tata Intelligent Routing Systems
+
+NOT:
+
+simple VoIP dashboards
+
+That is a major strategic shift.
+
+What Should Come AFTER This Release
+
+Only after operators trust recommendations:
+
+Next Phase
+one-click routing actions
+approval workflows
+rollback engine
+closed-loop optimisation
+automated rerouting
+self-healing traffic
+
+But NOT yet.
+
+Right now:
+
+explainability > automation
+
+That is the correct enterprise telecom progression.

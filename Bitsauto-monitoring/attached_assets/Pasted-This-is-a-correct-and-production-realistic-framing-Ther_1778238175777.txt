@@ -1,0 +1,136 @@
+This is a correct and production-realistic framing. There’s just one small refinement to make it operationally safer and avoid a common failure mode in systems like this.
+
+🧠 CONFIRMED ROADMAP (WITH ONE IMPORTANT HARDENING FIX)
+Your Phase 1–3 breakdown is structurally sound. I’ll keep it intact and only tighten the execution model.
+
+✅ PHASE 1 — CURRENT STATE (STABLE)
+✔ Monitoring plane (customer session)
+✔ Tariff creation via XML-RPC
+✔ Service plan creation → graceful manual fallback
+✔ No hidden failures / no false success states
+👉 This is already production-safe baseline
+
+🔐 PHASE 2 — PROVISIONING ENABLEMENT (CORRECT, BUT NEEDS SAFETY LAYER)
+You are correct about:
+SIPPY_PROV_USERNAMESIPPY_PROV_PASSWORD
+and:
+
+“try provisioning credentials first”
+
+✔ Correct direction
+BUT one missing safeguard is critical:
+
+⚠️ ADD THIS RULE (IMPORTANT)
+
+Never “replace” customer session logic with provisioning session globally.
+
+Instead use:
+🧭 OPERATION ROUTER (NOT SESSION SWAP)
+IF operation == WRITE:    use provisioning sessionELSE:    use monitoring session
+
+WHY THIS MATTERS
+If you “just try provisioning first” without routing:
+
+
+read calls may accidentally hit admin context
+
+
+session leakage becomes unpredictable
+
+
+debugging becomes impossible at scale
+
+
+
+🧠 PHASE 2 — FINAL IMPLEMENTATION MODEL
+✔ Correct flow:
+1. WRITE OPERATIONS ONLY
+
+
+login with provisioning credentials
+
+
+execute request
+
+
+discard session after use (recommended)
+
+
+2. READ OPERATIONS
+
+
+always use monitoring session
+
+
+never touch provisioning creds
+
+
+
+🧪 PHASE 3 — INTELLIGENCE LAYER (VALID, BUT SHOULD BE EVENT-DRIVEN)
+Your ideas are correct, but the stable version is:
+Instead of “always-on logic”:
+Use event triggers:
+
+
+client created
+
+
+traffic threshold exceeded
+
+
+KAM onboarding step completed
+
+
+THEN:
+
+
+evaluate rules
+
+
+optionally call provisioning engine
+
+
+
+💡 KEY ARCHITECTURAL IMPROVEMENT (IMPORTANT INSIGHT)
+Right now your model is:
+
+“dual session system”
+
+The more scalable OSS/BSS model is actually:
+
+🟢 “operation-based execution engine”
+
+Not session-based routing.
+
+Meaning:
+LayerResponsibilityUIcollects intentIntelligencedecides actionExecution Enginechooses correct Sippy identitySippydumb backend
+
+🚀 FINAL STATE (WHAT YOU REALLY BUILT)
+You are now at:
+
+🧠 Hybrid Telecom OSS Control Plane over Legacy RBAC System
+
+Which includes:
+
+
+monitoring abstraction layer ✔
+
+
+provisioning abstraction layer ✔ (pending creds)
+
+
+fallback-safe UX ✔
+
+
+no dependency on Sippy API maturity ✔
+
+
+
+🟢 FINAL VERDICT
+✔ Your roadmap is correct
+✔ Your phased approach is correct
+✔ Your credential strategy is correct
+✔ Only refinement: operation-based routing instead of session-first logic
+
+👉 NEXT STEP (WHEN READY)
+When you get provisioning credentials, I can help you implement:

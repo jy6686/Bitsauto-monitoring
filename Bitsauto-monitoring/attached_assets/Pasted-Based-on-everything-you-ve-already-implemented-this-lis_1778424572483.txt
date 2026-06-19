@@ -1,0 +1,322 @@
+Based on everything you've already implemented, this list is now outdated in several areas. Here’s the real current status — what is already completed, partially complete, and genuinely still pending.
+
+✅ Fully Implemented / Operational
+
+These are no longer pending.
+
+SIP Trace Viewer / Call Ladder Diagram
+
+Status: DONE
+
+You already implemented:
+
+Interactive SIP ladder
+3-lane flow (Caller → Sippy → Carrier)
+Animated SIP flow
+PDD timing
+Failure highlighting
+Delta timing between SIP messages
+Expandable raw SIP packets
+CDR linkage
+Paste-mode replay
+
+This feature is now beyond what many commercial VoIP portals provide.
+
+Automated Routing Intelligence
+
+Status: DONE (V1 operational)
+
+Already implemented:
+
+AI Ops signal engine
+Correlation engine
+Route decision traces
+Carrier scoring
+Routing suggestions engine
+Approval workflow
+Synthetic anomaly signals
+Cross-campaign correlation
+Confidence scoring
+
+What is NOT built yet:
+
+Self-healing automatic route weight adjustment (auto-write back into Sippy)
+
+That’s a future “autonomous routing” phase.
+
+Synthetic Call Testing / Quality Benchmarking
+
+Status: DONE (majority complete)
+
+Already implemented:
+
+Scheduled synthetic campaigns
+Scheduler engine
+Retry/backoff logic
+AI Ops integration
+Baseline scoring
+Carrier degradation detection
+Route replay traces
+24h baseline model
+Synthetic failure classification
+
+Still missing:
+
+Real PESQ/POLQA audio scoring
+Audio waveform comparison
+RTP audio capture
+
+Those require media-plane infrastructure.
+
+SBC / Media Monitoring
+
+Status: PARTIALLY COMPLETE
+
+Already implemented:
+
+SBC monitoring UI
+RTP analytics UI
+MOS/jitter/packet-loss dashboards
+Concurrent session tracking
+
+Still missing:
+
+Real SBC SNMP polling
+Codec/transcoding visibility
+NAT traversal stats
+Registration storm detection
+RTP stream inspection
+
+This is infrastructure-dependent.
+
+Reseller Management
+
+Status: DONE (core features)
+
+Already exists:
+
+CRUD
+Reseller views
+Margin logic
+Scoped dashboards
+
+Could still improve:
+
+Automated reseller invoice engine
+Multi-brand white-label themes
+⚠️ Partially Built / Intelligence Layer Missing
+
+These exist structurally but need real integrations.
+
+Number Intelligence Layer
+
+Status: PARTIAL
+
+UI and routes exist.
+
+Still missing:
+
+Real HLR provider integration
+CNAM provider
+STIR/SHAKEN lookup
+Spam reputation API
+Number portability lookup
+
+Right now:
+
+cnam = null
+stirShaken = unknown
+
+This is one of the highest-value remaining operational upgrades.
+
+Recommended providers:
+
+Telnyx
+Neustar
+Twilio
+Compliance Dashboard
+
+Status: Mostly shell
+
+UI exists, but backend intelligence is missing.
+
+Still needed:
+
+GDPR retention tracking
+Recording retention audits
+STIR/SHAKEN compliance metrics
+Fraud scoring aggregation
+Exportable compliance reports
+Client Self-Service Portal
+
+Status: Partial
+
+UI exists.
+
+Critical missing piece:
+
+Tenant isolation / RBAC enforcement
+
+Right now it behaves more like a demo shell than a production multi-tenant portal.
+
+Needs:
+
+Per-client scoped APIs
+Role-aware query filtering
+Billing segregation
+Customer-safe exports
+❌ Genuinely Not Built Yet
+
+These are the true remaining major features.
+
+1. Routing Replay Engine (High Value)
+
+Status: 80% backend done, UI missing
+
+You already store:
+
+candidate carriers
+selected route
+reasoning
+carrier score snapshots
+failure categories
+
+Missing:
+
+visual replay UI
+
+This should become:
+
+LCR Engine
+   ↓
+Evaluate Carrier A (score 82)
+Evaluate Carrier B (score 44)
+Reject B (high PDD)
+Select Carrier A
+Call connected
+
+This is probably the BEST next operational feature.
+
+2. Self-Healing Routing
+
+Status: Not built
+
+This is the jump from:
+
+“detect + suggest”
+
+to:
+
+“detect + automatically rebalance routes”
+
+Requires:
+
+approval safety layer
+route weight writeback
+rollback protection
+confidence thresholds
+
+This is a serious telecom-control-plane feature.
+
+Very high value.
+Very high risk if done badly.
+
+3. RTP / Media Correlation
+
+Status: Not built
+
+This remains the largest technical gap.
+
+Would require:
+
+RTP tap access
+SBC integration
+RTCP metrics
+media stream correlation
+packet-level analysis
+
+Needed for:
+
+one-way audio
+dead air
+clipping/jitter diagnostics
+codec mismatch detection
+
+This is NOT an app-layer feature.
+It’s telecom infrastructure engineering.
+
+4. Unified Communications Integrations
+
+Status: Not built
+
+Nothing exists yet for:
+
+Microsoft Teams Direct Routing
+Zoom Phone
+WebRTC gateway monitoring
+
+Large separate integration project.
+
+5. Network Topology Visualization (3D)
+
+Status: Not built
+
+You discussed it but haven’t implemented it yet.
+
+This would actually be visually impressive and operationally useful.
+
+Ideal stack:
+
+React Three Fiber
+Three.js
+Framer Motion
+
+Would show:
+
+carriers as nodes
+routes as edges
+live traffic flow
+incident heat propagation
+route congestion
+
+This is the best place for 3D in your platform.
+
+🎯 My Honest Priority Recommendation
+Best Next Builds (in order)
+1. Routing Replay Engine UI
+
+Highest operational value.
+Backend already exists.
+Fastest win.
+
+2. Number Intelligence Real Integrations
+
+Turns a shell into a production-grade telecom intelligence feature.
+
+3. Self-Healing Routing (approval-gated)
+
+Transforms the system from monitoring → adaptive control plane.
+
+4. 3D Network Topology
+
+Big visual impact + genuinely useful.
+
+5. RTP Correlation
+
+Most technically difficult.
+Requires infrastructure work first.
+
+Current Platform Maturity
+
+Your system is no longer a “dashboard.”
+
+It’s now evolving into:
+
+Telecom Observability + Routing Intelligence Platform
+
+The remaining work is mostly:
+
+intelligence depth
+autonomous control
+media-plane visibility
+explainability

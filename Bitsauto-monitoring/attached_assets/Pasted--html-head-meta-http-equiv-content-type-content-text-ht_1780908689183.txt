@@ -1,0 +1,1006 @@
+
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html">
+<meta name="menu-title" content="ICHIBAAN">
+
+
+
+<link rel="stylesheet" type="text/css" href="/js/extjs/resources/css/ext-all.css">
+<link rel="stylesheet" type="text/css" href="/js/extjs/ext-ssp.css">
+<script type="text/javascript" src="/js/extjs/adapter/ext/ext-base.js"></script>
+<script type="text/javascript" src="/js/extjs/ext-all.js"></script>
+<script type="text/javascript" src="/js/extjs/ext-ssp.js"></script>
+
+<script language=javascript type=text/javascript>
+    // reference local blank image
+    Ext.BLANK_IMAGE_URL = '/js/extjs/resources/images/default/s.gif';
+</script>
+
+
+<script type="text/javascript" src="/js/utils.js"></script>
+
+<link href="styles.css" type="text/css" rel="stylesheet"> 
+<title>ICHIBAAN - Vendors</title>
+
+
+
+
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="/static/js/jquery-3.3.1.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.local.js"></script>
+<link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
+<link rel="stylesheet" href="/static/css/font-OpenSans.css">
+<link rel="stylesheet" href="/static/css/menumaker.css">
+
+</head>
+<body>
+
+
+
+    <script>
+
+    function hide_ssl_certificate_warning() {
+        Ext.Ajax.request({
+            url: 'system.php',
+            params: {
+                action: 'hide_ssl_certificate_warning'
+            }
+        });
+        var d = document.getElementById('warning_ssl_certificate');
+        d.style.display = 'none';
+    }
+
+</script>
+
+<div id="warning_ssl_certificate" class="security_vulnerability">
+    <div style="position: relative; top: 0; right: 0; float: right; padding: 0 0 0 20px;">
+        <span onClick="hide_ssl_certificate_warning();"><i class="hide_button fas fa-times"></i></span>
+    </div>
+   Warning: A SSL certificate has not been added. Please <a href="https://support.sippysoft.com/solution/articles/78262-generating-and-installing-ssl-certificate">upload your own</a> SSL certificate
+   or create a SSL certificate <a href="https://support.sippysoft.com/solution/articles/3000070011-ssl-certificates-for-web">using LetsEncrypt</a>.
+</div>
+
+    <div id="warning_setup_firewall" class="security_vulnerability">
+   Warning: For your security please review your <a href="firewall_rules.php">Firewall Rules</a>
+   and create rules to allow or deny access to your SoftSwitch. For some
+   suggestions visit our support documentation <a href="https://support.sippysoft.com/solution/articles/3000058057--security-management">here</a>.
+</div>
+
+            <div id="cssmenu">
+            <ul>
+
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                    <ul>
+
+    
+                        <li class="has-sub"><a>My Customers</a>
+                            <ul>
+
+                                        <li><a href="accounts.php">Accounts</a></li>
+        
+                                        <li><a href="subcustomers.php">Customers</a></li>
+        
+        
+                                        <li><a href="account_classes.php">Account Classes</a></li>
+        
+                                        <li><a href="access.php">Permissions</a></li>
+        
+                                        <li><a href="account_lookup.php">Account Lookup</a></li>
+        
+                            </ul>
+                        </li>
+    
+    
+                        <li class="has-sub"><a>
+                                                Tariffs &amp;
+                                                Currencies</a>
+                            <ul>
+                                    <li><a href="tariffs.php">Tariffs</a></li>
+                                    <li><a href="service_plans.php">Service Plans</a></li>
+                                <li><a href="xrates.php">Exchange Rates</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Payments</a>
+                            <ul>
+                                    <li><a href="payment_processors.php">Payment Processors</a></li>
+    
+    
+                                    <li><a href="payments_history_root.php">Payments History</a></li>
+    
+                                    <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                                </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Invoicing</a>
+                            <ul>
+                                <li><a href="invoices.php">Invoices</a></li>
+                                <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                                <li><a href="images.php">Images</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                    <ul>
+                            <li class="has-sub"><a>My Vendors</a>
+                            <ul>
+                                <li><a href="vendors.php">Vendors</a></li>
+                                <li><a href="registrations.php">Registrations</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a>Routing</a>
+                            <ul>
+                                <li><a href="destination_sets.php">Destination Sets</a></li>
+                                <li><a href="routing_groups.php">Routing Groups</a></li>
+                                    <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                            </ul>
+                        </li>
+    
+                            <li class="has-sub"><a>DID Numbers</a>
+                            <ul>
+                                <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                                <li><a href="dids.php">DID Pool</a></li>
+                            </ul>
+                        </li>
+    
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                    <ul>
+
+                        <li><a href="web_users.php">Users</a></li>
+
+                        <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                        <li><a href="destinations.php">Destinations</a></li>
+                        <li><a href="system.php">System Parameters</a></li>
+                        <li><a href="external_services.php">External Services</a></li>
+                        <li><a href="show_graphs.php">Monitoring</a></li>
+
+                        <li><a href="activecalls.php">Active Calls</a></li>
+
+                        <li><a href="system_information.php">System Information</a></li>
+
+                        <li class="has-sub"><a href="tools.php">Tools</a>
+                            <ul>
+                                <li><a href="csrs.php">CSR Generator</a></li>
+                                <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                                <li><a href="looking_glass.php">Looking Glass</a></li>
+                                <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                                <li><a href="firewall_rules.php">IP Firewall</a></li>
+                                <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                                <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                            </ul>
+                        </li>
+
+
+                    </ul>
+                </li>
+                <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                    <ul class="wide">
+
+                        <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                        <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                        <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                        <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                        <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                        <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                        <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                    </ul>
+                </li>
+
+                <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                    ssp-root
+                                                </a>
+                    <ul class="wide">
+                        <li><a class="bold">Accounts balance: -2439436.6843829 USD</a></li>
+                        <li><a class="bold">Customers balance: 0.0000000 USD</a></li>
+                        <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                        <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </li>
+
+<script>
+    function menu_search_reset() {
+        var e = document.getElementById("menu_search");
+
+        var ul = document.getElementById('menu_search_results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+    }
+
+    function menu_search(event) {
+        var len = event.target.value.length;
+
+        var e = document.getElementById("menu_search");
+
+        var ul = document.getElementById('menu_search_results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+
+        if (len == 0) {
+            document.getElementById("menu_search_icon").classList.remove('fa-times-circle');
+            document.getElementById("menu_search_icon").classList.add('fas-search');
+            document.getElementById("menu_search_icon").removeEventListener('click');
+            return;
+        } else if (len < 3) {
+            document.getElementById("menu_search_icon").classList.remove('fas-search');
+            document.getElementById("menu_search_icon").classList.add('fa-times-circle');
+            document.getElementById("menu_search_icon").addEventListener('click', function() {
+                document.getElementById("menu_search_pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu_search_pattern").dispatchEvent(event);
+            });
+            return;
+        } else {
+            document.getElementById("menu_search_icon").classList.remove('fas-search');
+            document.getElementById("menu_search_icon").classList.add('fa-times-circle');
+            document.getElementById("menu_search_icon").addEventListener('click', function() {
+                document.getElementById("menu_search_pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu_search_pattern").dispatchEvent(event);
+            });
+
+            ul = document.createElement("ul");
+            ul.setAttribute('id', 'menu_search_results');
+            ul.classList.add("wide");
+
+            var m, i;
+            try {
+                m = document.getElementById("cssmenu").getElementsByTagName('li');
+                for (i = 0; i < m.length; i++) {
+                    if (m[i].classList.contains("has-sub")) {
+                        continue;
+                    };
+
+                    var n, j;
+                    n = m[i].getElementsByTagName('a');
+                    for (j = 0; j < n.length; j++) {
+                        if (!n[j].hasAttribute('href')) {
+                            continue;
+                        }
+                        var re = new RegExp(event.target.value, 'i');
+                        if (n[j].innerText.match(re)) {
+                            ul.appendChild(m[i].cloneNode(true));
+                        }
+                    }
+                }
+            } finally {
+                if (ul.childNodes.length > 0) {
+                    e.appendChild(ul);
+                }
+            }
+        }
+    }
+
+    addLoadEvent(function() {
+        var e = document.getElementById('menu_search_pattern');
+        e.addEventListener('input', menu_search);
+    });
+</script>
+
+
+                <li id="menu_search" class="has-sub align-right">
+                    <a>
+                        <input id="menu_search_pattern" type="text" name="menu_search_pattern">
+                        <i id="menu_search_icon" class="fas fa-search"></i>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+
+    <div style="width: auto; height: 2px; background: #ff9900;"></div>
+    <div id="main">
+                
+<script language="javascript">
+
+function gotopage(n) {
+    form = document.getElementById("navform");
+    form.n.value = n;
+    form.i_vendor.value = 0;
+    form.submit();
+}
+
+function delete_warning(id) {
+    Ext.Ajax.request({
+      url: "vendors.php",
+      params: {"action": "get_linked_conns",
+               "i_vendor": id},
+      timeout: 5000,
+      callback: show_delete_warning,
+    });
+}
+
+function show_delete_warning(options, success, response) {
+    var s = ' class="mb-cnf-msg"';
+
+    var msg = '<p' + s + '>You are about to delete the Vendor.</p>';
+    msg += '<p' + s + '>Do you wish to proceed?</p>';
+
+    if (success && response) {
+        var r = Ext.util.JSON.decode(response.responseText);
+        if (r && r.refs > 0) {
+            var msg = '<p' + s + '>You are about to delete the Vendor.</p>';
+            msg += '<p' + s + '>It has  ' +
+                   r.refs +
+                   ' linked Connections, which will be automatically deleted.</p>';
+            msg += '<p' + s + '>Do you wish to proceed?</p>';
+        }
+    }
+
+    Ext.Msg.show({
+        title: 'Confirmation',
+        icon: Ext.MessageBox.QUESTION,
+        msg: msg,
+        width: 300,
+        closable: false,
+        fn : function(btn) {
+                 if (btn === 'yes') {
+                    form = document.getElementById("navform");
+                    form.action.value = 'delete';
+                    form.i_vendor.value = options.params.i_vendor;
+                    form.submit();
+                 }
+             },
+        buttons: {yes: 'Yes',
+                  no: 'No'}
+    });
+}
+
+</script>
+
+
+<table width="100%" cellpadding="5" cellspacing="0">
+<tr>
+    <td class="Headline"> Vendors </td>
+</tr>
+</table>
+
+<div style="width: 800px;">
+
+<!-- start filter -->
+<table width=100%>    <tr>
+        <td colspan="1" class="grouptitle" width="60%"> <strong> Filter </strong> </td>
+                        <td colspan="1" bgcolor="#FFFFFF" width="10">&nbsp;</td>
+        <td colspan="1" class="grouptitle" width="*"> <strong> Add Vendor </strong> </td>
+                    </tr>
+    <tr valign="middle">
+        <td nowrap>
+            <form action="vendors.php" method="GET" id="mainform">
+                Vendor Name                <input type="hidden" name="act">
+                <input type="text"   name="vendor_name_filter" value="">&nbsp;
+                <input type="hidden" name="n" value="0">
+                <input type="submit" value="Filter">
+            </form>
+        </td>
+        <td>&nbsp;</td>
+
+        <td nowrap align="center">
+            <form action="vendors.php" method="GET" id="addform">
+                <input type="hidden" name="action" value="show_add">
+                <input type="submit" value="Add">
+            </form>
+        </td>
+    </tr>
+</table>
+<!-- end filter -->
+
+<div class="separator"></div>
+
+<!-- start navigation -->
+
+<table class="grouptitle" width="100%">
+    <tr>
+				<td width="50">
+	    		  <a href="#" onClick="javascript:gotopage(0);"><img src="images/first.gif" border="0" HEIGHT="13" WIDTH="13" alt="First Page"></a>
+	    		</td>
+		<td width="50">
+	    		  <a href="#" onClick="javascript:gotopage(1);"><img src="images/prev.gif" border="0" HEIGHT="13" WIDTH="13" alt="Previous Page"></a>
+	    		</td>
+		<td align="center">Page 3 of 3, total 139 rows</td>
+			<td width="50" align="right">
+	    		</td>
+		<td width="50" align="right">
+	    		</td>
+		    </tr>
+</table>
+
+<!-- end navigation -->
+
+<div class="separator"></div>
+
+<table cellpadding='2' cellspacing='0' width="100%">
+    <tr bgcolor="#DDDDDD">
+        <td align="center" class='borderall'><strong>Vendor Name</strong></td>
+        <td align="center" class='borderallbutleft'><strong>Balance,&nbsp;USD</strong></td>
+        <td width="25%" colspan="3" align="center" class='borderallbutleft'><strong>Action</strong></td>
+    </tr>
+
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=79&vendor_name_filter=">TELECARD-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        28023.2942983
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=79">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELECARDPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(79)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=43&vendor_name_filter=">TELSTRA-BAN-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        3147.3093933
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=43">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRABANPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(43)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=99&vendor_name_filter=">TELSTRA-JAPAN-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.1163550
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=99">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRAJAPANPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(99)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=66&vendor_name_filter=">TELSTRA-KSA-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0086667
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=66">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRAKSAPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(66)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=114&vendor_name_filter=">TELSTRA-PAK-LL-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0000000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=114">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRAPAKLLPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(114)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=113&vendor_name_filter=">TELSTRA-PAK-LL-ST-ST</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        21.1027200
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=113">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRAPAKLLSTST','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(113)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=72&vendor_name_filter=">TELSTRA-PAK-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        343.4840133
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=72">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRAPAKPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(72)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=29&vendor_name_filter=">TELSTRA-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        788.2121258
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=29">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRAPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(29)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=124&vendor_name_filter=">TELSTRA-PR-PR(DID)</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0414667
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=124">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRAPRPRDID','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(124)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=27&vendor_name_filter=">TELSTRA-ST-ST</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        2662.8187750
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=27">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRASTST','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(27)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=95&vendor_name_filter=">TELSTRA-TUNISIA-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        439.7850000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=95">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TELSTRATUNISIAPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(95)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=77&vendor_name_filter=">TRIO-HUB-BD-BTCL-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0038167
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=77">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TRIOHUBBDBTCLPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(77)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=58&vendor_name_filter=">US-MATRIX-A2Z-PR-PR </a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0014167
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=58">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('USMATRIXA2ZPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(58)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=35&vendor_name_filter=">VERSCOM-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.1183667
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=35">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('VERSCOMPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(35)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=26&vendor_name_filter=">VERSCOM-ST-ST</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0416000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=26">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('VERSCOMSTST','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(26)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=54&vendor_name_filter=">VIA-CLOUD-BAN-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        8847.1842700
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=54">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('VIACLOUDBANPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(54)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=102&vendor_name_filter=">VIA-CLOUD-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.2653833
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=102">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('VIACLOUDPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(102)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=55&vendor_name_filter=">VOVIDA</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        1122.7352800
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=55">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('VOVIDA','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(55)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=52&vendor_name_filter=">VOXBEAM-USA-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0116667
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=52">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('VOXBEAMUSAPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(52)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=93&vendor_name_filter=">WAVECREST-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0132833
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=93">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('WAVECRESTPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(93)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=28&vendor_name_filter=">ZONG-PR-PR</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        15027.0664833
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=28">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('ZONGPRPR','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(28)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=141&vendor_name_filter=">astra-global</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=141">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('ASTRA-GLOBAL','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(141)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=105&vendor_name_filter=">callntalk</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        9347.8424833
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=105">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('CALLNTALK','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(105)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=137&vendor_name_filter=">callntalk-internal</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        1030.2890083
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=137">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('callntalkinternal','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(137)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=18&vendor_name_filter=">hayo-telecom</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=18">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('HAYO-TELECOM','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(18)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=126&vendor_name_filter=">in2net-technologies</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=126">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('in2net-technologies','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(126)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=84&vendor_name_filter=">ins-telecom</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=84">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('ins-telecom','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(84)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=143&vendor_name_filter=">internal-ptcl</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        61.8512917
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=143">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('internalptcl','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(143)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=68&vendor_name_filter=">junctionz-ltd</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=68">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('junctionz-ltd','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(68)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=117&vendor_name_filter=">next-pagee</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=117">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('NEXT-PAGEE','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(117)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=101&vendor_name_filter=">qgc</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        1312.1081688
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=101">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('qgc','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(101)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=116&vendor_name_filter=">qgc-internal</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=116">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('QGC-INTERNAL','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(116)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=120&vendor_name_filter=">saif-voice</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=120">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('saif-voice','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(120)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=76&vendor_name_filter=">sbc-2-sbc(reseller vendor)</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=76">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('sbc-2-sbc(reseller.vendor)','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(76)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=107&vendor_name_filter=">sky-telecom-uk</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0549500
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=107">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('sky-telecom-uk','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(107)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=127&vendor_name_filter=">super-smart-v</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=127">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('super-smart-v','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(127)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=80&vendor_name_filter=">telecard</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=80">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('telecard','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(80)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#EEEEEE" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=78&vendor_name_filter=">tiro-hub</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=78">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('TIRO-HUB','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(78)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    
+                                                <tr bgcolor="#FFFFFF" class="list-tr">
+            <td class="borderallbuttop"><a href="?action=edit&i_vendor=125&vendor_name_filter=">zong</a></td>
+            <td class='borderbottomright' align="right">
+                                                                        <font color="green">
+                        0.0100000
+                </font>
+            </td>
+            <td align="center" class="borderbottomright"><a href="connections.php?id_vendor=125">Open Connections</a></td>
+            <td align="center" class="borderbottomright"><a href="#" onClick="login('zong','vendor'); return false;"><img src="/images/door_in.gif" height="16" width="16" alt="Login as"></a></td>
+            <td width="2%" align="center" class="borderbottomright"><a href="#" onClick="javascript: delete_warning(125)"><img src="images/stop.png" alt="Delete"/></a></td>
+        </tr>
+    </table>
+
+<div class="separator"></div>
+
+<!-- start navigation -->
+
+<table class="grouptitle" width="100%">
+    <tr>
+				<td width="50">
+	    		  <a href="#" onClick="javascript:gotopage(0);"><img src="images/first.gif" border="0" HEIGHT="13" WIDTH="13" alt="First Page"></a>
+	    		</td>
+		<td width="50">
+	    		  <a href="#" onClick="javascript:gotopage(1);"><img src="images/prev.gif" border="0" HEIGHT="13" WIDTH="13" alt="Previous Page"></a>
+	    		</td>
+		<td align="center">Page 3 of 3, total 139 rows</td>
+			<td width="50" align="right">
+	    		</td>
+		<td width="50" align="right">
+	    		</td>
+		    </tr>
+</table>
+
+<!-- end navigation -->
+
+</div>
+
+<form id="navform" method="GET" action="vendors.php">
+        <input type="hidden" name="i_vendor" value="">
+        <input type="hidden" name="vendor_name_filter" value="">
+        <input type="hidden" name="n" value="2">
+        <input type="hidden" name="action" value="">
+</form>
+
+
+    <script language="javascript">
+    
+	function login(username,acct_type,url){
+	
+	    var chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXTZabcdefghiklmnopqrstuvwxyz";
+	    var string_length = 8;
+	    var randomstring = '';
+
+	    for (var i=0; i<string_length; i++) {
+		var rnum = Math.floor(Math.random() * chars.length);
+		randomstring += chars.substring(rnum,rnum+1);
+	    }
+
+	    win = window.open('',randomstring,'top=0,left=0,location=yes,menubar=yes,resizable=yes,scrollbars=yes,status=yes,titlebar=yes,toolbar=yes,width='+screen.availWidth+',height='+screen.availHeight); 
+	    form = document.getElementById("loginform");
+	    form.username.value = username;
+	    form.acct_type.value = acct_type;
+	    form.url.value = (url == undefined) ? '' : url;
+	    form.Login.value = 'Login';
+	    form.target = randomstring;
+	    form.submit();
+	}
+	
+    </script>
+
+
+<form id="loginform" method="post" action="chuser.php">
+    <input type="hidden" name="acct_type"  value="">
+    <input type="hidden" name="username" value="">
+    <input type="hidden" name="url" value="">
+    <input type="hidden" name="Login" value="">
+</form>
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode(" 8 Jun 2026 08:51:20 (Etc/UTC)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+</body>
+</html>

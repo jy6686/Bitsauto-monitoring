@@ -1,0 +1,146 @@
+Go.
+
+We’ll implement it as a new top-level route /console (not replacing Alerts), and add it as a primary sidebar entry under Operations.
+
+That choice is correct because:
+
+Alerts page remains the raw signal layer
+Console becomes the triaged, grouped operational view
+No regression risk to existing workflows
+Clean separation for future Phase 2 correlation engine
+🧠 Unified Operations Console — V1 Build Plan (Confirmed)
+
+We’ll implement exactly your 6-step architecture in one pass.
+
+1. Core Engine (NEW)
+server/console/groupAlertsToIncidents.ts
+
+Pure deterministic function:
+
+groupAlertsToIncidents(alerts, verdicts, tickets)
+Rules:
+Same entity (accountId / vendorId / connectionId)
+Time window overlap ≤ 10 minutes
+Severity escalation merges upward (info < warning < critical)
+Ticket linkage attaches existing open tickets
+Verdict overlay attaches latest AI Ops state
+Output:
+incident {
+  id: string
+  entity: { accountId, vendorId? }
+  severity: "critical" | "warning" | "info"
+  title: string
+  alerts: Alert[]
+  ticketId?: number
+  verdict?: string
+  startedAt: Date
+  lastSeenAt: Date
+}
+2. Revenue Impact Engine (NEW helper inside same module)
+estimateIncidentImpact(cdrs)
+Formula:
+totalMinutes × avgCostPerMinute (from existing CDR cost field)
+convert to hourly:
+hourlyImpact = (totalCost / durationHours)
+Output:
+"$420/hr"
+
+Rounded + humanized only.
+
+3. Backend Route
+GET /api/console/incidents
+
+Aggregates:
+
+alerts (existing alerts table)
+verdicts (AI Ops engine output)
+tickets (portal_tickets table)
+cdrs (from Sippy via existing portal/view logic)
+
+Returns:
+
+{
+  incidents: Incident[],
+  summary: {
+    active: number,
+    critical: number,
+    affectedAccounts: number,
+    estimatedImpact: string
+  }
+}
+4. Console Page Route
+/console
+
+New file:
+
+client/src/pages/console.tsx
+
+Sidebar placement:
+
+Operations
+ ├── Live Traffic
+ ├── Alerts
+ ├── Unified Console   ← NEW
+5. UI Layout (3-column system)
+LEFT — Incident Stream
+Sorted by severity → recency
+Cards show:
+Entity name
+Severity badge
+“X alerts grouped”
+Revenue impact ($/hr)
+Age timer
+CENTER — Incident Detail
+
+When clicked:
+
+Timeline of alerts
+Linked tickets
+AI verdict summary
+First seen / last seen
+Affected routes (hidden labels only if allowed)
+RIGHT — Actions Panel
+
+Minimal operator actions:
+
+Acknowledge incident
+Create ticket (pre-filled entity)
+Drill-down links:
+Alerts view
+Client portal
+CDRs (internal only)
+6. Correlation Logic (V1 SIMPLE RULE SET)
+
+No ML yet. Pure deterministic grouping:
+
+if (
+  sameEntity &&
+  abs(alertA.time - alertB.time) <= 10min &&
+  severity overlaps
+)
+→ same incident
+
+This is intentionally stable so Phase 2 can replace it without UI rewrite.
+
+7. Sidebar Add
+{
+  label: "Unified Console",
+  path: "/console",
+  icon: Activity
+}
+
+Position: top of Operations group
+
+🔒 Key Design Guarantees
+No new database schema required
+No Sippy API changes
+No breaking existing Alerts or NOC pages
+Fully deterministic grouping (testable)
+Safe to evolve into Phase 2 correlation engine
+🚀 Build Order (what I will execute)
+groupAlertsToIncidents.ts
+estimateIncidentImpact()
+/api/console/incidents
+/console page
+3-column UI layout
+Sidebar integration

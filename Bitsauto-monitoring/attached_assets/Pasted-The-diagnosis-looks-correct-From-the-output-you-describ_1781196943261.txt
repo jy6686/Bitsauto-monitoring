@@ -1,0 +1,131 @@
+The diagnosis looks correct.
+
+From the output you described:
+
+Confirmed Issues
+1. growpart not installed
+growpart: command not found
+
+Install:
+
+yum install -y cloud-utils-growpart
+2. Filesystem is XFS
+
+This is why:
+
+resize2fs /dev/vda1
+
+failed.
+
+CentOS 7 + FreePBX commonly uses XFS.
+
+Verify:
+
+df -Th /
+
+If it shows:
+
+xfs
+
+then use:
+
+xfs_growfs /
+
+instead of resize2fs.
+
+Recommended Sequence
+# Install growpart
+yum install -y cloud-utils-growpart
+
+# Expand partition 1 to consume remaining disk
+growpart /dev/vda 1
+
+# Grow XFS filesystem online
+xfs_growfs /
+
+# Verify
+df -h /
+
+Expected:
+
+Filesystem      Size  Used Avail Use%
+/dev/vda1       ~59G   ~25G  ~34G  ~43%
+MariaDB Failure
+
+The error:
+
+SQLSTATE[HY000] [2002] Connection refused
+
+is very likely secondary to the disk exhaustion.
+
+When a filesystem reaches:
+
+100% full
+
+MariaDB often stops because it cannot write:
+
+ib_logfile*
+binary logs
+temp tables
+InnoDB checkpoints
+
+After disk space is restored:
+
+systemctl restart mariadb
+systemctl status mariadb
+
+Then verify:
+
+mysql -u root -p
+
+or:
+
+systemctl is-active mariadb
+
+returns:
+
+active
+Before Running Anything
+
+One thing I'd verify first:
+
+lsblk
+df -Th
+
+Because the resize only works if the underlying VM disk was already expanded to 60 GB by the provider.
+
+If lsblk still shows:
+
+vda 25G
+
+then the cloud volume itself has not been expanded yet and growpart won't help.
+
+If it shows:
+
+vda 60G
+└─vda1 25G
+
+then your plan is exactly right.
+
+After Resize
+
+Go back to:
+
+Reconciliation Lab
+→ Recording Integrity
+
+You want to see:
+
+🟢 SSH Connected
+Disk Usage < 100%
+Files Found > 0
+
+Then place 2–3 test calls and verify:
+
+File OK
+Size > 0
+Playable = Yes
+
+At that point the recording issue should be closed and attention can move to Vendor Cost Validation and Commercial Identity Audit.
+
+Also, note that some of the files/screenshots shared earlier in this conversation have expired and are no longer accessible. If you want me to review the actual command output (lsblk, df -Th, growpart, xfs_growfs, etc.), upload the latest output again and I can verify it before you proceed.

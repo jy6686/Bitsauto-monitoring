@@ -1,0 +1,910 @@
+import { useState, useMemo } from "react";
+import { lookupCLD } from "@/lib/country-lookup";
+import { PhoneLink } from "@/components/number-intel-panel";
+import { useQuery } from "@tanstack/react-query";
+import { useSearch, Link } from "wouter";
+import * as XLSX from "xlsx";
+import {
+  formatUTC, formatInTz, toTzDateInput, tzDateToUTC,
+  subMinutesUTC, subHoursUTC, subDaysUTC, subWeeksUTC, subMonthsUTC,
+  startOfDayUTC, endOfDayUTC, startOfWeekUTC, endOfWeekUTC,
+  startOfMonthUTC, endOfMonthUTC,
+} from "@/lib/date-utils";
+import { useTimezone } from "@/context/timezone-context";
+import {
+  RefreshCw, Download, Phone, PhoneOff, PhoneMissed,
+  ChevronLeft, ChevronRight, Filter, X, Clock,
+  DollarSign, Globe, Activity, FileSpreadsheet, Users, Building2, PhoneCall,
+  SlidersHorizontal, Plus, Check, GitBranch,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+
+function toInput(d: Date, tz: string): string {
+  return toTzDateInput(d, tz);
+}
+
+function fmtDurSec(seconds: number): string {
+  const s = Math.round(seconds || 0);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function parseSippyRawDate(raw: string): Date | null {
+  if (!raw || raw === '-') return null;
+  // ISO 8601 — already standard, e.g. "2026-04-10T19:22:56.000Z"
+  let d = new Date(raw);
+  if (!isNaN(d.getTime())) return d;
+  // Sippy compact ISO: "20260410T19:22:56"
+  const compact = /^(\d{4})(\d{2})(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(raw.trim());
+  if (compact) {
+    d = new Date(`${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`);
+    if (!isNaN(d.getTime())) return d;
+  }
+  // Sippy portal format: "10 May 2026 00:39:29" (DD Mon YYYY HH:MM:SS)
+  const ddMon = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{2}:\d{2}:\d{2})/.exec(raw.trim());
+  if (ddMon) {
+    const monMap: Record<string, number> = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+    const mo = monMap[ddMon[2]];
+    if (mo !== undefined) {
+      const [hh, mm, ss] = ddMon[4].split(':').map(Number);
+      d = new Date(Date.UTC(+ddMon[3], mo, +ddMon[1], hh, mm, ss));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+  // Sippy legacy GMT: "19:22:56.000 GMT Fri Apr 10 2026"
+  const legacy = /^(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?\s+GMT\s+\w+\s+(\w+)\s+(\d+)\s+(\d{4})/.exec(raw.trim());
+  if (legacy) {
+    const months: Record<string, number> = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+    const mo = months[legacy[4]];
+    if (mo !== undefined) {
+      d = new Date(Date.UTC(+legacy[6], mo, +legacy[5], +legacy[1], +legacy[2], +legacy[3]));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+  return null;
+}
+
+function fmtSetupTime(raw: string, tz: string): string {
+  if (!raw || raw === '-') return '-';
+  const d = parseSippyRawDate(raw);
+  if (d) return formatInTz(d, 'dd MMM yyyy HH:mm:ss', tz);
+  return raw;
+}
+
+function fmtCurrency(val: number): string {
+  return (val || 0).toFixed(7);
+}
+
+const PRESETS = [
+  { label: "Last 15 min",  fn: () => [subMinutesUTC(new Date(), 15), new Date()] },
+  { label: "Last 1 hr",    fn: () => [subHoursUTC(new Date(), 1),    new Date()] },
+  { label: "Last 6 hr",    fn: () => [subHoursUTC(new Date(), 6),    new Date()] },
+  { label: "Last 24 hr",   fn: () => [subHoursUTC(new Date(), 24),   new Date()] },
+  { label: "Today",        fn: () => [startOfDayUTC(new Date()),      new Date()] },
+  { label: "Yesterday",    fn: () => [startOfDayUTC(subDaysUTC(new Date(), 1)), endOfDayUTC(subDaysUTC(new Date(), 1))] },
+  { label: "Last 7 days",  fn: () => [startOfDayUTC(subDaysUTC(new Date(), 6)), new Date()] },
+  { label: "This week",    fn: () => [startOfWeekUTC(new Date()), new Date()] },
+  { label: "Last week",    fn: () => [startOfWeekUTC(subWeeksUTC(new Date(), 1)), endOfWeekUTC(subWeeksUTC(new Date(), 1))] },
+  { label: "This month",   fn: () => [startOfMonthUTC(new Date()),   new Date()] },
+  { label: "Last month",   fn: () => [startOfMonthUTC(subMonthsUTC(new Date(), 1)), endOfMonthUTC(subMonthsUTC(new Date(), 1))] },
+];
+
+const CALL_TYPE_OPTIONS = [
+  { value: 'non_zero',          label: 'Answered / Billed' },
+  { value: 'all',               label: 'All Calls' },
+  { value: 'complete',          label: 'Completed Only' },
+  { value: 'non_zero_and_errors', label: 'Answered + Errors' },
+  { value: 'incomplete',        label: 'Incomplete / Unanswered' },
+  { value: 'errors',            label: 'Errors Only' },
+];
+
+type CdrStatus = 'answered' | 'sip-error' | 'cancelled' | 'incomplete' | 'unknown';
+
+function getCdrStatus(cdr: any): CdrStatus {
+  const result = (cdr.result || '').toString().toLowerCase();
+  const duration = cdr.duration || cdr.totalDuration || 0;
+  if (duration > 0) return 'answered';
+  if (/\b(404|486|488|503|5\d\d)\b/.test(result) || /sip[_\s]?error/i.test(result)) return 'sip-error';
+  if (/\b4\d\d\b/.test(result) && !/answered|ok|200/i.test(result)) return 'sip-error';
+  if (/cancel|busy|decline|rejected|no.answer/i.test(result)) return 'cancelled';
+  if (/incomplete|timeout|address.*incomplete/i.test(result)) return 'incomplete';
+  if (!result || result === '-') return 'incomplete';
+  return 'unknown';
+}
+
+function StatusIcon({ cdr }: { cdr: any }) {
+  const status = getCdrStatus(cdr);
+  const result = cdr.result || '';
+  const title = result || 'Unknown';
+
+  if (status === 'answered') {
+    return (
+      <span title="Answered" className="flex items-center justify-center">
+        <Phone className="h-3.5 w-3.5 text-emerald-400" />
+      </span>
+    );
+  }
+  if (status === 'sip-error') {
+    return (
+      <span title={`SIP Error: ${title}`} className="flex items-center justify-center">
+        <span className="h-3 w-3 rounded-full bg-red-500 inline-block" />
+      </span>
+    );
+  }
+  if (status === 'cancelled') {
+    return (
+      <span title={title} className="flex items-center justify-center">
+        <PhoneMissed className="h-3.5 w-3.5 text-amber-400" />
+      </span>
+    );
+  }
+  return (
+    <span title={title} className="flex items-center justify-center">
+      <span className="h-3 w-3 rounded-full bg-amber-500/60 inline-block" />
+    </span>
+  );
+}
+
+const PAGE_SIZE = 50;
+
+const CDR_COL_CHIPS = [
+  { id: 'country',   label: 'Country' },
+  { id: 'product',   label: 'Product' },
+  { id: 'breakout',  label: 'Breakout' },
+  { id: 'desc',      label: 'Description' },
+  { id: 'setupTime', label: 'Setup Time' },
+  { id: 'billed',    label: 'Billed' },
+] as const;
+type CdrColId = typeof CDR_COL_CHIPS[number]['id'];
+
+export default function CDRsPage() {
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const view = (params.get('view') ?? 'client') as 'client' | 'vendor';
+  const isVendor = view === 'vendor';
+  const spikeVendor = params.get('vendor') ?? null;
+  const { tz, tzAbbr } = useTimezone();
+
+  const [visibleCols, setVisibleCols] = useState<Set<CdrColId>>(
+    () => new Set<CdrColId>(['country', 'product', 'breakout', 'desc', 'setupTime', 'billed'])
+  );
+  const col = (id: CdrColId) => visibleCols.has(id);
+  const toggleCol = (id: CdrColId) => setVisibleCols(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const defaultStart = (() => {
+    const p = params.get('startDate');
+    if (p) { const d = new Date(p); if (!isNaN(d.getTime())) return d; }
+    return subHoursUTC(new Date(), 1);
+  })();
+  const defaultEnd = (() => {
+    const p = params.get('endDate');
+    if (p) { const d = new Date(p); if (!isNaN(d.getTime())) return d; }
+    return new Date();
+  })();
+
+  // Spike window bounds — only meaningful when spikeVendor is set
+  const spikeWindowStart = spikeVendor ? defaultStart : null;
+  const spikeWindowEnd   = spikeVendor ? defaultEnd   : null;
+  const [start, setStart]       = useState(defaultStart);
+  const [end,   setEnd]         = useState(defaultEnd);
+  const [startInput, setStartInput] = useState(() => toInput(defaultStart, tz));
+  const [endInput,   setEndInput]   = useState(() => toInput(defaultEnd, tz));
+  const [callType,  setCallType]    = useState('non_zero');
+  const [cli,       setCli]         = useState('');
+  const [cld,       setCld]         = useState('');
+  const [sipCode,   setSipCode]     = useState('all');
+  const [page,      setPage]        = useState(0);
+  const [applied,   setApplied]     = useState({
+    start: defaultStart, end: defaultEnd, callType: 'non_zero', cli: '', cld: '',
+  });
+
+  const offset = page * PAGE_SIZE;
+
+  const queryKey = [
+    isVendor ? '/api/sippy/cdr/vendor' : '/api/sippy/cdr',
+    applied.start.toISOString(),
+    applied.end.toISOString(),
+    applied.callType,
+    applied.cli,
+    applied.cld,
+    offset,
+  ];
+
+  const buildUrl = (a: typeof applied, off: number) => {
+    if (isVendor) {
+      const params = new URLSearchParams({
+        startDate: a.start.toISOString(),
+        endDate:   a.end.toISOString(),
+        limit:     String(PAGE_SIZE),
+        offset:    String(off),
+      });
+      return `/api/sippy/cdr/vendor?${params.toString()}`;
+    }
+    const params = new URLSearchParams({
+      startDate: a.start.toISOString(),
+      endDate:   a.end.toISOString(),
+      type:      a.callType,
+      limit:     String(PAGE_SIZE),
+      offset:    String(off),
+    });
+    if (a.cli) params.set('cli', a.cli);
+    if (a.cld) params.set('cld', a.cld);
+    return `/api/sippy/cdr?${params.toString()}`;
+  };
+
+  const { data, isLoading, isFetching, refetch } = useQuery<{ cdrs: any[] }>({
+    queryKey,
+    queryFn: () => fetch(buildUrl(applied, offset)).then(r => r.json()),
+    staleTime: 30_000,
+  });
+
+  const cdrs = data?.cdrs || [];
+  const hasMore = cdrs.length === PAGE_SIZE;
+
+  const vendorFilteredCdrs = (isVendor && spikeVendor)
+    ? cdrs.filter(c => {
+        const name = (c.vendorName ?? c.vendor ?? '').toLowerCase();
+        return name === spikeVendor.toLowerCase();
+      })
+    : cdrs;
+
+  const displayCdrs = sipCode === 'all' ? vendorFilteredCdrs : vendorFilteredCdrs.filter(c => {
+    const r = String(c.result ?? '');
+    const dur = Number(c.duration || c.totalDuration || 0);
+    if (sipCode === '200') return dur > 0;
+    if (sipCode === '4xx') return /^4\d{2}$/.test(r);
+    if (sipCode === '5xx') return /^5\d{2}$/.test(r);
+    if (sipCode === '6xx') return /^6\d{2}$/.test(r);
+    return r === sipCode;
+  });
+
+  const spikeWindowMatchCount = useMemo(() => {
+    if (!spikeWindowStart || !spikeWindowEnd) return 0;
+    return displayCdrs.filter(c => {
+      const d = parseSippyRawDate(c.startTime);
+      return d && d >= spikeWindowStart && d <= spikeWindowEnd;
+    }).length;
+  }, [displayCdrs, spikeWindowStart, spikeWindowEnd]);
+
+  function applyFilters() {
+    const s = tzDateToUTC(startInput, tz);
+    const e = tzDateToUTC(endInput, tz);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return;
+    setStart(s); setEnd(e);
+    setApplied({ start: s, end: e, callType, cli, cld });
+    setPage(0);
+  }
+
+  function applyPreset(fn: () => [Date, Date]) {
+    const [s, e] = fn();
+    setStart(s); setEnd(e);
+    setStartInput(toInput(s, tz)); setEndInput(toInput(e, tz));
+    setApplied({ start: s, end: e, callType, cli, cld });
+    setPage(0);
+  }
+
+  function clearSearch() {
+    setCli(''); setCld('');
+    setApplied(prev => ({ ...prev, cli: '', cld: '' }));
+    setPage(0);
+  }
+
+  // Summaries
+  const totals = useMemo(() => {
+    let totalCalls = 0, answered = 0, totalDur = 0, billedDur = 0, charged = 0;
+    for (const c of cdrs) {
+      totalCalls++;
+      const dur = c.totalDuration || 0;
+      const billed = c.duration || 0;
+      if (billed > 0) answered++;
+      totalDur  += dur;
+      billedDur += billed;
+      charged   += c.cost || 0;
+    }
+    return { totalCalls, answered, totalDur, billedDur, charged };
+  }, [cdrs]);
+
+  const exportFilename = (ext: string) =>
+    `${isVendor ? 'vendor' : 'client'}_cdrs_${formatUTC(applied.start, 'yyyyMMdd_HHmm')}_${formatUTC(applied.end, 'yyyyMMdd_HHmm')}.${ext}`;
+
+  const buildRows = () => {
+    const firstColHeader = isVendor ? 'Vendor' : 'Client';
+    const headers = [firstColHeader, 'CLI', 'CLD', 'Country', 'Product', 'Breakout', 'Description', 'Setup Time', 'Duration', 'Billed Duration', 'Charged (USD)', 'Result'];
+    const rows = cdrs.map(c => {
+      const cldInfo = c.callee ? lookupCLD(c.callee) : null;
+      const countryName = cldInfo?.country ? `${cldInfo.country.flag} ${cldInfo.country.name}` : c.country || '';
+      return [
+        (isVendor
+          ? [c.vendorName, c.remoteIp].filter(Boolean).join(' | ') || '-'
+          : (c.clientName || c.caller || '-')),
+        c.caller || '',
+        c.callee || '',
+        countryName,
+        cldInfo?.trunkClass?.label || '',
+        c.areaName || '',
+        c.description || '',
+        fmtSetupTime(c.startTime, tz),
+        fmtDurSec(c.totalDuration || 0),
+        fmtDurSec(c.duration || 0),
+        fmtCurrency(c.cost || 0),
+        c.result || '',
+      ];
+    });
+    return { headers, rows };
+  };
+
+  function downloadCSV() {
+    const { headers, rows } = buildRows();
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = exportFilename('csv'); a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadExcel() {
+    const { headers, rows } = buildRows();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    // Auto-width columns
+    const colWidths = headers.map((h, i) => ({
+      wch: Math.max(h.length, ...rows.map(r => String(r[i] ?? '').length), 10),
+    }));
+    ws['!cols'] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, isVendor ? 'Vendor CDRs' : 'Client CDRs');
+    XLSX.writeFile(wb, exportFilename('xlsx'));
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Spike-band context banner */}
+      {spikeVendor && (
+        <div className="flex items-center gap-2.5 rounded-lg border border-red-500/30 bg-red-500/8 px-3.5 py-2.5 text-sm" data-testid="banner-spike-context">
+          <Activity className="h-4 w-4 shrink-0 text-red-400" />
+          <span className="text-red-300/90 flex-1">
+            Showing vendor CDRs for spike window on <span className="font-semibold text-red-200">{spikeVendor}</span>.
+            Time range is pre-filled from the spike band — adjust above if needed.{' '}
+            <span className="inline-flex items-center gap-1 text-red-400/80">
+              <span className="inline-block w-2.5 h-full border-l-2 border-red-400 align-middle" style={{ height: '0.85em' }} />
+              Rows inside the spike window are highlighted with a red left border.
+            </span>
+          </span>
+          {spikeWindowMatchCount > 0 ? (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full bg-red-500/20 border border-red-500/40 px-2.5 py-0.5 text-xs font-semibold text-red-300 shrink-0"
+              data-testid="badge-spike-match-count"
+            >
+              <span className="font-bold text-red-200">{spikeWindowMatchCount}</span>
+              {spikeWindowMatchCount === 1 ? 'row' : 'rows'} matched
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/15 border border-yellow-500/30 px-2.5 py-0.5 text-xs font-semibold text-yellow-400 shrink-0"
+              data-testid="badge-spike-no-match"
+            >
+              No rows in spike window on this page
+            </span>
+          )}
+        </div>
+      )}
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight">CDR Viewer</h1>
+            <span className={cn(
+              "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border",
+              isVendor
+                ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400"
+                : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+            )}>
+              {isVendor ? <Building2 className="h-3 w-3" /> : <Users className="h-3 w-3" />}
+              {isVendor ? 'Vendor CDRs' : 'Client CDRs'}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {isVendor ? 'Vendor / carrier termination records' : 'Customer Call Detail Records — charging & billing history'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline" size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-cdrs"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", isFetching && "animate-spin")} />
+            Refresh
+          </Button>
+          <Button
+            variant="outline" size="sm"
+            onClick={downloadCSV}
+            disabled={cdrs.length === 0}
+            data-testid="button-download-csv"
+          >
+            <Download className="h-3.5 w-3.5 mr-1.5" />
+            CSV
+          </Button>
+          <Button
+            variant="outline" size="sm"
+            onClick={downloadExcel}
+            disabled={cdrs.length === 0}
+            data-testid="button-download-excel"
+            className="text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-300"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />
+            Excel
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters card */}
+      <div className="rounded-xl border border-border bg-card/60 p-4 space-y-4">
+        {/* Date presets */}
+        <div className="flex flex-wrap gap-1.5">
+          {PRESETS.map(p => (
+            <button
+              key={p.label}
+              onClick={() => applyPreset(p.fn as () => [Date, Date])}
+              className="text-xs px-2.5 py-1 rounded-md border border-border/60 bg-muted/30 hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground"
+              data-testid={`preset-${p.label.replace(/\s/g,'-').toLowerCase()}`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Date + filters row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Start Date/Time <span className="font-medium text-primary/60">({tzAbbr})</span></label>
+            <Input
+              type="datetime-local"
+              value={startInput}
+              onChange={e => setStartInput(e.target.value)}
+              className="h-8 text-xs"
+              data-testid="input-start-date"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">End Date/Time <span className="font-medium text-primary/60">({tzAbbr})</span></label>
+            <Input
+              type="datetime-local"
+              value={endInput}
+              onChange={e => setEndInput(e.target.value)}
+              className="h-8 text-xs"
+              data-testid="input-end-date"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">CLI (Source)</label>
+            <Input
+              placeholder="e.g. +971..."
+              value={cli}
+              onChange={e => setCli(e.target.value)}
+              className="h-8 text-xs"
+              data-testid="input-filter-cli"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">CLD (Destination)</label>
+            <Input
+              placeholder="e.g. 9231..."
+              value={cld}
+              onChange={e => setCld(e.target.value)}
+              className="h-8 text-xs"
+              data-testid="input-filter-cld"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Show Calls</label>
+            <Select value={callType} onValueChange={setCallType}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-call-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CALL_TYPE_OPTIONS.map(o => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">SIP Code</label>
+            <Select value={sipCode} onValueChange={setSipCode}>
+              <SelectTrigger className="h-8 text-xs w-36" data-testid="select-sip-code">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Codes</SelectItem>
+                <SelectItem value="200">200 Answered</SelectItem>
+                <SelectItem value="4xx">4xx Client Error</SelectItem>
+                <SelectItem value="404">404 Not Found</SelectItem>
+                <SelectItem value="486">486 Busy Here</SelectItem>
+                <SelectItem value="488">488 Not Acceptable</SelectItem>
+                <SelectItem value="5xx">5xx Server Error</SelectItem>
+                <SelectItem value="503">503 Unavailable</SelectItem>
+                <SelectItem value="6xx">6xx Global Failure</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={applyFilters}
+            data-testid="button-apply-filters"
+          >
+            <Filter className="h-3.5 w-3.5 mr-1.5" />
+            Update Report
+          </Button>
+          {(applied.cli || applied.cld) && (
+            <Button
+              variant="ghost" size="sm"
+              onClick={clearSearch}
+              data-testid="button-clear-search"
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Clear Search
+            </Button>
+          )}
+          <span className="text-xs text-muted-foreground ml-auto">
+            {formatInTz(applied.start, 'dd MMM yyyy HH:mm', tz)} → {formatInTz(applied.end, 'dd MMM yyyy HH:mm', tz)} {tzAbbr}
+          </span>
+        </div>
+      </div>
+
+      {/* Summary stats */}
+      {!isLoading && cdrs.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Calls (this page)', val: totals.totalCalls.toString(), icon: Activity, color: 'text-blue-400' },
+            { label: 'Answered',          val: totals.answered.toString(),   icon: Phone,    color: 'text-emerald-400' },
+            { label: 'Total Duration',    val: fmtDurSec(totals.totalDur),   icon: Clock,    color: 'text-amber-400' },
+            { label: 'Charged (USD)',     val: `$${fmtCurrency(totals.charged)}`, icon: DollarSign, color: 'text-violet-400' },
+          ].map(s => (
+            <div key={s.label} className="rounded-lg border border-border bg-card/50 p-3 flex items-center gap-3">
+              <s.icon className={cn('h-4 w-4 flex-shrink-0', s.color)} />
+              <div>
+                <p className="text-xs text-muted-foreground">{s.label}</p>
+                <p className="text-sm font-semibold font-mono" data-testid={`stat-${s.label.replace(/\s/g,'-').toLowerCase()}`}>{s.val}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── CDR Column Chip Picker ─────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap border border-border/40 bg-muted/5 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium shrink-0 mr-1">
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          Columns:
+        </div>
+        {CDR_COL_CHIPS.map(chip => {
+          const isOn = col(chip.id);
+          return (
+            <button
+              key={chip.id}
+              onClick={() => toggleCol(chip.id)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                isOn
+                  ? 'bg-primary/10 border-primary/30 text-primary hover:bg-primary/20'
+                  : 'bg-muted/20 border-border/30 text-muted-foreground/50 hover:border-border/60 hover:text-muted-foreground'
+              }`}
+              data-testid={`chip-cdr-col-${chip.id}`}
+              title={isOn ? `Hide ${chip.label} column` : `Show ${chip.label} column`}
+            >
+              {isOn ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+              {chip.label}
+            </button>
+          );
+        })}
+        {visibleCols.size < CDR_COL_CHIPS.length && (
+          <button
+            onClick={() => setVisibleCols(new Set(CDR_COL_CHIPS.map(c => c.id)))}
+            className="ml-auto text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors px-2 py-1 rounded-lg hover:bg-muted/30"
+            data-testid="button-show-all-cdr-cols"
+          >
+            Show all
+          </button>
+        )}
+      </div>
+
+      {/* CDR Table */}
+      <div className="rounded-xl border border-border bg-card/60 overflow-hidden">
+        {/* Pagination header */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 bg-muted/20">
+          <span className="text-xs text-muted-foreground font-medium">
+            {isLoading ? 'Loading…' : `Showing ${offset + 1}–${offset + cdrs.length} records${hasMore ? '+' : ''}`}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost" size="icon"
+              className="h-7 w-7"
+              disabled={page === 0 || isFetching}
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              data-testid="button-prev-page"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-xs text-muted-foreground px-1">Page {page + 1}</span>
+            <Button
+              variant="ghost" size="icon"
+              className="h-7 w-7"
+              disabled={!hasMore || isFetching}
+              onClick={() => setPage(p => p + 1)}
+              data-testid="button-next-page"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border/50 bg-muted/30">
+                <th className="w-8 px-2 py-2.5 text-center text-muted-foreground font-medium">&nbsp;</th>
+                <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">{isVendor ? 'Vendor' : 'Client'}</th>
+                <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">CLI</th>
+                <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">CLD</th>
+                {col('country')   && <th className="px-3 py-2.5 text-center text-muted-foreground font-medium">Country</th>}
+                {col('product')   && <th className="px-3 py-2.5 text-center text-muted-foreground font-medium">Product</th>}
+                {col('breakout')  && <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">Breakout</th>}
+                {col('desc')      && <th className="px-3 py-2.5 text-left text-muted-foreground font-medium">Description</th>}
+                {col('setupTime') && <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Setup Time</th>}
+                <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Duration</th>
+                {col('billed')    && <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Billed</th>}
+                <th className="px-3 py-2.5 text-right text-muted-foreground font-medium whitespace-nowrap">Charged (USD)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && Array.from({ length: 12 }).map((_, i) => (
+                <tr key={i} className={cn("border-b border-border/20", i % 2 === 0 ? "bg-card/20" : "bg-muted/10")}>
+                  {Array.from({ length: 6 + visibleCols.size }).map((_, j) => (
+                    <td key={j} className="px-3 py-2">
+                      <Skeleton className="h-3 w-full" />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+
+              {!isLoading && cdrs.length === 0 && (
+                <tr>
+                  <td colSpan={6 + visibleCols.size} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <PhoneOff className="h-8 w-8 opacity-30" />
+                      <p className="text-sm font-medium">No CDR records found</p>
+                      <p className="text-xs opacity-70 max-w-xs text-center">
+                        CDR records appear here once calls have been made and completed through your accounts (PUSHTOTALK, aircel, asif). Try expanding the date range or changing the call type filter.
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+
+              {!isLoading && displayCdrs.map((cdr, i) => {
+                const status = getCdrStatus(cdr);
+                const isAnswered = status === 'answered';
+                const cldInfo = cdr.callee ? lookupCLD(cdr.callee) : null;
+
+                // Spike window highlight: check if this CDR's start time falls inside the spike band
+                const cdrStartDate = parseSippyRawDate(cdr.startTime);
+                const isInSpikeWindow = !!(
+                  spikeWindowStart && spikeWindowEnd && cdrStartDate &&
+                  cdrStartDate >= spikeWindowStart && cdrStartDate <= spikeWindowEnd
+                );
+
+                return (
+                  <tr
+                    key={`${cdr.callId}-${i}`}
+                    className={cn(
+                      "border-b border-border/20 transition-colors hover:bg-muted/20",
+                      i % 2 === 0 ? "bg-card/20" : "bg-muted/10",
+                      isInSpikeWindow && "bg-red-500/5 hover:bg-red-500/10",
+                    )}
+                    style={isInSpikeWindow ? { boxShadow: 'inset 3px 0 0 0 rgb(239 68 68 / 0.6)' } : undefined}
+                    data-testid={`row-cdr-${i}`}
+                    data-spike-match={isInSpikeWindow ? 'true' : undefined}
+                  >
+                    <td className="px-2 py-2 text-center">
+                      <StatusIcon cdr={cdr} />
+                    </td>
+                    <td className="px-3 py-2 max-w-[160px]"
+                      title={isVendor
+                        ? [cdr.vendorName, cdr.remoteIp].filter(Boolean).join(' | ')
+                        : (cdr.clientName || cdr.caller || '')}>
+                      {isVendor ? (
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          {cdr.vendorName && (
+                            <span className="font-medium text-cyan-400/90 truncate">{cdr.vendorName}</span>
+                          )}
+                          {cdr.remoteIp && (
+                            <span className="font-mono text-xs text-muted-foreground truncate">{cdr.remoteIp}</span>
+                          )}
+                          {!cdr.vendorName && !cdr.remoteIp && <span className="text-muted-foreground/40">-</span>}
+                        </div>
+                      ) : (
+                        <span className="font-medium text-foreground/80 truncate block">
+                          {cdr.clientName || `Acct.${cdr.iAccount || '-'}`}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cli-${i}`}>
+                      <span className="flex items-center gap-1.5 group/cli flex-wrap">
+                        <PhoneLink number={cdr.caller} className="text-foreground/70 hover:text-emerald-400" />
+                        {cdr.pAssertedId && cdr.pAssertedId !== cdr.caller && (
+                          <span
+                            className="inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-bold bg-orange-500/15 text-orange-400 border border-orange-500/25"
+                            title={`P-Asserted-Identity: ${cdr.pAssertedId} — CLI may be manipulated`}
+                            data-testid={`badge-cli-modified-${i}`}
+                          >
+                            ⚠ CLI MOD
+                          </span>
+                        )}
+                        {cdr.caller && cdr.callee && (
+                          <Link
+                            href={`/test-call?cli=${encodeURIComponent(cdr.caller)}&cld=${encodeURIComponent(cdr.callee)}`}
+                            data-testid={`link-testcall-cli-${i}`}
+                            title="Launch test call"
+                            className="text-primary/40 hover:text-primary transition-colors opacity-0 group-hover/cli:opacity-100"
+                          >
+                            <PhoneCall className="h-3 w-3" />
+                          </Link>
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-foreground/70" data-testid={`text-cld-${i}`}>
+                      <span className="flex items-center gap-1.5 group/cld">
+                        <PhoneLink number={cdr.callee} className="text-foreground/70 hover:text-emerald-400" />
+                        {cdr.caller && cdr.callee && (
+                          <Link
+                            href={`/test-call?cli=${encodeURIComponent(cdr.caller)}&cld=${encodeURIComponent(cdr.callee)}`}
+                            data-testid={`link-testcall-cld-${i}`}
+                            title="Launch test call"
+                            className="text-primary/40 hover:text-primary transition-colors opacity-0 group-hover/cld:opacity-100"
+                          >
+                            <PhoneCall className="h-3 w-3" />
+                          </Link>
+                        )}
+                        {cdr.callId && (
+                          <Link
+                            href={`/sip-trace?callId=${encodeURIComponent(cdr.callId)}`}
+                            data-testid={`link-siptrace-${i}`}
+                            title="View SIP trace"
+                            onClick={e => e.stopPropagation()}
+                            className="text-blue-400/40 hover:text-blue-400 transition-colors opacity-0 group-hover/cld:opacity-100"
+                          >
+                            <GitBranch className="h-3 w-3" />
+                          </Link>
+                        )}
+                      </span>
+                    </td>
+                    {col('country') && (
+                      <td className="px-3 py-2 text-center">
+                        {(() => {
+                          const countryInfo = cldInfo?.country;
+                          const countryFallback = cdr.country;
+                          if (countryInfo) {
+                            return (
+                              <span className="flex items-center justify-center gap-1 text-foreground/60 whitespace-nowrap">
+                                <span>{countryInfo.flag}</span>
+                                <span>{countryInfo.name}</span>
+                              </span>
+                            );
+                          }
+                          return countryFallback
+                            ? <span className="flex items-center justify-center gap-1 text-foreground/60"><Globe className="h-3 w-3" />{countryFallback}</span>
+                            : <span className="text-muted-foreground/40">-</span>;
+                        })()}
+                      </td>
+                    )}
+                    {col('product') && (
+                      <td className="px-3 py-2 text-center" data-testid={`text-product-${i}`}>
+                        {cldInfo?.trunkClass ? (
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cldInfo.trunkClass.color} border-current/20`}
+                            title={cldInfo.trunkClass.label}>
+                            {cldInfo.trunkClass.short}
+                          </span>
+                        ) : <span className="text-muted-foreground/40">-</span>}
+                      </td>
+                    )}
+                    {col('breakout') && (
+                      <td className="px-3 py-2 text-foreground/60 max-w-[120px] truncate" data-testid={`text-breakout-${i}`}>
+                        {cdr.areaName
+                          ? <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20">{cdr.areaName}</span>
+                          : <span className="text-muted-foreground/40">-</span>}
+                      </td>
+                    )}
+                    {col('desc') && (
+                      <td className="px-3 py-2 text-foreground/60 max-w-[160px] truncate" title={cdr.description || cdr.areaName || ''}>
+                        {cdr.description || '-'}
+                      </td>
+                    )}
+                    {col('setupTime') && (
+                      <td className="px-3 py-2 text-right font-mono text-foreground/60 whitespace-nowrap">
+                        {fmtSetupTime(cdr.startTime, tz)}
+                      </td>
+                    )}
+                    <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+                      <span className={isAnswered ? "text-emerald-400" : "text-muted-foreground/50"}>
+                        {fmtDurSec(cdr.totalDuration || 0)}
+                      </span>
+                    </td>
+                    {col('billed') && (
+                      <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+                        <span className={isAnswered ? "text-blue-400" : "text-muted-foreground/50"}>
+                          {fmtDurSec(cdr.duration || 0)}
+                        </span>
+                      </td>
+                    )}
+                    <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+                      {(cdr.cost || 0) > 0 ? (
+                        <span className="text-amber-400 font-semibold">{fmtCurrency(cdr.cost)}</span>
+                      ) : (
+                        <span className="text-muted-foreground/40">0.0000000</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Bottom pagination */}
+        {!isLoading && cdrs.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/50 bg-muted/10">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block" />
+                <span>Answered ({totals.answered})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500 inline-block" />
+                <span>SIP Error</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-500/60 inline-block" />
+                <span>Cancelled/Incomplete</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost" size="sm"
+                disabled={page === 0 || isFetching}
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                data-testid="button-prev-page-bottom"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Prev
+              </Button>
+              <Button
+                variant="ghost" size="sm"
+                disabled={!hasMore || isFetching}
+                onClick={() => setPage(p => p + 1)}
+                data-testid="button-next-page-bottom"
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

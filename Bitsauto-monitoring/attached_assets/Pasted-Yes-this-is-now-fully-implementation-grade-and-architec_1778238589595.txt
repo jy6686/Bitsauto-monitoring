@@ -1,0 +1,190 @@
+Yes — this is now fully implementation-grade and architecturally sound, and importantly: it is minimal-change, high-stability design, which is exactly what legacy telecom integrations need.
+I’ll just do a final “engineering polish pass” so this is safe to hand directly to implementation without ambiguity.
+
+🧠 FINAL HARDENED SPEC (APPROVED VERSION)
+🎯 OBJECTIVE
+Introduce a strict provisioning execution boundary while preserving all existing monitoring and UI behavior.
+
+🧩 REQUIRED ADDITIONS (ONLY 3)
+1. provisioningLogin() (NEW — server/sippy.ts)
+Behavior:
+
+
+Uses ONLY:
+
+
+SIPPY_PROV_USERNAME
+
+
+SIPPY_PROV_PASSWORD
+
+
+
+
+Auth flow identical in structure to portalLogin()
+
+
+Hard rules:
+IF credentials missing OR empty:    THROW "PROVISIONING_NOT_CONFIGURED"
+Constraints:
+
+
+❌ No fallback to customer session
+
+
+❌ No shared/global session cache
+
+
+❌ No cross-role reuse
+
+
+✔ Session is function-scoped only
+
+
+✔ Session is discarded automatically after function returns
+
+
+
+2. createSippyServicePlan() (MODIFIED ONLY AT ENTRY POINT)
+Replace current login logic with:
+try:    session = provisioningLogin()catch PROVISIONING_NOT_CONFIGURED:    return {        success: false,        needsManualCreation: true,        error: "Provisioning credentials not configured"    }
+Then proceed with existing POST logic unchanged.
+
+3. ENVIRONMENT CONFIGURATION
+SIPPY_PROV_USERNAME=SIPPY_PROV_PASSWORD=
+Behavior:
+StateResultEmptyManual fallback modeValidFull automation mode
+
+🚦 SYSTEM STATE MODEL (FINAL)
+🟢 AUTOMATED STATE
+Condition:
+
+
+provisioning credentials present + valid
+
+
+Behavior:
+
+
+full service plan creation
+
+
+no manual steps
+
+
+deterministic provisioning flow
+
+
+
+🟡 MANUAL FALLBACK STATE
+Condition:
+
+
+provisioning credentials missing OR invalid
+
+
+Behavior:
+
+
+tariff creation continues
+
+
+service plan creation blocked gracefully
+
+
+UI fallback card displayed
+
+
+
+❌ NO OTHER STATES EXIST
+Explicitly disallowed:
+
+
+partial provisioning
+
+
+silent degradation
+
+
+hybrid session reuse
+
+
+fallback to monitoring session for writes
+
+
+
+🔐 CRITICAL GUARANTEE (DESIGN INTENT)
+
+Provisioning and monitoring are fully isolated execution domains
+
+This ensures:
+✔ No RBAC leakage
+✔ No accidental write via read session
+✔ No hidden permission ambiguity
+✔ Fully deterministic behavior under all conditions
+
+🧠 WHY THIS DESIGN IS STRONG (FINAL VALIDATION)
+This is effectively a two-plane OSS architecture:
+🔵 Monitoring Plane
+
+
+high frequency
+
+
+read-only
+
+
+stable session reuse allowed
+
+
+🔴 Provisioning Plane
+
+
+low frequency
+
+
+stateless per call
+
+
+strict fail-closed behavior
+
+
+
+🚀 IMPLEMENTATION IMPACT
+Changes required:
+
+
++1 function (provisioningLogin)
+
+
++1 wrapper at function entry
+
+
++1 env config pair
+
+
+Changes NOT required:
+
+
+UI
+
+
+monitoring system
+
+
+existing fallback flow
+
+
+tariff logic
+
+
+wizard structure
+
+
+
+🟢 FINAL VERDICT
+✔ Fully deterministic
+✔ Production-safe
+✔ RBAC-compliant
+✔ Minimal surface area
+✔ No architectural side effects

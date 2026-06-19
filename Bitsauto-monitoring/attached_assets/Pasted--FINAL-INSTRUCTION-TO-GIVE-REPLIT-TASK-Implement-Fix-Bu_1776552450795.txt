@@ -1,0 +1,131 @@
+✅ 📌 FINAL INSTRUCTION TO GIVE REPLIT
+🔧 TASK: Implement “Fix Button System” Across Entire Application
+
+We need to implement a Fix Button system on every page/module (CDR, P&L, Live Calls, ASR/ACD, Reports, etc.).
+
+🧠 CORE REQUIREMENT
+
+When the user clicks Fix button on any page:
+
+The system must:
+
+Detect the current module/page
+Collect logs and API status
+Identify issue type
+Execute predefined fix actions
+Reload data
+Show result to user
+⚙️ BACKEND IMPLEMENTATION
+1. Create API Endpoint
+
+POST /api/fix
+
+Request Body:
+{
+  "module": "PNL",
+  "page": "/pnl",
+  "error": "auto-detect"
+}
+2. Fix Flow (MANDATORY LOGIC)
+Step 1 — Collect Logs
+Read recent server logs
+Capture API errors (Sippy Soft)
+Capture response status (401, 500, timeout)
+Step 2 — Check Sippy API First
+Validate API connection
+If failed:
+retry API
+refresh session (API USER/PASS)
+Step 3 — Identify Issue Type
+
+Classify into:
+
+AUTH_ERROR
+NO_DATA
+TIMEOUT
+API_FAILURE
+DATA_MISMATCH
+Step 4 — Execute Predefined Fix Actions
+
+Implement these functions:
+
+refreshSippySession()
+retryAPI()
+refetchCDR()
+reloadPNL()
+clearCache()
+switchVendor()
+Step 5 — Module-Based Fix Execution
+
+Example:
+
+If module = CDR → run refetchCDR()
+If module = PNL → run reloadPNL()
+If API error → run refreshSippySession() + retryAPI()
+Step 6 — Save Fix Log
+
+Store:
+
+module
+issue
+action taken
+result
+Step 7 — Return Response
+{
+  "status": "success",
+  "action": "Session refreshed, API retried, data reloaded"
+}
+🖥️ FRONTEND IMPLEMENTATION
+1. Add Fix Button on Every Page
+<Button onClick={handleFix}>🔧 Fix</Button>
+2. On Click:
+
+Call:
+
+POST /api/fix
+
+Send:
+
+current page
+module name
+3. Show Fix Result Modal
+
+Display:
+
+Issue detected
+Actions taken
+Status (Fixed / Failed)
+🔌 SIPPY-SPECIFIC RULE (IMPORTANT)
+
+Always follow this order:
+
+Check API connection
+If failed → refresh session
+Retry API
+Then reload module data
+⚠️ RESTRICTIONS (VERY IMPORTANT)
+Do NOT modify package.json
+Do NOT modify vite.config.ts
+Do NOT modify drizzle.config.ts
+Do NOT use mock data
+Always use real Sippy API response
+Do NOT change unrelated modules
+Fix must be module-specific only
+🧠 LOGIC RULES (MUST FOLLOW)
+Always check logs BEFORE any action
+Always trace API response BEFORE fixing UI
+Never apply partial fixes
+Always reload data after fix
+If fix fails → return clear error
+🚀 FINAL GOAL
+
+Create a system where:
+
+Fix Button → Diagnose → Run predefined fix → Reload → Show result
+
+🔥 OPTIONAL (IF POSSIBLE)
+Add auto-fix trigger if:
+API fails multiple times
+No CDR data for X minutes
+ASR drops abnormally
+✅ END OF INSTRUCTION

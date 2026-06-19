@@ -1,0 +1,130 @@
+3857
+3858
+3859
+3860
+3861
+3862
+3863
+3864
+3865
+3866
+3867
+3868
+3869
+3870
+3871
+3872
+3873
+3874
+3875
+3876
+3877
+3878
+3879
+3880
+3881
+3882
+3883
+3884
+3885
+3886
+3887
+3888
+3889
+3890
+3891
+3892
+3893
+3894
+3895
+3896
+3897
+3898
+3899
+3900
+3901
+3902
+3903
+3904
+3905
+3906
+3907
+3908
+3909
+3910
+3911
+3912
+3913
+3914
+3915
+3916
+3917
+3918
+3919
+3920
+3921
+
+     <div id="rt_action" style="visibility: hidden;">
+        <a href="#" onClick="return submitRGForm('add_rt_entr')"><img src="images/add.png" alt="Add Row"></a>
+      <a href="#" onClick="return submitRGForm('reedit')"><img src="images/undo.png" alt="Undo"></a>
+       </div>
+    </td>
+  <tr>
+
+
+</TABLE>
+
+<div class="formcol">
+
+  <div class="genrep3">
+        <input type="hidden" name="action" value="change">
+        <input type="submit" name="save_and_close" value="Save &amp; Close" class="bt" onClick="return validateRGForm();" >
+        <input type="submit" name="save" value="Save" class="bt" onClick="return validateRGForm()">
+        <input type="submit" name="no_action" value="Discard &amp; Close" class="bt">
+        <input type="hidden" name="i_routing_group" value="133">  
+        <input type="hidden" name="policy" value="">    
+        <input type="hidden" name="i_routing_group_member" value="">    
+        <input type="hidden" name="keep_rg_history" value="">
+        <input type="hidden" name="group_name" value="">
+        <input type="hidden" name="name_clause" value="">
+        <input type="hidden" name="n" value="">
+  </div>
+
+</div>
+
+</form>  
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode(" 2 Jun 2026 17:44:06 (Etc/UTC)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+</body>
+</html>

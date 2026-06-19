@@ -1,0 +1,247 @@
+Your sequencing refinements are correct, especially this insight:
+
+Stage 2A is structural, not behavioral
+
+That distinction is important because it keeps:
+
+operator trust
+routing behavior
+permissions
+automation
+
+stable while the information architecture is cleaned.
+
+Most Important Addition You Made
+
+This is absolutely correct:
+
+operators have muscle memory
+
+So Stage 2A should NOT be:
+
+abrupt navigation relocation
+
+It should be:
+
+guided navigation migration
+Recommended Stage 2A UX Rules
+1. Route Alias Redirects
+
+When old paths exist:
+
+redirect automatically
+preserve permissions
+preserve deep links
+
+Example:
+
+/vendor-intelligence
+    → /intelligence/vendor-rca
+
+No broken operational links.
+
+2. Temporary "Moved To" Indicators
+
+For 2–3 weeks:
+
+Example:
+
+Moved to:
+INTELLIGENCE → Analysis
+
+This reduces:
+
+NOC confusion
+operator frustration
+workflow interruption
+
+Especially important during:
+
+active operational shifts
+3. Command Palette Compatibility
+
+During migration:
+
+old search aliases remain valid
+old vocabulary still resolves
+
+Examples:
+
+@fraud → Security & Compliance
+@routing → Operations
+@reports → Analytics & Reports
+
+This is very important operationally.
+
+Your 2B Observation Is Also Correct
+
+Absolutely right:
+
+governance controls should not appear on unstable navigation
+
+Correct sequencing:
+
+clean structure first
+
+THEN:
+
+authority boundaries
+
+Otherwise operators cannot understand:
+
+ownership scope
+routing scope
+approval boundaries
+
+Very good observation.
+
+Your 2C Clarification Is Extremely Important
+
+Correct:
+
+Explainability Drawer already exists partially
+
+Stage 2C is now:
+
+governance-aware explainability
+
+This is a major distinction.
+
+Recommended Explainability Visibility Model
+Role	Visibility
+NOC	executive summary only
+Destination Manager	full evidence stack
+Routing Admin	execution impact + rollback
+Compliance	audit + lifecycle only
+
+This becomes:
+
+role-aware operational intelligence
+
+Very enterprise-grade.
+
+Your 2D Refinement Is Also Correct
+
+This is important:
+
+simulationValidatedAt must be visible in UI
+
+NOT:
+
+backend-only enforcement
+
+Operators must see:
+
+Simulation Status: VALIDATED
+Validated: 12m ago
+Scenario Confidence: HIGH
+
+before:
+
+policy enablement
+failover eligibility
+routing governance activation
+
+This creates:
+
+visible operational trust
+
+Very important.
+
+Your 2E Insight Is Probably The Most Important One
+
+This is exactly right:
+
+telemetry history exists BEFORE automation fires
+
+That means:
+the FIRST auto-failover already has:
+
+recommendation history
+approval history
+simulation history
+operator rationale
+trust calibration
+rollback patterns
+
+That is MASSIVELY safer than:
+
+starting automation with no operational context
+
+Excellent sequencing logic.
+
+Your “2B.5” Recommendation Is Also Correct
+
+Very good catch.
+
+There SHOULD be:
+
+Stabilization Review Pass
+
+between:
+
+permissions
+and:
+explainability
+Recommended 2B.5 Scope
+
+Resolve:
+
+/self-heal naming
+/traffic-steering naming
+BitsEye canonical version
+duplicate intelligence labels
+Destination Manager role definitions
+portal visibility conflicts
+stale aliases
+deprecated routes
+
+This creates:
+
+clean semantic substrate
+
+before:
+
+explainability
+simulation
+automation
+
+build on top.
+
+FINAL RECOMMENDATION
+YES — proceed with Stage 2A next
+
+BUT:
+implement with:
+
+guided migration principles
+
+NOT:
+
+hard nav replacement
+Correct Stage Flow Now
+Stage 2A
+
+Navigation Alignment + Alias Migration
+
+Stage 2B
+
+Permission Alignment
+
+Stage 2B.5
+
+Semantic Stabilization Pass
+
+Stage 2C
+
+Governance-Aware Explainability
+
+Stage 2D
+
+Simulation Validation Layer
+
+Stage 2E
+
+Policy-Governed Intelligent Failover
+
+That sequencing is now extremely mature enterprise architecture planning.

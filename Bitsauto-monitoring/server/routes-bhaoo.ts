@@ -1,0 +1,1445 @@
+/**
+ * BhaooSMS / REVE SMS V5 — API Routes
+ * Registered by server/routes.ts via registerBhaooRoutes(app)
+ */
+
+import type { Express } from 'express';
+import { db } from './db';
+import {
+  sendSms, sendSmsBulk, queryDlr, parseDlrPush,
+  checkBalance, rechargeAccount, isConfigured,
+} from './services/bhaoo/index';
+import {
+  smsMessages, smsDlrEvents, bhaooBalanceLog, smsVendorStats, bhaooProfiles,
+  voiceOtpCalls,
+} from '@shared/schema';
+import { eq, desc, gte, sql, lte, and, isNotNull } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
+import { originateOtpCall } from './services/asterisk/index';
+import { sendWhatsAppMessage } from './whatsapp';
+import { sendOtpFlow, storeOtpSession } from './services/meta-flows/index';
+import { storage } from './storage';
+import { voiceOtpEmitter, emitVoiceOtpFailed, type VoiceOtpFailedEvent } from './voice-otp-events';
+
+function requireAuth(req: any, res: any, next: any) {
+  if (!req.isAuthenticated?.()) return res.status(401).json({ error: 'Unauthorized' });
+  next();
+}
+
+async function seedDefaultProfile() {
+  try {
+    const apiKey    = process.env.BHAOO_API_KEY;
+    const secretKey = process.env.BHAOO_SECRET_KEY;
+    if (!apiKey || !secretKey) return;
+
+    const existing = await db.select({ id: bhaooProfiles.id }).from(bhaooProfiles).limit(1);
+    if (existing.length > 0) return;
+
+    await db.insert(bhaooProfiles).values({
+      name:      'R.Testing1',
+      baseUrl:   'http://149.20.185.6/BhaooSMSV5',
+      apiKey,
+      secretKey,
+      isDefault: true,
+      isActive:  true,
+    });
+    console.log('[bhaoo] seeded default profile R.Testing1');
+  } catch (err: any) {
+    console.warn('[bhaoo] seed skipped:', err.message);
+  }
+}
+
+async function runSmsMessagesMigrations() {
+  try {
+    await db.execute(sql`
+      ALTER TABLE sms_messages
+        ADD COLUMN IF NOT EXISTS retry_count  INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS verified_at   TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS flow_token    VARCHAR(64)
+    `);
+    console.log('[bhaoo] sms_messages retry columns ensured');
+  } catch (err: any) {
+    console.warn('[bhaoo] sms_messages migration skipped:', err.message);
+  }
+  try {
+    await db.execute(sql`
+      ALTER TABLE settings
+        ADD COLUMN IF NOT EXISTS meta_phone_number_id       VARCHAR(64),
+        ADD COLUMN IF NOT EXISTS meta_access_token          VARCHAR(512),
+        ADD COLUMN IF NOT EXISTS meta_otp_template_name     VARCHAR(128) DEFAULT 'otp_verification',
+        ADD COLUMN IF NOT EXISTS meta_otp_template_language VARCHAR(16)  DEFAULT 'en_us',
+        ADD COLUMN IF NOT EXISTS meta_use_otp_template      BOOLEAN      DEFAULT true
+    `);
+    console.log('[bhaoo] settings meta_cloud_api columns ensured');
+  } catch (err: any) {
+    console.warn('[bhaoo] settings meta migration skipped:', err.message);
+  }
+}
+
+async function runSystemSettingsMetaMigrations() {
+  try {
+    await db.execute(sql`
+      ALTER TABLE settings
+        ADD COLUMN IF NOT EXISTS meta_phone_number_id       VARCHAR(64),
+        ADD COLUMN IF NOT EXISTS meta_access_token          VARCHAR(512),
+        ADD COLUMN IF NOT EXISTS meta_otp_template_name     VARCHAR(128) DEFAULT 'otp_verification',
+        ADD COLUMN IF NOT EXISTS meta_otp_template_language VARCHAR(16)  DEFAULT 'en_us',
+        ADD COLUMN IF NOT EXISTS meta_use_otp_template      BOOLEAN      DEFAULT true
+    `);
+    console.log('[bhaoo] settings meta_cloud_api columns ensured');
+  } catch (err: any) {
+    console.warn('[bhaoo] settings meta migration skipped:', err.message);
+  }
+}
+
+// ── WhatsApp OTP retry engine ────────────────────────────────────────────────
+// Polls every 60s for WhatsApp OTPs stuck in 'sent' state past their nextRetryAt.
+// On each qualifying row: if retryCount < maxRetries → trigger fallback channel and
+// increment retryCount + schedule next retry. If exhausted → mark failed.
+async function tickWhatsAppRetryEngine() {
+  try {
+    const settingsRow = await storage.getSettings();
+    let policy: { primary: string; fallback: string[]; whatsappMaxRetries?: number; whatsappRetryAfterMin?: number } =
+      { primary: 'voice', fallback: [], whatsappMaxRetries: 2, whatsappRetryAfterMin: 3 };
+    try { policy = JSON.parse((settingsRow as any).otpChannelPolicy ?? '{}'); } catch {}
+
+    const maxRetries     = policy.whatsappMaxRetries     ?? 2;
+    const retryAfterMin  = policy.whatsappRetryAfterMin  ?? 3;
+
+    if (maxRetries <= 0) return; // retry disabled
+
+    const now = new Date();
+
+    // Find WhatsApp OTPs that are stuck in 'sent' and due for retry
+    const candidates = await db
+      .select()
+      .from(smsMessages)
+      .where(
+        and(
+          eq(smsMessages.status,      'sent'),
+          eq(smsMessages.channel,     'whatsapp'),
+          isNotNull(smsMessages.nextRetryAt),
+          lte(smsMessages.nextRetryAt, now),
+        )
+      )
+      .limit(20);
+
+    if (candidates.length === 0) return;
+
+    console.log(`[wa-retry] ${candidates.length} WhatsApp OTP(s) due for retry check`);
+
+    const fallbackChannel = (policy.fallback ?? []).find(f => f !== 'whatsapp') ?? 'voice';
+
+    for (const msg of candidates) {
+      const retryCount = msg.retryCount ?? 0;
+
+      if (retryCount >= maxRetries) {
+        // Exhausted — mark as failed
+        await db.update(smsMessages)
+          .set({ status: 'failed', nextRetryAt: null, updatedAt: new Date(), errorMessage: `WhatsApp delivery unconfirmed after ${maxRetries} retries` })
+          .where(eq(smsMessages.id, msg.id));
+        console.log(`[wa-retry] msg#${msg.id} retries exhausted → marked failed`);
+        continue;
+      }
+
+      // Schedule next retry (or null if this is the last attempt)
+      const nextCount = retryCount + 1;
+      const nextRetry = nextCount < maxRetries
+        ? new Date(now.getTime() + retryAfterMin * 60_000)
+        : null;
+
+      // Trigger fallback channel
+      if (fallbackChannel === 'voice') {
+        try {
+          const { originateOtpCall: oCall, isAmiConfigured } = await import('./services/asterisk/index');
+          if (isAmiConfigured() && msg.toNumber) {
+            let otp = '000000';
+            if (msg.messageText) { const m = msg.messageText.match(/\b(\d{4,8})\b/); if (m) otp = m[1]; }
+
+            const [callRow] = await db.insert(voiceOtpCalls).values({
+              toNumber: msg.toNumber,
+              otp:      otp[0] + '*'.repeat(Math.max(0, otp.length - 2)) + otp[otp.length - 1],
+              trunk:    'Sippy',
+              status:   'initiated',
+            }).returning();
+
+            const voiceMsgId = `wa-retry-voice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            await db.insert(smsMessages).values({
+              internalId:   voiceMsgId,
+              toNumber:     msg.toNumber,
+              messageText:  `Voice OTP fallback (WA retry #${nextCount})`,
+              messageType:  'voice_otp',
+              status:       'submitted',
+              channel:      'voice' as any,
+              provider:     'asterisk' as any,
+              fallbackFrom: msg.id,
+              profileId:    msg.profileId,
+            } as any);
+
+            oCall({ to: msg.toNumber, otp, trunk: 'Sippy' })
+              .then(async (result) => {
+                const { eq: eqOp } = await import('drizzle-orm');
+                await db.update(voiceOtpCalls)
+                  .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? null })
+                  .where(eqOp(voiceOtpCalls.id, callRow.id));
+                if (!result.success) {
+                  emitVoiceOtpFailed({ callId: callRow.id, toNumber: msg.toNumber, otp, fromMsgId: msg.id, profileId: msg.profileId });
+                }
+              })
+              .catch((e: any) => {
+                console.error('[wa-retry] voice call error:', e.message);
+                emitVoiceOtpFailed({ callId: callRow.id, toNumber: msg.toNumber, otp, fromMsgId: msg.id, profileId: msg.profileId });
+              });
+
+            console.log(`[wa-retry] msg#${msg.id} → voice fallback dispatched (attempt ${nextCount}/${maxRetries})`);
+          }
+        } catch (e: any) {
+          console.error('[wa-retry] voice fallback error:', e.message);
+        }
+      } else if (fallbackChannel === 'sms') {
+        // SMS fallback — log a placeholder row; actual send would need SMS API
+        const smsMsgId = `wa-retry-sms-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        await db.insert(smsMessages).values({
+          internalId:   smsMsgId,
+          toNumber:     msg.toNumber,
+          messageText:  msg.messageText ?? 'Your OTP code',
+          messageType:  'text',
+          status:       'submitted',
+          channel:      'sms' as any,
+          provider:     'bhaoo' as any,
+          fallbackFrom: msg.id,
+          profileId:    msg.profileId,
+        } as any);
+        console.log(`[wa-retry] msg#${msg.id} → SMS fallback queued (attempt ${nextCount}/${maxRetries})`);
+      }
+
+      // Update original row: increment retryCount, schedule next window or clear
+      await db.update(smsMessages)
+        .set({
+          retryCount:  nextCount,
+          nextRetryAt: nextRetry,
+          fallbackTriggered: true,
+          fallbackAt:  fallbackChannel ? now : undefined,
+          updatedAt:   now,
+        })
+        .where(eq(smsMessages.id, msg.id));
+    }
+  } catch (err: any) {
+    console.error('[wa-retry] engine error:', err.message);
+  }
+}
+
+let _retryEngineTimer: ReturnType<typeof setInterval> | null = null;
+
+function startWhatsAppRetryEngine() {
+  if (_retryEngineTimer) return;
+  _retryEngineTimer = setInterval(() => { tickWhatsAppRetryEngine(); }, 60_000);
+  console.log('[wa-retry] WhatsApp OTP retry engine started (60s interval)');
+}
+
+// ── Immediate voice-failed fallback handler ──────────────────────────────────
+// Called synchronously via EventEmitter when any Voice OTP call resolves as
+// 'failed'. Triggers the next fallback channel (WhatsApp or SMS) right away
+// instead of waiting for the next 60-second polling tick.
+async function dispatchVoiceFailedFallback(event: VoiceOtpFailedEvent): Promise<void> {
+  try {
+    const settingsRow = await storage.getSettings();
+    let policy: { primary: string; fallback: string[]; whatsappMaxRetries?: number; whatsappRetryAfterMin?: number } =
+      { primary: 'voice', fallback: [], whatsappMaxRetries: 2, whatsappRetryAfterMin: 3 };
+    try { policy = JSON.parse((settingsRow as any).otpChannelPolicy ?? '{}'); } catch {}
+
+    const fallbacks: string[] = policy.fallback ?? [];
+
+    // No fallback channels configured — nothing to do
+    if (fallbacks.length === 0) return;
+
+    // Find the first fallback that is not 'voice'
+    const nextFallback = fallbacks.find(f => f !== 'voice');
+    if (!nextFallback) return;
+
+    const { toNumber, otp, fromMsgId, profileId, callId } = event;
+
+    console.log(`[voice-retry] call#${callId} failed for ${toNumber} → immediate ${nextFallback} fallback`);
+
+    if (nextFallback === 'whatsapp') {
+      const rawOtp = otp ?? '000000';
+      const waText = `🔐 *Your verification code is: ${rawOtp}*`;
+      const waTarget = toNumber.startsWith('+') ? toNumber : `+${toNumber}`;
+
+      const result = await sendWhatsAppMessage(waTarget, waText);
+
+      const waMsgId = `voice-failed-wa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      await db.insert(smsMessages).values({
+        internalId:   waMsgId,
+        bhaooId:      result.wamid ?? null,
+        toNumber,
+        messageText:  waText,
+        messageType:  'whatsapp_otp',
+        status:       result.success ? 'sent' : 'failed',
+        errorMessage: result.error ?? null,
+        profileId:    profileId ?? null,
+        channel:      'whatsapp' as any,
+        provider:     'whatsapp' as any,
+        fallbackFrom: fromMsgId ?? null,
+      } as any);
+
+      if (fromMsgId) {
+        await db.update(smsMessages)
+          .set({ fallbackTriggered: true, fallbackAt: new Date(), updatedAt: new Date() })
+          .where(eq(smsMessages.id, fromMsgId));
+      }
+
+      console.log(`[voice-retry] WhatsApp fallback for call#${callId} → ${result.success ? 'sent' : `failed: ${result.error}`}`);
+
+    } else if (nextFallback === 'sms') {
+      const smsMsgId = `voice-failed-sms-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      await db.insert(smsMessages).values({
+        internalId:   smsMsgId,
+        toNumber,
+        messageText:  otp ? `Your OTP code is: ${otp}` : 'Your OTP code',
+        messageType:  'text',
+        status:       'submitted',
+        channel:      'sms' as any,
+        provider:     'bhaoo' as any,
+        fallbackFrom: fromMsgId ?? null,
+        profileId:    profileId ?? null,
+      } as any);
+
+      if (fromMsgId) {
+        await db.update(smsMessages)
+          .set({ fallbackTriggered: true, fallbackAt: new Date(), updatedAt: new Date() })
+          .where(eq(smsMessages.id, fromMsgId));
+      }
+
+      console.log(`[voice-retry] SMS fallback queued for call#${callId} to ${toNumber}`);
+    }
+  } catch (err: any) {
+    console.error('[voice-retry] immediate fallback error:', err.message);
+  }
+}
+
+let _voiceFailedListenerRegistered = false;
+
+export function registerBhaooRoutes(app: Express) {
+  seedDefaultProfile();
+  runSmsMessagesMigrations();
+  runSystemSettingsMetaMigrations();
+  startWhatsAppRetryEngine();
+
+  // Subscribe once to voice_otp_failed events for immediate escalation
+  if (!_voiceFailedListenerRegistered) {
+    _voiceFailedListenerRegistered = true;
+    voiceOtpEmitter.on('voice_otp_failed', (event: VoiceOtpFailedEvent) => {
+      dispatchVoiceFailedFallback(event).catch(err =>
+        console.error('[voice-retry] unhandled fallback error:', err.message)
+      );
+    });
+    console.log('[voice-retry] Subscribed to voice_otp_failed events for immediate escalation');
+  }
+
+  // ── Connection status ────────────────────────────────────────────────────────
+  app.get('/api/bhaoo/status', requireAuth, async (_req: any, res: any) => {
+    const configured = isConfigured();
+    if (!configured) {
+      return res.json({ connected: false, error: 'BHAOO_API_KEY / BHAOO_SECRET_KEY not set' });
+    }
+    const balance = await checkBalance();
+    // 404 means balance API endpoint unreachable (likely IP-whitelisted) — credentials are still valid
+    const endpointUnreachable = balance.error?.includes('404') || balance.error?.includes('Not Found');
+    const connected = balance.status === 0 || endpointUnreachable;
+    res.json({ connected, balance: balance.balance, currency: balance.currency, error: endpointUnreachable ? null : balance.error, balanceUnknown: endpointUnreachable });
+  });
+
+  // ── Balance ─────────────────────────────────────────────────────────────────
+  app.get('/api/bhaoo/balance', requireAuth, async (_req: any, res: any) => {
+    try {
+      const result = await checkBalance();
+      if (result.status === 0) {
+        await db.insert(bhaooBalanceLog).values({
+          balance:     result.balance,
+          creditLimit: result.creditLimit ?? null,
+          currency:    result.currency ?? 'USD',
+        });
+      }
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Balance history ──────────────────────────────────────────────────────────
+  app.get('/api/bhaoo/balance/history', requireAuth, async (_req: any, res: any) => {
+    try {
+      const rows = await db.select().from(bhaooBalanceLog).orderBy(desc(bhaooBalanceLog.checkedAt)).limit(48);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Send SMS ─────────────────────────────────────────────────────────────────
+  app.post('/api/sms/send', requireAuth, async (req: any, res: any) => {
+    const { to, from, text, type } = req.body ?? {};
+    if (!to || !from || !text) return res.status(400).json({ error: 'to, from, text are required' });
+
+    try {
+      const result = await sendSms({ to, from, text, type: type ?? 'text' });
+
+      await db.insert(smsMessages).values({
+        internalId:  result.internalId ?? null,
+        bhaooId:     result.status === 0 ? result.messageId : null,
+        toNumber:    to,
+        fromId:      from,
+        messageText: text,
+        messageType: type ?? 'text',
+        status:      result.status === 0 ? 'submitted' : 'failed',
+        statusCode:  result.status,
+        errorMessage: result.error ?? null,
+      });
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Send Bulk SMS ────────────────────────────────────────────────────────────
+  app.post('/api/sms/send-bulk', requireAuth, async (req: any, res: any) => {
+    const { messages } = req.body ?? {};
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'messages array is required' });
+    }
+    if (messages.length > 100) return res.status(400).json({ error: 'Max 100 messages per bulk request' });
+
+    try {
+      const results = await sendSmsBulk(messages);
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        const m = messages[i];
+        await db.insert(smsMessages).values({
+          internalId:  r.internalId ?? null,
+          bhaooId:     r.status === 0 ? r.messageId : null,
+          toNumber:    m.to,
+          fromId:      m.from,
+          messageText: m.text,
+          messageType: m.type ?? 'text',
+          status:      r.status === 0 ? 'submitted' : 'failed',
+          statusCode:  r.status,
+          errorMessage: r.error ?? null,
+        });
+      }
+      res.json({ total: results.length, results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── DLR webhook — shared handler (GET or POST) ──────────────────────────────
+  async function handleDlrPush(data: Record<string, any>, res: any) {
+    try {
+      if (!data || Object.keys(data).length === 0) {
+        console.warn('[bhaoo-dlr] WARNING: received empty DLR push body — check REVE profile DLR URL (must be the deployed URL, not dev URL)');
+      }
+      const payload = parseDlrPush(data);
+
+      await db.insert(smsDlrEvents).values({
+        messageId:  payload.messageId || null,
+        clientRef:  payload.clientRef || null,
+        status:     payload.status,
+        statusText: payload.statusText || null,
+        msisdn:     payload.msisdn || null,
+        operator:   payload.operator || null,
+        country:    payload.country || null,
+        errorCode:  payload.errorCode || null,
+        rawPayload: data,
+      });
+
+      if (payload.messageId) {
+        const dlrStatus = payload.status === 0 ? 'delivered'
+          : payload.status === 1 ? 'failed'
+          : payload.status === 2 ? 'pending'
+          : payload.status === 4 ? 'sent'
+          : 'unknown';
+
+        // Try to update an existing record first
+        const updated = await db.update(smsMessages)
+          .set({
+            status:        dlrStatus,
+            statusCode:    payload.status,
+            operator:      payload.operator ?? undefined,
+            country:       payload.country ?? undefined,
+            errorCode:     payload.errorCode ?? undefined,
+            dlrReceivedAt: new Date(),
+            updatedAt:     new Date(),
+          })
+          .where(eq(smsMessages.bhaooId, payload.messageId))
+          .returning();
+
+        // No existing record — message was sent directly from REVE/BhaooSMS
+        // Create a new record so it appears in the SMS Monitor
+        if (updated.length === 0) {
+          await db.insert(smsMessages).values({
+            bhaooId:      payload.messageId,
+            toNumber:     payload.msisdn || 'unknown',
+            fromId:       null,
+            messageText:  null,
+            messageType:  'text',
+            status:       dlrStatus,
+            statusCode:   payload.status,
+            operator:     payload.operator || null,
+            country:      payload.country || null,
+            errorCode:    payload.errorCode || null,
+            dlrReceivedAt: new Date(),
+          }).onConflictDoNothing();
+        }
+
+        // ── Auto-fallback to Voice OTP on delivery failure ─────────────────
+        if (dlrStatus === 'failed' && payload.msisdn) {
+          try {
+            const { originateOtpCall, isAmiConfigured } = await import('./services/asterisk/index');
+            if (isAmiConfigured()) {
+              // Find the message to get OTP text if available
+              const [msgRecord] = updated.length > 0 ? updated : await db
+                .select()
+                .from(smsMessages)
+                .where(eq(smsMessages.bhaooId, payload.messageId))
+                .limit(1);
+
+              // Extract OTP from message text (look for 4-8 digit sequence)
+              let otp = '000000';
+              if (msgRecord?.messageText) {
+                const match = msgRecord.messageText.match(/\b(\d{4,8})\b/);
+                if (match) otp = match[1];
+              }
+
+              console.log(`[bhaoo-dlr] SMS failed → triggering Voice OTP fallback to ${payload.msisdn}`);
+
+              const { voiceOtpCalls } = await import('@shared/schema');
+              const { eq: eqOp } = await import('drizzle-orm');
+
+              const [callRow] = await db.insert(voiceOtpCalls).values({
+                toNumber: payload.msisdn,
+                otp:      otp[0] + '*'.repeat(Math.max(0, otp.length - 2)) + otp[otp.length - 1],
+                trunk:    'Sippy',
+                status:   'initiated',
+              }).returning();
+
+              const dlrFromMsgId = msgRecord?.id ?? null;
+              originateOtpCall({ to: payload.msisdn, otp, trunk: 'Sippy', cli: payload.msisdn })
+                .then(async (result) => {
+                  await db.update(voiceOtpCalls)
+                    .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? result.reasonText ?? null })
+                    .where(eqOp(voiceOtpCalls.id, callRow.id));
+                  if (!result.success) {
+                    emitVoiceOtpFailed({ callId: callRow.id, toNumber: payload.msisdn, otp, fromMsgId: dlrFromMsgId });
+                  }
+                })
+                .catch((err) => {
+                  console.error('[bhaoo-dlr] Voice OTP fallback error:', err.message);
+                  emitVoiceOtpFailed({ callId: callRow.id, toNumber: payload.msisdn, otp, fromMsgId: dlrFromMsgId });
+                });
+
+              // Mark original SMS as fallback triggered
+              if (msgRecord) {
+                await db.update(smsMessages)
+                  .set({ fallbackTriggered: true, fallbackAt: new Date(), updatedAt: new Date() })
+                  .where(eq(smsMessages.id, msgRecord.id));
+              }
+            }
+          } catch (fbErr: any) {
+            console.error('[bhaoo-dlr] Fallback error:', fbErr.message);
+          }
+        }
+      }
+
+      res.json({ ok: true, status: 0, text: 'ACCEPTED', Message_ID: payload.messageId });
+    } catch (err: any) {
+      console.error('[bhaoo-dlr] error:', err.message);
+      res.status(500).json({ ok: false, status: -1, text: 'REJECTD', error: err.message });
+    }
+  }
+
+  // BhaooSMS POST push (recommended)
+  app.post('/api/bhaoo/dlr', (req: any, res: any) => handleDlrPush(req.body ?? {}, res));
+
+  // BhaooSMS GET push (if GET method selected in BhaooSMS config)
+  app.get('/api/bhaoo/dlr', (req: any, res: any) => handleDlrPush(req.query ?? {}, res));
+
+  // ── Inbound SMS receive — REVE submits here (GET or POST, Submit URL in HTTP profile) ──
+  // GET  /api/bhaoo/receive?to=...&smsText=...&from=...&transactionId=...
+  // POST /api/bhaoo/receive  (body or query params — REVE POST mode)
+  // Field aliases: smsText | text | message  (REVE uses different names per mode)
+  const handleReceive = async (req: any, res: any) => {
+    try {
+      // IP logging — always log the real source IP for diagnostics
+      const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+        ?? req.socket?.remoteAddress ?? '';
+      console.log(`[bhaoo-receive] ${req.method} — IP: ${clientIp} x-forwarded-for: ${req.headers['x-forwarded-for'] ?? 'none'}`);
+
+      // IP whitelist — REVE_ALLOWED_IPS env var (comma-separated, * = allow all)
+      // Whitelisted IPs are trusted and bypass apikey/secretkey credential check.
+      // Non-whitelisted callers must supply valid apikey+secretkey.
+      const allowedIps = (process.env.REVE_ALLOWED_IPS ?? '*')
+        .split(',').map(s => s.trim()).filter(Boolean);
+      const ipTrusted = allowedIps.includes('*') || allowedIps.includes(clientIp);
+      if (!ipTrusted && !allowedIps.includes('*')) {
+        // Not in whitelist AND wildcard not set — block outright
+        console.warn(`[bhaoo-receive] Blocked IP: ${clientIp} (allowed: ${allowedIps.join(', ')})`);
+        return res.status(403).json({ status: -403, Text: 'REJECTD', error: 'Forbidden' });
+      }
+
+      // Merge query + body so params work in both GET and POST modes
+      const params = { ...req.query, ...req.body } as Record<string, string>;
+      const { apikey, secretkey, to, from, type, transactionId, userId: paramUserId } = params;
+      // REVE uses different field names: smsText (GET), text (POST), message (older versions)
+      const smsText = params.smsText || params.text || params.message || '';
+
+      if (!to || !smsText) {
+        return res.json({ status: -1, Text: 'REJECTD', message_id: '', error: 'to and smsText are required' });
+      }
+
+      // Auth: whitelisted IPs are trusted (no credentials needed).
+      // Unknown IPs must supply valid apikey+secretkey.
+      let matchedProfile: { id: number } | undefined;
+      if (!ipTrusted) {
+        const profiles = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.isActive, true)).limit(10);
+        matchedProfile = profiles.find(p => p.apiKey === apikey && p.secretKey === secretkey);
+        const envMatch = apikey === process.env.BHAOO_API_KEY && secretkey === process.env.BHAOO_SECRET_KEY;
+        if (!matchedProfile && !envMatch) {
+          console.warn(`[bhaoo-receive] Auth failed — apikey=${apikey} ip=${clientIp}`);
+          return res.json({ status: -42, Text: 'REJECTD', message_id: '', error: 'Authentication failed' });
+        }
+      } else {
+        console.log(`[bhaoo-receive] IP trusted — skipping credential check (ip=${clientIp})`);
+        // For trusted IPs use the default active profile
+        const profiles = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.isActive, true)).limit(1);
+        matchedProfile = profiles[0];
+      }
+
+      // Extract OTP: first 4–8 digit sequence in the message
+      const otpMatch = smsText.match(/\b(\d{4,8})\b/);
+      const otp      = otpMatch?.[1] ?? '';
+
+      const msgId    = transactionId || `recv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const profileId = matchedProfile?.id ?? null;
+
+      // Log in sms_messages
+      const [msgRow] = await db.insert(smsMessages).values({
+        internalId:  msgId,
+        bhaooId:     msgId,
+        toNumber:    String(to),
+        fromId:      from ? String(from) : null,
+        messageText: String(smsText),
+        messageType: type ?? 'text',
+        status:      'submitted',
+        profileId,
+      }).returning();
+
+      console.log(`[bhaoo-receive] SMS from REVE → to=${to} otp=${otp || '(none)'} msgId=${msgId}`);
+
+      // Resolve OTP channel policy
+      let otpPolicy: { primary: string; fallback: string[]; whatsappMaxRetries?: number; whatsappRetryAfterMin?: number } = { primary: 'voice', fallback: [], whatsappMaxRetries: 2, whatsappRetryAfterMin: 3 };
+      try {
+        const settingsRow = await storage.getSettings();
+        const raw = (settingsRow as any).otpChannelPolicy ?? '{"primary":"voice","fallback":[]}';
+        otpPolicy = JSON.parse(raw);
+      } catch {}
+
+      // Dispatch OTP based on channel policy
+      if (otp) {
+        // Dispatch via WhatsApp — returns true on success, false on failure
+        const dispatchWhatsApp = async (parentId: number): Promise<boolean> => {
+          const t0 = Date.now();
+          const waSettings = await storage.getSettings() as any;
+          const toE164 = String(to).startsWith('+') ? String(to) : `+${to}`;
+
+          // Determine if we should use Meta Cloud API Flows
+          const useMetaFlows = waSettings.whatsappProvider === 'meta_cloud_api'
+            && waSettings.metaFlowsEnabled
+            && waSettings.metaPhoneNumberId
+            && waSettings.metaAccessToken
+            && waSettings.metaFlowId;
+
+          let result: { success: boolean; error?: string };
+          let provider: string;
+          let messageText: string;
+          let messageId: number | null = null;
+
+          if (useMetaFlows) {
+            // Use interactive Flow message — delivery confirmed via webhook
+            const flowToken = randomUUID();
+            const flowResult = await sendOtpFlow(
+              waSettings.metaPhoneNumberId,
+              waSettings.metaAccessToken,
+              waSettings.metaFlowId,
+              toE164,
+              flowToken,
+            );
+            result    = flowResult;
+            provider  = 'meta_flow';
+            messageText = `[Flow OTP] Code sent via WhatsApp Flow — user must enter in the interactive screen`;
+
+            if (flowResult.success) {
+              // Insert sms_messages row first so we have the ID for the session
+              const waMsgId = `wa-flow-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+              const [flowMsgRow] = await db.insert(smsMessages).values({
+                internalId:   waMsgId,
+                toNumber:     String(to),
+                fromId:       from ? String(from) : null,
+                messageText,
+                messageType:  'whatsapp_otp',
+                status:       'sent',
+                profileId,
+                channel:      'whatsapp' as any,
+                provider:     'meta_flow' as any,
+                fallbackFrom: parentId,
+                latencyMs:    Date.now() - t0,
+                flowToken:    flowToken,
+              } as any).returning();
+              messageId = flowMsgRow?.id ?? null;
+
+              // Store session keyed by flowToken — webhook will mark delivered.
+              // Bind to the initiating user (Bitsauto login/MFA) or null for REVE/Sippy gateway calls.
+              const sessionUserId = (req.user as any)?.claims?.sub ?? (req.user as any)?.id ?? paramUserId ?? null;
+              storeOtpSession(flowToken, {
+                code:      otp,
+                expiresAt: Date.now() + 5 * 60_000,
+                messageId: messageId ?? 0,
+                toNumber:  String(to),
+                userId:    sessionUserId,
+              });
+              console.log(`[bhaoo-receive] Meta Flow OTP sent to ${to} (flow_token=${flowToken.slice(0, 8)}...)`);
+              return true;
+            } else {
+              await db.insert(smsMessages).values({
+                internalId:   `wa-flow-fail-${Date.now()}`,
+                toNumber:     String(to),
+                fromId:       from ? String(from) : null,
+                messageText,
+                messageType:  'whatsapp_otp',
+                status:       'failed',
+                errorMessage: flowResult.error ?? null,
+                profileId,
+                channel:      'whatsapp' as any,
+                provider:     'meta_flow' as any,
+                fallbackFrom: parentId,
+                latencyMs:    Date.now() - t0,
+              } as any);
+              console.log(`[bhaoo-receive] Meta Flow OTP failed to ${to}: ${flowResult.error}`);
+              return false;
+            }
+          } else {
+            // Legacy plain-text WhatsApp (CallMeBot / UltraMsg)
+            const waText = `🔐 *Your verification code is: ${otp}*`;
+            result = await sendWhatsAppMessage(toE164, waText);
+            provider = 'whatsapp';
+            messageText = waText;
+          }
+
+          const latencyMs = Date.now() - t0;
+          const waMsgId = `wa-otp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+          // Compute nextRetryAt for retry engine: schedule first retry if send succeeded (message is 'sent' but not yet 'delivered')
+          let nextRetryAt: Date | null = null;
+          if (result.success) {
+            let retryAfterMin = 3;
+            try { retryAfterMin = otpPolicy.whatsappRetryAfterMin ?? 3; } catch {}
+            nextRetryAt = new Date(Date.now() + retryAfterMin * 60_000);
+          }
+
+          await db.insert(smsMessages).values({
+            internalId:   waMsgId,
+            bhaooId:      result.wamid ?? null,
+            toNumber:     String(to),
+            fromId:       from ? String(from) : null,
+            messageText,
+            messageType:  'whatsapp_otp',
+            status:       result.success ? 'sent' : 'failed',
+            errorMessage: result.error ?? null,
+            profileId,
+            channel:      'whatsapp' as any,
+            provider:     provider as any,
+            fallbackFrom: parentId,
+            latencyMs,
+            nextRetryAt:  nextRetryAt ?? undefined,
+          } as any);
+          console.log(`[bhaoo-receive] WhatsApp OTP ${result.success ? 'sent' : 'failed'} to ${to}: ${result.error ?? 'ok'}${nextRetryAt ? ` (retry scheduled at ${nextRetryAt.toISOString()})` : ''}`);
+          return result.success;
+        };
+
+        // Dispatch via Voice — accepts an optional onFailure callback that fires when the AMI call fails
+        const dispatchVoice = async (onFailure?: () => void) => {
+          const [callRow] = await db.insert(voiceOtpCalls).values({
+            toNumber: String(to),
+            otp:      otp[0] + '*'.repeat(Math.max(0, otp.length - 2)) + otp[otp.length - 1],
+            trunk:    'Sippy',
+            status:   'initiated',
+          }).returning();
+
+          const voiceMsgId = `voice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          const [voiceMsgRow] = await db.insert(smsMessages).values({
+            internalId:  voiceMsgId,
+            toNumber:    String(to),
+            fromId:      from ? String(from) : null,
+            messageText: `Voice OTP: ${otp[0]}${'*'.repeat(Math.max(0, otp.length - 2))}${otp[otp.length - 1]}`,
+            messageType: 'voice_otp',
+            status:      'submitted',
+            profileId,
+            channel:     'voice' as any,
+            provider:    'asterisk' as any,
+            fallbackFrom: msgRow.id,
+          } as any).returning();
+
+          // Fire-and-forget: updates DB when call result arrives; calls onFailure when call fails
+          originateOtpCall({ to: String(to), otp, trunk: 'Sippy', cli: from ? String(from) : undefined })
+            .then(async (result) => {
+              const { eq: eqOp } = await import('drizzle-orm');
+              await db.update(voiceOtpCalls)
+                .set({ status: result.success ? 'answered' : 'failed', asteriskId: result.uniqueId ?? null, errorMessage: result.error ?? result.reasonText ?? null })
+                .where(eqOp(voiceOtpCalls.id, callRow.id));
+              await db.update(smsMessages)
+                .set({ status: result.success ? 'delivered' : 'failed', updatedAt: new Date() })
+                .where(eqOp(smsMessages.id, voiceMsgRow.id));
+              console.log(`[bhaoo-receive] Voice OTP call ${result.success ? 'succeeded' : 'failed'}: ${result.error ?? result.uniqueId}`);
+              // Trigger fallback only when voice definitively fails
+              if (!result.success && onFailure) {
+                onFailure();
+              }
+            })
+            .catch((err) => {
+              console.error('[bhaoo-receive] AMI error:', err.message);
+              if (onFailure) onFailure();
+            });
+        };
+
+        const primary = otpPolicy.primary ?? 'voice';
+        const fallbacks = otpPolicy.fallback ?? [];
+
+        if (primary === 'voice') {
+          if (fallbacks.includes('whatsapp')) {
+            // Voice first; WhatsApp only if voice call fails
+            await dispatchVoice(() => {
+              dispatchWhatsApp(msgRow.id).catch(e => console.error('[bhaoo-receive] WA fallback error:', e.message));
+            });
+          } else {
+            await dispatchVoice();
+          }
+        } else if (primary === 'whatsapp') {
+          // WhatsApp first; voice only if WhatsApp fails
+          const waOk = await dispatchWhatsApp(msgRow.id);
+          if (!waOk && fallbacks.includes('voice')) {
+            await dispatchVoice();
+          }
+        } else if (primary === 'sms') {
+          // SMS channel only — no additional OTP dispatch (REVE SMS is already logged)
+          console.log(`[bhaoo-receive] Policy=sms-only — no additional OTP dispatch`);
+        } else {
+          // Default: voice
+          await dispatchVoice();
+        }
+      } else {
+        console.warn(`[bhaoo-receive] No OTP found in smsText: "${smsText}" — no OTP dispatch triggered`);
+      }
+
+      res.json({ status: 0, Text: 'ACCEPTED', message_id: msgId });
+    } catch (err: any) {
+      console.error('[bhaoo-receive] error:', err.message);
+      res.json({ status: -1, Text: 'REJECTD', message_id: '', error: err.message });
+    }
+  };
+  app.get('/api/bhaoo/receive', handleReceive);
+  app.post('/api/bhaoo/receive', handleReceive);
+
+  // ── Shared HTML generator for SMS API docs ──────────────────────────────────
+  function buildSmsApiDocs(): string {
+    const base = 'https://vo-ip-watcher--junaid70.replit.app';
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>BitsAuto SMS API Documentation</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;line-height:1.6;padding:32px 16px}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:1.8rem;font-weight:700;color:#f8fafc;margin-bottom:4px}
+  .subtitle{color:#94a3b8;font-size:.95rem;margin-bottom:36px}
+  h2{font-size:1.05rem;font-weight:700;color:#f1f5f9;margin:0 0 14px;display:flex;align-items:center;gap:10px}
+  h3{font-size:.9rem;font-weight:600;color:#cbd5e1;margin:18px 0 8px;text-transform:uppercase;letter-spacing:.06em;font-size:.78rem}
+  p{color:#94a3b8;margin-bottom:12px;font-size:.88rem}
+  .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:4px;font-size:.72rem;font-weight:700;letter-spacing:.04em;flex-shrink:0}
+  .get{background:#1e3a5f;color:#60a5fa}
+  .post{background:#1c3529;color:#34d399}
+  .url{font-family:'Courier New',monospace;background:#1e293b;padding:11px 14px;border-radius:7px;font-size:.82rem;color:#7dd3fc;word-break:break-all;margin:8px 0 14px;border:1px solid #334155}
+  table{width:100%;border-collapse:collapse;font-size:.83rem;margin:10px 0}
+  th{background:#1e293b;color:#64748b;text-align:left;padding:8px 12px;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em}
+  td{padding:8px 12px;border-bottom:1px solid #1e293b;vertical-align:top;color:#94a3b8}
+  td:first-child{font-family:'Courier New',monospace;color:#a5b4fc;white-space:nowrap}
+  .req{color:#fb923c;font-size:.72rem;font-weight:700}
+  .opt{color:#475569;font-size:.72rem;font-weight:600}
+  .code{font-family:'Courier New',monospace;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:13px 15px;font-size:.8rem;color:#e2e8f0;white-space:pre;overflow-x:auto;margin:8px 0 14px;line-height:1.5}
+  .green{color:#4ade80}
+  .red{color:#f87171}
+  .note{background:#1c2e1a;border-left:3px solid #4ade80;padding:11px 15px;border-radius:0 6px 6px 0;margin:12px 0;font-size:.83rem;color:#86efac}
+  .warn{background:#2d1f08;border-left:3px solid #fbbf24;padding:11px 15px;border-radius:0 6px 6px 0;margin:12px 0;font-size:.83rem;color:#fcd34d}
+  .section{background:#0f1f33;border:1px solid #1e293b;border-radius:10px;padding:22px 24px;margin-bottom:20px}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:28px}
+  .toc a{background:#1e293b;color:#94a3b8;text-decoration:none;padding:5px 13px;border-radius:20px;font-size:.8rem;border:1px solid #334155;transition:color .15s}
+  .toc a:hover{color:#e2e8f0}
+  code{font-family:'Courier New',monospace;background:#1e293b;padding:1px 5px;border-radius:3px;font-size:.82em;color:#a5b4fc}
+  .divider{border:none;border-top:1px solid #1e293b;margin:28px 0}
+  .dl-bar{display:flex;gap:10px;margin-bottom:28px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:8px 18px;border-radius:7px;font-size:.83rem;font-weight:600;text-decoration:none;cursor:pointer;border:none;transition:opacity .15s}
+  .btn:hover{opacity:.85}
+  .btn-pdf{background:#2563eb;color:#fff}
+  .btn-html{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+  @media print{
+    .dl-bar,.toc{display:none!important}
+    body{background:#fff!important;color:#111!important;padding:24px!important}
+    .section{background:#f8fafc!important;border:1px solid #e2e8f0!important;break-inside:avoid;page-break-inside:avoid}
+    h1{color:#111!important}h2{color:#1e293b!important}
+    .url{background:#f1f5f9!important;color:#1d4ed8!important;border:1px solid #cbd5e1!important}
+    .code{background:#f8fafc!important;color:#1e293b!important;border:1px solid #e2e8f0!important}
+    th{background:#f1f5f9!important;color:#475569!important}
+    td{color:#374151!important}
+    td:first-child{color:#6d28d9!important}
+    .green{color:#16a34a!important}.red{color:#dc2626!important}
+    .note{background:#f0fdf4!important;color:#166534!important}
+    .warn{background:#fffbeb!important;color:#92400e!important}
+    .badge.get{background:#dbeafe!important;color:#1d4ed8!important}
+    .badge.post{background:#dcfce7!important;color:#166534!important}
+    .req{color:#ea580c!important}.opt{color:#9ca3af!important}
+    .subtitle{color:#475569!important}p{color:#374151!important}
+    .divider{border-color:#e2e8f0!important}
+    h3{color:#475569!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>💬 BitsAuto SMS API</h1>
+<p class="subtitle">Integration reference for REVE SMS / BhaooSMS V5 &nbsp;·&nbsp; v1.0 &nbsp;·&nbsp; Base URL: <code style="color:#7dd3fc;background:none;padding:0">${base}</code></p>
+
+<div class="dl-bar">
+  <button class="btn btn-pdf" onclick="window.print()">🖨️ Save as PDF</button>
+  <a class="btn btn-html" href="/api/bhaoo/docs/download" download="BitsAuto-SMS-API.html">⬇ Download HTML</a>
+</div>
+
+<div class="toc">
+  <a href="#receive">Inbound Webhook</a>
+  <a href="#dlr">DLR Push</a>
+  <a href="#send">Send SMS</a>
+  <a href="#bulk">Send Bulk</a>
+  <a href="#numbers">Number Format</a>
+  <a href="#reve-config">REVE Config</a>
+  <a href="#health">Health Check</a>
+</div>
+
+<!-- ═══ INBOUND RECEIVE ════════════════════════════════════════════ -->
+<div class="section" id="receive">
+<h2><span class="badge get">GET</span> Inbound SMS Webhook</h2>
+<p>Set this as the <strong>Submit URL</strong> in your REVE HTTP profile. REVE calls this endpoint for every outgoing SMS, allowing BitsAuto to log and track the message.</p>
+<div class="url">${base}/api/bhaoo/receive</div>
+
+<h3>Query Parameters</h3>
+<table>
+  <tr><th>Parameter</th><th>Required</th><th>Type</th><th>Description</th></tr>
+  <tr><td>apikey</td><td><span class="req">REQUIRED</span></td><td>string</td><td>API key provided by BitsAuto</td></tr>
+  <tr><td>secretkey</td><td><span class="req">REQUIRED</span></td><td>string</td><td>Secret key paired with the API key</td></tr>
+  <tr><td>to</td><td><span class="req">REQUIRED</span></td><td>string</td><td>Destination MSISDN in E.164 without <code>+</code> (e.g. <code>923219286686</code>)</td></tr>
+  <tr><td>smsText</td><td><span class="req">REQUIRED</span></td><td>string</td><td>Full SMS body text (URL-encoded)</td></tr>
+  <tr><td>from</td><td><span class="opt">OPTIONAL</span></td><td>string</td><td>Sender ID or originating CLI</td></tr>
+  <tr><td>transactionId</td><td><span class="opt">OPTIONAL</span></td><td>string</td><td>REVE's unique message ID — used for DLR correlation</td></tr>
+  <tr><td>type</td><td><span class="opt">OPTIONAL</span></td><td>string</td><td>Message type. Default: <code>text</code></td></tr>
+</table>
+
+<h3>Example Request</h3>
+<div class="code">GET ${base}/api/bhaoo/receive
+    ?apikey=YOUR_API_KEY
+    &amp;secretkey=YOUR_SECRET_KEY
+    &amp;to=923219286686
+    &amp;from=BitsOTP
+    &amp;smsText=Your+verification+code+is+847261
+    &amp;transactionId=TX-20260530-00123</div>
+
+<h3>Responses</h3>
+<table>
+  <tr><th>status</th><th>Text</th><th>Meaning</th></tr>
+  <tr><td>0</td><td><span class="green">ACCEPTD</span></td><td>Message accepted and logged successfully</td></tr>
+  <tr><td>-42</td><td><span class="red">REJECTD</span></td><td>Authentication failed — wrong <code>apikey</code> or <code>secretkey</code></td></tr>
+  <tr><td>-1</td><td><span class="red">REJECTD</span></td><td>Missing required field or internal error</td></tr>
+</table>
+
+<div class="code"><span class="green">// Success
+{ "status": 0, "Text": "ACCEPTD", "message_id": "TX-20260530-00123" }
+
+// Auth failure
+{ "status": -42, "Text": "REJECTD", "error": "Authentication failed" }</span></div>
+
+<div class="note">✅ Response is returned immediately — message processing is asynchronous.</div>
+</div>
+
+<!-- ═══ DLR PUSH ═══════════════════════════════════════════════════ -->
+<div class="section" id="dlr">
+<h2><span class="badge post">POST</span><span class="badge get" style="margin-left:4px">GET</span> DLR Push Webhook</h2>
+<p>Configure this as the <strong>DLR URL</strong> in your REVE profile. REVE calls this when a delivery receipt is received from the carrier.</p>
+<div class="url">${base}/api/bhaoo/dlr</div>
+<p>Accepts both <code>GET</code> (query string) and <code>POST</code> (JSON or form body). BitsAuto correlates the DLR with the original message using <code>message_id</code>.</p>
+
+<h3>Expected Parameters</h3>
+<table>
+  <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+  <tr><td>message_id</td><td>string</td><td>REVE message ID matching the <code>transactionId</code> sent on receive</td></tr>
+  <tr><td>status</td><td>integer</td><td>Delivery status code (see table below)</td></tr>
+  <tr><td>msisdn</td><td>string</td><td>Destination number</td></tr>
+  <tr><td>operator</td><td>string</td><td>Carrier / operator name (optional)</td></tr>
+  <tr><td>country</td><td>string</td><td>Destination country (optional)</td></tr>
+  <tr><td>error_code</td><td>string</td><td>Carrier error code if failed (optional)</td></tr>
+</table>
+
+<h3>DLR Status Codes</h3>
+<table>
+  <tr><th>status</th><th>Meaning</th></tr>
+  <tr><td>0</td><td><span class="green">Delivered</span></td></tr>
+  <tr><td>1</td><td><span class="red">Failed</span></td></tr>
+  <tr><td>2</td><td>Pending / En-route</td></tr>
+  <tr><td>4</td><td>Sent to carrier (awaiting DLR)</td></tr>
+</table>
+
+<h3>Example POST Body</h3>
+<div class="code">{
+  "message_id": "TX-20260530-00123",
+  "status": 0,
+  "msisdn": "923219286686",
+  "operator": "Zong",
+  "country": "Pakistan"
+}</div>
+
+<h3>Response</h3>
+<div class="code"><span class="green">{ "ok": true, "status": 0, "text": "ACCEPTD", "Message_ID": "TX-20260530-00123" }</span></div>
+</div>
+
+<!-- ═══ SEND SMS ═══════════════════════════════════════════════════ -->
+<div class="section" id="send">
+<h2><span class="badge post">POST</span> Send SMS</h2>
+<p>Send a single SMS message outbound via BitsAuto → BhaooSMS → Carrier.</p>
+<div class="url">${base}/api/sms/send</div>
+<p><em>Requires BitsAuto session authentication.</em></p>
+
+<h3>Request Body (JSON)</h3>
+<div class="code">{
+  "to":   "923219286686",   // <span class="req">REQUIRED</span> — destination MSISDN (E.164, no +)
+  "from": "BitsOTP",        // <span class="req">REQUIRED</span> — sender ID
+  "text": "Your code: 847261", // <span class="req">REQUIRED</span> — message body
+  "type": "text"            // optional — default "text"
+}</div>
+
+<h3>Success Response</h3>
+<div class="code"><span class="green">{
+  "status": 0,
+  "messageId": "BHAOO-MSG-001",
+  "internalId": "recv-1748620800-abc12"
+}</span></div>
+</div>
+
+<!-- ═══ BULK SMS ════════════════════════════════════════════════════ -->
+<div class="section" id="bulk">
+<h2><span class="badge post">POST</span> Send Bulk SMS</h2>
+<p>Send up to <strong>100 messages</strong> in a single request.</p>
+<div class="url">${base}/api/sms/send-bulk</div>
+<p><em>Requires BitsAuto session authentication.</em></p>
+
+<h3>Request Body (JSON)</h3>
+<div class="code">{
+  "messages": [
+    { "to": "923219286686", "from": "BitsOTP", "text": "Code: 847261" },
+    { "to": "971501234567", "from": "BitsOTP", "text": "Code: 991234" }
+  ]
+}</div>
+
+<h3>Success Response</h3>
+<div class="code"><span class="green">{
+  "total": 2,
+  "results": [
+    { "status": 0, "messageId": "BHAOO-MSG-001" },
+    { "status": 0, "messageId": "BHAOO-MSG-002" }
+  ]
+}</span></div>
+</div>
+
+<!-- ═══ NUMBER FORMAT ══════════════════════════════════════════════ -->
+<div class="section" id="numbers">
+<h2>📱 Phone Number Format</h2>
+<p>All number fields must be plain E.164 digits — <strong>no leading <code>+</code>, no <code>00</code> prefix, no spaces or dashes.</strong></p>
+<table>
+  <tr><th>Country</th><th>✅ Correct</th><th>❌ Wrong</th></tr>
+  <tr><td>Pakistan</td><td><span class="green">923219286686</span></td><td><span class="red">+923219286686 &nbsp; 03219286686 &nbsp; 00923219286686</span></td></tr>
+  <tr><td>UAE</td><td><span class="green">971501234567</span></td><td><span class="red">+971501234567 &nbsp; 00971501234567</span></td></tr>
+  <tr><td>Saudi Arabia</td><td><span class="green">966501234567</span></td><td><span class="red">+966501234567 &nbsp; 00966501234567</span></td></tr>
+  <tr><td>Bangladesh</td><td><span class="green">8801711234567</span></td><td><span class="red">+8801711234567</span></td></tr>
+</table>
+<div class="warn">⚠️ Sending with a leading <code>+</code> will cause authentication or routing errors on the carrier side.</div>
+</div>
+
+<!-- ═══ REVE CONFIG ════════════════════════════════════════════════ -->
+<div class="section" id="reve-config">
+<h2>⚙️ REVE HTTP Profile Configuration</h2>
+<p>In REVE Admin → <strong>HTTP Profiles</strong> → create or edit a profile with the values below:</p>
+<table>
+  <tr><th>REVE Field</th><th>Value to enter</th></tr>
+  <tr><td>Profile Type</td><td>HTTP GET</td></tr>
+  <tr><td>Submit URL</td><td><code>${base}/api/bhaoo/receive</code></td></tr>
+  <tr><td>API Key field name</td><td><code>apikey</code></td></tr>
+  <tr><td>Secret Key field name</td><td><code>secretkey</code></td></tr>
+  <tr><td>Destination field name</td><td><code>to</code></td></tr>
+  <tr><td>Sender field name</td><td><code>from</code></td></tr>
+  <tr><td>Message field name</td><td><code>smsText</code></td></tr>
+  <tr><td>Transaction ID field name</td><td><code>transactionId</code></td></tr>
+  <tr><td>DLR URL</td><td><code>${base}/api/bhaoo/dlr</code></td></tr>
+  <tr><td>DLR Method</td><td>POST (preferred) or GET</td></tr>
+  <tr><td>Success match string</td><td><code>ACCEPTD</code></td></tr>
+</table>
+</div>
+
+<!-- ═══ HEALTH CHECK ═══════════════════════════════════════════════ -->
+<div class="section" id="health">
+<h2>🔍 Health Check</h2>
+<p>Hit this URL to confirm the server is reachable before configuring REVE. No valid credentials required — the expected response confirms the server is live and the auth layer is active.</p>
+<div class="url">${base}/api/bhaoo/receive?apikey=ping&amp;secretkey=ping&amp;to=0&amp;smsText=test</div>
+<p>Expected response:</p>
+<div class="code">{ "status": -42, "Text": "REJECTD", "error": "Authentication failed" }</div>
+<div class="note">✅ Receiving this exact response means the webhook server is online and authentication is working correctly.</div>
+</div>
+
+<hr class="divider"/>
+<p style="font-size:.78rem;color:#334155;text-align:center">BitsAuto Monitoring Platform &nbsp;·&nbsp; SMS API Reference &nbsp;·&nbsp; Confidential</p>
+</div>
+</body>
+</html>`;
+  }
+
+  // ── Docs — view in browser ───────────────────────────────────────────────────
+  app.get('/api/bhaoo/docs', (_req: any, res: any) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(buildSmsApiDocs());
+  });
+
+  // ── Docs — download as HTML file ─────────────────────────────────────────────
+  app.get('/api/bhaoo/docs/download', (_req: any, res: any) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="BitsAuto-SMS-API.html"');
+    res.send(buildSmsApiDocs());
+  });
+
+  // ── DLR query — poll delivery status for a specific message ─────────────────
+  app.get('/api/bhaoo/dlr/:messageId', requireAuth, async (req: any, res: any) => {
+    try {
+      const result = await queryDlr(req.params.messageId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Message log ─────────────────────────────────────────────────────────────
+  app.get('/api/bhaoo/messages', requireAuth, async (req: any, res: any) => {
+    try {
+      const limit  = Math.min(Number(req.query.limit ?? 50), 200);
+      const rows   = await db.select().from(smsMessages).orderBy(desc(smsMessages.submittedAt)).limit(limit);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Stats — delivery analytics from DB ──────────────────────────────────────
+  app.get('/api/bhaoo/stats', requireAuth, async (_req: any, res: any) => {
+    try {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const totalsResult = await db.execute(sql`
+        SELECT
+          COUNT(*)                                        AS total,
+          COUNT(*) FILTER (WHERE status = 'delivered')   AS delivered,
+          COUNT(*) FILTER (WHERE status = 'failed')      AS failed,
+          COUNT(*) FILTER (WHERE status = 'submitted'
+                        OR status = 'sent'
+                        OR status = 'pending')           AS pending
+        FROM sms_messages
+        WHERE submitted_at >= ${since}
+      `);
+      const totalsRows = Array.isArray(totalsResult) ? totalsResult : ((totalsResult as any).rows ?? []);
+
+      const row = (totalsRows[0] as any) ?? {};
+      const total     = Number(row.total     ?? 0);
+      const delivered = Number(row.delivered ?? 0);
+      const failed    = Number(row.failed    ?? 0);
+      const pending   = Number(row.pending   ?? 0);
+      const rate      = total > 0 ? parseFloat(((delivered / total) * 100).toFixed(1)) : 0;
+
+      const operatorResult = await db.execute(sql`
+        SELECT operator, COUNT(*) AS sent,
+               COUNT(*) FILTER (WHERE status = 'delivered') AS delivered
+        FROM sms_messages
+        WHERE submitted_at >= ${since}
+          AND operator IS NOT NULL
+        GROUP BY operator
+        ORDER BY sent DESC
+        LIMIT 10
+      `);
+      const operatorRows: any[] = Array.isArray(operatorResult) ? operatorResult : ((operatorResult as any).rows ?? []);
+
+      const operatorBreakdown = operatorRows.map((r: any) => ({
+        operator:  r.operator,
+        sent:      Number(r.sent),
+        delivered: Number(r.delivered),
+        rate:      Number(r.sent) > 0 ? parseFloat((Number(r.delivered) / Number(r.sent) * 100).toFixed(1)) : 0,
+      }));
+
+      const channelResult = await db.execute(sql`
+        SELECT
+          COALESCE(channel, 'sms')                               AS channel,
+          COUNT(*)                                               AS sent,
+          COUNT(*) FILTER (WHERE status = 'delivered')          AS delivered,
+          COUNT(*) FILTER (WHERE status = 'failed')             AS failed
+        FROM sms_messages
+        WHERE submitted_at >= ${since}
+        GROUP BY COALESCE(channel, 'sms')
+        ORDER BY sent DESC
+      `);
+      const channelRows: any[] = Array.isArray(channelResult) ? channelResult : ((channelResult as any).rows ?? []);
+
+      const channelBreakdown = channelRows.map((r: any) => ({
+        channel:   r.channel as string,
+        sent:      Number(r.sent),
+        delivered: Number(r.delivered),
+        failed:    Number(r.failed),
+        rate:      Number(r.sent) > 0 ? parseFloat((Number(r.delivered) / Number(r.sent) * 100).toFixed(1)) : 0,
+      }));
+
+      const balance = await checkBalance();
+
+      res.json({
+        sentToday:      total,
+        deliveredToday: delivered,
+        failedToday:    failed,
+        pendingToday:   pending,
+        deliveryRate:   rate,
+        balance:        balance.balance,
+        currency:       balance.currency ?? 'USD',
+        balanceError:   balance.error,
+        operatorBreakdown,
+        channelBreakdown,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Profiles CRUD ────────────────────────────────────────────────────────────
+  app.get('/api/bhaoo/profiles', requireAuth, async (_req: any, res: any) => {
+    try {
+      const rows = await db.select().from(bhaooProfiles).orderBy(bhaooProfiles.createdAt);
+      // Mask secrets in response
+      res.json(rows.map(r => ({ ...r, secretKey: '••••••••' })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/bhaoo/profiles', requireAuth, async (req: any, res: any) => {
+    const { name, baseUrl, apiKey, secretKey, isDefault } = req.body ?? {};
+    if (!name || !apiKey || !secretKey) return res.status(400).json({ error: 'name, apiKey, secretKey are required' });
+    try {
+      if (isDefault) {
+        await db.update(bhaooProfiles).set({ isDefault: false, updatedAt: new Date() });
+      }
+      const [row] = await db.insert(bhaooProfiles).values({
+        name,
+        baseUrl: baseUrl || 'http://149.20.185.6/BhaooSMSV5',
+        apiKey,
+        secretKey,
+        isDefault: !!isDefault,
+      }).returning();
+      res.json({ ...row, secretKey: '••••••••' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/bhaoo/profiles/:id', requireAuth, async (req: any, res: any) => {
+    const id = Number(req.params.id);
+    const { name, baseUrl, apiKey, secretKey, isDefault, isActive } = req.body ?? {};
+    try {
+      if (isDefault) {
+        await db.update(bhaooProfiles).set({ isDefault: false, updatedAt: new Date() });
+      }
+      const updates: Record<string, any> = { updatedAt: new Date() };
+      if (name      !== undefined) updates.name      = name;
+      if (baseUrl   !== undefined) updates.baseUrl   = baseUrl;
+      if (apiKey    !== undefined && apiKey    !== '••••••••') updates.apiKey    = apiKey;
+      if (secretKey !== undefined && secretKey !== '••••••••') updates.secretKey = secretKey;
+      if (isDefault !== undefined) updates.isDefault = isDefault;
+      if (isActive  !== undefined) updates.isActive  = isActive;
+      const [row] = await db.update(bhaooProfiles).set(updates).where(eq(bhaooProfiles.id, id)).returning();
+      res.json({ ...row, secretKey: '••••••••' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/bhaoo/profiles/:id', requireAuth, async (req: any, res: any) => {
+    const id = Number(req.params.id);
+    try {
+      await db.delete(bhaooProfiles).where(eq(bhaooProfiles.id, id));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Test a profile by checking its balance
+  app.post('/api/bhaoo/profiles/:id/test', requireAuth, async (req: any, res: any) => {
+    const id = Number(req.params.id);
+    try {
+      const [profile] = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.id, id));
+      if (!profile) return res.status(404).json({ error: 'Profile not found' });
+      const { bhaooRequest } = await import('./services/bhaoo/client');
+      const balResult = await checkBalance({ baseUrl: profile.baseUrl, apiKey: profile.apiKey, secretKey: profile.secretKey });
+      const endpointUnreachable = balResult.error?.includes('404') || balResult.error?.includes('Not Found');
+      if (balResult.status === 0) {
+        res.json({ ok: true, balance: balResult.balance, currency: balResult.currency });
+      } else if (endpointUnreachable) {
+        res.json({ ok: true, balance: null, warning: 'Balance API endpoint unreachable (IP-whitelisted?) — credentials accepted, DLR will work normally' });
+      } else {
+        res.status(500).json({ ok: false, error: balResult.error });
+      }
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Send SMS via a specific profile
+  app.post('/api/sms/send-profile', requireAuth, async (req: any, res: any) => {
+    const { profileId, to, from, text, type } = req.body ?? {};
+    if (!profileId || !to || !from || !text) return res.status(400).json({ error: 'profileId, to, from, text are required' });
+    try {
+      const [profile] = await db.select().from(bhaooProfiles).where(eq(bhaooProfiles.id, Number(profileId)));
+      if (!profile) return res.status(404).json({ error: 'Profile not found' });
+      if (!profile.isActive) return res.status(400).json({ error: 'Profile is disabled' });
+
+      const { bhaooRequest } = await import('./services/bhaoo/client');
+      const internalId = `bts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const raw = await bhaooRequest<any>({
+        method:  'POST',
+        path:    '/api/',
+        profile: { baseUrl: profile.baseUrl, apiKey: profile.apiKey, secretKey: profile.secretKey },
+        body: { type: type ?? 'text', from, to, text, transactionId: internalId },
+      });
+
+      const status = Number(raw?.status ?? -1);
+      await db.insert(smsMessages).values({
+        internalId,
+        bhaooId:     status === 0 ? raw.messageId : null,
+        toNumber:    to,
+        fromId:      from,
+        messageText: text,
+        messageType: type ?? 'text',
+        status:      status === 0 ? 'submitted' : 'failed',
+        statusCode:  status,
+        errorMessage: status !== 0 ? (raw.text ?? 'Send failed') : null,
+      });
+
+      res.json({ status, messageId: raw.messageId, profile: profile.name });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Recharge ─────────────────────────────────────────────────────────────────
+  app.post('/api/bhaoo/recharge', requireAuth, async (req: any, res: any) => {
+    const { amount, clientId } = req.body ?? {};
+    if (!amount || isNaN(Number(amount))) return res.status(400).json({ error: 'amount is required' });
+    try {
+      const result = await rechargeAccount(Number(amount), clientId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Meta Cloud API — get settings ────────────────────────────────────────────
+  app.get('/api/whatsapp/meta/settings', requireAuth, async (req: any, res: any) => {
+    try {
+      const s    = await storage.getSettings();
+      const role = req.user?.role;
+      const isAdmin = role === 'admin' || role === 'super_admin';
+      res.json({
+        provider:                s.whatsappProvider        ?? 'callmebot',
+        metaPhoneNumberId:       s.metaPhoneNumberId       ?? '',
+        metaAccessToken:         isAdmin ? (s.metaAccessToken ?? '') : '***',
+        metaOtpTemplateName:     s.metaOtpTemplateName     ?? 'otp_verification',
+        metaOtpTemplateLanguage: s.metaOtpTemplateLanguage ?? 'en_us',
+        metaUseOtpTemplate:      s.metaUseOtpTemplate      !== false,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Meta Cloud API — save settings ───────────────────────────────────────────
+  app.post('/api/whatsapp/meta/settings', requireAuth, async (req: any, res: any) => {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'super_admin') return res.status(403).json({ error: 'Admin only' });
+    try {
+      const {
+        metaPhoneNumberId, metaAccessToken,
+        metaOtpTemplateName, metaOtpTemplateLanguage, metaUseOtpTemplate,
+      } = req.body ?? {};
+      await storage.updateSettings({
+        whatsappProvider: 'meta_cloud_api',
+        ...(metaPhoneNumberId       !== undefined && { metaPhoneNumberId }),
+        ...(metaAccessToken         !== undefined && { metaAccessToken }),
+        ...(metaOtpTemplateName     !== undefined && { metaOtpTemplateName }),
+        ...(metaOtpTemplateLanguage !== undefined && { metaOtpTemplateLanguage }),
+        ...(metaUseOtpTemplate      !== undefined && { metaUseOtpTemplate }),
+      } as any);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Meta Cloud API — test send ────────────────────────────────────────────────
+  app.post('/api/whatsapp/meta/test', requireAuth, async (req: any, res: any) => {
+    const role = req.user?.role;
+    if (role !== 'admin' && role !== 'super_admin') return res.status(403).json({ error: 'Admin only' });
+    try {
+      const { sendMetaDirectText } = await import('./services/meta-cloud-api/index');
+      const settingsRow = await storage.getSettings();
+      const phoneNumberId = settingsRow.metaPhoneNumberId ?? '';
+      const accessToken   = settingsRow.metaAccessToken   ?? '';
+      const testTo        = req.body?.to ?? phoneNumberId;
+      if (!phoneNumberId || !accessToken) {
+        return res.status(400).json({ error: 'Meta Cloud API credentials not configured' });
+      }
+      if (!testTo) {
+        return res.status(400).json({ error: 'No recipient number provided' });
+      }
+      const { wamid } = await sendMetaDirectText(
+        String(testTo).startsWith('+') ? String(testTo) : `+${testTo}`,
+        `BitsAuto test — Meta Cloud API connected ✓ (${new Date().toUTCString()})`,
+        phoneNumberId,
+        accessToken,
+      );
+      res.json({ ok: true, wamid });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  console.log('[bhaoo] SMS routes registered');
+}

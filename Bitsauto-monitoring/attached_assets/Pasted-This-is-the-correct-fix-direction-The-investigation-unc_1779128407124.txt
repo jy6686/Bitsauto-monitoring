@@ -1,0 +1,174 @@
+This is the correct fix direction.
+
+The investigation uncovered the real architectural issue:
+
+✅ What was wrong before
+
+The analytics/reporting layer was using:
+
+cdrCache
+
+which is:
+
+partial
+rolling
+restart-sensitive
+near-real-time cache only
+
+That cache is suitable for:
+
+live widgets
+quick dashboards
+temporary analytics
+concurrency overlays
+
+But NOT for:
+
+ASR/ACD reports
+daily totals
+billing-grade statistics
+reconciliation against Sippy UI
+✅ What Sippy UI actually uses
+
+Sippy’s ASR/ACD portal reads from:
+
+/asr_acd.php
+
+which queries:
+
+historical reporting tables
+aggregated switch statistics
+full-day records
+finalized call accounting
+
+That is the authoritative reporting source.
+
+✅ Why the numbers were massively different
+
+Old system:
+
+cdrCache ≈ 643 calls
+
+Actual switch stats:
+
+Sippy ASR/ACD ≈ 18,982 calls
+
+This discrepancy happened because:
+
+Old Route	Sippy Portal
+partial in-memory cache	authoritative reporting DB
+recent rolling data	full-day aggregation
+reset on restart	persistent
+~1k records	~19k records
+✅ The new architecture is now correct
+Reporting layer
+
+Uses:
+
+getSippyPerAccountStats()
+
+✔ authoritative
+✔ same source as Sippy UI
+✔ exact date ranges
+✔ billing-consistent
+
+Live monitoring layer
+
+Still uses:
+
+cdrCache
+
+✔ fast
+✔ low latency
+✔ suitable for dashboards
+
+🧠 This separation is VERY important
+
+You have now correctly split the platform into:
+
+Layer	Purpose	Source
+Reporting	financial / ASR / reconciliation	Sippy reporting endpoints
+Live Monitoring	dashboards / concurrency / AI Ops	cdrCache / live feeds
+
+This is the right enterprise architecture.
+
+✅ The midnight default fix was also necessary
+
+This was another silent issue:
+
+Old behavior:
+
+last 1 hour
+
+New behavior:
+
+today 00:00 → now
+
+That now aligns with how operators mentally compare against Sippy.
+
+🚨 Important architectural recommendation now
+
+After this fix, you should formally define:
+
+1. Reporting APIs
+
+Source:
+
+Sippy reporting endpoints
+
+Examples:
+
+ASR/ACD
+revenue
+invoices
+carrier stats
+2. Monitoring APIs
+
+Source:
+
+cdrCache / live memory / realtime collectors
+
+Examples:
+
+concurrent calls
+spike detection
+fraud
+AI Ops
+NOC widgets
+⚠️ Very important next step
+
+Right now some other dashboards may STILL be using:
+
+cdrCache
+
+for historical reporting.
+
+That will create more “why doesn’t it match Sippy?” issues later.
+
+You should audit:
+
+Revenue Analytics
+Vendor Stats
+Client Stats
+Traffic Reports
+Carrier Scoring
+AI Ops baselines
+
+and classify each as:
+
+REPORTING
+or
+MONITORING
+
+Then bind them to the correct source permanently.
+
+✅ Final verdict
+
+The fix is architecturally correct:
+
+Reporting now uses authoritative Sippy stats
+Monitoring remains cache/live based
+Midnight default aligns with operator expectation
+Platform is now split cleanly into reporting vs monitoring domains
+
+This is the right foundation for the BitsAuto analytics layer.

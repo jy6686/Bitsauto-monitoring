@@ -1,0 +1,211 @@
+we are implementing this type of menu in top
+This is a cascading drop-down menu (also commonly referred to as a nested drop-down menu or a sub-menu).
+Here is how it breaks down based on the image:
+ Primary Level (Top Nav): Hovering over or clicking "CUSTOMERS" opens the main vertical drop-down list (containing My Customers, Tariffs & Currencies, etc.).
+ Secondary Level (Cascading): Hovering over "My Customers" (indicated by the small right-facing arrow) expands a second, nested menu to the right containing Accounts, Customers, Account Classes, Permissions, and Account Lookup.
+
+Yes — and this is actually the correct direction for your platform now.
+
+What you are describing is:
+
+Enterprise Cascading Navigation
+
+Used by:
+
+telecom switches
+carrier portals
+ERP systems
+enterprise CRMs
+operational NOCs
+
+This fits your platform much better than:
+
+giant sidebars
+flat mega menus
+endless accordions
+Your Structure (Correct Model)
+LEVEL 1 — TOP WORKSPACE
+
+Example:
+
+CUSTOMERS
+ROUTING
+INTELLIGENCE
+ANALYTICS
+SECURITY
+LEVEL 2 — DROPDOWN GROUP
+
+Hover:
+
+CUSTOMERS
+
+shows:
+
+My Customers      >
+Tariffs           >
+Billing           >
+Support           >
+Reports           >
+LEVEL 3 — CASCADING SUBMENU
+
+Hover:
+
+My Customers
+
+opens:
+
+Accounts
+Companies
+Permissions
+Lookup
+Classes
+
+Exactly like your screenshot.
+
+This Is MUCH Better For Your Platform
+
+Because now you have:
+
+too many operational systems
+too many intelligence modules
+too many workflows
+
+A simple sidebar cannot scale forever.
+
+Why Cascading Menus Fit Telecom Systems
+
+Telecom operational platforms naturally organize as:
+
+Domain
+ → Operational Group
+   → Specific Tool
+
+Example:
+
+Routing
+  → Routing Groups
+  → LCR
+  → Connections
+  → Simulations
+
+This is exactly how telecom engineers think.
+
+Recommended Final Structure
+CUSTOMERS
+My Customers >
+Billing >
+Reports >
+Support >
+My Customers →
+Accounts
+Companies
+Permissions
+Lookup
+VENDORS
+Vendor Health >
+Fraud >
+Reports >
+Operations >
+Vendor Health →
+Prefix Intelligence
+Stability Timeline
+Vendor RCA
+Recommendations
+ROUTING
+Routing Manager >
+Traffic Steering >
+LCR >
+Simulation >
+INTELLIGENCE
+Validation >
+Recommendations >
+AI Ops >
+Incidents >
+SECURITY
+Fraud >
+Audit >
+Compliance >
+Authentication >
+VERY IMPORTANT DESIGN RULE
+
+DO NOT:
+
+make every item 3 levels deep
+
+Only:
+
+complex domains
+operational groups
+
+should cascade.
+
+Otherwise it becomes:
+
+menu labyrinth
+Best UX Pattern
+Click
+
+Top workspace.
+
+Hover
+
+Expand submenu.
+
+Hover Again
+
+Expand cascading child menu.
+
+Exactly like:
+
+enterprise telecom switches
+Cisco dashboards
+carrier provisioning systems
+
+This is the right enterprise feel.
+
+Sidebar Still Has A Role
+
+Important:
+DO NOT remove sidebar entirely.
+
+Sidebar should become:
+
+workspace-local shortcuts + active context
+
+while:
+
+top cascading nav
+
+becomes:
+
+global navigation
+
+That hybrid model is strongest.
+
+Recommended Hybrid Model
+UI Area	Purpose
+Top Cascading Nav	Global navigation
+Sidebar	Context-sensitive tools
+Workspace Home	Operational overview
+Drawers	RCA/chat/details
+
+This is now enterprise-grade architecture.
+
+My Recommendation
+
+YES:
+
+implement cascading enterprise navigation
+
+But:
+
+keep it controlled
+max 3 levels
+avoid overcrowding
+preserve sidebar context filtering
+
+That will make the platform feel:
+
+much more like a real telecom carrier operations platform
+
+than a standard admin dashboard.

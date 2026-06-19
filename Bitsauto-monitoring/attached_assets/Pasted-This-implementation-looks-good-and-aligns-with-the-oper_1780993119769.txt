@@ -1,0 +1,102 @@
+This implementation looks good and aligns with the operational goals.
+
+Before considering it complete, I would like to validate the following points:
+
+Task #320 – Destination Governance UX
+
+Please verify:
+
+Pakistan → automatically resolves to 92
+Bangladesh → automatically resolves to 880
+UAE → automatically resolves to 971
+Malaysia → automatically resolves to 60
+
+Also confirm that:
+
+custom prefixes (923, 9230, 88017, etc.) can still be entered manually,
+Longest Prefix Match behavior remains unchanged,
+existing governance rules continue working without modification.
+Task #321 – Governance Analytics
+
+The KPI dashboard is exactly the direction I wanted.
+
+However, I want to verify how the minutes are calculated:
+
+Vendor Minutes
+
+Should come from:
+
+actual CDR duration,
+actual connected calls,
+not estimated values.
+Governance Minutes
+
+Should come from:
+
+governed calls,
+actual duration before cutoff,
+actual governance actions.
+Saved/Blocked Minutes
+
+Please explain the formula being used.
+
+Example:
+
+Call duration = 120 seconds
+Governance cutoff = 10 seconds
+
+Does the dashboard show:
+
+Vendor Minutes = 10 seconds
+Saved Minutes = 110 seconds
+
+or is another calculation being used?
+
+Destination Impact Validation
+
+For Pakistan specifically, I want to see:
+
+Total Calls
+Total Vendor Minutes
+Total Governance Minutes
+Total Calls Cut
+Average Duration Before Cut
+Most Triggered Rule
+
+This will be our primary operational use case.
+
+Additional Request
+
+Please add:
+
+Top Governed Destinations
+Pakistan
+Bangladesh
+UAE
+Malaysia
+Others
+Top Triggered Rules
+Rule Name
+Trigger Count
+Minutes Impacted
+Governance Efficiency
+
+A KPI showing:
+
+Governance Efficiency %
+= (Saved Minutes ÷ Total Potential Minutes) × 100
+
+This will help management understand the effectiveness of governance policies.
+
+Final Verification
+
+Before we mark this complete, please confirm:
+
+No changes were made to pickBestRule()
+No changes were made to Sippy routing
+No changes were made to authentication
+No changes were made to CLD translation
+No changes were made to vendor termination logic
+All analytics are read-only and derived from existing data
+
+If those conditions are met, then this is a valuable enhancement because it provides visibility and intelligence without introducing any risk to live production traffic.

@@ -1,0 +1,189 @@
+This synthesis is actually the correct “engineering reality view” of your system right now.
+
+And it quietly resolves the confusion both documents had:
+
+You don’t have a sequencing problem — you have a signal completeness problem feeding a premature decision layer.
+
+So your conclusion is solid: you need both tracks, but in the right dependency order.
+
+🧭 Correct Direction (clean version of your synthesis)
+You are building TWO things in parallel:
+🟦 Track A — Decision Layer (thin, now)
+
+Goal: stop the platform being “observational only”
+
+🟥 Track B — Signal Enrichment (Auth Exposure)
+
+Goal: make recommendations non-generic and meaningful
+
+⚙️ The real architecture (what you now have)
+Signals (fraud / anomaly / MOS / balance)
+        ↓
+Entity State (account_state)
+        ↓
+[NEW GAP]
+Decision Layer (recommendations)
+        ↓
+Actions (approve / reject / snooze)
+
+The missing piece is:
+
+Decision Layer exists, but it is currently blind.
+
+🧠 Your key insight (this is the important one)
+
+“Auth exposure is not just another signal — it changes the quality of every recommendation.”
+
+That’s 100% correct.
+
+Without it:
+
+recommendations = generic ops advice
+
+With it:
+
+recommendations = security-aware operational intelligence
+🚀 What you should actually build (correct sequence)
+🥇 STEP 1 — C1 Stub (DO THIS FIRST)
+
+This is the highest leverage move right now.
+
+What it is:
+
+A lightweight recommendation generator inside AI Ops.
+
+It uses ONLY existing data:
+fraudRisk
+anomalyScore
+healthScore
+balanceTrend
+incident count
+Output:
+recommendations[] = [
+  {
+    entity: "Account A",
+    severity: "critical",
+    actions: [
+      "Reduce CPS to 5",
+      "Review traffic spike destinations"
+    ],
+    reason: [
+      "High fraud risk",
+      "Traffic anomaly detected"
+    ]
+  }
+]
+Why this is critical:
+
+It immediately converts:
+
+“system detected something”
+
+into:
+
+“system is telling you what to do”
+
+Even if it’s still simple.
+
+🥈 STEP 2 — B2 Auth Exposure Scorer
+
+Now you enrich intelligence quality:
+
+Adds:
+authExposureScore
+ACCOUNT_EXPOSURE incident type
+IP risk + CLI weakness + config exposure
+This upgrades recommendations automatically:
+
+Before:
+
+“reduce CPS”
+
+After:
+
+“reduce CPS AND restrict IP range due to exposure risk”
+
+🥉 STEP 3 — C1 Full Merge
+
+Now the real intelligence layer appears:
+
+Recommendation engine input becomes:
+fraudRisk
+anomalyScore
+healthScore
+authExposureScore
+incident correlations
+Output becomes:
+ranked actions
+confidence score
+impact estimate (optional next step)
+🧠 Why your corrected plan is architecturally RIGHT
+
+You avoided the common mistake:
+
+❌ Wrong approach:
+
+“Build recommendation engine first”
+
+→ results in generic outputs
+
+✅ Correct approach:
+thin decision layer first (structure)
+enrich signals (auth exposure)
+upgrade intelligence quality
+⚠️ Important architectural truth (this is key)
+
+You are now building:
+
+not a monitoring system
+not an alert system
+not even an analytics system
+
+You are building:
+
+🧠 “Operational Decision System”
+
+And in such systems:
+
+Signals ≠ value
+Decisions = value
+🚀 My recommendation (final clean version)
+Do EXACTLY this next:
+🔴 Phase C1 (1 day)
+
+Build thin recommendation layer
+
+no new DB
+uses existing account_state
+produces recommendations[] in AI Ops
+🔴 Phase B2 (2–3 days)
+
+Build Auth Exposure Scorer
+
+adds authExposureScore
+emits ACCOUNT_EXPOSURE
+feeds recommendation layer
+🔴 Phase C1-FINAL (1 day)
+
+Merge both → intelligent recommendations
+
+If you want next step
+
+I can now:
+
+👉 design C1 stub exactly for your codebase:
+where to place logic in AI Ops engine
+exact TS structure
+API response shape
+UI placement in feed
+how it plugs into incidents
+
+OR
+
+👉 design B2 Auth Scorer implementation (Sippy mapping + scoring engine)
+
+Just tell me:
+
+“start C1 stub”
+or
+“start B2 auth scorer”

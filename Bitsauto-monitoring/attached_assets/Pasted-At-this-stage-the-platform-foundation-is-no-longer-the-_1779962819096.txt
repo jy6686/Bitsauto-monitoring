@@ -1,0 +1,229 @@
+At this stage, the platform foundation is no longer the bottleneck.
+
+You now have:
+
+portal governance,
+adaptive rendering,
+finance governance,
+AI assurance,
+dynamic navigation,
+KAM intelligence,
+operational UX infrastructure.
+
+So the next decisions should NOT be:
+
+what page to add
+
+The next decisions should be:
+
+what operational department becomes production-ready next.
+Recommended Next Strategic Phase
+Build the NOC Portal
+
+(next highest operational value)
+
+Because now:
+
+realtime_enabled exists,
+density_mode exists,
+adapter metadata exists,
+portal themes exist,
+navigation governance exists,
+command palette exists.
+
+The infrastructure prerequisites are complete.
+
+Why NOC Should Be Next
+
+KAM portal solved:
+
+relationship intelligence.
+
+NOC portal solves:
+
+operational execution.
+
+This becomes:
+
+live operations center,
+route intelligence workspace,
+incident management cockpit,
+telecom telemetry layer.
+What NOC Portal Should Contain
+NOC Dashboard
+
+(dense realtime workspace)
+
+Widgets:
+
+active calls,
+ASR live,
+ACD live,
+CPS,
+SIP errors,
+RTP quality,
+PDD,
+route degradation,
+fraud alerts,
+carrier outages,
+trunk health.
+Route Intelligence
+
+(very important)
+
+This becomes:
+
+operational routing cockpit.
+
+Include:
+
+route degradation,
+ASR collapse,
+vendor instability,
+QoS drift,
+failover activity,
+route suppression,
+routing recommendations.
+Incident Command Center
+
+(very high value)
+
+You already have:
+
+alerts,
+DMR,
+AI assurance,
+telemetry.
+
+Now formalize:
+
+operational incidents.
+
+Tables:
+
+noc_incidents
+incident_events
+incident_assignments
+
+Lifecycle:
+
+OPEN
+INVESTIGATING
+MITIGATED
+RESOLVED
+POSTMORTEM
+Live Route Degradation Intelligence
+
+(high-value differentiator)
+
+This is where BitsAuto becomes:
+
+telecom intelligence layer.
+
+Detect:
+
+sudden ASR drops,
+PDD spikes,
+RTP jitter increases,
+destination instability,
+carrier degradation,
+MOS collapse.
+
+Then:
+
+surface recommendations,
+suggest reroutes,
+recommend suppression.
+
+Human-approved only.
+
+Important Architectural Rule
+
+Do NOT build:
+
+NOC pages
+
+Build:
+
+NOC adapters on shared engines.
+
+Example:
+
+Shared Engine	NOC Adapter
+BitsEye2	Live Telemetry
+AI Assurance	Route Risk
+DMR	Traffic Stability
+Reconciliation	Carrier Drift
+Notifications	Incident Feed
+
+This preserves:
+
+unified operational truth.
+AFTER NOC
+
+Then:
+
+Finance Portal Completion
+
+Because finance foundation already exists.
+
+Then finally:
+
+Client Portal
+
+Client portal should be:
+
+simplified,
+safe,
+commercial,
+read-only,
+terminology-adapted.
+
+That’s where:
+
+terminology_profile
+
+becomes important.
+
+VERY IMPORTANT NEXT INFRASTRUCTURE
+
+Before large-scale external rollout:
+
+Build RBAC Matrix
+
+(not optional anymore)
+
+You now need:
+
+granular permissions,
+module-level access,
+action-level permissions,
+portal-level policies.
+
+Example:
+
+invoice.view
+invoice.approve
+invoice.send
+invoice.void
+
+This is now critical.
+
+Current Strategic Status
+
+You officially now have:
+
+Domain	Status
+Telecom execution	✅
+Revenue assurance	✅
+Finance governance	✅
+AI governance	✅
+Portal governance	✅
+Adaptive rendering	✅
+Navigation governance	✅
+KAM intelligence	✅
+Operational UX layer	✅
+
+The next transformation is:
+
+operational intelligence (NOC).

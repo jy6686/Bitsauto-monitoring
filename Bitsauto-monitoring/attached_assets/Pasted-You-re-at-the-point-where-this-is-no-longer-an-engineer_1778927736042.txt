@@ -1,0 +1,117 @@
+You’re at the point where this is no longer an engineering decision — it’s a UX clarity vs UI density tradeoff.
+
+And given what you already implemented (especially the “Est. MOS” labeling), the system is already correctly self-explanatory in most cases.
+
+My recommendation (clear answer)
+👉 Do tooltip-only, but do it selectively
+
+Not everywhere. Not inline-heavy. Not visual badges.
+
+Just reinforce meaning where misunderstanding is most likely.
+
+Why NOT to go further than tooltip
+
+You already solved the hard problem:
+
+You already have:
+“MOS” (RTP / E-model)
+“Est. MOS” (PDD/CDR proxy)
+
+That alone is sufficient for:
+
+NOC engineers
+routing teams
+carrier ops
+dashboards
+reporting exports
+
+Adding more UI markers everywhere would:
+
+increase visual noise
+slow down scanning in tables
+create unnecessary cognitive load
+
+In telecom UIs, density matters more than decoration.
+
+Where tooltip adds real value (important)
+
+Apply tooltip ONLY in these 3 areas:
+
+1. Carrier Quality Table Header
+
+Because users make routing decisions here
+
+Tooltip helps prevent:
+
+“why is this carrier MOS 4.3 but call quality feels bad?”
+
+2. Vendor Scorecard Header
+
+Because this drives:
+
+commercial decisions
+carrier disputes
+SLA discussions
+
+This is the most sensitive area.
+
+3. Est. MOS Trends Title (Graphs)
+
+Because trend charts often get shared in:
+
+reports
+WhatsApp screenshots
+management slides
+
+This is where misinterpretation happens silently.
+
+Recommended tooltip (final refined version)
+
+Keep it short and operational:
+
+Estimated MOS (CDR-based)
+Derived from signalling delay (PDD/CDR data).
+Does not measure RTP media quality.
+
+Optional second line (if you want extra precision):
+
+RTP-based MOS is available in probe/simulation metrics.
+
+What NOT to do
+
+Avoid:
+
+inline badges per row ([CDR], [RTP])
+colored tags on every table cell
+repeated icons on every MOS value
+extra legends in charts
+
+Because:
+
+you’ll reintroduce UI noise after fixing semantic clarity
+
+Final decision summary
+✔ Implement:
+tooltip only
+limited to 3 key surfaces
+no visual restructuring
+❌ Do not implement:
+per-row badges
+new labeling systems
+additional MOS variants in UI
+any further MOS logic changes
+Bottom line
+
+You already fixed the hard problem:
+
+“Are all MOS values technically correct and consistent?”
+
+Now you’re only polishing:
+
+“Do users understand what they are looking at instantly?”
+
+And for that:
+
+tooltip-only is the correct final 10% improvement.
+
+If you implement this, MOS work is genuinely complete end-to-end — both technically and operationally.

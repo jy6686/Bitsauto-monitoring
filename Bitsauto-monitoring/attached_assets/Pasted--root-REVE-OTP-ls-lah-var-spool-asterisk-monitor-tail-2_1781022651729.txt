@@ -1,0 +1,62 @@
+[root@REVE-OTP ~]# ls -lah /var/spool/asterisk/monitor/ | tail -20
+grep -n "MixMonitor\|sippy-media-anchor\|gov-playback\|gov-hangup" /etc/asterisk/extensions_custom.conf
+asterisk -rx "dialplan show sippy-media-anchor"
+-rw-r--r--  1 asterisk asterisk    44 Jun  9 09:48 1780998509.109752.wav
+-rw-r--r--  1 asterisk asterisk   68K Jun  9 09:48 1780998510.109754.wav
+-rw-r--r--  1 asterisk asterisk   68K Jun  9 09:48 1780998510.109756.wav
+-rw-r--r--  1 asterisk asterisk   68K Jun  9 09:49 1780998510.109758.wav
+-rw-r--r--  1 asterisk asterisk  4.0K Jun  9 09:48 1780998510.109760.wav
+-rw-r--r--  1 asterisk asterisk    44 Jun  9 09:48 1780998511.109762.wav
+-rw-r--r--  1 asterisk asterisk   36K Jun  9 09:48 1780998511.109764.wav
+-rw-r--r--  1 asterisk asterisk   36K Jun  9 09:48 1780998511.109765.wav
+-rw-r--r--  1 asterisk asterisk   36K Jun  9 09:48 1780998512.109768.wav
+-rw-r--r--  1 asterisk asterisk   36K Jun  9 09:48 1780998512.109770.wav
+-rw-r--r--  1 asterisk asterisk   36K Jun  9 09:48 1780998512.109772.wav
+-rw-r--r--  1 asterisk asterisk    44 Jun  9 09:48 1780998512.109774.wav
+-rw-r--r--  1 asterisk asterisk    44 Jun  9 09:48 1780998513.109776.wav
+-rw-r--r--  1 asterisk asterisk  4.0K Jun  9 09:48 1780998514.109778.wav
+-rw-r--r--  1 asterisk asterisk  4.0K Jun  9 09:48 1780998514.109780.wav
+-rw-r--r--  1 asterisk asterisk  4.0K Jun  9 09:48 1780998515.109782.wav
+-rw-r--r--  1 asterisk asterisk    44 Jun  9 09:48 1780998515.109784.wav
+-rw-r--r--  1 asterisk asterisk  4.0K Jun  9 09:48 1780998515.109786.wav
+-rw-r--r--  1 asterisk asterisk  4.0K Jun  9 09:48 1780998515.109788.wav
+-rw-r--r--  1 asterisk asterisk    44 Jun  9 09:48 1780998516.109790.wav
+[root@REVE-OTP ~]# grep -n "MixMonitor\|sippy-media-anchor\|gov-playback\|gov-hangup" /etc/asterisk/extensions_custom.conf
+11:[sippy-media-anchor]
+14: same => n,MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,r)
+20: same => n,StopMixMonitor()
+27:[gov-playback]
+30: same => n,StopMixMonitor()
+35:[gov-hangup]
+[root@REVE-OTP ~]# asterisk -rx "dialplan show sippy-media-anchor"
+[ Context 'sippy-media-anchor' created by 'pbx_config' ]
+  '_1.' =>          1. NoOp(OTP call: ${EXTEN})                   [extensions_custom.conf:18]
+                    2. Answer()                                   [extensions_custom.conf:19]
+                    3. StopMixMonitor()                           [extensions_custom.conf:20]
+                    4. Goto(otp-playback,s,1)                     [extensions_custom.conf:21]
+  '_2060X.' =>      1. NoOp(BitsAuto Governance: product=${EXTEN:4:1} dest=${EXTEN:4} uid=${UNIQUEID}) [extensions_custom.conf:12]
+                    2. Set(GOV_PRODUCT=${EXTEN:4:1})              [extensions_custom.conf:13]
+                    3. MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,r) [extensions_custom.conf:14]
+                    4. Dial(SIP/sippy/22211${EXTEN:4},3600,Tt)    [extensions_custom.conf:15]
+                    5. Hangup()                                   [extensions_custom.conf:16]
+  '_X.' =>          1. NoOp(Unhandled call in anchor: ${EXTEN})   [extensions_custom.conf:23]
+                    2. Hangup()                                   [extensions_custom.conf:24]
+
+-= 3 extensions (11 priorities) in 1 context. =-
+[root@REVE-OTP ~]# asterisk -rx "dialplan show sippy-media-anchor"
+[ Context 'sippy-media-anchor' created by 'pbx_config' ]
+  '_1.' =>          1. NoOp(OTP call: ${EXTEN})                   [extensions_custom.conf:18]
+                    2. Answer()                                   [extensions_custom.conf:19]
+                    3. StopMixMonitor()                           [extensions_custom.conf:20]
+                    4. Goto(otp-playback,s,1)                     [extensions_custom.conf:21]
+  '_2060X.' =>      1. NoOp(BitsAuto Governance: product=${EXTEN:4:1} dest=${EXTEN:4} uid=${UNIQUEID}) [extensions_custom.conf:12]
+                    2. Set(GOV_PRODUCT=${EXTEN:4:1})              [extensions_custom.conf:13]
+                    3. MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,r) [extensions_custom.conf:14]
+                    4. Dial(SIP/sippy/22211${EXTEN:4},3600,Tt)    [extensions_custom.conf:15]
+                    5. Hangup()                                   [extensions_custom.conf:16]
+  '_X.' =>          1. NoOp(Unhandled call in anchor: ${EXTEN})   [extensions_custom.conf:23]
+                    2. Hangup()                                   [extensions_custom.conf:24]
+
+-= 3 extensions (11 priorities) in 1 context. =-
+[root@REVE-OTP ~]# ls -la /var/spool/asterisk/ | grep monitor
+drwxr-xr-x  2 asterisk asterisk 4501504 Jun  9 09:48 monitor

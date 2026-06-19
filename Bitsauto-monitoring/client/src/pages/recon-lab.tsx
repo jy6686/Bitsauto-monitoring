@@ -1,0 +1,1060 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  FlaskConical, RefreshCw, CheckCircle2, XCircle,
+  FileAudio, Database, Search, Shield, Download,
+  Fingerprint, FileSearch, Activity, TrendingUp, Tag,
+  AlertTriangle, Info, GitMerge, ChevronRight,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+
+// ── Tab IDs ───────────────────────────────────────────────────────────────────
+type TabId = "recording" | "cdr" | "identity" | "vendor" | "commercial" | "coverage";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt(n: number | null | undefined, decimals = 6) {
+  if (n === null || n === undefined) return "—";
+  return n.toFixed(decimals);
+}
+function fmtRate(n: number | null | undefined) {
+  if (n === null || n === undefined) return "—";
+  return n.toFixed(4);
+}
+function fmtTime(iso: string | null | undefined) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-GB", { hour12: false, timeZone: "UTC" }).replace(",", "");
+}
+function fmtBytes(bytes: number | null) {
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+function pct(num: number, den: number) {
+  if (!den) return "—";
+  return `${Math.round((num / den) * 100)}%`;
+}
+
+// ── Status components ─────────────────────────────────────────────────────────
+function FileStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    ok:        { label: "File OK",    cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
+    missing:   { label: "Missing",   cls: "bg-red-500/15 text-red-400 border-red-500/30" },
+    empty:     { label: "Empty",     cls: "bg-orange-500/15 text-orange-400 border-orange-500/30" },
+    no_path:   { label: "No Path",   cls: "bg-slate-500/15 text-slate-400 border-slate-500/30" },
+    unchecked: { label: "Unchecked", cls: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
+  };
+  const m = map[status] ?? { label: status, cls: "bg-slate-500/15 text-slate-400" };
+  return <span className={cn("text-xs px-2 py-0.5 rounded-full border font-mono", m.cls)}>{m.label}</span>;
+}
+
+function MatchBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    matched: { label: "Matched",  cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
+    partial: { label: "Partial",  cls: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
+    missing: { label: "Missing",  cls: "bg-red-500/15 text-red-400 border-red-500/30" },
+    pending: { label: "Pending",  cls: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
+  };
+  const m = map[status] ?? { label: status, cls: "bg-slate-500/15 text-slate-400" };
+  return <span className={cn("text-xs px-2 py-0.5 rounded-full border font-mono", m.cls)}>{m.label}</span>;
+}
+
+function ConfidenceBadge({ v }: { v: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    confirmed:           { label: "Confirmed",    cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
+    resolved_no_prefix:  { label: "No Prefix",    cls: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
+    "no_p&l_match":      { label: "No P&L",       cls: "bg-red-500/15 text-red-400 border-red-500/30" },
+    pending:             { label: "Pending",       cls: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
+  };
+  const m = map[v] ?? { label: v, cls: "bg-slate-500/15 text-slate-400" };
+  return <span className={cn("text-xs px-2 py-0.5 rounded-full border font-mono", m.cls)}>{m.label}</span>;
+}
+
+const PRODUCT_COLORS = [
+  "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
+  "bg-purple-500/15 text-purple-300 border-purple-500/30",
+  "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  "bg-green-500/15 text-green-300 border-green-500/30",
+  "bg-rose-500/15 text-rose-300 border-rose-500/30",
+  "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+  "bg-teal-500/15 text-teal-300 border-teal-500/30",
+];
+function productColor(code: string | null) {
+  if (!code) return "bg-slate-500/15 text-slate-400 border-slate-500/30";
+  let hash = 0;
+  for (let i = 0; i < code.length; i++) hash = (hash * 31 + code.charCodeAt(i)) & 0xffff;
+  return PRODUCT_COLORS[hash % PRODUCT_COLORS.length];
+}
+function ProductBadge({ code, name }: { code: string | null; name: string | null }) {
+  if (!code) return <span className="text-slate-600 text-xs italic">Unclassified</span>;
+  return (
+    <span className={cn("text-xs px-2 py-0.5 rounded-full border font-mono", productColor(code))}>
+      {code}{name && name !== code ? ` · ${name}` : ""}
+    </span>
+  );
+}
+
+function Check({ v }: { v: boolean }) {
+  return v
+    ? <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" />
+    : <XCircle className="w-4 h-4 text-slate-600 mx-auto" />;
+}
+
+// ── Summary Card ─────────────────────────────────────────────────────────────
+function SummaryCard({ label, value, sub, color = "text-white" }: {
+  label: string; value: string | number; sub?: string; color?: string;
+}) {
+  return (
+    <div className="bg-slate-800/60 border border-slate-700/50 rounded-lg p-4 flex flex-col gap-1">
+      <span className="text-xs text-slate-400">{label}</span>
+      <span className={cn("text-2xl font-bold tabular-nums", color)}>{value}</span>
+      {sub && <span className="text-xs text-slate-500">{sub}</span>}
+    </div>
+  );
+}
+
+// ── Alert banner ──────────────────────────────────────────────────────────────
+function AlertBanner({ icon: Icon, color, title, body }: {
+  icon: any; color: string; title: string; body: string;
+}) {
+  return (
+    <div className={cn("flex items-start gap-3 rounded-lg border px-4 py-3", color)}>
+      <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+      <div>
+        <div className="text-xs font-semibold mb-0.5">{title}</div>
+        <div className="text-xs opacity-80">{body}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Search box ────────────────────────────────────────────────────────────────
+function SearchBox({ value, onChange, testId }: { value: string; onChange: (v: string) => void; testId: string }) {
+  return (
+    <div className="relative w-80">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+      <Input
+        placeholder="Search by call ID, CLI, CLD…"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="pl-9 bg-slate-800/60 border-slate-700 text-sm"
+        data-testid={testId}
+      />
+    </div>
+  );
+}
+
+// ── Table shell ───────────────────────────────────────────────────────────────
+function TableShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-slate-800 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">{children}</table>
+      </div>
+    </div>
+  );
+}
+
+function TH({ children, center }: { children: React.ReactNode; center?: boolean }) {
+  return (
+    <th className={cn("px-3 py-2.5 font-medium text-slate-400 text-xs", center ? "text-center" : "text-left")}>
+      {children}
+    </th>
+  );
+}
+
+function TD({ children, mono, center, muted, clamp }: {
+  children: React.ReactNode; mono?: boolean; center?: boolean; muted?: boolean; clamp?: boolean;
+}) {
+  return (
+    <td className={cn(
+      "px-3 py-2",
+      mono && "font-mono",
+      "text-xs",
+      center && "text-center",
+      muted ? "text-slate-400" : "text-slate-300",
+      clamp && "max-w-40 truncate",
+    )}>
+      {children}
+    </td>
+  );
+}
+
+function EmptyRow({ cols, loading }: { cols: number; loading: boolean }) {
+  return (
+    <tr>
+      <td colSpan={cols} className="text-center text-slate-500 py-8">
+        {loading ? "Loading…" : "No data in window"}
+      </td>
+    </tr>
+  );
+}
+
+// ── Filter helper ─────────────────────────────────────────────────────────────
+function filterCalls(calls: any[], search: string) {
+  if (!search) return calls;
+  const s = search.toLowerCase();
+  return calls.filter((c: any) =>
+    String(c.id).includes(s) ||
+    (c.caller ?? "").includes(s) ||
+    (c.callee ?? "").includes(s) ||
+    (c.cdrCallee ?? "").includes(s)
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+export default function ReconciliationLabPage() {
+  const [activeTab, setActiveTab] = useState<TabId>("recording");
+  const [days, setDays]           = useState(7);
+  const [search, setSearch]       = useState("");
+  const [playingId, setPlayingId] = useState<number | null>(null);
+  const { toast } = useToast();
+
+  // ── Queries ──────────────────────────────────────────────────────────────
+  const recordingQ = useQuery<any>({
+    queryKey: ["/api/recon-lab/recording-integrity", days],
+    queryFn: () => fetch(`/api/recon-lab/recording-integrity?days=${days}`).then(r => r.json()),
+    staleTime: 60_000,
+  });
+  const sshCheckQ = useQuery<any>({
+    queryKey: ["/api/recon-lab/recording-ssh-check"],
+    queryFn: () => fetch(`/api/recon-lab/recording-ssh-check`).then(r => r.json()),
+    staleTime: 300_000,
+    enabled: activeTab === "recording",
+  });
+  const cdrQ = useQuery<any>({
+    queryKey: ["/api/recon-lab/cdr-reconciliation", days],
+    queryFn: () => fetch(`/api/recon-lab/cdr-reconciliation?days=${days}`).then(r => r.json()),
+    staleTime: 60_000,
+  });
+  const identityQ = useQuery<any>({
+    queryKey: ["/api/recon-lab/identity-audit"],
+    queryFn: () => fetch(`/api/recon-lab/identity-audit?limit=100`).then(r => r.json()),
+    staleTime: 120_000,
+  });
+  const vendorQ = useQuery<any>({
+    queryKey: ["/api/recon-lab/vendor-cost", days],
+    queryFn: () => fetch(`/api/recon-lab/vendor-cost?days=${days}`).then(r => r.json()),
+    staleTime: 60_000,
+  });
+  const commercialQ = useQuery<any>({
+    queryKey: ["/api/recon-lab/commercial-identity", days],
+    queryFn: () => fetch(`/api/recon-lab/commercial-identity?days=${days}`).then(r => r.json()),
+    staleTime: 60_000,
+  });
+  const coverageQ = useQuery<any>({
+    queryKey: ["/api/recon-lab/coverage"],
+    queryFn: () => fetch(`/api/recon-lab/coverage`).then(r => r.json()),
+    staleTime: 60_000,
+    enabled: activeTab === "coverage",
+  });
+
+  const activeQ = { recording: recordingQ, cdr: cdrQ, identity: identityQ, vendor: vendorQ, commercial: commercialQ, coverage: coverageQ }[activeTab];
+
+  function refresh() {
+    recordingQ.refetch(); cdrQ.refetch(); identityQ.refetch(); vendorQ.refetch(); commercialQ.refetch(); coverageQ.refetch();
+    toast({ title: "Refreshed", description: "All Recon Lab data reloaded." });
+  }
+
+  // ── Filtered call lists ───────────────────────────────────────────────────
+  const recCalls      = filterCalls(recordingQ.data?.calls ?? [], search);
+  const cdrCalls      = filterCalls(cdrQ.data?.calls ?? [], search);
+  const idCalls       = filterCalls(identityQ.data?.calls ?? [], search);
+  const vendorCalls   = filterCalls(vendorQ.data?.calls ?? [], search);
+  const commercialCalls = filterCalls(commercialQ.data?.calls ?? [], search);
+
+  // ── Tab definitions ───────────────────────────────────────────────────────
+  const tabs: { id: TabId; label: string; icon: any }[] = [
+    { id: "recording",  label: "Recording Integrity",    icon: FileAudio   },
+    { id: "cdr",        label: "CDR Reconciliation",     icon: Database    },
+    { id: "identity",   label: "Identity Audit",         icon: Fingerprint },
+    { id: "vendor",     label: "Vendor Cost Validation", icon: TrendingUp  },
+    { id: "commercial", label: "Commercial Identity",    icon: Tag         },
+    { id: "coverage",   label: "Cost Coverage",          icon: GitMerge    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white">
+
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <div className="border-b border-slate-800 bg-slate-900/60 px-6 py-4">
+        <div className="max-w-screen-2xl mx-auto flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-violet-500/15 border border-violet-500/30 flex items-center justify-center">
+              <FlaskConical className="w-4 h-4 text-violet-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-semibold text-white">Reconciliation Lab</h1>
+                <Badge className="text-xs bg-violet-500/15 text-violet-300 border-violet-500/30 border">Admin Only</Badge>
+              </div>
+              <p className="text-xs text-slate-400">
+                5-question diagnostic — recording · CDR · identity · vendor cost · commercial product
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={days}
+              onChange={e => { setDays(Number(e.target.value)); setSearch(""); }}
+              className="bg-slate-800 border border-slate-700 text-sm text-slate-300 rounded-md px-2 py-1.5"
+              data-testid="select-days"
+            >
+              <option value={1}>Last 24 h</option>
+              <option value={3}>Last 3 days</option>
+              <option value={7}>Last 7 days</option>
+              <option value={14}>Last 14 days</option>
+              <option value={30}>Last 30 days</option>
+            </select>
+            <Button variant="outline" size="sm" onClick={refresh} disabled={activeQ.isFetching}
+              className="border-slate-700 text-slate-300 hover:text-white" data-testid="btn-refresh">
+              <RefreshCw className={cn("w-3.5 h-3.5 mr-1.5", activeQ.isFetching && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tab bar ───────────────────────────────────────────────────────── */}
+      <div className="border-b border-slate-800 bg-slate-900/30 px-6">
+        <div className="max-w-screen-2xl mx-auto flex gap-0 overflow-x-auto">
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              data-testid={`tab-${t.id}`}
+              onClick={() => { setActiveTab(t.id); setSearch(""); }}
+              className={cn(
+                "flex items-center gap-2 px-4 py-3 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0",
+                activeTab === t.id
+                  ? "border-violet-500 text-violet-300"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
+              )}
+            >
+              <t.icon className="w-3.5 h-3.5" />
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Content ───────────────────────────────────────────────────────── */}
+      <div className="max-w-screen-2xl mx-auto px-6 py-6 space-y-5">
+
+        {/* ════════════════════════════════════════════════════════════════════
+            TAB 1 · Recording Integrity
+        ════════════════════════════════════════════════════════════════════ */}
+        {activeTab === "recording" && (
+          <>
+            {/* SSH connectivity status card */}
+            <div className={cn(
+              "flex items-center gap-3 rounded-lg border p-3 text-sm transition-colors",
+              sshCheckQ.isLoading
+                ? "border-slate-700/40 bg-slate-800/30 text-slate-400"
+                : sshCheckQ.data?.connected
+                ? "border-emerald-700/40 bg-emerald-900/20 text-emerald-300"
+                : sshCheckQ.data
+                ? "border-red-700/40 bg-red-900/20 text-red-300"
+                : "border-slate-700/40 bg-slate-800/30 text-slate-400"
+            )} data-testid="card-ssh-status">
+              {sshCheckQ.isLoading
+                ? <RefreshCw className="w-4 h-4 shrink-0 animate-spin" />
+                : sshCheckQ.data?.connected
+                ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+                : <XCircle className="w-4 h-4 shrink-0" />}
+              <div className="flex-1 min-w-0">
+                {sshCheckQ.isLoading
+                  ? <span>Checking Asterisk SSH connectivity…</span>
+                  : sshCheckQ.data?.connected
+                  ? <>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                        <span className="font-semibold">Asterisk SSH reachable</span>
+                        <span className="text-xs opacity-70">{sshCheckQ.data.host} as {sshCheckQ.data.user}</span>
+                        {sshCheckQ.data.tested?.length > 0 && (
+                          <span className="text-xs">
+                            Files: <span className={sshCheckQ.data.tested.filter((t: any) => t.exists).length === sshCheckQ.data.tested.length ? "text-emerald-400" : "text-red-400 font-semibold"}>
+                              {sshCheckQ.data.tested.filter((t: any) => t.exists).length}/{sshCheckQ.data.tested.length} recent found
+                            </span>
+                          </span>
+                        )}
+                        {sshCheckQ.data.diskInfo && (
+                          <span className={cn("text-xs font-mono px-1.5 py-0.5 rounded", 
+                            sshCheckQ.data.diskInfo.usePct >= 95 ? "bg-red-500/20 text-red-300 font-semibold" :
+                            sshCheckQ.data.diskInfo.usePct >= 80 ? "bg-orange-500/20 text-orange-300" :
+                            "bg-slate-700/40 text-slate-400")}>
+                            Disk: {sshCheckQ.data.diskInfo.used}/{sshCheckQ.data.diskInfo.total} ({sshCheckQ.data.diskInfo.usePct}% used · {sshCheckQ.data.diskInfo.avail} free)
+                          </span>
+                        )}
+                      </div>
+                      {sshCheckQ.data.diskInfo?.usePct >= 95 && (
+                        <div className="mt-1 text-xs text-red-300 font-semibold">
+                          🚨 DISK FULL — Asterisk cannot write new recording files until space is freed. Delete old WAV files from /var/spool/asterisk/monitor/ or expand the disk volume.
+                        </div>
+                      )}
+                      {sshCheckQ.data.tested?.length > 0 && sshCheckQ.data.tested.filter((t: any) => t.exists).length === 0 && (sshCheckQ.data.diskInfo?.usePct ?? 0) < 95 && (
+                        <div className="mt-1 text-xs text-orange-300">
+                          Recent recordings not found on disk — check Asterisk Monitor/MixMonitor dialplan configuration.
+                        </div>
+                      )}
+                    </>
+                  : sshCheckQ.data
+                  ? <>
+                      <span className="font-semibold">Asterisk SSH unreachable</span>
+                      <span className="text-xs opacity-70 ml-2">{sshCheckQ.data.host}</span>
+                      {sshCheckQ.data.error && <span className="text-xs ml-2 opacity-80">— {sshCheckQ.data.error}</span>}
+                      <span className="text-xs ml-3 text-slate-400">File-stat checks and audio streaming will fail until SSH is restored.</span>
+                    </>
+                  : <span>SSH check pending…</span>}
+              </div>
+              <Button size="sm" variant="ghost" className="text-xs shrink-0 text-slate-400 hover:text-white"
+                onClick={() => sshCheckQ.refetch()} disabled={sshCheckQ.isFetching}
+                data-testid="btn-ssh-recheck">
+                Recheck
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+              <SummaryCard label="Completed Calls"    value={recordingQ.data?.summary?.total       ?? "…"} />
+              <SummaryCard label="Has Path"           value={recordingQ.data?.summary?.hasPath     ?? "…"} color="text-blue-300" />
+              <SummaryCard label="No Path"            value={recordingQ.data?.summary?.noPath      ?? "…"} color="text-slate-400" />
+              <SummaryCard label="File OK"            value={recordingQ.data?.summary?.fileOk      ?? "…"} color="text-emerald-400" />
+              <SummaryCard label="File Missing"       value={recordingQ.data?.summary?.fileMissing ?? "…"} color="text-red-400" />
+              <SummaryCard label="Empty (0 B)"        value={recordingQ.data?.summary?.fileEmpty   ?? "…"} color="text-orange-400" />
+              <SummaryCard
+                label="File OK Rate"
+                value={recordingQ.data?.summary?.successPct !== null && recordingQ.data?.summary?.successPct !== undefined
+                  ? `${recordingQ.data.summary.successPct}%`
+                  : "—"}
+                sub={recordingQ.data?.summary?.checkedCount != null
+                  ? `of ${recordingQ.data.summary.checkedCount} checked`
+                  : "SSH not checked"}
+                color={
+                  recordingQ.data?.summary?.successPct == null ? "text-slate-400" :
+                  recordingQ.data.summary.successPct >= 90 ? "text-emerald-400" :
+                  recordingQ.data.summary.successPct >= 60 ? "text-yellow-400" : "text-red-400"
+                }
+              />
+            </div>
+
+            {(recordingQ.data?.summary?.fileMissing ?? 0) > 0 && (
+              <AlertBanner icon={AlertTriangle} color="border-red-500/30 bg-red-500/10 text-red-300"
+                title="Recording files missing on Asterisk"
+                body={`${recordingQ.data.summary.fileMissing} recording(s) have a path in the DB but the file is absent on the Asterisk server. This is a live production defect — investigate before enabling billing verification.`} />
+            )}
+            {recordingQ.data?.summary?.successPct === null && recordingQ.data?.summary?.total > 0 && (
+              <AlertBanner icon={Info} color="border-blue-500/30 bg-blue-500/10 text-blue-300"
+                title="File-stat check did not run"
+                body="The SFTP batch check returned no results. This usually means the SSH connection to Asterisk failed. Use the Recheck button above to diagnose." />
+            )}
+
+            <SearchBox value={search} onChange={setSearch} testId="input-recording-search" />
+
+            <TableShell>
+              <thead className="bg-slate-800/80">
+                <tr>
+                  <TH>#</TH><TH>CLI</TH><TH>CLD</TH><TH>Start (UTC)</TH>
+                  <TH>Recording Path</TH><TH>Status</TH><TH>Size</TH><TH>Play</TH>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {recordingQ.isLoading || recCalls.length === 0
+                  ? <EmptyRow cols={8} loading={recordingQ.isLoading} />
+                  : recCalls.map((c: any) => (
+                    <tr key={c.id} className="hover:bg-slate-800/30" data-testid={`row-recording-${c.id}`}>
+                      <TD mono muted>{c.id}</TD>
+                      <TD mono>{c.caller ?? "—"}</TD>
+                      <TD mono>{c.callee ?? "—"}</TD>
+                      <TD muted>{fmtTime(c.startTime)}</TD>
+                      <td className="px-3 py-2 font-mono text-xs text-slate-500 max-w-xs truncate" title={c.recordingPath ?? ""}>
+                        {c.recordingPath ?? <span className="text-slate-700">none</span>}
+                      </td>
+                      <td className="px-3 py-2"><FileStatusBadge status={c.fileStatus} /></td>
+                      <TD muted>{fmtBytes(c.fileSize)}</TD>
+                      <td className="px-3 py-2 min-w-[220px]">
+                        {c.recordingPath ? (
+                          playingId === c.id
+                            ? <audio
+                                autoPlay
+                                controls
+                                preload="auto"
+                                className="h-8 w-52 accent-violet-500"
+                                src={`/api/call-governance/recordings/stream?path=${encodeURIComponent(c.recordingPath)}`}
+                                onEnded={() => setPlayingId(null)}
+                                data-testid={`audio-${c.id}`}
+                              />
+                            : <button
+                                onClick={() => setPlayingId(c.id)}
+                                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1.5 px-2 py-1 rounded border border-blue-500/20 hover:border-blue-400/40 transition-colors"
+                                data-testid={`btn-play-${c.id}`}
+                              >
+                                <Download className="w-3 h-3" />Play
+                              </button>
+                        ) : (
+                          <span className="text-slate-600 text-xs">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </TableShell>
+            {recCalls.length > 0 && (
+              <p className="text-xs text-slate-500">
+                {recCalls.length} completed calls shown · SFTP file-stat run on first 100 recording paths · File OK Rate = ok ÷ checked (not ÷ total)
+              </p>
+            )}
+          </>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════════
+            TAB 2 · CDR Reconciliation
+        ════════════════════════════════════════════════════════════════════ */}
+        {activeTab === "cdr" && (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+              <SummaryCard label="Total Calls"   value={cdrQ.data?.summary?.total       ?? "…"} />
+              <SummaryCard label="Completed"     value={cdrQ.data?.summary?.completed   ?? "…"} color="text-blue-300" />
+              <SummaryCard label="Matched"       value={cdrQ.data?.summary?.matched     ?? "…"} color="text-emerald-400" />
+              <SummaryCard label="Missing"       value={cdrQ.data?.summary?.missing     ?? "…"} color="text-red-400" />
+              <SummaryCard label="Partial"       value={cdrQ.data?.summary?.partial     ?? "…"} color="text-yellow-400" />
+              <SummaryCard label="Pending"       value={cdrQ.data?.summary?.pending     ?? "…"} color="text-slate-400" />
+              <SummaryCard label="Match Rate"    value={`${cdrQ.data?.summary?.matchRatePct ?? "…"}%`}
+                color={(cdrQ.data?.summary?.matchRatePct ?? 0) >= 90 ? "text-emerald-400" :
+                       (cdrQ.data?.summary?.matchRatePct ?? 0) >= 60 ? "text-yellow-400" : "text-red-400"} />
+            </div>
+
+            {(cdrQ.data?.summary?.matchRatePct ?? 0) < 90 && cdrQ.data?.summary?.completed > 0 && (
+              <AlertBanner icon={AlertTriangle} color="border-yellow-500/30 bg-yellow-500/10 text-yellow-300"
+                title="Match rate below 90% target"
+                body={`Current match rate is ${cdrQ.data.summary.matchRatePct}%. Billing Verification should not be trusted until this reaches ≥90%.`} />
+            )}
+
+            <SearchBox value={search} onChange={setSearch} testId="input-cdr-search" />
+
+            <TableShell>
+              <thead className="bg-slate-800/80">
+                <tr>
+                  <TH>#</TH><TH>CLI</TH><TH>CLD</TH><TH>Start (UTC)</TH>
+                  <TH>Match</TH><TH>Cust CDR</TH><TH>P&amp;L Cost</TH>
+                  <TH>Vendor Cost</TH><TH>Vendor</TH><TH>Dur</TH><TH>Checked</TH>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {cdrQ.isLoading || cdrCalls.length === 0
+                  ? <EmptyRow cols={11} loading={cdrQ.isLoading} />
+                  : cdrCalls.map((c: any) => (
+                    <tr key={c.id} className="hover:bg-slate-800/30" data-testid={`row-cdr-${c.id}`}>
+                      <TD mono muted>{c.id}</TD>
+                      <TD mono>{c.caller ?? "—"}</TD>
+                      <TD mono>{c.callee ?? "—"}</TD>
+                      <TD muted>{fmtTime(c.startTime)}</TD>
+                      <td className="px-3 py-2"><MatchBadge status={c.matchStatus} /></td>
+                      <td className="px-3 py-2">
+                        {c.customerCdrFound
+                          ? <span className="text-xs text-emerald-400 font-mono">Found</span>
+                          : <span className="text-xs text-slate-600">—</span>}
+                      </td>
+                      <TD mono>{fmt(c.cdrCost)}</TD>
+                      <TD mono>{fmt(c.cdrVendorCost)}</TD>
+                      <td className="px-3 py-2 text-xs text-slate-400 max-w-32 truncate" title={c.cdrVendorName ?? ""}>{c.cdrVendorName ?? "—"}</td>
+                      <TD muted>{c.cdrDuration != null ? `${c.cdrDuration}s` : "—"}</TD>
+                      <TD muted>{fmtTime(c.cdrCheckedAt)}</TD>
+                    </tr>
+                  ))}
+              </tbody>
+            </TableShell>
+            {cdrCalls.length > 0 && (
+              <p className="text-xs text-slate-500">
+                {cdrCalls.length} calls · Customer CDR checked against live cdrCache · P&amp;L from Track 2b
+              </p>
+            )}
+          </>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════════
+            TAB 3 · Identity Audit
+        ════════════════════════════════════════════════════════════════════ */}
+        {activeTab === "identity" && (
+          <>
+            {identityQ.data?.summary?.recommendation && (
+              <AlertBanner icon={Fingerprint} color="border-violet-500/30 bg-violet-500/10 text-violet-200"
+                title="Reconciliation Key Recommendation"
+                body={identityQ.data.summary.recommendation} />
+            )}
+
+            {identityQ.data?.summary && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4 space-y-3">
+                  <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5 text-blue-400" /> SIP Call-ID Coverage
+                  </div>
+                  {[
+                    { label: "Governed Call",           count: identityQ.data.summary.callIdCoverage.governedCall },
+                    { label: "Customer CDR (cdrCache)", count: identityQ.data.summary.callIdCoverage.customerCdr },
+                    { label: "P&L (resolved)",          count: identityQ.data.summary.callIdCoverage.pnl },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">{row.label}</span>
+                      <span className={cn("text-xs font-mono font-semibold",
+                        row.count / Math.max(identityQ.data.summary.total, 1) > 0.8 ? "text-emerald-400" :
+                        row.count > 0 ? "text-yellow-400" : "text-slate-600"
+                      )}>
+                        {row.count}/{identityQ.data.summary.total} ({pct(row.count, identityQ.data.summary.total)})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4 space-y-3">
+                  <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                    <FileSearch className="w-3.5 h-3.5 text-amber-400" /> CLD Coverage (suffix-10)
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400">Customer CDR</span>
+                    <span className={cn("text-xs font-mono font-semibold",
+                      identityQ.data.summary.cldCoverage.customerCdr / Math.max(identityQ.data.summary.total, 1) > 0.8
+                        ? "text-emerald-400" : "text-yellow-400"
+                    )}>
+                      {identityQ.data.summary.cldCoverage.customerCdr}/{identityQ.data.summary.total}&nbsp;
+                      ({pct(identityQ.data.summary.cldCoverage.customerCdr, identityQ.data.summary.total)})
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600">Suffix-10 match — cross-product collision risk exists</p>
+                </div>
+                <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4 space-y-3">
+                  <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                    <Shield className="w-3.5 h-3.5 text-emerald-400" /> CLI Coverage
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400">Customer CDR (exact)</span>
+                    <span className={cn("text-xs font-mono font-semibold",
+                      identityQ.data.summary.cliCoverage.customerCdr / Math.max(identityQ.data.summary.total, 1) > 0.8
+                        ? "text-emerald-400" : "text-yellow-400"
+                    )}>
+                      {identityQ.data.summary.cliCoverage.customerCdr}/{identityQ.data.summary.total}&nbsp;
+                      ({pct(identityQ.data.summary.cliCoverage.customerCdr, identityQ.data.summary.total)})
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <SearchBox value={search} onChange={setSearch} testId="input-identity-search" />
+
+            <TableShell>
+              <thead className="bg-slate-800/80">
+                <tr>
+                  <TH>#</TH><TH>CLI</TH><TH>CLD</TH><TH>Product</TH><TH>SIP Call-ID</TH>
+                  <TH center>GC ID</TH><TH center>Cust CDR</TH><TH center>P&amp;L</TH>
+                  <TH center>CLD</TH><TH center>CLI</TH><TH>CDR</TH>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {identityQ.isLoading || idCalls.length === 0
+                  ? <EmptyRow cols={11} loading={identityQ.isLoading} />
+                  : idCalls.map((c: any) => (
+                    <tr key={c.id} className="hover:bg-slate-800/30" data-testid={`row-identity-${c.id}`}>
+                      <TD mono muted>{c.id}</TD>
+                      <TD mono>{c.caller ?? "—"}</TD>
+                      <TD mono>{c.callee ?? "—"}</TD>
+                      <td className="px-3 py-2 text-xs">
+                        <span className={cn("font-mono px-1.5 py-0.5 rounded text-xs",
+                          c.productPrefix.startsWith("1") ? "bg-blue-500/15 text-blue-300" :
+                          c.productPrefix.startsWith("2") ? "bg-cyan-500/15 text-cyan-300" :
+                          c.productPrefix.startsWith("6") ? "bg-purple-500/15 text-purple-300" :
+                          c.productPrefix.startsWith("7") ? "bg-amber-500/15 text-amber-300" :
+                          "bg-slate-500/15 text-slate-400"
+                        )}>{c.productPrefix}</span>
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs text-slate-500 max-w-40 truncate" title={c.vendorCallId ?? ""}>
+                        {c.vendorCallId ? c.vendorCallId.slice(0, 22) + "…" : <span className="text-slate-700">none</span>}
+                      </td>
+                      <td className="px-3 py-2 text-center"><Check v={c.callIdInGovernedCall} /></td>
+                      <td className="px-3 py-2 text-center"><Check v={c.callIdInCustomerCdr} /></td>
+                      <td className="px-3 py-2 text-center"><Check v={c.callIdInPnl} /></td>
+                      <td className="px-3 py-2 text-center"><Check v={c.cldInCustomerCdr} /></td>
+                      <td className="px-3 py-2 text-center"><Check v={c.cliInCustomerCdr} /></td>
+                      <td className="px-3 py-2">
+                        {c.cdrStatus
+                          ? <MatchBadge status={c.cdrStatus === "ok" ? "matched" : c.cdrStatus === "no_cdr" ? "missing" : "partial"} />
+                          : <span className="text-slate-600 text-xs">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </TableShell>
+
+            <div className="rounded-lg border border-slate-700/40 bg-slate-800/30 p-4 text-xs text-slate-400 space-y-1">
+              <div className="font-semibold text-slate-300 mb-1">Decision gate — when to proceed</div>
+              <div>If <span className="text-blue-300">Call-ID spans Governed + Customer CDR (&gt;80%)</span> → use Call-ID as master reconciliation key. CCI build scope shrinks significantly.</div>
+              <div>If <span className="text-amber-300">nothing spans all systems reliably</span> → CCI (call_uuid + product_code + original_cld) must be built before Billing Verification.</div>
+            </div>
+          </>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════════
+            TAB 4 · Vendor Cost Validation
+        ════════════════════════════════════════════════════════════════════ */}
+        {activeTab === "vendor" && (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+              <SummaryCard label="P&L Matched Calls"   value={vendorQ.data?.summary?.resolved      ?? "…"} />
+              <SummaryCard label="With Vendor Cost"    value={vendorQ.data?.summary?.withVendorCost ?? "…"}
+                color={vendorQ.data?.summary?.vendorCostPopulated ? "text-emerald-400" : "text-red-400"} />
+              <SummaryCard label="Vendor Cost Gap"     value={vendorQ.data?.summary?.vendorCostGap  ?? "…"}
+                color={(vendorQ.data?.summary?.vendorCostGap ?? 0) > 0 ? "text-orange-400" : "text-emerald-400"} />
+              <SummaryCard label="Negative Margin"     value={vendorQ.data?.summary?.negativeMargin ?? "…"}
+                color={(vendorQ.data?.summary?.negativeMargin ?? 0) > 0 ? "text-red-400" : "text-emerald-400"} />
+              <SummaryCard label="Avg Margin %"
+                value={vendorQ.data?.summary?.avgMarginPct != null ? `${vendorQ.data.summary.avgMarginPct}%` : "—"}
+                color="text-blue-300" />
+              <SummaryCard label="Vendor Cost Status"
+                value={vendorQ.data?.summary?.vendorCostPopulated ? "Populated" : "Missing"}
+                color={vendorQ.data?.summary?.vendorCostPopulated ? "text-emerald-400" : "text-red-400"} />
+            </div>
+
+            {!vendorQ.data?.summary?.vendorCostPopulated && vendorQ.data?.summary?.gapReason && (
+              <AlertBanner icon={Info} color="border-orange-500/30 bg-orange-500/10 text-orange-200"
+                title="Vendor cost not yet extracted"
+                body={vendorQ.data.summary.gapReason} />
+            )}
+
+            {vendorQ.data?.summary?.vendorCostPopulated && (vendorQ.data?.summary?.negativeMargin ?? 0) > 0 && (
+              <AlertBanner icon={AlertTriangle} color="border-red-500/30 bg-red-500/10 text-red-300"
+                title={`${vendorQ.data.summary.negativeMargin} calls have negative margin`}
+                body="Revenue is below vendor cost for these calls. Stop all margin-related work until this is resolved." />
+            )}
+
+            <SearchBox value={search} onChange={setSearch} testId="input-vendor-search" />
+
+            <TableShell>
+              <thead className="bg-slate-800/80">
+                <tr>
+                  <TH>#</TH><TH>CLI</TH><TH>P&amp;L CLD</TH><TH>Start (UTC)</TH>
+                  <TH>P&amp;L Status</TH><TH>Revenue (USD)</TH><TH>Vendor Cost</TH>
+                  <TH>Margin</TH><TH>Margin %</TH><TH>Eff. Rate/min</TH><TH>Dur</TH><TH>Vendor/Conn</TH>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {vendorQ.isLoading || vendorCalls.length === 0
+                  ? <EmptyRow cols={12} loading={vendorQ.isLoading} />
+                  : vendorCalls.map((c: any) => (
+                    <tr key={c.id} className="hover:bg-slate-800/30" data-testid={`row-vendor-${c.id}`}>
+                      <TD mono muted>{c.id}</TD>
+                      <TD mono>{c.caller ?? "—"}</TD>
+                      <TD mono>{c.cdrCallee ?? c.callee ?? "—"}</TD>
+                      <TD muted>{fmtTime(c.startTime)}</TD>
+                      <td className="px-3 py-2"><MatchBadge status={c.cdrStatus === "ok" ? "matched" : c.cdrStatus === "no_cdr" ? "missing" : "pending"} /></td>
+                      <TD mono>{fmt(c.cdrCost)}</TD>
+                      <td className="px-3 py-2">
+                        {c.cdrVendorCost !== null
+                          ? <span className="font-mono text-xs text-slate-300">{fmt(c.cdrVendorCost)}</span>
+                          : <span className="text-xs text-slate-600 italic">not extracted</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        {c.margin !== null
+                          ? <span className={cn("font-mono text-xs", c.marginFlag === "negative" ? "text-red-400" : "text-emerald-400")}>
+                              {c.margin >= 0 ? "+" : ""}{fmt(c.margin)}
+                            </span>
+                          : <span className="text-xs text-slate-600">—</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        {c.marginPct !== null
+                          ? <span className={cn("font-mono text-xs", c.marginFlag === "negative" ? "text-red-400" : "text-emerald-400")}>
+                              {c.marginPct.toFixed(1)}%
+                            </span>
+                          : <span className="text-xs text-slate-600">—</span>}
+                      </td>
+                      <TD mono>{fmtRate(c.effectiveRatePerMin)}</TD>
+                      <TD muted>{c.cdrDuration != null ? `${c.cdrDuration}s` : "—"}</TD>
+                      <td className="px-3 py-2 text-xs text-slate-500 max-w-36 truncate" title={c.cdrVendorName ?? ""}>{c.cdrVendorName ?? "—"}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </TableShell>
+
+            <div className="rounded-lg border border-emerald-700/40 bg-emerald-900/20 p-4 text-xs text-slate-300 space-y-1">
+              <div className="font-semibold text-emerald-300 mb-1">P3.1 Fix Applied ✓</div>
+              <div>
+                The P&amp;L scraper now correctly reads both columns:
+                <span className="text-emerald-300 font-mono ml-1">Revenue, USD</span> → <code className="text-slate-300">cdrCost</code> (customer billing) and
+                <span className="text-amber-300 font-mono ml-1">Cost, USD</span> → <code className="text-slate-300">cdrVendorCost</code> (vendor buying cost).
+              </div>
+              <div>All calls resolved <span className="font-semibold">from this point forward</span> will have both values populated and margin will compute correctly.</div>
+              <div className="text-slate-500 pt-1">
+                Historical calls (resolved before P3.1) have <code>cdrVendorCost = NULL</code> and their <code>cdrCost</code> contains the old Cost column value — they cannot be backfilled via the portal (beyond the 2-hour visibility window).
+                Use the forced billing-backfill endpoint only for calls within the last 2 hours if you want to correct recent ones.
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════════
+            TAB 5 · Commercial Identity Audit
+            Dynamic — driven by product_prefixes table, no hardcoding.
+            Client / vendor / country / route agnostic.
+        ════════════════════════════════════════════════════════════════════ */}
+        {activeTab === "commercial" && (
+          <>
+            {/* ── Top metrics ── */}
+            {commercialQ.data?.summary && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <SummaryCard label="Total Calls" value={commercialQ.data.summary.total ?? "…"} />
+                <SummaryCard
+                  label="Classified"
+                  value={commercialQ.data.summary.classified ?? "…"}
+                  color="text-emerald-400"
+                  sub={`${commercialQ.data.summary.classifiedPct ?? 0}% of traffic`}
+                />
+                <SummaryCard
+                  label="Unclassified"
+                  value={commercialQ.data.summary.unclassified ?? "…"}
+                  color={(commercialQ.data.summary.unclassified ?? 0) > 0 ? "text-orange-400" : "text-emerald-400"}
+                  sub={`${100 - (commercialQ.data.summary.classifiedPct ?? 0)}% — no matching prefix`}
+                />
+                <SummaryCard
+                  label="Registered Prefixes"
+                  value={commercialQ.data.summary.knownPrefixes?.length ?? "…"}
+                  color="text-slate-300"
+                  sub={commercialQ.data.summary.knownPrefixes?.join(", ") ?? ""}
+                />
+              </div>
+            )}
+
+            {/* ── Per-product breakdown — fully dynamic ── */}
+            {commercialQ.data?.summary?.byProduct &&
+              Object.keys(commercialQ.data.summary.byProduct).length > 0 && (
+              <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4">
+                <div className="text-xs font-semibold text-slate-300 mb-3">Classified Traffic by Product</div>
+                <div className="flex flex-wrap gap-4">
+                  {Object.entries(commercialQ.data.summary.byProduct).map(([code, count]: any) => (
+                    <div key={code} className="flex items-center gap-2">
+                      <ProductBadge code={code} name={code} />
+                      <span className="font-mono text-sm text-white">{count.toLocaleString()}</span>
+                      <span className="text-xs text-slate-400">calls</span>
+                      {commercialQ.data.summary.avgEffectiveRateByProduct?.[code] != null && (
+                        <span className="text-xs text-slate-500 font-mono">
+                          @ {fmtRate(commercialQ.data.summary.avgEffectiveRateByProduct[code])} USD/min
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Unclassified prefix triage ── */}
+            {commercialQ.data?.summary?.byUnknownPrefix &&
+              Object.keys(commercialQ.data.summary.byUnknownPrefix).length > 0 && (
+              <AlertBanner icon={Info} color="border-orange-500/30 bg-orange-500/10 text-orange-200"
+                title={`${commercialQ.data.summary.unclassified} calls have no registered product prefix`}
+                body={`Prefix breakdown: ${Object.entries(commercialQ.data.summary.byUnknownPrefix)
+                  .map(([p, n]) => `"${p}xxx" = ${n} calls`).join(" · ")}. Add these prefixes to the product_prefixes table to classify them.`} />
+            )}
+
+            <SearchBox value={search} onChange={setSearch} testId="input-commercial-search" />
+
+            <TableShell>
+              <thead className="bg-slate-800/80">
+                <tr>
+                  <TH>#</TH><TH>CLI</TH><TH>Governed CLD</TH><TH>CDR CLD</TH>
+                  <TH>Prefix</TH><TH>Product</TH><TH>Source</TH>
+                  <TH>Eff. Rate/min</TH><TH>Revenue</TH><TH>Dur</TH>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {commercialQ.isLoading || commercialCalls.length === 0
+                  ? <EmptyRow cols={10} loading={commercialQ.isLoading} />
+                  : commercialCalls.map((c: any) => (
+                    <tr key={c.id} className="hover:bg-slate-800/30" data-testid={`row-commercial-${c.id}`}>
+                      <TD mono muted>{c.id}</TD>
+                      <TD mono>{c.caller ?? "—"}</TD>
+                      <TD mono muted clamp>{c.callee ?? "—"}</TD>
+                      <td className="px-3 py-2 font-mono text-xs text-slate-300 max-w-36 truncate" title={c.cdrCallee ?? ""}>
+                        {c.cdrCallee ?? <span className="text-slate-600">—</span>}
+                      </td>
+                      <td className="px-3 py-2 text-xs font-mono">
+                        {c.detectedPrefix
+                          ? <span className="text-emerald-400">{c.detectedPrefix}</span>
+                          : <span className="text-slate-600">{c.callee ? String(c.callee)[0] : "?"}?</span>}
+                      </td>
+                      <td className="px-3 py-2">
+                        <ProductBadge code={c.productCode} name={c.productName} />
+                      </td>
+                      <td className="px-3 py-2">
+                        {c.classificationSource === 'governed_callee'
+                          ? <span className="text-xs text-emerald-400 font-mono">dial</span>
+                          : c.classificationSource === 'cdr_callee'
+                          ? <span className="text-xs text-yellow-400 font-mono">cdr</span>
+                          : <span className="text-xs text-slate-600 font-mono">none</span>}
+                      </td>
+                      <TD mono>{fmtRate(c.effectiveRatePerMin)}</TD>
+                      <TD mono>{fmt(c.cdrCost)}</TD>
+                      <TD muted>{c.cdrDuration != null ? `${c.cdrDuration}s` : "—"}</TD>
+                    </tr>
+                  ))}
+              </tbody>
+            </TableShell>
+
+            <div className="rounded-lg border border-slate-700/40 bg-slate-800/30 p-4 text-xs text-slate-400 space-y-1">
+              <div className="font-semibold text-slate-300 mb-1">Commercial Identity — Architecture</div>
+              <div>
+                <span className="text-slate-300">Classification source</span> — <span className="text-emerald-300 font-mono">dial</span> = classified from the governed callee first digit (available for 100% of calls).
+                <span className="text-yellow-300 font-mono ml-1">cdr</span> = fallback from P&amp;L CLD (only available after CDR enrichment).
+              </div>
+              <div>
+                <span className="text-slate-300">Extending the model</span> — Add any new prefix → product mapping to the <code className="text-slate-300">product_prefixes</code> table.
+                No code changes required. Supports any number of products, vendors, routes, and countries.
+              </div>
+              <div>
+                <span className="text-slate-300">Unclassified traffic</span> — Calls whose first digit is not in the registry. Classify or leave as-is — they are tracked separately and never forced into an existing product.
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════════
+            TAB 6 · Cost Coverage Diagnostic
+            Enrichment funnel: Completed → Checked → Matched → Enriched
+            Shows exactly where vendor cost coverage collapses, for 3 windows.
+        ════════════════════════════════════════════════════════════════════ */}
+        {activeTab === "coverage" && (
+          <>
+            {/* ── P&L cache health ── */}
+            {coverageQ.data?.meta && (
+              <div className="flex flex-wrap items-center gap-3">
+                <div className={cn(
+                  "flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border font-mono shrink-0",
+                  coverageQ.data.meta.pnlCacheHealthy
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                    : "bg-red-500/10 border-red-500/30 text-red-300"
+                )}>
+                  <div className={cn("w-1.5 h-1.5 rounded-full", coverageQ.data.meta.pnlCacheHealthy ? "bg-emerald-400" : "bg-red-400")} />
+                  P&L CSV cache: {coverageQ.data.meta.pnlCacheSize.toLocaleString()} rows
+                </div>
+                {coverageQ.data.meta.diagnosis?.map((d: string, i: number) => (
+                  <div key={i} className="text-xs text-slate-400 bg-slate-800/40 border border-slate-700/50 rounded px-3 py-1.5">
+                    {d}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {coverageQ.isLoading && (
+              <div className="text-center py-12 text-slate-500 text-sm">Loading coverage data…</div>
+            )}
+
+            {/* ── Three-window funnel ── */}
+            {coverageQ.data?.windows && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {coverageQ.data.windows.map((w: any) => (
+                  <div key={w.window} className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-200 font-semibold text-sm">{w.window} window</span>
+                      <span className={cn(
+                        "text-xs px-2 py-0.5 rounded-full font-mono border",
+                        w.rates.enrichedOfAll >= 50
+                          ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
+                          : w.rates.enrichedOfAll >= 20
+                          ? "bg-yellow-500/15 border-yellow-500/30 text-yellow-300"
+                          : "bg-red-500/15 border-red-500/30 text-red-300"
+                      )}>
+                        {w.rates.enrichedOfAll}% enriched
+                      </span>
+                    </div>
+
+                    {[
+                      { label: "Completed",  value: w.funnel.completed,  note: "BYE received",                              barColor: "bg-slate-500" },
+                      { label: "Checked",    value: w.funnel.checked,    note: `${w.rates.checkedPct}% of completed`,       barColor: "bg-blue-500" },
+                      { label: "Matched",    value: w.funnel.matched,    note: `${w.rates.matchedPct}% of checked`,         barColor: w.rates.matchedPct >= 60 ? "bg-emerald-500" : "bg-orange-500" },
+                      { label: "Enriched",   value: w.funnel.enriched,   note: `${w.rates.enrichedPct}% of matched`,        barColor: w.rates.enrichedPct >= 60 ? "bg-emerald-400" : "bg-red-500" },
+                    ].map((step, i, arr) => (
+                      <div key={step.label}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-slate-400">{step.label}</span>
+                          <span className="text-sm font-bold tabular-nums text-slate-200">{step.value.toLocaleString()}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-slate-700/60 overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full", step.barColor)}
+                            style={{ width: `${w.funnel.completed > 0 ? Math.round((step.value / w.funnel.completed) * 100) : 0}%` }}
+                          />
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5">{step.note}</div>
+                        {i < arr.length - 1 && (
+                          <div className="flex justify-center mt-2">
+                            <ChevronRight className="w-3 h-3 text-slate-600 rotate-90" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    <div className="border-t border-slate-700/50 pt-3 space-y-1.5 text-xs">
+                      {w.funnel.timedOut > 0 && (
+                        <div className="flex justify-between text-red-400">
+                          <span>Timed out (past 2h window)</span>
+                          <span className="font-mono font-semibold">{w.funnel.timedOut.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.funnel.recoverable > 0 && (
+                        <div className="flex justify-between text-yellow-400">
+                          <span>Recoverable (still in window)</span>
+                          <span className="font-mono font-semibold">{w.funnel.recoverable.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.funnel.unchecked > 0 && (
+                        <div className="flex justify-between text-slate-400">
+                          <span>Unchecked</span>
+                          <span className="font-mono font-semibold">{w.funnel.unchecked.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.funnel.flagged > 0 && (
+                        <div className="flex justify-between text-amber-400">
+                          <span>Flagged (duration / margin)</span>
+                          <span className="font-mono font-semibold">{w.funnel.flagged.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {w.timing.p50CheckLagMin != null && (
+                        <div className="flex justify-between text-slate-500">
+                          <span>P50 check lag</span>
+                          <span className="font-mono">{w.timing.p50CheckLagMin} min</span>
+                        </div>
+                      )}
+                      {(w.triage.noCdrBc > 0 || w.triage.noCdrPtcl > 0) && (
+                        <div className="text-slate-500 pt-1 border-t border-slate-700/30 font-mono">
+                          no_cdr: BC={w.triage.noCdrBc.toLocaleString()} · PTCL={w.triage.noCdrPtcl.toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="rounded-lg border border-slate-700/40 bg-slate-800/30 p-4 text-xs text-slate-400 space-y-2">
+              <div className="font-semibold text-slate-300 mb-1">Root Cause Analysis — Fixes Applied</div>
+              <div>
+                <span className="text-emerald-300 font-semibold">Track 1c (CLD +1 prefix):</span>{" "}
+                XML-RPC was querying CLD <code className="text-slate-300">923xxxxxxxx</code> but Sippy stores <code className="text-slate-300">1923xxxxxxxx</code> (E.164).
+                Track 1c now retries with the leading-1 format. Applies to all new calls going forward.
+              </div>
+              <div>
+                <span className="text-emerald-300 font-semibold">pnlCache vendor cost fallback:</span>{" "}
+                Track 2b (per-call P&L scrape) had a global concurrency lock — only 2 calls/week got vendor cost.
+                The pnlCache (10-min refresh, 24h rolling window) is now the primary vendor cost source, matched by CLD suffix + ±15 min.
+              </div>
+              <div>
+                <span className="text-slate-400 font-semibold">Open — historical backfill:</span>{" "}
+                Calls older than 24h with <code className="text-slate-300">no_cdr</code> or missing vendor cost cannot be enriched automatically.
+                Scope from the "Timed Out" row above, then decide whether a backfill job is warranted.
+              </div>
+            </div>
+          </>
+        )}
+
+      </div>
+    </div>
+  );
+}

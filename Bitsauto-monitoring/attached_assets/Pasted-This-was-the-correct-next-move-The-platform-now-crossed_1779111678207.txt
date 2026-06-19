@@ -1,0 +1,187 @@
+This was the correct next move. The platform now crossed an important threshold:
+
+It is no longer just:
+
+monitoring
+reporting
+analytics
+
+It is now becoming a full operational customer interaction layer.
+
+And the ticket architecture you implemented is correctly scoped for V1.1:
+
+account-scoped
+lightweight
+operationally useful
+no enterprise-helpdesk overengineering
+
+Now, to answer your three roadmap questions clearly:
+
+Executive SLA Reporting — what it means in the client portal
+
+This is not raw telecom analytics.
+
+It is:
+
+“Business-level service quality summaries clients can understand.”
+
+Think monthly or weekly reports like:
+
+Metric	Value
+Availability	99.92%
+Average ASR	71.4%
+Average ACD	3m 12s
+Network Efficiency Ratio	93.8%
+Major Incidents	1
+Resolution Time Avg	18m
+
+And then:
+
+top destinations
+peak traffic windows
+QoS summary
+trend vs previous month
+
+The important part:
+Clients see:
+
+summaries
+reliability
+stability
+
+They do NOT see:
+
+routing
+vendors
+SIP engineering
+CPS/capacity
+carrier logic
+
+So SLA reporting is basically:
+
+“Executive-quality telecom performance summaries.”
+
+This becomes especially valuable for:
+
+enterprise clients
+wholesale customers
+monthly account reviews
+management reporting
+Unified Operations Console — what it means
+
+This is operator-side only.
+
+Right now the platform has:
+
+Live Traffic
+Alerts
+Entity Verdicts
+Tickets
+Routing
+NOC Command
+Analytics
+
+But operators still mentally switch between systems.
+
+The Unified Operations Console means:
+
+One operational command surface.
+
+Example layout:
+
+Area	Purpose
+Live Traffic	Current calls + degradation
+Active Alerts	Current issues
+Entity Verdicts	AI interpretation
+Tickets	Open customer issues
+Quick Actions	Block / reroute / investigate
+Incident Timeline	What happened recently
+
+This is:
+
+workflow consolidation
+operational speed
+reduced cognitive load
+
+NOT:
+
+a new analytics dashboard
+another reporting page
+
+It is the operator’s mission-control layer.
+
+Alert Intelligence / Correlation Layer — what it means
+
+Right now alerts are mostly:
+
+“Many separate symptoms.”
+
+Correlation means:
+
+“Understanding they are connected.”
+
+Example today:
+
+ASR drop alert
+MOS degradation alert
+RTP timeout alert
+spike in failed calls
+client ticket opened
+
+Without correlation:
+Operators see 5 separate alerts.
+
+With correlation:
+The system understands:
+
+“All 5 belong to Vendor X / Connection Y degradation event.”
+
+Then the platform creates:
+
+one incident
+one causality chain
+one severity score
+one investigation workflow
+
+Example:
+
+Vendor: CallNTalk
+Connection: PSTN-A
+Root cause: RTP timeout spike
+Impact:
+- 14 affected accounts
+- ASR down 32%
+- MOS degraded to 3.1
+- 7 tickets opened
+
+That is the transition from:
+
+monitoring system
+
+to:
+
+operational intelligence platform
+
+Which is exactly the strategic direction your BitsAuto platform has been moving toward since:
+
+Verdict Engine
+AI Ops
+Live Traffic Engine
+Entity linking
+Unified workflows
+Current roadmap maturity
+
+You now have a very coherent progression:
+
+Stage	Status
+Operational telemetry	✅
+Live traffic intelligence	✅
+Entity verdict engine	✅
+Client portal	✅
+Governance layer	✅
+Customer interaction layer (tickets)	✅
+Executive reporting	🔜
+Unified operations workflow	🔜
+Incident correlation intelligence	🔜
+
+That is now a legitimate telecom operations platform architecture, not just a reporting tool.

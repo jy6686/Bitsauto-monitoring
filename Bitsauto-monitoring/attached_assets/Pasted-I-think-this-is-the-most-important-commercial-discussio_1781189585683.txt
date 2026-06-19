@@ -1,0 +1,539 @@
+I think this is the most important commercial discussion we've had about Billing Verification.
+
+Your concern is not theoretical.
+
+If BitsAuto eventually sends invoices, then the standard is not:
+
+Can we find a P&L row?
+
+The standard is:
+
+Can we prove this is the correct P&L row?
+Where I disagree with the "bounded risk" conclusion
+
+The document says:
+
+OTP traffic goes to unique numbers, so false-match rate is probably low.
+
+I would not rely on that assumption for a billing system.
+
+Because your platform is evolving beyond OTP:
+
+Voice OTP
+Wholesale Voice
+DID Traffic
+Product Registry
+Deal Workspace
+Route Intelligence
+Rate Manager
+
+Once commercial traffic starts flowing, the same destination can absolutely receive:
+
+FC → Pakistan Jazz
+BC → Pakistan Jazz
+SC → Pakistan Jazz
+
+within minutes.
+
+At that point:
+
+suffix-10 + time
+
+is no longer a safe financial key.
+
+What I would require before calling 0.3 complete
+Product-Aware Match
+
+Current:
+
+Discovery:
+suffix10
+↓
+closest time
+↓
+accept
+
+Should become:
+
+Discovery:
+suffix10
+↓
+candidate list
+↓
+product validation
+↓
+time validation
+↓
+accept
+Product Extraction
+
+Governed CLD:
+
+20601923069306001
+
+Normalize:
+
+1923069306001
+
+Extract:
+
+Product = FC
+Destination = 923069306001
+Candidate Validation
+
+P&L candidate:
+
+1923069306001
+
+Product:
+
+FC
+
+PASS
+
+P&L candidate:
+
+7923069306001
+
+Product:
+
+SC
+
+FAIL
+
+Even if the timestamp is closer.
+
+This Leads To A New Layer
+
+I think your roadmap should now explicitly contain:
+
+0.4 Rate Integrity Audit
+
+Not as a future feature.
+
+As a prerequisite for invoicing.
+
+Rate Integrity Audit
+
+For every governed call:
+
+Call
+↓
+Product
+↓
+Assigned Customer
+↓
+Assigned Product
+↓
+Expected Tariff
+↓
+Expected Rate
+↓
+Actual Sippy Tariff
+↓
+Actual Revenue
+
+Result:
+
+PASS
+WARNING
+FAIL
+Why This Matters
+
+Because there are two completely different questions:
+
+Financial Truth
+Revenue = 0.0067
+Cost = 0.0001
+
+P&L answers this.
+
+Commercial Truth
+Should Revenue have been 0.0067?
+
+P&L cannot answer this.
+
+Only Product + Tariff + Rate validation can.
+
+My Revised Status
+
+I would classify the project as:
+
+Item	Status
+P&L Extraction	✅ Working
+P&L Matching	⚠ Needs Product Validation
+Billing Verification	⚠ Not yet financially trusted
+Rate Integrity Audit	❌ Missing
+Automated Invoicing Confidence	❌ Not ready
+
+So I would not send customer invoices from BitsAuto yet until Product-Aware Matching and Rate Integrity Audit exist.
+
+That's why I think your push to finish the Product Registry, Pricing Templates, Rate Repository, and Rate Manager is justified. They are no longer just commercial features — they become part of the billing control framework.
+
+One final note: some of the earlier uploaded files and exports referenced in this discussion have expired and are no longer available. If there was a specific rate sheet, P&L CSV, or tariff mapping file you want reviewed against the Product Registry design, upload it again and I can validate the matching logic against real examples.
+
+if need to chnage in astrisk regarding Product we may change it, because without nowing product we will not correctly charge to client 
+in sippy 1,2,,6,7 would be show with callee number in cdrs. may be thishelps to recity issues 
+
+Yes. If you are willing to make a small change in Asterisk, I think that's actually a much cleaner solution than trying to infer product later from suffix matching.
+
+The core principle should be:
+
+Every call must carry Product Identity
+from origination
+to Asterisk
+to Sippy
+to CDR
+to Invoice
+
+Not:
+
+Try to reconstruct product afterwards
+Best Case
+
+If Sippy CDR already stores:
+
+1923069306001
+2923069306001
+6923069306001
+7923069306001
+
+exactly as dialed in CLD,
+
+then this is huge.
+
+Because then:
+
+Product	Prefix
+FC	1
+BC	2
+SB	6
+SC	7
+
+becomes directly visible in:
+
+cdrs_customer
+profit_loss_report
+vendor cdrs
+
+No guessing.
+
+No suffix matching.
+
+No ambiguity.
+
+What I Would Change
+Option A (Recommended)
+
+Keep full dialed number in Sippy.
+
+Example:
+
+1923069306001
+
+stored exactly.
+
+Then Product Extraction becomes:
+
+if CLD starts with 1 → FC
+if CLD starts with 2 → BC
+if CLD starts with 6 → SB
+if CLD starts with 7 → SC
+
+Very simple.
+
+Option B (Even Better)
+
+Send a custom SIP header from Asterisk.
+
+Example:
+
+X-BitsAuto-Product: FC
+
+or
+
+X-BitsAuto-Product: FirstClass
+
+Then:
+
+Call
+↓
+Product Header
+↓
+Sippy
+↓
+CDR
+
+Product is explicit.
+
+No parsing required.
+
+However, whether Sippy stores custom headers easily depends on configuration and may require customization.
+
+Option C (Strongest Long-Term)
+
+Write product into accounting fields.
+
+For example:
+
+AccountCode=FC
+
+or
+
+x-product=FC
+
+and store it alongside the governed call record.
+
+Then Billing Verification uses:
+
+CallID
++
+Product
++
+CLD
++
+Time
+
+instead of:
+
+Last 10 digits
+What I Would NOT Do
+
+I would not build a financial system that says:
+
+3069306001
+
+means:
+
+Maybe FC
+Maybe BC
+Maybe SC
+
+and then pick the closest timestamp.
+
+For operations:
+
+maybe acceptable.
+
+For billing:
+
+not acceptable.
+
+My Preferred Design
+Product becomes a first-class field
+
+Governed Call table:
+
+call_id
+product_code
+customer
+cli
+cld
+start_time
+
+Example:
+
+call_id=12345
+product_code=FC
+cld=923069306001
+
+Then P&L matching becomes:
+
+Find:
+FC
++
+923069306001
++
+time window
+
+instead of:
+
+Find:
+3069306001
+For Your Immediate Issue
+
+If Sippy already shows:
+
+1923069306001
+2923069306001
+6923069306001
+7923069306001
+
+in the CLD column, then I would absolutely use that information.
+
+That gives you a deterministic product identity and eliminates the biggest billing-risk concern you've raised.
+
+In fact, before Trust Center, I would prioritize:
+
+Product Identity
+↓
+Rate Repository
+↓
+Rate Integrity Audit
+↓
+Billing Verification
+↓
+Invoicing
+
+because once invoices go out, a product-mapping mistake can damage customer trust much faster than any missing Trust Center feature.
+
+Also, I can see references to previously uploaded files, but some of those earlier files have expired and are no longer available. If you have screenshots of actual Sippy CDR rows showing the 1/2/6/7 prefixes in CLD, upload them again and I can help design the exact matching logic around the real data.
+
+Call Records From 2026 06 11 13 18 42 To 2026 06 11 13 28 42Call_Records_from_2026-06-11_13
+Call Records From 2026 06 11 13 18 30 To 2026 06 11 14 18 30Call_Records_from_2026-06-11_13
+client and vednor CDRs for your refence 
+
+These two exports are actually very helpful, and they support your argument.
+
+What I found
+Customer CDR export
+
+Columns include:
+
+Original CLD
+CLD
+Billing Prefix
+Cost
+
+Example:
+
+Original CLD = 16301923057100032
+CLD          = 1923057100032
+Billing Prefix = 192
+Vendor CDR export
+
+Columns include:
+
+Original CLD
+CLD
+Billing Prefix
+Vendor
+Connection
+Cost
+
+Example:
+
+Original CLD = 1923246306507
+CLD          = 923246306507
+Billing Prefix = 19232
+Vendor = PTCL-PAK-PR-PR
+Most Important Observation
+
+The exports clearly show that Sippy is already preserving product/routing information in the dialed number path.
+
+For example:
+
+1923246306507
+
+is not the same thing as:
+
+2923246306507
+6923246306507
+7923246306507
+
+Those are commercially different products.
+
+You are correct that:
+
+last 10 digits only
+
+is not sufficient as a financial identity.
+
+Because:
+
+1923...
+2923...
+6923...
+7923...
+
+may all point to the same destination but different:
+
+Product
+Customer tariff
+Margin
+Commercial agreement
+What This Means For BitsAuto
+
+I would no longer treat:
+
+suffix-10
+
+as the final matching key.
+
+Instead:
+
+Stage 1 — Discovery
+
+Use:
+
+suffix-10
+
+to find candidate rows.
+
+Stage 2 — Financial Validation
+
+Match:
+
+Product Prefix
++
+Destination
++
+Time Window
+
+before accepting.
+
+Even Better
+
+The exports suggest an even cleaner approach.
+
+Use:
+
+Original CLD
+
+as the primary commercial identifier.
+
+Example:
+
+1923246306507
+
+contains the product information.
+
+Then BitsAuto can derive:
+
+Product = FC
+Destination = 923246306507
+
+without ambiguity.
+
+My Recommendation
+
+Before enabling:
+
+Automated invoicing
+Margin Intelligence
+Revenue Protection
+Customer billing reports
+
+BitsAuto should implement a Rate Integrity Audit that validates:
+
+Original CLD
+↓
+Product
+↓
+Expected Tariff
+↓
+Expected Rate
+↓
+Actual Sippy Revenue
+
+for every call.
+
+That becomes the proof that:
+
+Customer was charged correctly
+Vendor charged correctly
+Margin calculation is correct
+
+Your concern is valid: if Product identity is lost during matching, then Billing Verification can become financially inaccurate even when P&L data exists.
+
+From these exports, I would recommend making Original CLD / Product Prefix a first-class field in the governed call reconciliation process rather than relying solely on the last 10 digits. That will give you a much stronger foundation for invoices and partner disputes.

@@ -1,0 +1,38 @@
+Let me do a quick scan of the billing/finance CDR matching surface before suggesting:
+
+
+11 actions
+Good — I've got enough context from the scan. Here's the suggestion:
+
+Where 3-tier CDR matching applies in billing/finance
+The same logic (Call-ID → IP → CLD suffix) can be applied in four distinct finance contexts. Each one currently does either period-aggregation or fragile CLD-suffix matching:
+
+1. Rating Verification (/api/rating-verifications)
+Current: When a dispute triggers a CDR reproduction, the verification engine pulls CDRs by account + time window and matches by CLD/duration proximity.
+Proposed: Use call_id from the Sippy CDR as the primary join key against the carrier invoice row — both sides of the dispute carry the same SIP Call-ID.
+Impact: Eliminates false reproductions caused by similar-duration calls to the same destination in a busy period.
+
+2. Carrier Reconciliation (sippy-reconciliation.service.ts)
+Current: Compares Sippy CDR totals against carrier invoice by period sums — aggregation level only, no per-row matching.
+Proposed: Add a per-row matching pass: join Sippy CDRs to carrier CDR file rows using Call-ID (T1), then fall back to carrier IP + time window (T2), then CLD+duration (T3). Surface unmatched rows as genuine discrepancies rather than rounding noise.
+Impact: Turns the reconciliation from "do the totals agree?" into "which specific calls are disputed?" — far more actionable for commercial disputes.
+
+3. Client Reconciliation (sippy-client-recon.service.ts)
+Current: Client submits a duration/amount summary per period; engine computes drift at summary level (exact_match, duration_drift).
+Proposed: If the client submits a CDR-level file (CSV with their Call-IDs), use T1·ID matching to pair each client CDR row with BitsAuto's record. Rows that can't be matched at T1 get flagged — those are the real disputes.
+Impact: Reduces dispute resolution time from days (manual CDR comparison) to seconds.
+
+4. AI Assurance + Adjustment Ledger (sippy-ai-assurance.service.ts)
+Current: Anomaly engine flags statistical outliers (rate spikes, duration drift) but resolves to the account level, not the specific CDR row.
+Proposed: When AI Assurance raises a flag, resolve the implicated CDR rows using T1·ID so the adjustment ledger entry links to an exact Sippy CDR record, not just a destination prefix + time band.
+Impact: Adjustments become auditable to a single CDR row — defensible in a dispute.
+
+Priority recommendation
+Priority	Feature	Effort	Value
+🔴 High	Carrier Reconciliation per-row match	Medium	Turns summary drift → specific call disputes
+🟡 Medium	Rating Verification CDR join	Small	Exact CDR → invoice row linkage for disputes
+🟡 Medium	Client Recon CDR-level import	Medium	Eliminates manual CSV comparison
+🟢 Later	AI Assurance row-level resolution	Small	Cleaner audit trail
+Shared infrastructure needed for all four: A reusable matchCdr(pool, { callId?, remoteIp?, cld, cli, startMs, windowMs }) utility function extracted from the call-governance implementation — so each finance module calls one function rather than reimplementing the tiers.
+
+Want me to build any of these?

@@ -1,0 +1,263 @@
+I agree with this assessment and would update the roadmap slightly to make it more operationally safe.
+
+Updated BitsAuto Priority Roadmap
+Priority 0 — Production Accuracy & Revenue Integrity
+
+Nothing should jump ahead of this.
+
+0.1 CDR Reconciliation
+Resolve all no_cdr matching issues
+Fix CLD normalization (prefix differences)
+Validate governance-cut call correlation
+Achieve >90% match rate
+0.2 Vendor Cost Resolution
+Determine why vendor cost is missing
+Verify Sippy vendor CDR cost fields
+Validate Destination Set costing
+Enable accurate margin calculations
+0.3 Billing Verification
+Customer billed seconds
+Vendor billed seconds
+Revenue
+Cost
+Margin
+
+These are the financial truth layer.
+
+Priority 0.5 — Governance Analytics Verification
+
+I strongly agree with adding this.
+
+Before building Revenue Protection:
+
+Validate:
+
+Call Governance
+ ├ Billing Check
+ ├ Cut Counts
+ ├ ASR by Destination
+ ├ Billing Match Rate
+ └ Margin Verification
+
+Run 5–7 days of real traffic.
+
+Goal:
+
+Trusted Governance Dataset
+
+because future protection engines will depend on it.
+
+Priority 1 — Revenue Protection Workspace
+
+Menu:
+
+Finance
+ └ Revenue Protection
+
+Tabs:
+
+Dashboard
+Overdraft Risk
+ACD Protection
+Exposure Analysis
+Emergency Actions
+
+Checks:
+
+Overdraft Risk
+Balance < 2 × hourly spend
+Runaway Traffic
+Live Calls > 0
+AND
+No ACD Limit
+Negative Balance
+Balance < 0
+AND
+Traffic Active
+Exposure Estimate
+Live Calls
+×
+ACD Cap
+×
+Rate
+
+This protects money immediately.
+
+Priority 2 — Trust Center Phase 1 (Monitor Only)
+
+Menu:
+
+Security
+ └ Trust Center
+
+Only:
+
+Overview
+Protected Environments
+Drift Detection
+Audit Trail
+
+No enforcement.
+
+No auto-delete.
+
+No overrides.
+
+Protected Environments
+
+Your actual infrastructure:
+
+Environment	IP	Mode
+Originator Sippy	104.245.246.110	Monitor
+Terminator Sippy	191.101.30.107	Monitor
+Asterisk	159.223.32.59	Monitor
+DID Server	Future	Monitor
+Test Server	Future	Monitor
+Drift Types
+
+Detect:
+
+IP Added
+IP Removed
+CLD Rule Changed
+Routing Group Changed
+Max CPS Changed
+
+Visibility only.
+
+Priority 3 — BitsEye2 Finalization
+
+This remains one of the strongest platform differentiators.
+
+Complete:
+
+RCA timelines
+Traffic intelligence graphs
+Correlation engine
+Executive exports
+Confidence indicators
+
+If presenting to investors or wholesale carriers:
+
+BitsEye2 should be one of the first modules shown.
+
+Priority 4 — Trust Center Alerting
+
+Add:
+
+Incidents
+Alert Policies
+
+Actions:
+
+Email
+WhatsApp
+Incident Creation
+
+Still:
+
+Monitor
+Alert
+
+Only.
+
+Priority 5 — Trust Center Enforcement
+
+Only after several weeks of stable monitoring.
+
+Add:
+
+Emergency Overrides
+Enforce Mode
+Auto-Revert
+
+If:
+
+Direct Sippy Change
+AND
+Not In BitsAuto
+
+Then:
+
+Remove
+Create Incident
+Alert
+Exception
+Manager Approved Change Window
+30 Minutes
+
+prevents legitimate maintenance from being reverted.
+
+Priority 6 — Voice Escalation
+
+Use existing:
+
+Asterisk
+AMI
+Voice OTP engine
+
+Workflow:
+
+Critical Drift
+↓
+Email
+↓
+WhatsApp
+↓
+Voice Call
+
+Escalation:
+
+Primary Contact
+↓
+Secondary Contact
+↓
+Management
+Long-Term Trust Center Expansion
+
+Protect:
+
+Authentication Rules
+Routing Groups
+Destination Sets
+Vendor Connections
+Rate Sheets
+Product Templates
+Deal Templates
+
+This is where:
+
+BitsAuto = Source of Truth
+Sippy = Execution Layer
+
+becomes fully enforced.
+
+One More Recommendation
+
+For Trust Center Phase 1, do not start with auto-removing IPs, even though that is the end goal.
+
+Start with:
+
+Monitor
+↓
+Measure Drift
+↓
+Validate Detection
+↓
+Alert
+↓
+Enforce
+
+Because if detection logic has even a small bug, auto-removal could impact production customers.
+
+After 2–4 weeks of successful monitoring, enforcement becomes much safer.
+
+Current Top 5 Priorities
+
+CDR Reconciliation
+Vendor Cost Resolution
+Governance Analytics Verification
+Revenue Protection Workspace
+Trust Center Phase 1 (Monitor Mode)
+
+Only after those are stable would I move to Trust Center enforcement and voice escalation. This sequence protects revenue first, then governance, then automation.

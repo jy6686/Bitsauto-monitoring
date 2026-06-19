@@ -1,0 +1,576 @@
+
+
+<html class="web-legacy">
+<head>
+<meta http-equiv="content-type" content="text/html">
+<meta name="menu-title" content="SIPPY">
+
+
+
+<link rel="stylesheet" type="text/css" href="/js/extjs/resources/css/ext-all.css">
+<script type="text/javascript" src="/js/extjs/ext-all.js"></script>
+
+<script language=javascript type=text/javascript>
+    // reference local blank image
+    Ext.BLANK_IMAGE_URL = '/js/extjs/resources/images/default/s.gif';
+</script>
+
+
+<script src="/web_ng/js/vendor-bundle.js" type="text/javascript"></script>
+<script type="text/javascript" src="/js/utils.js"></script>
+
+<link rel="stylesheet" href="/web_ng/css/roboto.css">
+<link href="styles.css" type="text/css" rel="stylesheet">
+<link rel="stylesheet" href="/web_ng/css/styles.css">
+<title>SIPPY - Accounts - Account PUSHTOTALK - Authentication Rules</title>
+
+
+
+<script>
+    var web_ng_config = JSON.parse('[]')
+</script>
+
+
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="/static/js/menumaker.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.local.js"></script>
+<link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
+<link rel="stylesheet" href="/static/css/font-OpenSans.css">
+<link rel="stylesheet" href="/static/css/menumaker.css">
+
+<link rel="stylesheet" href="/web_ng/css/navigation_menu.css">
+
+</head>
+<body>
+
+
+
+
+    <script>
+
+    function hide_ssl_certificate_warning() {
+        Ext.Ajax.request({
+            url: 'system_parameters_ui.php',
+            params: {
+                action: 'hide_ssl_certificate_warning'
+            }
+        });
+        var d = document.getElementById('warning_ssl_certificate');
+        d.style.display = 'none';
+    }
+
+</script>
+
+<div id="warning_ssl_certificate" class="security_vulnerability">
+    <div style="position: relative; top: 0; right: 0; float: right; padding: 0 0 0 20px;">
+        <span onClick="hide_ssl_certificate_warning();"><i class="hide_button fas fa-times"></i><span class="hide_button mdi mdi-close-thick"></span></span>
+    </div>
+   Warning: A SSL certificate has not been added. Please <a href="https://support.sippysoft.com/solution/articles/78262-generating-and-installing-ssl-certificate">upload your own</a> SSL certificate
+   or create a SSL certificate <a href="https://support.sippysoft.com/support/solutions/articles/3000117551-ssl-certificates-for-web-in-sippy-2021-and-above">using LetsEncrypt</a>.
+</div>
+
+    
+<div id="warning_setup_firewall" class="security_vulnerability">
+   Warning: For your security please review your <a href="firewall_rules.php">Firewall Rules</a>
+   and create rules to allow or deny access to your SoftSwitch. For some
+   suggestions visit our support documentation <a href="https://support.sippysoft.com/solution/articles/3000058057--security-management">here</a>.
+</div>
+
+            <div id="cssmenu">
+            <ul>
+
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                    <ul>
+
+    
+                        <li class="has-sub"><a>My Customers</a>
+                            <ul>
+
+                                        <li><a href="accounts.php">Accounts</a></li>
+        
+                                        <li><a href="subcustomers.php">Customers</a></li>
+        
+                                        <li><a href="account_classes.php">Account Classes</a></li>
+        
+                                        <li><a href="access.php">Permissions</a></li>
+        
+                                        <li><a href="account_lookup.php">Account Lookup</a></li>
+        
+                            </ul>
+                        </li>
+    
+    
+                        <li class="has-sub"><a>
+                                                Tariffs &amp;
+                                                Currencies</a>
+                            <ul>
+                                    <li><a href="tariffs.php">Tariffs</a></li>
+                                    <li><a href="service_plans.php">Service Plans</a></li>
+                                <li><a href="xrates.php">Exchange Rates</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Payments</a>
+                            <ul>
+                                    <li><a href="payment_processors.php">Payment Processors</a></li>
+    
+    
+                                    <li><a href="payments_history_root.php">Payments History</a></li>
+    
+                                    <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                                </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Invoicing</a>
+                            <ul>
+                                <li><a href="invoices.php">Invoices</a></li>
+                                <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                                <li><a href="images.php">Images</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                    <ul>
+                            <li class="has-sub"><a>My Vendors</a>
+                            <ul>
+                                <li><a href="vendors.php">Vendors</a></li>
+                                <li><a href="registrations.php">Registrations</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a>Routing</a>
+                            <ul>
+                                <li><a href="destination_sets.php">Destination Sets</a></li>
+                                <li><a href="routing_groups.php">Routing Groups</a></li>
+                                    <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                            </ul>
+                        </li>
+    
+                            <li class="has-sub"><a>DID Numbers</a>
+                            <ul>
+                                <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                                <li><a href="dids.php">DID Pool</a></li>
+                            </ul>
+                        </li>
+    
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                    <ul>
+
+                        <li><a href="web_users.php">Users</a></li>
+
+                        <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                        <li><a href="destinations.php">Destinations</a></li>
+                        <li class="has-sub"><a href="sip_features.php">SIP Features</a>
+                            <ul>
+                                <li><a href="system_parameters_sip.php">SIP, Media, LRN, HEP</a></li>
+                                <li><a href="connection_sip_tls.php?systemConnection=1">System Vendor Connection SIP TLS Options</a></li>
+                                <li><a href="incoming_sip_tls_connections.php">Incoming SIP TLS Connections</a></li>
+                                                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="ssl_management.php">SSL Management</a>
+                            <ul>
+                                <li><a href="ssl_certificates.php">SSL Certificates</a></li>
+                                <li><a href="ca_lists.php">CA Lists</a></li>
+                                <li><a href="csrs.php">CSR Generator</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="system_parameters.php">System Parameters</a>
+                            <ul>
+                                <li><a href="system_parameters_data.php">Backup, Data Retention</a></li>
+                                <li><a href="system_parameters_ui.php">Web Interface, Security</a></li>
+                                <li><a href="system_parameters_billing.php">Billing, SMTP Server</a></li>
+                                <li><a href="firewall_rules.php">IP Firewall</a></li>
+                                <li><a href="network_services.php">Network Services</a></li>
+                                <li><a href="system_parameters_cdrs.php">CDRs Options</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="external_services.php">External Services</a></li>
+                        <li class="has-sub"><a href="javascript:void(0)">Result Code Translations</a>
+                            <ul>
+                                <li><a href="rcts_int.php">Internal</a></li>
+                                <li><a href="rcts_ext.php">External</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="show_graphs.php">Monitoring</a></li>
+
+                        <li><a href="activecalls.php">Active Calls</a></li>
+
+                        <li><a href="system_information.php">System Information</a></li>
+
+                        <li class="has-sub"><a href="tools.php">Tools</a>
+                            <ul>
+                                <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                                <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                                <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                                <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                                <li><a href="looking_glass.php">Looking Glass</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                    <ul class="wide">
+
+                        <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                        <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                        <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                        <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                        <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                        <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                        <li><a href="vendors_did_cdrs.php">Vendor DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                    </ul>
+                </li>
+
+                <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                    ssp-root
+                                                </a>
+                    <ul class="wide">
+                        <li><a class="bold">Accounts balance: <span class="nav-menu__accounts-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__accounts-balance-reload"></i></a></li>
+                        <li><a class="bold">Customers balance: <span class="nav-menu__customers-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__customers-balance-reload"></i></a></li>
+                        <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                        <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </li>
+
+<script>
+    function menu_search(event) {
+        var len = event.target.value.length;
+
+        var e = document.getElementById("menu-search");
+
+        var ul = document.getElementById('menu-search-results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+
+        if (len == 0) {
+            document.getElementById("menu-search-icon").classList.remove('fa-times-circle');
+            document.getElementById("menu-search-icon").classList.add('fas-search');
+            document.getElementById("menu-search-icon").removeEventListener('click', menu_search);
+            return;
+        } else if (len < 3) {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+            return;
+        } else {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+
+            ul = document.createElement("ul");
+            ul.setAttribute('id', 'menu-search-results');
+            ul.classList.add("wide");
+
+            var m, i;
+            try {
+                m = document.getElementById("cssmenu").getElementsByTagName('li');
+                for (i = 0; i < m.length; i++) {
+                    if (m[i].classList.contains("has-sub")) {
+                        continue;
+                    };
+
+                    var n, j;
+                    n = m[i].getElementsByTagName('a');
+                    for (j = 0; j < n.length; j++) {
+                        if (!n[j].hasAttribute('href')) {
+                            continue;
+                        }
+                        var re = new RegExp(event.target.value, 'i');
+                        if (n[j].innerText.match(re)) {
+                            ul.appendChild(m[i].cloneNode(true));
+                        }
+                    }
+                }
+            } finally {
+                if (ul.childNodes.length > 0) {
+                    e.appendChild(ul);
+                }
+            }
+        }
+    }
+
+    $(document).ready(function() {
+        var e = document.getElementById('menu-search-pattern');
+        e.addEventListener('input', menu_search);
+    });
+</script>
+
+
+                <li id="menu-search" class="has-sub align-right">
+                    <a>
+                        <input id="menu-search-pattern" type="text" name="menu-search-pattern">
+                        <i id="menu-search-icon" class="fas fa-search"></i>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+
+    <div style="width: auto; height: 2px; background: #ff9900;"></div>
+    <div id="main">
+                
+
+<script language=javascript>
+    function gotopage(n) {
+        form = document.getElementById("navform");
+        form.n.value = n;
+        form.action.value = "";
+        form.submit();
+    }
+
+    function save() {
+        form = document.getElementById("navform");
+        form.action.value = "export";
+        form.submit();
+    }
+
+    function import_auths() {
+        if (document.upload_form.auth_rules_file.value == "") {
+            alert("Cannot upload Authentication Rules. No file selected.");
+        } else {
+            document.upload_form.submit();
+        }
+    }
+
+    function delete_warning(id) {            
+        var s = ' class="mb-cnf-msg"';
+        var msg = '<p' + s + '>You are about to delete the Authentication Rule.</p>';
+        msg += '<p' + s + '>Do you wish to proceed?</p>';
+
+        Ext.Msg.show({
+            title: 'Confirmation',
+            icon: Ext.MessageBox.QUESTION,
+            msg: msg,
+            width: 300,
+            closable: false,
+            fn : function(btn) {
+                     if (btn === 'yes') {
+                        form = document.getElementById("navform");
+                        form.action.value = "delete";
+                        form.i_authentication.value = id;
+                        form.submit();
+                     }
+                 },
+            buttons: {yes: 'Yes',
+                      no: 'No'}
+        });
+    }
+</script>
+
+
+<table width="100%" cellpadding="5" cellspacing="0">
+<tr>
+    <td class="Headline">
+<a class="tit" href="accounts.php">Accounts</a> /
+<a class="tit" href="accounts.php?account=1&action=edit"><span class="style1">Account PUSHTOTALK</span></a> - Authentication Rules    </td>
+</tr>
+
+<table cellspacing='0' width="800">
+    <tr>
+        <td width="25%"><div class="grouptitle">Add Authentication Rule</div></td>
+        <td bgcolor="#FFFFFF" >&nbsp;</td>
+        <td width="45%"> <div class="grouptitle" style="width: 300px;"> Upload Authentication Rules </div></td>
+        <td bgcolor="#FFFFFF" >&nbsp;</td>
+        <td width="30%"><div class="grouptitle" style="width: 230px;">Download Authentication Rules</div></td>
+    </tr>
+    <tr>
+        <td nowrap align="center">
+            <form action="account_auth_rules.php" method="GET" id="mainform">
+                <input type="hidden" name="action" value="show_add">
+                <input type="hidden" name="i_account" value="1">
+                <input type="submit" value="Add" class="bt2">
+            </form>
+        </td>
+        <td  bgcolor="#FFFFFF">&nbsp;</td>
+        <td nowrap>
+                <form name="upload_form" enctype="multipart/form-data" method="POST">
+                    <input type="hidden" name="n" value="0">
+                    <input type="hidden" name="i_account" value="1">
+                    <input type="hidden" name="action" value="import">
+                    <input type="file" name="auth_rules_file" class="bt2">
+                    &nbsp;
+                    <input type="button" value="Upload" onClick="import_auths()" class="bt2">                                                            
+                </form>
+        </td>
+        <td  bgcolor="#FFFFFF">&nbsp;</td>
+        <td>
+            <div style="width: 230px; text-align: center;">
+            <input type="button" value="Download" onClick="save();">
+            </div>
+        </td>
+    </tr>
+    <tr>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td class="uploader-hint">Format: .csv or MS-Office 2007 .xlsx</td>
+    </tr>
+</table>
+
+<div class="separator"></div>
+
+<div style="width: 1200px;">
+
+<!-- navigation -->
+
+<table class="grouptitle" width="100%">
+    <tr>
+		    <td width="50"><a href="#" onClick="javascript:save();"><img src=images/save.gif border=0 HEIGHT="13" WIDTH="13" alt="Download"></a></td>
+			<td align="center">Page 1 of 1, total 3 rows</td>
+			    <td width="50" align="right"><a href="#" onClick="javascript:save();"><img src=images/save.gif border=0 HEIGHT="13" WIDTH="13" alt="Download"></a></td>
+	    </tr>
+</table>
+      
+
+<div class="separator"></div>
+
+<table width="100%" cellpadding="0" cellspacing="0" border=0>
+    <tr bgcolor="#DDDDDD">
+        <td align="center" nowrap class="borderall"><strong>#</strong></td>
+        <td align="center" nowrap class="borderallbutleft"><strong>Remote IP Address</strong></td>
+        <td align="center" nowrap class="borderallbutleft"><strong>Incoming CLD/DNIS</strong></td>
+        <td align="center" nowrap class="borderallbutleft"><strong>Incoming CLI/ANI</strong></td>
+        <td align="center" nowrap class="borderallbutleft"><strong>To Domain</strong></td>
+        <td align="center" nowrap class="borderallbutleft"><strong>From Domain</strong></td>
+        <td align="center" nowrap class="borderallbutleft"><strong>CLD Tr. Rule</strong></td>
+        <td align="center" nowrap class="borderallbutleft"><strong>CLI Tr. Rule</strong></td>
+        <td width=60 align="center" class='borderallbutleft'><strong>Action</strong></td>
+    </tr>
+
+            <tr bgcolor="#FFFFFF" class="list-tr">
+            <td nowrap align="center" class="borderallbuttop">
+                <a href="?action=edit&i_authentication=4&i_account=1">1</a>
+            </td>
+            <td nowrap align="center" class="borderbottomright">
+                                    SIP:104.245.246.110
+                            </td>
+            <td nowrap align="center" class="borderbottomright">6686192*</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">s/^6686192/192/</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap class='borderbottomright' align="center"> <a href="#" onClick="javascript:delete_warning(4);"><img src="images/stop.png" alt="Delete"/></a> </td>
+    </tr>
+            <tr bgcolor="#EEEEEE" class="list-tr">
+            <td nowrap align="center" class="borderallbuttop">
+                <a href="?action=edit&i_authentication=10&i_account=1">2</a>
+            </td>
+            <td nowrap align="center" class="borderbottomright">
+                                    SIP:104.245.246.110
+                            </td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap class='borderbottomright' align="center"> <a href="#" onClick="javascript:delete_warning(10);"><img src="images/stop.png" alt="Delete"/></a> </td>
+    </tr>
+            <tr bgcolor="#FFFFFF" class="list-tr">
+            <td nowrap align="center" class="borderallbuttop">
+                <a href="?action=edit&i_authentication=11&i_account=1">3</a>
+            </td>
+            <td nowrap align="center" class="borderbottomright">
+                                    SIP:104.245.246.110
+                            </td>
+            <td nowrap align="center" class="borderbottomright">6686792*</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap align="center" class="borderbottomright">s/^6686792/792/</td>
+            <td nowrap align="center" class="borderbottomright">&nbsp;</td>
+            <td nowrap class='borderbottomright' align="center"> <a href="#" onClick="javascript:delete_warning(11);"><img src="images/stop.png" alt="Delete"/></a> </td>
+    </tr>
+
+</table>
+
+<div class="separator"></div>
+
+<!-- navigation -->
+
+<table class="grouptitle" width="100%">
+    <tr>
+		    <td width="50"><a href="#" onClick="javascript:save();"><img src=images/save.gif border=0 HEIGHT="13" WIDTH="13" alt="Download"></a></td>
+			<td align="center">Page 1 of 1, total 3 rows</td>
+			    <td width="50" align="right"><a href="#" onClick="javascript:save();"><img src=images/save.gif border=0 HEIGHT="13" WIDTH="13" alt="Download"></a></td>
+	    </tr>
+</table>
+              
+
+</div>
+
+<form id="navform" method="GET" action="account_auth_rules.php">
+        <input type="hidden" name="n" value="0">
+        <input type="hidden" name="action" value="">
+        <input type="hidden" name="i_authentication" value="">
+        <input type="hidden" name="i_account" value="1">
+</form>
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode(" 3 Jun 2026 10:44:37 (Etc/UTC)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+<script src="/web_ng/legacy/js/apply_polyfills.js"></script>
+<script>
+  window.loadWebNgScript('navigation_menu')
+</script>
+
+
+
+</body>
+</html>

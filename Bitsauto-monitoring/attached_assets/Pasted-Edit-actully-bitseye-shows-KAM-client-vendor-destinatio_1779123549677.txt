@@ -1,0 +1,139 @@
+Edit
+actully bitseye shows KAM/client/vendor/destination/Breaout wise calls graphs 
+Edit
+perfect
+
+Got it — this screenshot makes the intention very clear.
+
+What you already have (BitsEye current UI)
+
+This is a high-level NOC analytics dashboard showing:
+
+Client-centric view (e.g. Client: Tata Communications)
+KPI cards:
+Total Calls
+Answered / Missed Calls
+ACD, ASR, PDD, MOS
+Multi-chart analytics:
+Call volume trend
+ASR over time
+Top vendors / destinations
+Pie chart breakout (Local / International / National)
+Real-time active calls
+Role-based tables (KAM wise, client wise, vendor wise)
+
+👉 So this is dashboard + analytics layer
+
+What BitsEye currently implemented (from your code)
+
+Your current implementation is:
+
+1. Tree-based navigation (NOT dashboard)
+FancyTree structure:
+Clients
+Vendors
+Country
+Switch
+Carrier type
+Destination
+2. Drill-down system (core logic)
+
+You have:
+
+dimension → data → graph generation
+Lazy loading per node
+Parent-child attribute tracking
+AJAX calls like:
+/get_dimension_fields/
+/get_children_of_dimension/
+/get_data/
+3. Frame-based execution model
+
+Very important difference:
+
+Uses:
+parent.rrdListFrame.processSpanView()
+parent.rrdListFrame.generateRequest()
+parent frame communication
+
+👉 This means:
+UI is tightly coupled to legacy iframe system
+
+🔥 Key Difference (Simple)
+Area	Current BitsEye	What your screenshot shows
+UI Type	Tree explorer (left panel logic)	Dashboard analytics UI
+Interaction	Click → drill down nodes	Click → view metrics/cards
+Architecture	iframe + parent frame coupling	Single unified UI (modern dashboard)
+Data model	dimension → data → children	KPI aggregates + time series
+Output	Graph trigger per node	Precomputed dashboards
+Refresh	10-min polling loop	Real-time + dashboard refresh
+Purpose	Data exploration engine	Executive monitoring system
+🧠 What you are going to implement (based on your direction)
+
+You are NOT rebuilding the tree.
+
+You are building a conversion layer from tree → dashboard
+
+New Target Architecture:
+1. Tree becomes "filter engine"
+
+Instead of rendering charts, it will output:
+
+{
+  client: "Tata",
+  vendor: "BICS",
+  country: "Pakistan",
+  destination: "India"
+}
+
+👉 Just filters, NOT execution
+
+2. Remove this logic (critical)
+
+You will eliminate:
+
+processSpanView()
+generateRequest()
+direct chart triggering
+iframe dependency
+recursive setTimeout refresh loop
+3. Replace with:
+API layer:
+POST /analytics/dashboard
+
+Input:
+
+{
+  "client": "Tata",
+  "vendor": "BICS",
+  "country": "PK"
+}
+
+Output:
+
+{
+  kpis: {...},
+  charts: {...},
+  tables: {...}
+}
+4. UI becomes React Dashboard (like screenshot)
+
+Instead of:
+
+tree → click → graph
+
+You get:
+
+filter selection → dashboard refresh
+⚡ Simple mental model
+OLD SYSTEM:
+Tree click → JS logic → iframe → graph render → repeat
+NEW SYSTEM:
+Filters → API → Dashboard JSON → React UI
+🚀 Summary
+
+You are not "enhancing BitsEye"
+
+You are:
+
+Extracting BitsEye logic and turning it into a modern analytics engine feeding a dashboard UI

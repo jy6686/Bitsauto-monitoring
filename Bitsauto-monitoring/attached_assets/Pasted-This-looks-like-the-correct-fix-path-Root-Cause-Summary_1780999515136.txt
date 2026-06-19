@@ -1,0 +1,150 @@
+This looks like the correct fix path.
+
+Root Cause Summary
+
+The destination issue and the CDR issue were actually two separate problems:
+
+1. Destination Analytics (Fixed)
+Bridge-event caller/callee mapping was reversed.
+Historical records contained product-prefixed CLI values.
+Country resolver was identifying CLI instead of the actual destination.
+Result: USA, UK, Suriname, Burkina Faso, etc. appeared incorrectly.
+
+Current status:
+
+✅ Pakistan (+92)
+✅ Eritrea (+291)
+✅ Destination Impact Analysis correct
+✅ Top Governed Destinations correct
+2. CDR Reconciliation (Partially Fixed)
+
+The logs clearly show:
+
+Parse Error: Invalid character in Content-Length
+
+and
+
+login ssp-root: FAIL
+
+which means:
+
+pool = 0
+
+No CDR source was available at lookup time.
+
+So the problem was not necessarily:
+
+Governed Call → No Matching CDR
+
+The problem was:
+
+Governed Call → CDR Lookup Source Unavailable
+
+These are very different failure modes.
+
+The Most Important Fix
+
+The live-match fallback using:
+
+gc.caller = destination
+gc.callee = CLI
+
+was still using the old mapping.
+
+Fixing it to:
+
+gc.callee = destination (CLD)
+gc.caller = ANI (CLI)
+
+was absolutely required.
+
+Without that fix:
+
+manual retries fail,
+automatic retries fail,
+billing reconciliation fails,
+margin calculations fail.
+Background Retry
+
+The new:
+
+runPeriodicCdrBackfill()
+
+job is probably the most valuable enhancement.
+
+Because previously:
+
+45 sec
+3 min
+8 min
+
+all happened during a Sippy outage.
+
+After that:
+
+status = no_cdr
+
+forever.
+
+Now:
+
+every 30 minutes
+last 7 days
+
+means reconciliation can recover automatically when:
+
+XML-RPC returns,
+Portal login works,
+Admin interface responds.
+What I Would Monitor Next
+CDR Resolution Rate
+
+Current:
+
+500 governed
+496 no_cdr
+4 matched
+
+After the next few retry cycles I would expect:
+
+500 governed
+300 matched
+200 pending
+
+then eventually:
+
+500 governed
+490+ matched
+
+assuming Sippy connectivity stabilizes.
+
+Additional KPI Recommendation
+
+Add a small card:
+
+Metric	Value
+CDR Match Rate	X%
+Pending CDR	X
+Failed Lookups	X
+Last Successful Sync	Timestamp
+
+This will immediately tell operators whether:
+
+reconciliation is healthy,
+Sippy is reachable,
+or CDR enrichment is falling behind.
+One More Validation
+
+I would verify one of the rows shown in the screenshot:
+
+206092304285200
+→ 92374083801
+
+and confirm that after the next backfill cycle:
+
+Customer Billed populates
+Vendor Cost populates
+Margin populates
+Status changes from "No CDR"
+
+If that happens, then the reconciliation pipeline is working correctly and the remaining issue is simply waiting for Sippy connectivity to recover.

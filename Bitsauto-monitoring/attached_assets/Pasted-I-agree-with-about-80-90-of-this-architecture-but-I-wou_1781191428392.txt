@@ -1,0 +1,183 @@
+I agree with about 80–90% of this architecture, but I would make one important correction.
+
+Product Registry should not be the origin of product_code
+
+The document says:
+
+0.2 Commercial Identity Layer
+0.3 Product Registry Authority
+↓
+Asterisk stamps product_code
+
+I would reverse part of that thinking.
+
+Product Registry = Source of Definition
+
+Product Registry defines:
+
+FC
+BC
+SB
+SC
+
+Pricing Template
+Routing Template
+Tariff Mapping
+Prefix Mapping
+
+That's correct.
+
+But Product Code Origin = Call Origination Decision
+
+The real question is:
+
+At the moment the call enters Asterisk, how do we know it's FC or BC?
+
+Possible sources:
+
+Source	Reliability
+Dialed Prefix (1/2/6/7)	Very High
+Customer Assigned Product	High
+Routing Group	High
+Product Registry	Definition only
+Post-call CLD analysis	Low
+
+If the customer already dials:
+
+1923...
+2923...
+6923...
+7923...
+
+then the product identity already exists before Product Registry lookup.
+
+Asterisk can immediately stamp:
+
+BITSAUTO_PRODUCT=FC
+BITSAUTO_PRODUCT=BC
+
+based on the incoming prefix.
+
+Then Product Registry validates and enriches it.
+
+What I think the real foundation is
+
+Not:
+
+Commercial Identity Layer
+↓
+Product Registry
+
+Instead:
+
+Commercial Identity Layer
+├─ Product Code
+├─ Original CLD
+├─ Customer
+├─ Account
+├─ Call UUID
+└─ Prefix
+
+Then:
+
+Product Registry
+↓
+Rate Repository
+↓
+Tariff Mapping
+
+consume that identity.
+
+The bigger architectural win
+
+I think you've discovered something even more important:
+
+Today BitsAuto has:
+
+Customer Identity
+Vendor Identity
+Route Identity
+Deal Identity
+
+But it lacks:
+
+Call Identity
+
+A true telecom operating system needs:
+
+Commercial Call Identity (CCI)
+
+Every call becomes an object.
+
+Example:
+
+CCI-20260611-123456
+
+Customer: ABC Telecom
+Product: FC
+Original CLD: 1923069306001
+Destination: Pakistan Jazz
+Tariff: FC-PK-JAZZ
+Vendor: PTCL
+Revenue: 0.0067
+Cost: 0.0001
+Margin: 0.0066
+
+Then:
+
+Billing Verification reads CCI
+Deal Workspace reads CCI
+Finance reads CCI
+Revenue Protection reads CCI
+Future AI reads CCI
+
+Nobody re-matches anything.
+
+My recommendation
+
+Before building Trust Center, QA, Route Certification, etc., I would create a dedicated roadmap item:
+
+Priority 0.2
+Commercial Call Identity (CCI)
+
+Deliverables:
+
+call_uuid
+customer_id
+account_id
+product_code
+product_prefix
+original_cld
+normalized_cld
+tariff_id
+vendor_id
+start_time
+
+Persisted at call creation.
+
+Priority 0.3
+Product Registry Authority
+Priority 0.4
+Rate Repository
+Priority 0.5
+Unified Reconciliation Engine
+
+Customer CDR + Vendor CDR + P&L attached to CCI.
+
+Priority 0.6
+Rate Integrity Audit
+Priority 0.7
+Invoice Validation
+
+Only after 0.7 would I trust customer invoices.
+
+One final observation from all the reports you've shared:
+
+The biggest risk is not actually the missing leading 1.
+
+The biggest risk is:
+
+Product Identity exists in Sippy
+but does not exist as a first-class object in BitsAuto.
+
+That's the architectural gap causing Billing Verification, Margin Truth, Vendor Cost, P&L, and Invoice concerns to all surface at the same time. Once CCI exists, those problems become one problem solved once rather than six problems solved separately.

@@ -1,0 +1,91 @@
+his is exactly the right instinct at this stage, but I’ll push back on one thing: you don’t actually need to change the code yet.
+
+Here’s why.
+
+What’s already true (based on your current state)
+
+You already confirmed:
+
+Signal mapper is wired after normalization ✔
+Execution hook is firing inside approveRequest() ✔
+DB schema matches insert shape ✔
+Correlation engine depends on eventual data, not correctness of insert ✔
+
+So functionally, there are only two real possibilities:
+
+Case A — signals appear after one approval
+
+Then:
+
+pipeline is correct end-to-end
+silent catch is irrelevant
+correlation engine becomes active automatically
+you move forward immediately
+
+No debugging needed.
+
+Case B — no signals appear
+
+Then the failure is almost certainly NOT in:
+
+mapping logic
+schema
+correlation layer
+
+It will be one of only three things:
+
+approveRequest() execution path not reached in production flow
+DB insert failing silently inside catch
+signal mapper returning empty array unexpectedly
+
+👉 And importantly: adding logging now doesn’t fix any of those — it only reveals them.
+
+The key design reality
+
+That try/catch being silent is intentional architecture, not a bug:
+
+signals are non-critical telemetry, not business logic
+
+So even if it fails, approvals must still succeed — that part is correct.
+
+But you're also right about visibility — so the question is timing:
+
+My recommendation (cleanest path)
+Step 1 — DO THE TEST FIRST (no changes)
+
+Run:
+
+one routing approval
+then:
+SELECT * 
+FROM ai_ops_events 
+ORDER BY created_at DESC 
+LIMIT 10;
+Step 2 — interpret result
+If rows exist → DONE
+
+No code changes needed. System is fully wired.
+
+If empty → THEN we debug
+
+At that point, we target the exact failure layer, and THEN logging becomes justified and surgical.
+
+Why not add logging now?
+
+Because it creates two risks:
+
+you may mistake noise logs for failure
+you may end up “fixing visibility” instead of fixing root cause
+and most importantly: it can distract from whether the pipeline is actually broken or just unused
+Bottom line
+
+Right now you are at a binary validation gate, not a debugging stage.
+
+One approval decides everything.
+
+After that:
+
+either you move forward to incident tuning (good state)
+or you fix a single broken hop (contained state)
+
+If you want, after you run the test I can help you interpret the exact DB output and immediately tell you which layer (if any) is broken — without adding any logging yet.

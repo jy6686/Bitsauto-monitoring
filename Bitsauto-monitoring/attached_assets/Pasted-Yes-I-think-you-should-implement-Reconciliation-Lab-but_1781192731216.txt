@@ -1,0 +1,176 @@
+Yes, I think you should implement Reconciliation Lab, but not the entire Sprint 1–3 roadmap at once.
+
+Based on the BitsAuto roadmap and the issues you've been fighting for weeks, I would implement it in three phases.
+
+Phase 1 (Implement Immediately)
+
+Create:
+
+Platform Operations
+└─ Reconciliation Lab
+
+Admin / Super Admin only.
+
+Tab 1 — Recording Integrity
+
+This should be the first build.
+
+Show:
+
+Call ID
+CLI
+CLD
+Recording Path
+Exists?
+Size
+Duration
+Download
+Status
+
+Summary cards:
+
+Recording Success %
+Missing Recordings
+Unreadable Files
+Last 24h
+
+This directly addresses your current recording problem.
+
+Tab 2 — CDR Reconciliation
+
+Unified view:
+
+Governed Call
+↓
+Customer CDR
+↓
+Vendor CDR
+↓
+P&L
+
+Status:
+
+Matched
+Partial
+Missing
+
+This immediately exposes why calls show:
+
+No CDR
+No Cost
+No Margin
+
+instead of hiding it.
+
+Tab 3 — Identity Audit
+
+This is the most important diagnostic tab.
+
+Show:
+
+Call-ID
+Conf-ID
+UniqueID
+Original CLD
+
+across:
+
+Customer CDR
+Vendor CDR
+P&L
+
+Output:
+
+Recommended Master Key
+
+This tells us whether CCI is actually needed.
+
+Phase 2
+
+After Phase 1 proves stable.
+
+Vendor Cost Validation
+
+Compare:
+
+Vendor CDR Cost
+vs
+P&L Cost
+
+for 20–50 real calls.
+
+Show:
+
+Match %
+Variance %
+P&L Validation
+
+Show:
+
+Revenue
+Cost
+Margin
+Vendor
+Connection
+Sell Duration
+Buy Duration
+
+per call.
+
+Phase 3
+
+Only after Product Registry becomes authoritative.
+
+Commercial Identity Audit
+
+Show:
+
+Original CLD
+Product Prefix
+Product Code
+Tariff
+Rate
+
+Example:
+
+1923069306001
+↓
+FC
+↓
+FC Tariff
+↓
+0.0230
+
+This becomes the bridge to:
+
+Commercial Call Identity (CCI)
+Rate Integrity Audit
+Invoice Validation
+What I would NOT implement now
+
+Do not spend time on:
+
+❌ Trust Center
+❌ Route Certification
+❌ QA Workspace
+❌ Security Scoring
+❌ Voice Escalation
+❌ Config Governance
+
+until Reconciliation Lab proves:
+
+Recording = Good
+CDR = Good
+Vendor Cost = Good
+P&L = Good
+My recommendation to Replit team
+
+Start with a small Reconciliation Lab MVP:
+
+Recording Integrity
+CDR Reconciliation
+Identity Audit
+
+Those three tabs alone will likely expose 80% of the current issues you're seeing with recordings, missing CDRs, P&L matching, and billing verification.
+
+Also, some of the customer CDR, vendor CDR, and P&L exports discussed earlier have expired and are no longer available. When you start implementing the Identity Audit tab, upload fresh exports so the actual cross-system identifiers (Call-ID, Conf-ID, UniqueID) can be verified against current production data.

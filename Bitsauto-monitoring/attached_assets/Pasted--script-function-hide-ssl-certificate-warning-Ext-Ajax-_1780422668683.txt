@@ -1,0 +1,1162 @@
+
+
+
+
+
+
+<script>
+
+function hide_ssl_certificate_warning() {
+    Ext.Ajax.request({
+        url: 'system.php',
+        params: {
+            action: 'hide_ssl_certificate_warning'
+        }
+    });
+    var d = document.getElementById('warning_ssl_certificate');
+    d.style.display = 'none';
+}
+
+<div id="warning_setup_firewall" class="security_vulnerability">
+
+Warning: For your security please review your Firewall Rulesand create rules to allow or deny access to your SoftSwitch. For somesuggestions visit our support documentation here.
+
+        <div id="cssmenu">
+        <ul>
+
+
+            <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                <ul>
+
+
+                    <li class="has-sub"><a>My Customers</a>
+                        <ul>
+
+                                    <li><a href="accounts.php">Accounts</a></li>
+    
+                                    <li><a href="subcustomers.php">Customers</a></li>
+    
+    
+                                    <li><a href="account_classes.php">Account Classes</a></li>
+    
+                                    <li><a href="access.php">Permissions</a></li>
+    
+                                    <li><a href="account_lookup.php">Account Lookup</a></li>
+    
+                        </ul>
+                    </li>
+
+
+                    <li class="has-sub"><a>
+                                            Tariffs &amp;
+                                            Currencies</a>
+                        <ul>
+                                <li><a href="tariffs.php">Tariffs</a></li>
+                                <li><a href="service_plans.php">Service Plans</a></li>
+                            <li><a href="xrates.php">Exchange Rates</a></li>
+                        </ul>
+                    </li>
+
+                    <li class="has-sub"><a>Payments</a>
+                        <ul>
+                                <li><a href="payment_processors.php">Payment Processors</a></li>
+
+
+                                <li><a href="payments_history_root.php">Payments History</a></li>
+
+                                <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                            </ul>
+                    </li>
+
+                    <li class="has-sub"><a>Invoicing</a>
+                        <ul>
+                            <li><a href="invoices.php">Invoices</a></li>
+                            <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                            <li><a href="images.php">Images</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </li>
+
+            <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                <ul>
+                        <li class="has-sub"><a>My Vendors</a>
+                        <ul>
+                            <li><a href="vendors.php">Vendors</a></li>
+                            <li><a href="registrations.php">Registrations</a></li>
+                        </ul>
+                    </li>
+                    <li class="has-sub"><a>Routing</a>
+                        <ul>
+                            <li><a href="destination_sets.php">Destination Sets</a></li>
+                            <li><a href="routing_groups.php">Routing Groups</a></li>
+                                <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                        </ul>
+                    </li>
+
+                        <li class="has-sub"><a>DID Numbers</a>
+                        <ul>
+                            <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                            <li><a href="dids.php">DID Pool</a></li>
+                        </ul>
+                    </li>
+
+                </ul>
+            </li>
+
+            <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                <ul>
+
+                    <li><a href="web_users.php">Users</a></li>
+
+                    <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                    <li><a href="destinations.php">Destinations</a></li>
+                    <li><a href="system.php">System Parameters</a></li>
+                    <li><a href="external_services.php">External Services</a></li>
+                    <li><a href="show_graphs.php">Monitoring</a></li>
+
+                    <li><a href="activecalls.php">Active Calls</a></li>
+
+                    <li><a href="system_information.php">System Information</a></li>
+
+                    <li class="has-sub"><a href="tools.php">Tools</a>
+                        <ul>
+                            <li><a href="csrs.php">CSR Generator</a></li>
+                            <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                            <li><a href="looking_glass.php">Looking Glass</a></li>
+                            <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                            <li><a href="firewall_rules.php">IP Firewall</a></li>
+                            <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                            <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                        </ul>
+                    </li>
+
+
+                </ul>
+            </li>
+            <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                <ul class="wide">
+
+                    <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                    <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                    <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                    <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                    <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                    <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                    <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                    <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                </ul>
+            </li>
+
+            <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                ssp-root
+                                            </a>
+                <ul class="wide">
+                    <li><a class="bold">Accounts balance: -2434020.0643712 USD</a></li>
+                    <li><a class="bold">Customers balance: 0.0000000 USD</a></li>
+                    <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                    <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                </ul>
+            </li>
+
+            <li id="menu_search" class="has-sub align-right">
+                <a>
+                    <input id="menu_search_pattern" type="text" name="menu_search_pattern">
+                    <i id="menu_search_icon" class="fas fa-search"></i>
+                </a>
+            </li>
+
+        </ul>
+    </div>
+
+<div style="width: auto; height: 2px; background: #ff9900;"></div>
+<div id="main">
+            
+
+
+
+<form action="destination_sets.php" method="GET" id="mainform">
+<div class="dataname" style="padding-top: 1px;">
+  <table cellspacing="0" cellpadding="0" width="175">
+   <tr>
+    <td align="left" valign="top" style="padding-top: 2px;">Name</td>
+    <td align="right">
+    <select class="sel2" style="width: 80px;" name="name_clause">
+      <option value="0">is like</option>
+      <option value="1" >is not like</option>
+    </select>
+    </td>
+   </tr>
+  </table>
+</div>
+<div class="dataval" style="width: 235px;">
+    <input type="text" name="name" value="" class="sel2">
+    <input type="submit" value="Filter">
+</div>
+</form>
+
+<div class="dataname" style="width: 150px;">
+<form action="destination_sets.php" method="GET" id="addform">
+    <input type="hidden" name="action" value="show_add">
+    <input style="width: 150px;" type="submit" value="Add New">
+</form>
+</div>
+
+<div class="dataval" style="width: 150px; margin-left: 10px; margin-top: 2px;">
+<form action="destination_sets.php" method="GET" id="addform2">
+    <input type="hidden" name="action" value="show_based">
+    <input style="width: 150px;" type="submit" value="Add Based on Existing">
+</form>
+</div>
+
+<!-- start navigation -->
+<table class="grouptitle" width="100%">
+<tr>
+			<td width="50">
+    		</td>
+	<td width="50">
+    		</td>
+	<td align="center">Page 1 of 7, total 344 rows</td>
+		<td width="50" align="right">
+    		  <a href="#" onClick="javascript:gotopage(1);"><img src="images/next.gif" border="0" HEIGHT="13" WIDTH="13" alt="Next Page"></a>
+    		</td>
+	<td width="50" align="right">
+    		  <a href="#" onClick="javascript:gotopage(6);"><img src="images/last.gif" border="0" HEIGHT="13" WIDTH="13" alt="Last Page"></a>
+    		</td>
+	    </tr>
+
+<div class="separator"></div>
+
+<table cellpadding="1" cellspacing="0" width="100%">
+    <tr bgcolor="#DDDDDD">
+        <td width="3%" align="center" class='borderall'><strong>&nbsp;</strong></td>
+        <td align="center" class='borderallbutleft'><strong>Name</strong></td>
+        <td width="12%" align="center" class='borderallbutleft'><strong>Currency</strong></td>
+        <td width="15%" colspan="2" align="center" class='borderallbutleft'><strong>Action</strong></td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=351&action=edit&name=">ASTRA-BD-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=351">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(351)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=77&action=edit&name=">BICS-BAN-ST-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=77">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(77)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=159&action=edit&name=">BICS-HK-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=159">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(159)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=277&action=edit&name=">BICS-IND-PR-CHARLIE</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=277">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(277)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=2&action=edit&name=">BICS-IND-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=2">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(2)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=262&action=edit&name=">BICS-JAP-CHARLIE-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=262">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(262)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=242&action=edit&name=">BICS-JAP-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=242">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(242)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=283&action=edit&name=">BICS-PAK-FIX-PR-CHARLIE</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=283">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(283)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=284&action=edit&name=">BICS-PAK-MOBILE-PR-CHARLIE</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=284">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(284)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=257&action=edit&name=">BICS-PR-PR-HK-FIX</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=257">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(257)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=258&action=edit&name=">BICS-PR-PR-HK-MOB</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=258">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(258)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=216&action=edit&name=">BICS-SINGAPORE-PR-PR(1Prefix)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=216">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(216)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=217&action=edit&name=">BICS-SINGAPORE-PR-PR(7-prefix)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=217">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(217)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=256&action=edit&name=">BICS-ST/PLUS-HK-FIX</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=256">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(256)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=53&action=edit&name=">BTS-BAN-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=53">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(53)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=105&action=edit&name=">BTS-BAN-PR-PR(PREFIX-7)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=105">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(105)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=302&action=edit&name=">BTS-CAMBODIA-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=302">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(302)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=95&action=edit&name=">BTS-IRAN-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=95">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(95)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=104&action=edit&name=">BTS-LAOS-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=104">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(104)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=73&action=edit&name=">BTS-PR-PR(SINGAPORE)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=73">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(73)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=29&action=edit&name=">BTS-PR-PR-ETHOPIA</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=29">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(29)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=69&action=edit&name=">BTS-SGP-PR-PR(PREFIX 7)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=69">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(69)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=111&action=edit&name=">BTS-UAE-CHARLIE</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=111">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(111)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=149&action=edit&name=">BTS-UAE-PREMIUM</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=149">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(149)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=97&action=edit&name=">BTS-VIETNAM-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=97">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(97)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=96&action=edit&name=">BTS-YEMEN-PR-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=96">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(96)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=238&action=edit&name=">CALLNTALK(QUICKCOM)TIME(11-3)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=238">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(238)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=311&action=edit&name=">CALLNTALK-CHARLIE-PR(UFONE-ONLY)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=311">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(311)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=374&action=edit&name=">CALLNTALK-CHINA-CHARLIE-PR</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=374">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(374)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=276&action=edit&name=">CALLNTALK-PR-CHARLIE(IND)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=276">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(276)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=221&action=edit&name=">CALLNTALK-PR-CHARLIE(PAK)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=221">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(221)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=319&action=edit&name=">CALLNTALK-PR-CHARLIE(PAK)(QUICKCOM)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=319">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(319)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=229&action=edit&name=">CALLNTALK-PR-CHARLIE(RETAIL)(BAN)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=229">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(229)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=227&action=edit&name=">CALLNTALK-PR-CHARLIE(RETAIL)(ERI)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=227">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(227)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=233&action=edit&name=">CALLNTALK-PR-CHARLIE(RETAIL)(PHIL)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=233">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(233)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=231&action=edit&name=">CALLNTALK-PR-CHARLIE(RETAIL)(SRILANKA)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=231">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(231)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=225&action=edit&name=">CALLNTALK-PR-CHARLIE(RETAIL)(UAE)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=225">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(225)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=273&action=edit&name=">CALLNTALK-PR-CHARLIE(UAE)(LIVE)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=273">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(273)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=325&action=edit&name=">CALLNTALK-PR-PR(AUSTRALIA)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=325">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(325)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=230&action=edit&name=">CALLNTALK-PR-PR(BAN)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=230">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(230)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=228&action=edit&name=">CALLNTALK-PR-PR(ERI)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=228">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(228)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=259&action=edit&name=">CALLNTALK-PR-PR(HK)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=259">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(259)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=333&action=edit&name=">CALLNTALK-PR-PR(IND)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=333">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(333)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=261&action=edit&name=">CALLNTALK-PR-PR(JAPAN)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=261">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(261)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=236&action=edit&name=">CALLNTALK-PR-PR(PAK)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=236">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(236)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=234&action=edit&name=">CALLNTALK-PR-PR(PHIL)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=234">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(234)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=224&action=edit&name=">CALLNTALK-PR-PR(SGP)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=224">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(224)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=232&action=edit&name=">CALLNTALK-PR-PR(SRILANKA)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=232">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(232)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                              <tr bgcolor="#FFFFFF" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=226&action=edit&name=">CALLNTALK-PR-PR(UAE)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=226">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(226)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+    
+                                             <tr bgcolor="#EEEEEE" class="list-tr">
+        <td class='borderallbuttop'>
+                        &nbsp;
+                    </td>
+        <td class='borderbottomright'>
+            <a href="?i_destination_set=378&action=edit&name=">CALLNTALK-PR-PR(UK)</a>
+        </td>
+        <td class='borderbottomright' align="center">
+            USD
+        </td>
+        <td class='borderbottomright' align="center">
+                        <a href="routes.php?i_destination_set=378">Open Routes</a>
+                    </td>
+        <td  class='borderbottomright' align="center">
+            <a href="#" onClick="javascript: delete_warning(378)"><img src="images/stop.png" alt="Delete"/></a>
+        </td>
+    </tr>
+        </table>
+
+<div class="separator"></div>
+<!-- start navigation -->
+<table class="grouptitle" width="100%">
+<tr>
+			<td width="50">
+    		</td>
+	<td width="50">
+    		</td>
+	<td align="center">Page 1 of 7, total 344 rows</td>
+		<td width="50" align="right">
+    		  <a href="#" onClick="javascript:gotopage(1);"><img src="images/next.gif" border="0" HEIGHT="13" WIDTH="13" alt="Next Page"></a>
+    		</td>
+	<td width="50" align="right">
+    		  <a href="#" onClick="javascript:gotopage(6);"><img src="images/last.gif" border="0" HEIGHT="13" WIDTH="13" alt="Last Page"></a>
+    		</td>
+	    </tr>

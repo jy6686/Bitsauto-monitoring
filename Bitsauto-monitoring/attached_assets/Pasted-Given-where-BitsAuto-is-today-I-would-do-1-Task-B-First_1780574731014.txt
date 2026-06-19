@@ -1,0 +1,225 @@
+Given where BitsAuto is today, I would do:
+
+1. Task B First (Rollback Fix)
+
+Priority: Critical
+
+Not because it's exciting, but because:
+
+Observe
+Analyze
+Recommend
+Decide
+Execute
+
+only works if:
+
+Execute
+↓
+Rollback
+
+also works.
+
+Right now you have:
+
+Action	Status
+Apply ROUTE_BLOCK	✅
+Undo ROUTE_BLOCK	❌
+
+That is dangerous once operators start trusting Copilot.
+
+Before adding more intelligence, make execution safe.
+
+2. Task A Second (SIP Error Intelligence)
+
+Priority: Highest Strategic Value
+
+This is actually the missing piece between:
+
+Monitoring Platform
+
+and
+
+Operations Intelligence Platform
+
+Today Copilot sees:
+
+ASR
+ACD
+PDD
+Margin
+Fraud
+Q-Score
+
+But it does NOT see:
+
+503 spikes
+486 spikes
+480 spikes
+404 spikes
+603 spikes
+
+Those are often the earliest indicators of route degradation.
+
+What SIP Error Intelligence Should Become
+
+Not:
+
+Vendor A:
+503 = 22%
+
+Everyone can build that.
+
+Instead:
+
+AI Insight:
+
+Vendor A 503 rate increased
+from 2% → 18%
+during last 20 minutes.
+
+Likely Cause:
+Carrier congestion
+
+Impact:
+Pakistan Mobile ASR expected
+to decline 11–15%
+
+Recommended Action:
+Shift 30% traffic to Vendor C
+
+Confidence:
+88%
+
+THAT is valuable.
+
+What I Would Add To The Engine
+
+New telemetry feed:
+
+sip_error_profiles
+
+Per vendor:
+
+Error	Meaning
+503	Congestion
+486	Busy
+480	Unavailable
+404	Routing issue
+403	Rejected
+408	Timeout
+
+Rolling windows:
+
+5 min
+15 min
+1 hour
+Recommendation Types
+
+Add:
+
+Congestion Alert
+503 spike
+↓
+Move traffic
+Routing Failure Alert
+404 spike
+↓
+Investigate prefixes
+Availability Alert
+480 spike
+↓
+Reduce traffic
+Fraud Alert
+603 spike
+↓
+Possible CLI filtering
+What I Would NOT Build Yet
+
+The fake chat component.
+
+Honestly:
+
+"Show degraded carriers"
+
+chat is nice.
+
+But:
+
+"Move traffic from A to B"
+
+recommendations are much more valuable.
+
+The Copilot engine is already the differentiator.
+
+Missing Phase After SIP Errors
+
+After Task A, I would immediately move to:
+
+RTP Quality Intelligence
+
+Borrow the best part of VoIPmonitor.
+
+Feed:
+
+MOS
+Jitter
+Packet Loss
+Latency
+
+into Route Copilot.
+
+Then recommendations become:
+
+Move traffic from Vendor A to Vendor C
+
+Reason:
+MOS degraded
+Packet loss elevated
+503 congestion detected
+Historical ASR lower
+
+Now you're operating at a completely different level than traditional telecom dashboards.
+
+My Recommended Order
+Sprint 1
+
+ROUTE_BLOCK rollback fix
+
+Sprint 2
+
+SIP Error Intelligence
+
+Sprint 3
+
+RTP Quality Intelligence
+
+Sprint 4
+
+Confidence Back-Testing
+
+Sprint 5
+
+Prefix-Level AI Routing
+
+What I Think Is The Biggest Strategic Gap
+
+Not AI.
+
+Not GPT.
+
+Not WhatsApp.
+
+The biggest missing differentiator is:
+
+SIP Errors
++
+RTP Quality
++
+AI Recommendations
+
+That combination is what makes BitsAuto look less like a dashboard and more like a telecom operations intelligence platform.
+
+So my recommendation is:
+
+Do both tasks, but implement Task B immediately and make Task A the next major roadmap feature.

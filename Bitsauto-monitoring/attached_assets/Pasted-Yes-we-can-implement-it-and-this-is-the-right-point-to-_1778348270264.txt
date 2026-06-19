@@ -1,0 +1,166 @@
+Yes — we can implement it, and this is the right point to do it because the foundation (normalized execResult) is already solid.
+
+This is now a clean, bounded feature addition, not a refactor.
+
+🚀 What we are implementing (final agreed scope)
+
+We will add a new execution-signal layer:
+
+1. New table: ai_ops_events
+
+Stores execution-derived signals
+
+2. New module: signal-mapper.ts
+
+Pure function that converts:
+
+execResult + operationType → AI Ops signal
+3. Hook into:
+approveRequest() (after normalization)
+4. UI update:
+AI Ops page merges:
+anomaly_events (system behavior)
+ai_ops_events (execution behavior)
+🧱 STEP 1 — Database table
+
+Create:
+
+ai_ops_events
+CREATE TABLE ai_ops_events (
+  id SERIAL PRIMARY KEY,
+  type TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  message TEXT NOT NULL,
+  entity TEXT,
+  value TEXT,
+  linked_exec_id TEXT,
+  source TEXT DEFAULT 'execution',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+⚙️ STEP 2 — Signal Mapper (pure logic)
+
+Create:
+
+server/aiops/signal-mapper.ts
+export function mapExecToSignal(execResult: any, operationType: string) {
+  const signals = [];
+
+  // 1. Failure signal
+  if (!execResult.success) {
+    signals.push({
+      type: "ROUTING_FAILURE",
+      severity: "high",
+      message: execResult.message || "Execution failed",
+      entity: operationType,
+      value: null
+    });
+  }
+
+  // 2. Latency signal
+  if (execResult.durationMs && execResult.durationMs > 6000) {
+    signals.push({
+      type: "EXECUTION_LATENCY_HIGH",
+      severity: "medium",
+      message: `Slow execution: ${execResult.durationMs}ms`,
+      entity: operationType,
+      value: String(execResult.durationMs)
+    });
+  }
+
+  // 3. Vendor/routing degradation hint
+  if (
+    !execResult.success &&
+    operationType?.includes("routing_group_member")
+  ) {
+    signals.push({
+      type: "VENDOR_DEGRADATION_SIGNAL",
+      severity: "high",
+      message: "Routing operation failed",
+      entity: operationType,
+      value: null
+    });
+  }
+
+  return signals;
+}
+🔌 STEP 3 — Hook into approvals flow
+
+Inside:
+
+server/approvals.ts
+
+After normalized result is created:
+
+const signals = mapExecToSignal(normalizedExecResult, operationType);
+
+for (const s of signals) {
+  await db.insert(ai_ops_events).values({
+    type: s.type,
+    severity: s.severity,
+    message: s.message,
+    entity: s.entity,
+    value: s.value,
+    linked_exec_id: approvalId,
+    source: "execution"
+  });
+}
+📊 STEP 4 — AI Ops unified feed
+
+Update query to:
+
+SELECT * FROM ai_ops_events
+UNION ALL
+SELECT *, 'anomaly' as source FROM anomaly_events
+ORDER BY created_at DESC
+
+Or merge in backend.
+
+🎯 UI behavior (final state)
+
+AI Ops dashboard now shows:
+
+🔵 System anomalies
+ASR drop
+CPS spike
+vendor degradation
+🔴 Execution signals
+routing failure
+slow Sippy response
+failed updates
+
+Each clearly tagged:
+
+[ANOMALY] Vendor ASR dropped
+[SIGNAL] Routing update failed
+🧠 What this unlocks (important)
+
+This is the first time your system becomes:
+
+👉 dual-plane intelligence
+Plane	Meaning
+Telemetry plane	what the network is doing
+Control plane	what the system is doing to the network
+
+This is exactly how real carrier NOC intelligence systems are structured.
+
+⚠️ Keep this constraint (important)
+
+Do NOT expand logic yet into:
+
+ML scoring
+predictive models
+clustering
+
+This layer must remain:
+
+deterministic + explainable
+
+✔ Final answer
+
+Yes — we can implement it now, and the plan above is exactly the correct minimal, production-safe version.
+
+If you want next step after this, I’d suggest:
+
+“incident correlation layer” (grouping anomalies + execution failures into single root-cause events)
+
+That’s where the system starts becoming truly autonomous.

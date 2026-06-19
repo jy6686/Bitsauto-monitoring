@@ -1,0 +1,2472 @@
+
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html">
+<meta name="menu-title" content="ICHIBAAN">
+
+
+
+<link rel="stylesheet" type="text/css" href="/js/extjs/resources/css/ext-all.css">
+<link rel="stylesheet" type="text/css" href="/js/extjs/ext-ssp.css">
+<script type="text/javascript" src="/js/extjs/adapter/ext/ext-base.js"></script>
+<script type="text/javascript" src="/js/extjs/ext-all.js"></script>
+<script type="text/javascript" src="/js/extjs/ext-ssp.js"></script>
+
+<script language=javascript type=text/javascript>
+    // reference local blank image
+    Ext.BLANK_IMAGE_URL = '/js/extjs/resources/images/default/s.gif';
+</script>
+
+
+<script type="text/javascript" src="/js/utils.js"></script>
+
+<link href="styles.css" type="text/css" rel="stylesheet"> 
+<title>ICHIBAAN - Active Calls</title>
+
+
+
+
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="/static/js/jquery-3.3.1.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.local.js"></script>
+<link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
+<link rel="stylesheet" href="/static/css/font-OpenSans.css">
+<link rel="stylesheet" href="/static/css/menumaker.css">
+
+</head>
+<body>
+
+
+
+    <script>
+
+    function hide_ssl_certificate_warning() {
+        Ext.Ajax.request({
+            url: 'system.php',
+            params: {
+                action: 'hide_ssl_certificate_warning'
+            }
+        });
+        var d = document.getElementById('warning_ssl_certificate');
+        d.style.display = 'none';
+    }
+
+</script>
+
+<div id="warning_ssl_certificate" class="security_vulnerability">
+    <div style="position: relative; top: 0; right: 0; float: right; padding: 0 0 0 20px;">
+        <span onClick="hide_ssl_certificate_warning();"><i class="hide_button fas fa-times"></i></span>
+    </div>
+   Warning: A SSL certificate has not been added. Please <a href="https://support.sippysoft.com/solution/articles/78262-generating-and-installing-ssl-certificate">upload your own</a> SSL certificate
+   or create a SSL certificate <a href="https://support.sippysoft.com/solution/articles/3000070011-ssl-certificates-for-web">using LetsEncrypt</a>.
+</div>
+
+    <div id="warning_setup_firewall" class="security_vulnerability">
+   Warning: For your security please review your <a href="firewall_rules.php">Firewall Rules</a>
+   and create rules to allow or deny access to your SoftSwitch. For some
+   suggestions visit our support documentation <a href="https://support.sippysoft.com/solution/articles/3000058057--security-management">here</a>.
+</div>
+
+            <div id="cssmenu">
+            <ul>
+
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                    <ul>
+
+    
+                        <li class="has-sub"><a>My Customers</a>
+                            <ul>
+
+                                        <li><a href="accounts.php">Accounts</a></li>
+        
+                                        <li><a href="subcustomers.php">Customers</a></li>
+        
+        
+                                        <li><a href="account_classes.php">Account Classes</a></li>
+        
+        
+                                        <li><a href="account_lookup.php">Account Lookup</a></li>
+        
+                            </ul>
+                        </li>
+    
+    
+                        <li class="has-sub"><a>
+                                                Tariffs &amp;
+                                                Currencies</a>
+                            <ul>
+                                    <li><a href="tariffs.php">Tariffs</a></li>
+                                    <li><a href="service_plans.php">Service Plans</a></li>
+                                <li><a href="xrates.php">Exchange Rates</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Payments</a>
+                            <ul>
+                                    <li><a href="payment_processors.php">Payment Processors</a></li>
+    
+    
+                                    <li><a href="payments_history_root.php">Payments History</a></li>
+    
+                                    <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                                </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Invoicing</a>
+                            <ul>
+                                <li><a href="invoices.php">Invoices</a></li>
+                                <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                                <li><a href="images.php">Images</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                    <ul>
+                            <li class="has-sub"><a>My Vendors</a>
+                            <ul>
+                                <li><a href="vendors.php">Vendors</a></li>
+                                <li><a href="registrations.php">Registrations</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a>Routing</a>
+                            <ul>
+                                <li><a href="destination_sets.php">Destination Sets</a></li>
+                                <li><a href="routing_groups.php">Routing Groups</a></li>
+                                    <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                            </ul>
+                        </li>
+    
+                            <li class="has-sub"><a>DID Numbers</a>
+                            <ul>
+                                <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                                <li><a href="dids.php">DID Pool</a></li>
+                            </ul>
+                        </li>
+    
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                    <ul>
+
+                        <li><a href="web_users.php">Users</a></li>
+
+                        <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                        <li><a href="destinations.php">Destinations</a></li>
+                        <li><a href="system.php">System Parameters</a></li>
+                        <li><a href="external_services.php">External Services</a></li>
+                        <li><a href="show_graphs.php">Monitoring</a></li>
+
+                        <li><a href="activecalls.php">Active Calls</a></li>
+
+                        <li><a href="system_information.php">System Information</a></li>
+
+                        <li class="has-sub"><a href="tools.php">Tools</a>
+                            <ul>
+                                <li><a href="csrs.php">CSR Generator</a></li>
+                                <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                                <li><a href="looking_glass.php">Looking Glass</a></li>
+                                <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                                <li><a href="firewall_rules.php">IP Firewall</a></li>
+                                <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                                <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                            </ul>
+                        </li>
+
+
+                    </ul>
+                </li>
+                <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                    <ul class="wide">
+
+                        <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                        <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                        <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                        <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                        <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                        <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                        <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                    </ul>
+                </li>
+
+                <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                    ssp-root
+                                                </a>
+                    <ul class="wide">
+                        <li><a class="bold">Accounts balance: -2418242.6453874 USD</a></li>
+                        <li><a class="bold">Customers balance: 0.0000000 USD</a></li>
+                        <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                        <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </li>
+
+<script>
+    function menu_search_reset() {
+        var e = document.getElementById("menu_search");
+
+        var ul = document.getElementById('menu_search_results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+    }
+
+    function menu_search(event) {
+        var len = event.target.value.length;
+
+        var e = document.getElementById("menu_search");
+
+        var ul = document.getElementById('menu_search_results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+
+        if (len == 0) {
+            document.getElementById("menu_search_icon").classList.remove('fa-times-circle');
+            document.getElementById("menu_search_icon").classList.add('fas-search');
+            document.getElementById("menu_search_icon").removeEventListener('click');
+            return;
+        } else if (len < 3) {
+            document.getElementById("menu_search_icon").classList.remove('fas-search');
+            document.getElementById("menu_search_icon").classList.add('fa-times-circle');
+            document.getElementById("menu_search_icon").addEventListener('click', function() {
+                document.getElementById("menu_search_pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu_search_pattern").dispatchEvent(event);
+            });
+            return;
+        } else {
+            document.getElementById("menu_search_icon").classList.remove('fas-search');
+            document.getElementById("menu_search_icon").classList.add('fa-times-circle');
+            document.getElementById("menu_search_icon").addEventListener('click', function() {
+                document.getElementById("menu_search_pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu_search_pattern").dispatchEvent(event);
+            });
+
+            ul = document.createElement("ul");
+            ul.setAttribute('id', 'menu_search_results');
+            ul.classList.add("wide");
+
+            var m, i;
+            try {
+                m = document.getElementById("cssmenu").getElementsByTagName('li');
+                for (i = 0; i < m.length; i++) {
+                    if (m[i].classList.contains("has-sub")) {
+                        continue;
+                    };
+
+                    var n, j;
+                    n = m[i].getElementsByTagName('a');
+                    for (j = 0; j < n.length; j++) {
+                        if (!n[j].hasAttribute('href')) {
+                            continue;
+                        }
+                        var re = new RegExp(event.target.value, 'i');
+                        if (n[j].innerText.match(re)) {
+                            ul.appendChild(m[i].cloneNode(true));
+                        }
+                    }
+                }
+            } finally {
+                if (ul.childNodes.length > 0) {
+                    e.appendChild(ul);
+                }
+            }
+        }
+    }
+
+    addLoadEvent(function() {
+        var e = document.getElementById('menu_search_pattern');
+        e.addEventListener('input', menu_search);
+    });
+</script>
+
+
+                <li id="menu_search" class="has-sub align-right">
+                    <a>
+                        <input id="menu_search_pattern" type="text" name="menu_search_pattern">
+                        <i id="menu_search_icon" class="fas fa-search"></i>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+
+    <div style="width: auto; height: 2px; background: #ff9900;"></div>
+    <div id="main">
+                
+
+<script type="text/javascript">
+function refreshPage() {
+    var form = document.forms['call_form'];
+    form.submit();
+}
+
+addLoadEvent( function() { setTimeout(refreshPage, 300 * 1000); } );
+</script>
+
+<script type="text/javascript" src="/js/selectbox.js"></script>
+
+<script type="text/javascript">
+
+function delete_warning(id) {            
+    var s = ' class="mb-cnf-msg"';
+    var msg = '<p' + s + '>You are about to disconnect the Call.</p>';
+    msg += '<p' + s + '>Do you wish to proceed?</p>';
+
+    Ext.Msg.show({
+        title: 'Confirmation',
+        icon: Ext.MessageBox.QUESTION,
+        msg: msg,
+        width: 300,
+        closable: false,
+        fn : function(btn) {
+                if (btn === 'yes') {
+                    form = document.getElementById("call_form");
+                    form.action.value = 'delete';
+                    form.call_id.value = id;
+                    form.submit();
+                }
+            },
+        buttons: {yes: 'Yes',
+                  no: 'No'}
+    });
+}
+
+var conns = Array();
+
+conns.push([0, 0, 'All']);
+conns.push([15, 0, 'All']);
+conns.push([15, 146, 'BICS-ST-PLUS/PR']);
+conns.push([37, 0, 'All']);
+conns.push([37, 25013, 'BICS-IND-PR-CHARLIE(10)(Quickcom)']);
+conns.push([37, 25014, 'BICS-IND-PR-CHARLIE(39)(Quickcom)']);
+conns.push([37, 7176, 'BICS-IND-PR-PR(10)(Modiflie CLI)']);
+conns.push([37, 7181, 'BICS-IND-PR-PR(10)(Modiflie CLI)(test)']);
+conns.push([37, 7177, 'BICS-IND-PR-PR(39)(Modiflie CLI)']);
+conns.push([106, 0, 'All']);
+conns.push([106, 17393, 'BICS-JAP-CHARLIE-PR(10)']);
+conns.push([106, 17396, 'BICS-JAP-CHARLIE-PR(39)']);
+conns.push([106, 9324, 'BICS-JAP-PR-PR(10)']);
+conns.push([106, 9325, 'BICS-JAP-PR-PR(39)']);
+conns.push([11, 0, 'All']);
+conns.push([11, 15433, 'BICS-HK-PR-PR(.10)']);
+conns.push([11, 15434, 'BICS-HK-PR-PR(.39)']);
+conns.push([11, 25331, 'BICS-IND-PR-PR(.10)(CRTP)']);
+conns.push([11, 25332, 'BICS-IND-PR-PR(.39)(CRTP)']);
+conns.push([11, 77, 'BICS-IND-ST-PLUS/PR(.11)']);
+conns.push([11, 25339, 'BICS-PAK-FIX-PR-CHARLIE(.10)']);
+conns.push([11, 25340, 'BICS-PAK-FIX-PR-CHARLIE(.39)']);
+conns.push([11, 25341, 'BICS-PAK-MOBILE-PR-CHARLIE(.10)']);
+conns.push([11, 25342, 'BICS-PAK-MOBILE-PR-CHARLIE(.39)']);
+conns.push([11, 6763, 'BICS-PR-CHARLIE(.10)']);
+conns.push([11, 6765, 'BICS-PR-CHARLIE(.39)']);
+conns.push([11, 12, 'BICS-PR-PR(.10)']);
+conns.push([11, 25027, 'BICS-PR-PR(.10)(vocaloka)']);
+conns.push([11, 78, 'BICS-PR-PR(.39)']);
+conns.push([11, 25028, 'BICS-PR-PR(.39)(vocaloka)']);
+conns.push([11, 13, 'BICS-PR-PR(39)']);
+conns.push([11, 6317, 'BICS-SGP-PR-PR(.10)']);
+conns.push([11, 6320, 'BICS-SGP-PR-PR(.39)']);
+conns.push([104, 0, 'All']);
+conns.push([104, 13420, 'BICS-SINGAPORE-PR-PR(10)(1Prefix)']);
+conns.push([104, 6724, 'BICS-SINGAPORE-PR-PR(10)(7prefix)']);
+conns.push([104, 13417, 'BICS-SINGAPORE-PR-PR(39)(1Prefix)']);
+conns.push([104, 6723, 'BICS-SINGAPORE-PR-PR(39)(7prefix)']);
+conns.push([110, 0, 'All']);
+conns.push([110, 15428, 'BICS-ST/PLUS-HK-FIX']);
+conns.push([56, 0, 'All']);
+conns.push([56, 108, 'BTS-PAKISTAN-PR-PRPREFIX-7']);
+conns.push([56, 111, 'BTS-PR-PR']);
+conns.push([56, 1963, 'BTS-PR-PR(7-prefix)']);
+conns.push([56, 25397, 'BTS-PR-PR-CAMBODIA']);
+conns.push([56, 1968, 'BTS-SINGAPORE-PR-PR(Retail)']);
+conns.push([56, 194, 'BTS-UAE-CHARLIE']);
+conns.push([9, 0, 'All']);
+conns.push([9, 25344, 'BTS-BAN-PR-PR(Astra)']);
+conns.push([9, 275, 'BTS-BAN-PR-PR(CITIC)']);
+conns.push([9, 185, 'BTS-BAN-PR-PR(PREFIX-7)']);
+conns.push([9, 10, 'BTS-BAN-PR-PR(PTCL)']);
+conns.push([9, 25725, 'BTS-BAN-PR-PR(QGC)']);
+conns.push([9, 25400, 'BTS-BAN-PR-PR(Quickcom)']);
+conns.push([9, 9506, 'BTS-BAN-PR-PR(RETAIL)']);
+conns.push([9, 2159, 'BTS-BAN-PR-PR(Wave-crest)']);
+conns.push([9, 2479, 'BTS-BAN-PR-PR(in2net)']);
+conns.push([9, 207, 'BTS-BAN-PR-ST(bics)']);
+conns.push([82, 0, 'All']);
+conns.push([82, 213, 'BTS-LAOS-PR-PR(7prefix)']);
+conns.push([30, 0, 'All']);
+conns.push([30, 39, 'BTS-PR-PR-ETHOPIA']);
+conns.push([49, 0, 'All']);
+conns.push([49, 1174, 'CENTRED-TEL-CHINA-ST-PLUS(PREFIX 7)']);
+conns.push([49, 239, 'CENTRED-TEL-IND-ST-PLUS(PREFIX 1)']);
+conns.push([49, 88, 'CENTRED-TEL-IND-ST-PLUS(PREFIX 2)']);
+conns.push([49, 240, 'CENTRED-TEL-IND-ST-PLUS(PREFIX 7)']);
+conns.push([49, 1217, 'CENTRED-TEL-NEP-ST-PLUS(PREFIX 2)']);
+conns.push([69, 0, 'All']);
+conns.push([69, 167, 'CENTREDTEL-BD-ST-ST']);
+conns.push([69, 313, 'CENTREDTEL-BD-ST-ST(via-cloud)']);
+conns.push([69, 151, 'CENTREDTEL-BD-ST-ST/PR']);
+conns.push([69, 25347, 'CENTREDTEL-BD-ST-ST/PR(ASTRA)']);
+conns.push([109, 0, 'All']);
+conns.push([109, 25718, 'CENTREDTEL-ETHOPIA-ST-PR']);
+conns.push([109, 13592, 'CENTREDTEL-ETHOPIA-ST-ST']);
+conns.push([44, 0, 'All']);
+conns.push([44, 1950, 'CENTREDTEL-INDIA_CLI_BRAVO']);
+conns.push([44, 71, 'CENTREDTEL-INDIA_CLI_CHARLIE']);
+conns.push([42, 0, 'All']);
+conns.push([42, 66, 'CENTREDTEL-INDIA_PREMIUM(ORTP)(Prefix67)']);
+conns.push([38, 0, 'All']);
+conns.push([38, 52, 'CENTREDTEL-NEP-ST-ST(Prefix90)']);
+conns.push([38, 8948, 'CENTREDTEL-NEP-ST-ST/PR(Prefix90)']);
+conns.push([3, 0, 'All']);
+conns.push([3, 25771, 'CENTREDTEL-PAK-ST-CHARLIE']);
+conns.push([3, 2, 'CENTREDTEL-PAK-ST-ST(90)']);
+conns.push([3, 319, 'CENTREDTEL-PAK-ST/PR(TELENOR)']);
+conns.push([3, 318, 'CENTREDTEL-PAK-ST/PR(UFONE)']);
+conns.push([12, 0, 'All']);
+conns.push([12, 7152, 'CENTREDTEL-IND-ST-PR']);
+conns.push([12, 25329, 'CENTREDTEL-IND-ST-PR(JUNCTIONZ)']);
+conns.push([12, 25727, 'CENTREDTEL-IND-ST-PR(Quickcom)']);
+conns.push([12, 11925, 'CENTREDTEL-IND-ST-PR(vocaloca)']);
+conns.push([12, 14, 'CENTREDTEL-IND-ST-ST']);
+conns.push([12, 220, 'CENTREDTEL-IND-ST-ST(Modfied-CLI)']);
+conns.push([12, 25770, 'CENTREDTEL-ST-PR(TELENOR)']);
+conns.push([32, 0, 'All']);
+conns.push([32, 338, 'CITIC--JAPAN-PREMIUM']);
+conns.push([32, 6153, 'CITIC-AFG-PR-PR(Quickcom)']);
+conns.push([32, 158, 'CITIC-JAPAN-PREFIX-7']);
+conns.push([32, 25769, 'CITIC-JAPAN-PREMIUM(FIX)']);
+conns.push([32, 11324, 'CITIC-MALAYSIA-PR-PR']);
+conns.push([32, 10643, 'CITIC-PR-PR(TEST)']);
+conns.push([32, 317, 'CITIC-PR-PR-AUS']);
+conns.push([32, 292, 'CITIC-PR-PR-BD(7prefix)']);
+conns.push([32, 106, 'CITIC-PREFIX-7']);
+conns.push([32, 44, 'CITIC-PREMIUM']);
+conns.push([32, 11297, 'CITIC-SINGAPORE-PR-PR(PTCL)']);
+conns.push([32, 1966, 'CITIC-SINGAPORE-PR-PR(Retail)']);
+conns.push([32, 89, 'CITIC-SRI-PR-PR(Globacom)']);
+conns.push([32, 180, 'CITIC-UAE-PREFIX-7']);
+conns.push([65, 0, 'All']);
+conns.push([65, 147, 'CITIC-IND-PR-PR']);
+conns.push([65, 13056, 'CITIC-IND-PR-PR(Averiqtel)']);
+conns.push([47, 0, 'All']);
+conns.push([47, 25764, 'DID-CONNECTION(PBX)']);
+conns.push([47, 76, 'DID-CONNECTION(sb72)']);
+conns.push([47, 75, 'DID-CONNECTION(sm72x)']);
+conns.push([87, 0, 'All']);
+conns.push([87, 269, 'FTDL-PR-PR']);
+conns.push([87, 291, 'FTDL-PR-PR(PREFIX-7)']);
+conns.push([22, 0, 'All']);
+conns.push([22, 25324, 'GLOBACOM-CHINA-PR-PR']);
+conns.push([22, 25041, 'GLOBACOM-IND-PR-CHARLIE']);
+conns.push([22, 8631, 'GLOBACOM-IND-PR-CHARLIE(LOCAL ANI DISPLAY)']);
+conns.push([22, 25343, 'GLOBACOM-IND-PR-CHARLIE(QUICK)']);
+conns.push([22, 11911, 'GLOBACOM-IND-PR-PR']);
+conns.push([22, 13668, 'GLOBACOM-IND-PR-PR(Averiqtel)']);
+conns.push([22, 7788, 'GLOBACOM-KEN-PR-PR']);
+conns.push([22, 25794, 'GLOBACOM-NIGERIA-PR-PR']);
+conns.push([22, 25337, 'GLOBACOM-PR-CHARLIE-BD(FASTCOM)']);
+conns.push([22, 192, 'GLOBACOM-PR-PR(test)']);
+conns.push([22, 27, 'GLOBACOM-PR-PR-BD']);
+conns.push([22, 209, 'GLOBACOM-PR-PR-BD(7prefix)']);
+conns.push([22, 25336, 'GLOBACOM-PR-PR-BD(PTCL)']);
+conns.push([22, 25349, 'GLOBACOM-PR-PR-BD(astra)']);
+conns.push([40, 0, 'All']);
+conns.push([40, 63, 'GLOBAL-VOIP']);
+conns.push([136, 0, 'All']);
+conns.push([136, 25790, 'GNGN(Prefix7)']);
+conns.push([39, 0, 'All']);
+conns.push([39, 62, 'GTS-CC']);
+conns.push([39, 57, 'GTS-CLI(104.166.160.132 )']);
+conns.push([39, 58, 'GTS-CLI(72.21.24.131)']);
+conns.push([39, 59, 'GTS-NCLI(104.166.160.132 )']);
+conns.push([39, 60, 'GTS-NCLI(72.21.24.131)']);
+conns.push([39, 61, 'GTS-ORTP']);
+conns.push([17, 0, 'All']);
+conns.push([17, 18, 'HAYO-PAK-PR-PR']);
+conns.push([20, 0, 'All']);
+conns.push([20, 25, 'HAYO-PR-PR-BD']);
+conns.push([31, 0, 'All']);
+conns.push([31, 40, 'HGC-PREMIUM(170)']);
+conns.push([31, 41, 'HGC-PREMIUM(2)']);
+conns.push([31, 43, 'HGC-STANDARD(.2)']);
+conns.push([31, 42, 'HGC-STANDARD(170)']);
+conns.push([36, 0, 'All']);
+conns.push([36, 50, 'IN2NET-BD-IGW-PR']);
+conns.push([10, 0, 'All']);
+conns.push([10, 11, 'IN2NET-TECHNOLOGIES-BAN-PR-PR(.82)']);
+conns.push([13, 0, 'All']);
+conns.push([13, 15, 'IN2NET-TECHNOLOGIES-IND-ST-ST']);
+conns.push([13, 67, 'IN2NET-TECHNOLOGIES-IND-ST-ST/PR']);
+conns.push([13, 25728, 'IN2NET-TECHNOLOGIES-IND-ST-ST/PR(Quickcom)']);
+conns.push([13, 11924, 'IN2NET-TECHNOLOGIES-IND-ST-ST/PR(vocaloca)']);
+conns.push([46, 0, 'All']);
+conns.push([46, 74, 'INS-TELECOM-PR-PR']);
+conns.push([90, 0, 'All']);
+conns.push([90, 2138, 'INS-TELECOM-BAN-ST-ST(99)/PR']);
+conns.push([90, 279, 'INS-TELECOM-ST-ST(99)']);
+conns.push([90, 284, 'INS-TELECOM-ST-ST(99)/PR']);
+conns.push([90, 285, 'INS-TELECOM-ST-ST/CHARLIE']);
+conns.push([85, 0, 'All']);
+conns.push([85, 236, 'INS-TELECOM-ST/PLUS(22)']);
+conns.push([85, 237, 'INS-TELECOM-ST/PLUS(22)(6)(.175)']);
+conns.push([85, 238, 'INS-TELECOM-ST/PLUS(22)(6)(.240)']);
+conns.push([45, 0, 'All']);
+conns.push([45, 73, 'INTERNAL-TATA(sm7x)']);
+conns.push([45, 72, 'INTERNAL-TATA(sm8x)']);
+conns.push([112, 0, 'All']);
+conns.push([112, 21235, 'JUNCTIONZ-PR-PREFIX-7-PAK-FIXED(.18)']);
+conns.push([112, 21238, 'JUNCTIONZ-PR-PREFIX-7-PAK-FIXED(.19)']);
+conns.push([4, 0, 'All']);
+conns.push([4, 3, 'JUNCTIONZ-PAK-PR-PR(.18)']);
+conns.push([4, 25746, 'JUNCTIONZ-PAK-PR-PR(.18)(ORTP)']);
+conns.push([4, 25754, 'JUNCTIONZ-PAK-PR-PR(.18)(ORTP)(PREFIX-7)']);
+conns.push([4, 85, 'JUNCTIONZ-PAK-PR-PR(.18)(PREFIX-7)']);
+conns.push([4, 53, 'JUNCTIONZ-PAK-PR-PR(.18)(SBT)']);
+conns.push([4, 4, 'JUNCTIONZ-PAK-PR-PR(.19)']);
+conns.push([4, 25747, 'JUNCTIONZ-PAK-PR-PR(.19)(ORTP)']);
+conns.push([4, 25755, 'JUNCTIONZ-PAK-PR-PR(.19)(ORTP)(PREFIX-7)']);
+conns.push([4, 84, 'JUNCTIONZ-PAK-PR-PR(.19)(Prefix-7)']);
+conns.push([4, 54, 'JUNCTIONZ-PAK-PR-PR(.19)(SBT)']);
+conns.push([4, 302, 'JUNCTIONZ-PAK-PR-PR(CRTP)(18)']);
+conns.push([4, 303, 'JUNCTIONZ-PAK-PR-PR(CRTP)(19)']);
+conns.push([4, 227, 'JUNCTIONZ-PAK-PREFIX-6(MOBILINK)(.18)']);
+conns.push([4, 226, 'JUNCTIONZ-PAK-PREFIX-6(MOBILINK)(.19)']);
+conns.push([4, 175, 'JUNCTIONZ-PAK-PREFIX-7(MOBILINK)(.19)']);
+conns.push([4, 174, 'JUNCTIONZ-PAK-PREFIX-7(MOBILNIK)(.18)']);
+conns.push([4, 172, 'JUNCTIONZ-PAK-PREFIX-7(WARID)(.18)']);
+conns.push([4, 173, 'JUNCTIONZ-PAK-PREFIX-7(WARID)(.19)']);
+conns.push([50, 0, 'All']);
+conns.push([50, 177, ' JUNCTIONZ-PAK-CHARLIE-(ST/PLUS)(18)']);
+conns.push([50, 224, 'JUNCTIONZ-PAK(ST/PLUS)Telenor(18)(6prefix)']);
+conns.push([50, 225, 'JUNCTIONZ-PAK(ST/PLUS)Telenor(19)(6prefix)']);
+conns.push([50, 178, 'JUNCTIONZ-PAK-CHARLIE(ST/PLUS)(19)']);
+conns.push([50, 93, 'JUNCTIONZ-PAK-PR-PR(ST/PLUS)(18)(Prefix1)']);
+conns.push([50, 92, 'JUNCTIONZ-PAK-PR-PR(ST/PLUS)(19)(Prefix1)']);
+conns.push([94, 0, 'All']);
+conns.push([94, 326, 'LANCKTEL-PAK-ST-ST(7prefix)']);
+conns.push([94, 327, 'LANCKTEL-PAK-ST-ST/PR']);
+conns.push([34, 0, 'All']);
+conns.push([34, 331, 'LANCKTEL-CHINA-PR-PR']);
+conns.push([34, 48, 'LANCKTEL-EGYPT-PR-PR']);
+conns.push([34, 330, 'LANCKTEL-PAK-PR-PR']);
+conns.push([34, 328, 'LANCKTEL-PAK-PR-PR/CHARLIE']);
+conns.push([34, 334, 'LANCKTEL-TUNISIA-PR-PR']);
+conns.push([97, 0, 'All']);
+conns.push([97, 25692, 'LETS-DIAL-AUS-PR-PR']);
+conns.push([97, 25696, 'LETS-DIAL-GERMANY-PR-PR']);
+conns.push([97, 7648, 'LETS-DIAL-IND-PR-Charlie']);
+conns.push([97, 7816, 'LETS-DIAL-IND-PR-PR']);
+conns.push([97, 25697, 'LETS-DIAL-PAK-PR-Charlie']);
+conns.push([97, 25701, 'LETS-DIAL-PAK-PR-Charlie(Quickcom)(Telenor)']);
+conns.push([97, 25700, 'LETS-DIAL-PAK-PR-Charlie(Quickcom)(Ufone)']);
+conns.push([97, 6174, 'LETS-DIAL-SGP-PR-PR']);
+conns.push([97, 346, 'Lets-Dial']);
+conns.push([97, 25695, 'Lets-Dial(TEST)']);
+conns.push([53, 0, 'All']);
+conns.push([53, 100, 'MAINBERG-CC']);
+conns.push([53, 98, 'MAINBERG-CLI']);
+conns.push([53, 99, 'MAINBERG-NCLI']);
+conns.push([73, 0, 'All']);
+conns.push([73, 260, 'MANOR-IT-BD-PR-PR(31.25.199.2)']);
+conns.push([73, 261, 'MANOR-IT-BD-PR-PR(31.25.199.3)']);
+conns.push([73, 262, 'MANOR-IT-BD-PR-PR(31.25.199.4)']);
+conns.push([73, 263, 'MANOR-IT-BD-PR-PR(31.25.199.5)']);
+conns.push([73, 191, 'MANOR-IT-IND-PR-PR(.2)']);
+conns.push([73, 188, 'MANOR-IT-IND-PR-PR(.3)']);
+conns.push([73, 189, 'MANOR-IT-IND-PR-PR(.4)']);
+conns.push([73, 190, 'MANOR-IT-IND-PR-PR(.5)']);
+conns.push([73, 264, 'MANOR-IT-IND-PR-PR(PREFIX-7)(.2)']);
+conns.push([73, 265, 'MANOR-IT-IND-PR-PR(PREFIX-7)(.3)']);
+conns.push([73, 266, 'MANOR-IT-IND-PR-PR(PREFIX-7)(.4)']);
+conns.push([73, 267, 'MANOR-IT-IND-PR-PR(PREFIX-7)(.5)']);
+conns.push([73, 4675, 'MANOR-IT-PAK-PR-PR(.2)']);
+conns.push([73, 4676, 'MANOR-IT-PAK-PR-PR(.3)']);
+conns.push([73, 4677, 'MANOR-IT-PAK-PR-PR(.4)']);
+conns.push([73, 4678, 'MANOR-IT-PAK-PR-PR(.5)']);
+conns.push([57, 0, 'All']);
+conns.push([57, 25748, 'NGT-BAN-PR-PR']);
+conns.push([57, 25510, 'NGT-CHARLIE-PR-MALAYSIA']);
+conns.push([57, 112, 'NGT-PR-PR']);
+conns.push([57, 109, 'NGT-PR-PR(PREFIX-7)']);
+conns.push([57, 25071, 'NGT-PR-PR(PREFIX-7)(JAPAN)']);
+conns.push([57, 25304, 'NGT-PR-PR(QUICKCOM)(JAPAN)']);
+conns.push([57, 25289, 'NGT-PR-PR(SINGAPORE)']);
+conns.push([57, 1971, 'NGT-SINGAPORE-PR-PR(Retail)']);
+conns.push([57, 25783, 'NGT-SRI-PR-PR']);
+conns.push([41, 0, 'All']);
+conns.push([41, 65, 'OMAN-TEL-IND-PR-ST(.38)']);
+conns.push([41, 64, 'OMAN-TEL-IND-PR-ST(.6)']);
+conns.push([14, 0, 'All']);
+conns.push([14, 46, 'OMAN-TEL-PR-PR(.38)']);
+conns.push([14, 16, 'OMAN-TEL-PR-PR(.6)']);
+conns.push([33, 0, 'All']);
+conns.push([33, 45, 'OMAN-TEL-YEM-PR-PR']);
+conns.push([16, 0, 'All']);
+conns.push([16, 17, 'OMANTEL-PAK']);
+conns.push([48, 0, 'All']);
+conns.push([48, 11100, 'OTEGLOBE-A2Z-PR-PR(test)']);
+conns.push([48, 11308, 'OTEGLOBE-JAPAN-PR-CHARLIE(16)']);
+conns.push([48, 11309, 'OTEGLOBE-JAPAN-PR-Charlie(18)']);
+conns.push([48, 87, 'OTEGLOBE-JAPAN-PR-PR(16)']);
+conns.push([48, 86, 'OTEGLOBE-JAPAN-PR-PR(18)']);
+conns.push([48, 25793, 'OTEGLOBE-NIG-PR-PR(16)']);
+conns.push([75, 0, 'All']);
+conns.push([75, 195, 'PTCL-CC-Special(1000)']);
+conns.push([75, 286, 'PTCL-CC-Special(1000)(BD)(PREFIX-7)(QUICKCOM)']);
+conns.push([75, 201, 'PTCL-CC-Special(1000)(PREFIX1)(BTS)']);
+conns.push([75, 199, 'PTCL-CC-Special(1000)(PREFIX1)(FTDL)']);
+conns.push([75, 246, 'PTCL-CC-Special(1000)(PREFIX1)(FTDL-ufone)']);
+conns.push([75, 282, 'PTCL-CC-Special(1000)(PREFIX1)(WC)']);
+conns.push([75, 248, 'PTCL-CC-Special(1000)(Quickcom-Telenor)']);
+conns.push([75, 259, 'PTCL-CC-Special(1000)(Quickcom-UFONE)(PREFIX-1)']);
+conns.push([75, 247, 'PTCL-CC-Special(1000)(Retail)(7prefix)']);
+conns.push([75, 245, 'PTCL-CC-Special(1000)(UAE)(PREFIX-7)']);
+conns.push([75, 5987, 'PTCL-CC-Special(1000)-7prefix']);
+conns.push([5, 0, 'All']);
+conns.push([5, 5, 'PTCL-PAK-LL-PR-PR(.113)']);
+conns.push([5, 25708, 'PTCL-PAK-LL-PR-PR(.113)(QUICKCOM)']);
+conns.push([5, 6, 'PTCL-PAK-LL-PR-PR(.97)']);
+conns.push([5, 25709, 'PTCL-PAK-LL-PR-PR(.97)(QUICKCOM)']);
+conns.push([5, 25688, 'PTCL-PAK-LL-ST-ST(.113)']);
+conns.push([5, 25689, 'PTCL-PAK-LL-ST-ST(.97)']);
+conns.push([5, 21230, 'PTCL-PAKISTAN-PR-PREFIX-7-PAK-FIXED(.113)']);
+conns.push([5, 21231, 'PTCL-PAKISTAN-PR-PREFIX-7-PAK-FIXED(.97)']);
+conns.push([19, 0, 'All']);
+conns.push([19, 23, 'PTCL-(.113) -CHARLIE-MOBILINK(Quickcom)']);
+conns.push([19, 15022, 'PTCL-(.113) -CHARLIE-Mobil(Varshae)']);
+conns.push([19, 168, 'PTCL-(.113) -CHARLIE-Mobile']);
+conns.push([19, 23477, 'PTCL-(.113) -CHARLIE-Mobile(TELKART)']);
+conns.push([19, 128, 'PTCL-(.113) -CHARLIE-TELENOR']);
+conns.push([19, 118, 'PTCL-(.113) -CHARLIE-UFONE']);
+conns.push([19, 25385, 'PTCL-(.113) -CHARLIE-UFONE(QUICK)']);
+conns.push([19, 116, 'PTCL-(.113) -CHARLIE-WARID(Quickcom)']);
+conns.push([19, 120, 'PTCL-(.113) -CHARLIE-ZONG']);
+conns.push([19, 169, 'PTCL-(.97) -CHARLIE-Mobile']);
+conns.push([19, 23476, 'PTCL-(.97) -CHARLIE-Mobile(TELKART)']);
+conns.push([19, 15025, 'PTCL-(.97) -CHARLIE-Mobile(Varsha)']);
+conns.push([19, 129, 'PTCL-(.97) -CHARLIE-TELENOR']);
+conns.push([19, 119, 'PTCL-(.97) -CHARLIE-UFONE']);
+conns.push([19, 25386, 'PTCL-(.97) -CHARLIE-UFONE(QUICK)']);
+conns.push([19, 115, 'PTCL-(.97) -CHARLIE-WARID(Quickcom)']);
+conns.push([19, 242, 'PTCL-(113) (ORTP)(PREFIX-1)']);
+conns.push([19, 79, 'PTCL-(113) (ORTP)(PREFIX-6)']);
+conns.push([19, 243, 'PTCL-(97) (ORTP)(PREFIX-1)']);
+conns.push([19, 80, 'PTCL-(97) (ORTP)(PREFIX-6)']);
+conns.push([19, 121, 'PTCL-(97) -CHARLIE-ZONG']);
+conns.push([19, 24, 'PTCL-(97)-CHARLIE-MOBILINK(Quickcom)']);
+conns.push([19, 19, 'PTCL-PAK-PR-PR (.113) (CRTP)']);
+conns.push([19, 231, 'PTCL-PAK-PR-PR (.113)(test)']);
+conns.push([19, 20, 'PTCL-PAK-PR-PR(.97) (CRTP)']);
+conns.push([19, 37, 'PTCL-PAK-PR-ST(.113) (ORTP)']);
+conns.push([19, 36, 'PTCL-PAK-PR-ST(.97) (ORTP)']);
+conns.push([19, 21, 'PTCL-PAK-ST-ST(.113)']);
+conns.push([19, 22, 'PTCL-PAK-ST-ST(.97)']);
+conns.push([19, 25756, 'PTCL-PR']);
+conns.push([19, 25757, 'PTCL-PR-CHARLIE(ORTP)(TELENOR)(113)']);
+conns.push([19, 25758, 'PTCL-PR-CHARLIE(ORTP)(TELENOR)(97)']);
+conns.push([19, 25734, 'PTCL-PR-PR-TELENOR(113)']);
+conns.push([19, 25735, 'PTCL-PR-PR-TELENOR(97)']);
+conns.push([19, 15050, 'PTCL-PR-PR-UFONE(113)']);
+conns.push([19, 15051, 'PTCL-PR-PR-UFONE(97)']);
+conns.push([115, 0, 'All']);
+conns.push([115, 25356, 'QGC-CC']);
+conns.push([115, 25387, 'QGC-CC-CHARLIE']);
+conns.push([115, 25698, 'QGC-CC-MALAYSIA']);
+conns.push([115, 25406, 'QGC-CC-ST']);
+conns.push([115, 25723, 'QGC-IND-CC(Prefix-1)']);
+conns.push([115, 25677, 'QGC-IND-CC-CHARLIE']);
+conns.push([115, 25720, 'QGC-JAPAN-CC-PR']);
+conns.push([115, 25791, 'QGC-PAK-CC-PR(TDM)']);
+conns.push([51, 0, 'All']);
+conns.push([51, 324, 'QUICKCOM-IND-PR-PR']);
+conns.push([51, 1815, 'QUICKCOM-IND-PR-PR(7prefix-ANI)']);
+conns.push([51, 25767, 'QUICKCOM-PR-PR(DID)']);
+conns.push([51, 1939, 'QUICKCOM-YEM-PR-PR']);
+conns.push([67, 0, 'All']);
+conns.push([67, 210, 'QUICKCOM-BAN-ST-ST']);
+conns.push([67, 187, 'QUICKCOM-BAN-ST-ST(PREFIX-7)']);
+conns.push([67, 150, 'QUICKCOM-BAN-ST-ST-PR(PTCL)']);
+conns.push([67, 179, 'QUICKCOM-BAN-ST-ST-PR(Voxbeam)']);
+conns.push([8, 0, 'All']);
+conns.push([8, 9, 'QUICKCOM-BTCL-PR-BRAVO (PREFIX 6)(.72)']);
+conns.push([71, 0, 'All']);
+conns.push([71, 25381, '	QUICKCOM-JAPAN-CC-CHARLIE(.3)(BLOCKED)']);
+conns.push([71, 1975, 'QUICKCOM-AUS-CC(.3)((BLOCKED))']);
+conns.push([71, 1976, 'QUICKCOM-AUS-CC(.4)((BLOCKED))']);
+conns.push([71, 1977, 'QUICKCOM-AUS-CC(.77)']);
+conns.push([71, 1978, 'QUICKCOM-AUS-CC(.79)']);
+conns.push([71, 4241, 'QUICKCOM-BD-CC(.3)(BLOCKED)']);
+conns.push([71, 4242, 'QUICKCOM-BD-CC(.4)(BLOCKED)']);
+conns.push([71, 4243, 'QUICKCOM-BD-CC(.77)']);
+conns.push([71, 4244, 'QUICKCOM-BD-CC(.79)']);
+conns.push([71, 163, 'QUICKCOM-BD-CC-CHARLIE(.3)((BLOCKED))']);
+conns.push([71, 320, 'QUICKCOM-BD-CC-CHARLIE(.3)(chinaskyline)(BLOCKED)']);
+conns.push([71, 164, 'QUICKCOM-BD-CC-CHARLIE(.4)(BLOCKED)']);
+conns.push([71, 323, 'QUICKCOM-BD-CC-CHARLIE(.4)(chinaskyline)(BLOCKED)']);
+conns.push([71, 165, 'QUICKCOM-BD-CC-CHARLIE(.77)']);
+conns.push([71, 322, 'QUICKCOM-BD-CC-CHARLIE(.77)(chinaskyline)']);
+conns.push([71, 166, 'QUICKCOM-BD-CC-CHARLIE(.79)']);
+conns.push([71, 321, 'QUICKCOM-BD-CC-CHARLIE(.79)(chinaskyline)']);
+conns.push([71, 25365, 'QUICKCOM-CAMBODIA-CC-PREFIX-1(.3)((BLOCKED))']);
+conns.push([71, 25366, 'QUICKCOM-CAMBODIA-CC-PREFIX-1(.4)(BLOCKED)']);
+conns.push([71, 25367, 'QUICKCOM-CAMBODIA-CC-PREFIX-1(.7)']);
+conns.push([71, 25368, 'QUICKCOM-CAMBODIA-CC-PREFIX-1(.9)']);
+conns.push([71, 161, 'QUICKCOM-CC(.3)(BLOCKED)']);
+conns.push([71, 1257, 'QUICKCOM-CC(.3)-INDONESIA(7prefix)(BLOCKED)']);
+conns.push([71, 162, 'QUICKCOM-CC(.4)(BLOCKED)']);
+conns.push([71, 1258, 'QUICKCOM-CC(.4)-INDONESIA(7prefix)(BLOCKED)']);
+conns.push([71, 159, 'QUICKCOM-CC(.77)(prefix1)']);
+conns.push([71, 1259, 'QUICKCOM-CC(.77)-INDONESIA(7prefix)']);
+conns.push([71, 160, 'QUICKCOM-CC(.79)']);
+conns.push([71, 1260, 'QUICKCOM-CC(.79)-INDONESIA(7prefix)']);
+conns.push([71, 25362, 'QUICKCOM-CC-UAE-CHARLIE(.3)(BLOCKED)']);
+conns.push([71, 25363, 'QUICKCOM-CC-UAE-CHARLIE(.4)']);
+conns.push([71, 25364, 'QUICKCOM-CC-UAE-CHARLIE(.7)']);
+conns.push([71, 182, 'QUICKCOM-CC-UAE-CHARLIE(.79)']);
+conns.push([71, 6718, 'QUICKCOM-IND-CC-CHARLIE(.3)(BLOCKED)']);
+conns.push([71, 6720, 'QUICKCOM-IND-CC-CHARLIE(.4)(BLOCKED)']);
+conns.push([71, 6722, 'QUICKCOM-IND-CC-CHARLIE(.77)']);
+conns.push([71, 6721, 'QUICKCOM-IND-CC-CHARLIE(.79)']);
+conns.push([71, 15694, 'QUICKCOM-IND-CC-PR-PR(CRTP)(.3)(BLOCKED)']);
+conns.push([71, 15695, 'QUICKCOM-IND-CC-PR-PR(CRTP)(.4)(BLOCKED)']);
+conns.push([71, 15696, 'QUICKCOM-IND-CC-PR-PR(CRTP)(.77)']);
+conns.push([71, 15697, 'QUICKCOM-IND-CC-PR-PR(CRTP)(.79)']);
+conns.push([71, 1981, 'QUICKCOM-INDONESIA-CC-PR(.3)(BLOCKED)']);
+conns.push([71, 1982, 'QUICKCOM-INDONESIA-CC-PR(.4)(BLOCKED)']);
+conns.push([71, 1983, 'QUICKCOM-INDONESIA-CC-PR(.77)']);
+conns.push([71, 1984, 'QUICKCOM-INDONESIA-CC-PR(.79)']);
+conns.push([71, 25382, 'QUICKCOM-JAPAN-CC-CHARLIE(.4)(BLOCKED)']);
+conns.push([71, 25383, 'QUICKCOM-JAPAN-CC-CHARLIE(.7)']);
+conns.push([71, 25384, 'QUICKCOM-JAPAN-CC-CHARLIE(.9)']);
+conns.push([71, 25358, 'QUICKCOM-LAOS-CC-CHARLIE(.3)(BLOCKED)']);
+conns.push([71, 25359, 'QUICKCOM-LAOS-CC-CHARLIE(.4)(BLOCKED)']);
+conns.push([71, 25360, 'QUICKCOM-LAOS-CC-CHARLIE(.7)']);
+conns.push([71, 25361, 'QUICKCOM-LAOS-CC-CHARLIE(.9)']);
+conns.push([71, 25377, 'QUICKCOM-MALAYSIA-CC-CHARLIE(.3)(BLOCKED)']);
+conns.push([71, 25378, 'QUICKCOM-MALAYSIA-CC-CHARLIE(.4)(BLOCKED)']);
+conns.push([71, 25379, 'QUICKCOM-MALAYSIA-CC-CHARLIE(.7)']);
+conns.push([71, 25380, 'QUICKCOM-MALAYSIA-CC-CHARLIE(.9)']);
+conns.push([71, 215, 'QUICKCOM-PHI-CC-CHARLIE(.3)(BLOCKED)']);
+conns.push([71, 216, 'QUICKCOM-PHI-CC-CHARLIE(.4)(BLOCKED)']);
+conns.push([71, 217, 'QUICKCOM-PHI-CC-CHARLIE(.77)']);
+conns.push([71, 218, 'QUICKCOM-PHI-CC-CHARLIE(.79)']);
+conns.push([71, 25369, 'QUICKCOM-SGP-CC-CHARLIE(.3)(BLOCKED)']);
+conns.push([71, 25370, 'QUICKCOM-SGP-CC-CHARLIE(.4)(BLOCKED)']);
+conns.push([71, 25371, 'QUICKCOM-SGP-CC-CHARLIE(.7)']);
+conns.push([71, 25372, 'QUICKCOM-SGP-CC-CHARLIE(.9)']);
+conns.push([71, 9212, 'QUICKCOM-THAI-CC-CHARLIE(.3)(BLOCKED)']);
+conns.push([71, 9213, 'QUICKCOM-THAI-CC-CHARLIE(.4)(BLOCKED)']);
+conns.push([71, 9214, 'QUICKCOM-THAI-CC-CHARLIE(77)']);
+conns.push([71, 9215, 'QUICKCOM-THAI-CC-CHARLIE(79)']);
+conns.push([71, 9220, 'QUICKCOM-THAI-PR-PR(.50)']);
+conns.push([71, 9223, 'QUICKCOM-THAI-PR-PR(.51)']);
+conns.push([71, 9224, 'QUICKCOM-THAI-PR-PR(77)']);
+conns.push([71, 9225, 'QUICKCOM-THAI-PR-PR(79)']);
+conns.push([71, 25373, 'QUICKCOM-YEMEN-CC-PREFIX1(.3)(BLOCKED)']);
+conns.push([71, 25374, 'QUICKCOM-YEMEN-CC-PREFIX1(.4)(BLOCKED)']);
+conns.push([71, 25375, 'QUICKCOM-YEMEN-CC-PREFIX1(.7)']);
+conns.push([71, 25376, 'QUICKCOM-YEMEN-CC-PREFIX1(.9)']);
+conns.push([96, 0, 'All']);
+conns.push([96, 344, 'QUICKCOM-NEP-ST-ST']);
+conns.push([7, 0, 'All']);
+conns.push([7, 186, 'QUICKCOM-LAOS-PR-PR']);
+conns.push([7, 8, 'QUICKCOM-PAK-PR-PR']);
+conns.push([7, 274, 'QUICKCOM-PAK-PR-PR(Telenor)']);
+conns.push([21, 0, 'All']);
+conns.push([21, 4215, 'QUICKCOM-BD-IGW-PR']);
+conns.push([21, 26, 'QUICKCOM-BRAVO-BTCL']);
+conns.push([21, 25393, 'QUICKCOM-ERI-PR-PR']);
+conns.push([21, 5852, 'QUICKCOM-PAK-PR-CHARLIE']);
+conns.push([21, 7187, 'QUICKCOM-PR-PR(TEST)']);
+conns.push([21, 32, 'QUICKCOM-PR-PR-AFG']);
+conns.push([21, 25391, 'QUICKCOM-PR-PR-MALAYSIA']);
+conns.push([21, 1942, 'QUICKCOM-SRI-PR-PR']);
+conns.push([21, 25687, 'QUICKCOM-TURKEY-PR-PR']);
+conns.push([25, 0, 'All']);
+conns.push([25, 25357, 'QUICKCOM-BAN-ST/CHARLIE']);
+conns.push([25, 276, 'QUICKCOM-BD-ST/PR(CITIC)']);
+conns.push([25, 2158, 'QUICKCOM-BD-ST/PR(Wavecrest']);
+conns.push([25, 25355, 'QUICKCOM-IND-ST/PR']);
+conns.push([25, 25795, 'QUICKCOM-KEN-ST/PR']);
+conns.push([25, 325, 'QUICKCOM-PAK-ST/CHARLIE']);
+conns.push([25, 1972, 'QUICKCOM-PAK-ST/CHARLIE(UFONE)']);
+conns.push([25, 7654, 'QUICKCOM-PAK-ST/CHARLIE(VIA-CLOUD)']);
+conns.push([25, 289, 'QUICKCOM-PAK-ST/PR']);
+conns.push([25, 329, 'QUICKCOM-PAK-ST/PR(FTDL)']);
+conns.push([25, 333, 'QUICKCOM-PAK-ST/PR(Manor)']);
+conns.push([25, 332, 'QUICKCOM-PAK-ST/PR(NGT)']);
+conns.push([25, 4858, 'QUICKCOM-PAK-ST/PR(UFONE)']);
+conns.push([25, 29, 'QUICKCOM-SRI-ST/PR(Oman-tel)']);
+conns.push([25, 234, 'QUICKCOM-ST-PHIL(1prefix)']);
+conns.push([25, 233, 'QUICKCOM-ST-PHIL(7prefix)']);
+conns.push([25, 25787, 'QUICKCOM-ST-PR(UFONE)(JUNCTIONZ)(CRTP']);
+conns.push([25, 196, 'QUICKCOM-ST-ST-BD']);
+conns.push([25, 25395, 'QUICKCOM-ST-ST-ETHOPIA']);
+conns.push([25, 183, 'QUICKCOM-ST-ST-IND']);
+conns.push([25, 25797, 'QUICKCOM-ST-ST-NIGERIA']);
+conns.push([25, 288, 'QUICKCOM-ST-ST-PR(TELENOR)(BTS)']);
+conns.push([25, 290, 'QUICKCOM-ST-ST-PR(TELENOR)(CITIC)']);
+conns.push([25, 25351, 'QUICKCOM-ST-ST-PR(TELENOR)(CRTP)']);
+conns.push([25, 25353, 'QUICKCOM-ST/PR(ERITIRA)']);
+conns.push([25, 25705, 'QUICKCOM-ST/PR(ERITIRA)(Letsdial)']);
+conns.push([25, 25789, 'QUICKCOM-ST/PR(ERITIRA)(QGC)']);
+conns.push([25, 25796, 'QUICKCOM-ST/PR(ERITIRA)(Saif)']);
+conns.push([25, 6746, 'QUICKCOM-ST/PR(Test)']);
+conns.push([25, 25396, 'QUICKCOM-SUDAN-ST/PR']);
+conns.push([25, 25749, 'QUICKCOM-YEM-ST/PR']);
+conns.push([70, 0, 'All']);
+conns.push([70, 156, 'Quickcom-CC-Special(1000)']);
+conns.push([70, 197, 'Quickcom-CC-Special(1000)(1-Prefix)']);
+conns.push([70, 273, 'Quickcom-CC-Special(1000)(1-Prefix)(BTS)']);
+conns.push([70, 241, 'Quickcom-CC-Special(1000)(BD-CC-7prefix)(retail)']);
+conns.push([70, 277, 'Quickcom-CC-Special(1000)(BD-CITIC)']);
+conns.push([70, 244, 'Quickcom-CC-Special(1000)(BD-PTCL)']);
+conns.push([70, 268, 'Quickcom-CC-Special(1000)(BD-PTCL)(44 ani)']);
+conns.push([70, 249, 'Quickcom-CC-Special(1000)(UAE-CC-7prefix)']);
+conns.push([70, 198, 'Quickcom-CC-Special(1000)(bics)']);
+conns.push([70, 219, 'Quickcom-CC-Special(1000)ALL-CLI(7prefix)voip-garden']);
+conns.push([70, 200, 'Quickcom-CC-Special(1000)ALL-CLI-PR-PR']);
+conns.push([74, 0, 'All']);
+conns.push([74, 193, 'Quickcom-special(prefix7)']);
+conns.push([119, 0, 'All']);
+conns.push([119, 25710, 'SAIF-GLOBAL-CC(TEST)']);
+conns.push([119, 25713, 'SAIF-GLOBAL-MALAYSIA-PR-PR-CC(ORTP)(Prefix1)']);
+conns.push([118, 0, 'All']);
+conns.push([118, 25722, 'SAIF-GLOBAL-BTCL(PREFIX-6)']);
+conns.push([118, 25712, 'SAIF-GLOBAL-INDIA-PR-PR-CRTP']);
+conns.push([118, 25716, 'SAIF-GLOBAL-INDIA-PR-PR-CRTP(QUICKCOM)']);
+conns.push([118, 25737, 'SAIF-GLOBAL-PR-CHARLIE-ORTP(MANOR)']);
+conns.push([118, 25785, 'SAIF-GLOBAL-PR-PR(UFONE)(JUNCTIONZ)(CRTP)']);
+conns.push([118, 25711, 'SAIF-GLOBAL-PR-PR-ORTP']);
+conns.push([118, 25788, 'SAIF-GLOBAL-PR-PR-ORTP(QUICKCOM)']);
+conns.push([118, 25707, 'SAIF-GLOBAL-PR-PR-TEST']);
+conns.push([118, 25714, 'SAIF-GLOBAL-PR-ST-CRTP']);
+conns.push([128, 0, 'All']);
+conns.push([128, 25768, 'SAIF-GLOBAL-ST-ST/PR(Quickcom)']);
+conns.push([59, 0, 'All']);
+conns.push([59, 139, 'SB-PTCL-PAK-PR-PR(.98)']);
+conns.push([59, 127, 'SB-PTCL-PAK-PR-PR(Prefix 7)']);
+conns.push([59, 25732, 'SB-PTCL-PAK-PR-PR(QUICKCOM)(Prefix 7)']);
+conns.push([59, 294, 'SS-PTCL-PAK-PR-PR(Prefix 7)(Quickcom)']);
+conns.push([121, 0, 'All']);
+conns.push([121, 25729, 'SB-QGC-IND-PR-PR(CRTP)(QUICKCOM)']);
+conns.push([121, 25741, 'SB-QGC-PAK-PR-PR(1-Prefix)']);
+conns.push([121, 25740, 'SB-QGC-PAK-PR-PR(7-Prefix)']);
+conns.push([123, 0, 'All']);
+conns.push([123, 25745, 'SB-SAIF-GLOBAL-BD-BTCL-PR-PR(6-Prefix)']);
+conns.push([123, 25743, 'SB-SAIF-GLOBAL-PR-PR(1-Prefix)']);
+conns.push([123, 25744, 'SB-SAIF-GLOBAL-PR-PR(7-Prefix)']);
+conns.push([60, 0, 'All']);
+conns.push([60, 133, 'SB-SKY-TELECOM-UK-PAK-PR-PR(.98)(1-Prefix)']);
+conns.push([60, 25738, 'SB-SKY-TELECOM-UK-PAK-PR-PR(.98)(7-Prefix)']);
+conns.push([122, 0, 'All']);
+conns.push([122, 25731, 'SB-ZONG-PR-PR']);
+conns.push([122, 25742, 'SB-ZONG-PR-PR(7-Prefix)']);
+conns.push([100, 0, 'All']);
+conns.push([100, 2121, 'SB1toSS1']);
+conns.push([129, 0, 'All']);
+conns.push([129, 25772, 'SB7-PTCL-PAK-PR-PR']);
+conns.push([129, 25778, 'SB7-PTCL-PAK-PR-PR(PREFIX-7)']);
+conns.push([130, 0, 'All']);
+conns.push([130, 25773, 'SB7-QGC-PR-PR']);
+conns.push([130, 25780, 'SB7-QGC-PR-PR(Prefix-7)']);
+conns.push([134, 0, 'All']);
+conns.push([134, 25777, 'SB7-QUICKCOM-PR-PR']);
+conns.push([131, 0, 'All']);
+conns.push([131, 25774, 'SB7-SAIF-GLOBAL-CLI']);
+conns.push([131, 25779, 'SB7-SAIF-GLOBAL-CLI(PREFIX-7)']);
+conns.push([132, 0, 'All']);
+conns.push([132, 25775, 'SB7-SKY-TELECOM-UK-PAK-PR-PR']);
+conns.push([132, 25781, 'SB7-SKY-TELECOM-UK-PAK-PR-PR(PREFIX-7)']);
+conns.push([135, 0, 'All']);
+conns.push([135, 25782, 'SB7-TELSTRA-PR-PR']);
+conns.push([133, 0, 'All']);
+conns.push([133, 25776, 'SB7-ZONG-PR-PR']);
+conns.push([108, 0, 'All']);
+conns.push([108, 13646, 'SHENGLITEL-AUS-CC(prefix-1)']);
+conns.push([108, 13581, 'SHENGLITEL-CC(TEST)(prefix-1)']);
+conns.push([108, 13645, 'SHENGLITEL-HK-CC(prefix-1)']);
+conns.push([108, 17644, 'SHENGLITEL-JAP-CC-(PREFIX1)']);
+conns.push([108, 13647, 'SHENGLITEL-JAP-CC-CHARLIE']);
+conns.push([108, 18915, 'SHENGLITEL-SINGAPORE-CC-CHARLIE']);
+conns.push([111, 0, 'All']);
+conns.push([111, 21234, 'SKY-TELECOM-UK-PR-PREFIX-7-PAK-FIXED']);
+conns.push([6, 0, 'All']);
+conns.push([6, 25786, 'SKY-TELECOM-PR-PR(UFONE)(JUNCTIONZ)(CRTP)']);
+conns.push([6, 7, 'SKY-TELECOM-UK-PAK-PR-PR(25)']);
+conns.push([6, 55, 'SKY-TELECOM-UK-PAK-PR-PR(25)(CRTP))']);
+conns.push([6, 25389, 'SKY-TELECOM-UK-PAK-PR-PR(25)(Varsha)']);
+conns.push([6, 103, 'SKY-TELECOM-UK-PAK-PR-PR(FIX)']);
+conns.push([6, 25323, 'SKY-TELECOM-UK-PAK-PR-PR(ORTP)']);
+conns.push([6, 81, 'SKY-TELECOM-UK-PAK-PR-PR(PREFIX-6)']);
+conns.push([6, 83, 'SKY-TELECOM-UK-PAK-PR-PR(PREFIX-7)']);
+conns.push([6, 105, 'SKY-TELECOM-UK-PAK-PR-PR(SCO)']);
+conns.push([6, 25702, 'SKY-TELECOM-UK-PAK-PR-PR(TELENOR)(CRTP))(BICS)']);
+conns.push([6, 25552, 'SKY-TELECOM-UK-PAK-PR-ST']);
+conns.push([6, 171, 'SKY-TELECOM-UK-PAK-PREFIX-7(MOBILINK)']);
+conns.push([6, 25736, 'SKY-TELECOM-UK-PAK-PREFIX-7(ORTP)(MANOR)']);
+conns.push([6, 170, 'SKY-TELECOM-UK-PAK-PREFIX-7(WARID)']);
+conns.push([6, 104, 'TW23-SKY-TEL-PAK-MOB-PR-PR']);
+conns.push([81, 0, 'All']);
+conns.push([81, 214, 'SPEEDFLOW-PR-PR-(test)']);
+conns.push([81, 5109, 'SPEEDFLOW-SGP-PR-PR-']);
+conns.push([81, 212, 'SPEEDFLOW-UAE-PR-PR(7prefix)']);
+conns.push([83, 0, 'All']);
+conns.push([83, 229, 'SPEED-FLOW-ST/PR']);
+conns.push([83, 230, 'SPEED-FLOW-ST/PR(7-prefix)']);
+conns.push([83, 343, 'SPEED-FLOW-ST/PR(Test)']);
+conns.push([88, 0, 'All']);
+conns.push([88, 270, 'SS-BTS-BAN-PR-PR']);
+conns.push([62, 0, 'All']);
+conns.push([62, 135, 'SS-JUNCTIONZ-PAK-PR-PR(.98)']);
+conns.push([64, 0, 'All']);
+conns.push([64, 138, 'SS-JUNCTIONZ-PAK-ST-PLUS/ST(.98)']);
+conns.push([89, 0, 'All']);
+conns.push([89, 271, 'SS-QUICKCOM-BAN-ST-ST/PR']);
+conns.push([61, 0, 'All']);
+conns.push([61, 134, 'SS-TELSTRA-PAK-PR-PR(.98)(7-prefix)']);
+conns.push([61, 140, 'SS-TELSTRA-SRI-PR-PR(.98)']);
+conns.push([61, 345, 'SS-TELSTRA-test(.98)']);
+conns.push([63, 0, 'All']);
+conns.push([63, 136, 'SS-TELSTRA-ST-ST(.98)']);
+conns.push([63, 137, 'SS-TELSTRA-ST-ST(7-Prefix)(.98)']);
+conns.push([92, 0, 'All']);
+conns.push([92, 314, 'SS-TELSTRA-PR-PR(101)']);
+conns.push([23, 0, 'All']);
+conns.push([23, 25726, 'SUPER-SMART(PAK)(3-6)']);
+conns.push([23, 25761, 'SUPER-SMART-CHARLIE(SAARCTEL)']);
+conns.push([23, 25733, 'SUPER-SMART-CHARLIE(TELKART)']);
+conns.push([23, 25703, 'SUPER-SMART-PAKISTAN-CHARLIE-(PURE)(7)']);
+conns.push([23, 122, 'SUPER-SMART-SINGAPORE']);
+conns.push([23, 7797, 'SUPER-SMART-SINGAPORE(7)']);
+conns.push([23, 141, 'SUPERSMART-AFG-PR-PR(Globacom)']);
+conns.push([23, 94, 'SUPERSMART-AFG-PR-PR(Omantel)']);
+conns.push([23, 157, 'SUPERSMART-BAN-PR-PR(44-ANI)']);
+conns.push([23, 283, 'SUPERSMART-BAN-PR-PR(44-ANI)(30ASR)']);
+conns.push([23, 28, 'SUPERSMART-BAN-PR-PR(PTCL)']);
+conns.push([23, 278, 'SUPERSMART-BAN-PR-PR(PTCL)(30ASR)']);
+conns.push([23, 176, 'SUPERSMART-CHARLIE(ANI)(Quickcom)']);
+conns.push([23, 70, 'SUPERSMART-CHARLIE(MOBILINK)']);
+conns.push([23, 5801, 'SUPERSMART-CHARLIE(MOBILINK)(Quickcom)']);
+conns.push([23, 17429, 'SUPERSMART-CHARLIE(RETAIL)(PAK)(ANI)']);
+conns.push([23, 132, 'SUPERSMART-CHARLIE(TELENOR)']);
+conns.push([23, 17732, 'SUPERSMART-CHARLIE(TELENOR)(Quickcom)']);
+conns.push([23, 250, 'SUPERSMART-CHARLIE(UAE-PREFIX-7)']);
+conns.push([23, 143, 'SUPERSMART-CHARLIE(UFONE)']);
+conns.push([23, 117, 'SUPERSMART-CHARLIE(WARID)']);
+conns.push([23, 5804, 'SUPERSMART-CHARLIE(Warid)(Quickcom)']);
+conns.push([23, 153, 'SUPERSMART-CHARLIE(ZONG)']);
+conns.push([23, 25704, 'SUPERSMART-CHARLIE(next-pagee)']);
+conns.push([23, 15966, 'SUPERSMART-CHARLIE-(RETAIL)']);
+conns.push([23, 25354, 'SUPERSMART-ERI-PR-PR(Globacom)']);
+conns.push([23, 181, 'SUPERSMART-JAPAN-CHARLIE']);
+conns.push([23, 69, 'SUPERSMART-JAPAN-PR-PR']);
+conns.push([23, 142, 'SUPERSMART-MOBILE-OTHERS']);
+conns.push([23, 202, 'SUPERSMART-PAK-PR-PR(FTDL)']);
+conns.push([23, 280, 'SUPERSMART-PAK-PR-PR(FTDL)(30ASR)']);
+conns.push([23, 25693, 'SUPERSMART-PAK-PR-PR(Manor)']);
+conns.push([23, 25048, 'SUPERSMART-PAK-PR-PR(NGT)']);
+conns.push([23, 82, 'SUPERSMART-PAK-PR-PR(Quickcom)']);
+conns.push([23, 12815, 'SUPERSMART-PAK-PR-PR(SpeedFlow)']);
+conns.push([23, 56, 'SUPERSMART-PAK-PR-PR(UFONE)']);
+conns.push([23, 25706, 'SUPERSMART-PAK-PR-PR(Vovida)']);
+conns.push([23, 281, 'SUPERSMART-PAK-PR-PR(WC)(30ASR)']);
+conns.push([23, 11619, 'SUPERSMART-PAK-PR-PR(Wave-Crest)']);
+conns.push([23, 339, 'SUPERSMART-PHIL-PR-PR(Reazsoft)']);
+conns.push([23, 21471, 'Super-Smart-PR-PREFIX-7-PAK-FIXED']);
+conns.push([2, 0, 'All']);
+conns.push([2, 1, 'System Connection']);
+conns.push([86, 0, 'All']);
+conns.push([86, 306, 'TATA-PR-PR(109)(FTDL)']);
+conns.push([86, 307, 'TATA-PR-PR(110)(FTDL)']);
+conns.push([86, 308, 'TATA-PR-PR(111)(FTDL)']);
+conns.push([86, 309, 'TATA-PR-PR(14)(FTDL)']);
+conns.push([86, 310, 'TATA-PR-PR(141)(FTDL)']);
+conns.push([86, 311, 'TATA-PR-PR(142)(FTDL)']);
+conns.push([86, 312, 'TATA-PR-PR(143)(FTDL)']);
+conns.push([86, 253, 'TATA-PR-PR(209.58.46.109)']);
+conns.push([86, 305, 'TATA-PR-PR(209.58.46.109)(test)']);
+conns.push([86, 252, 'TATA-PR-PR(209.58.46.110)']);
+conns.push([86, 258, 'TATA-PR-PR(209.58.46.111)']);
+conns.push([86, 256, 'TATA-PR-PR(209.58.46.141)']);
+conns.push([86, 255, 'TATA-PR-PR(209.58.46.142)']);
+conns.push([86, 254, 'TATA-PR-PR(209.58.46.143)']);
+conns.push([86, 257, 'TATA-PR-PR(66.198.81.14)']);
+conns.push([103, 0, 'All']);
+conns.push([103, 3503, 'TATA-IND-PR-PR(109)']);
+conns.push([103, 3505, 'TATA-IND-PR-PR(110)']);
+conns.push([103, 3506, 'TATA-IND-PR-PR(111)']);
+conns.push([103, 3507, 'TATA-IND-PR-PR(14)']);
+conns.push([103, 3508, 'TATA-IND-PR-PR(141)']);
+conns.push([103, 3509, 'TATA-IND-PR-PR(142)']);
+conns.push([103, 3511, 'TATA-IND-PR-PR(143)']);
+conns.push([91, 0, 'All']);
+conns.push([91, 295, 'TATA-PR-PR(109)(7prefix)']);
+conns.push([91, 296, 'TATA-PR-PR(110)(7prefix)']);
+conns.push([91, 304, 'TATA-PR-PR(111)(7prefix)']);
+conns.push([91, 299, 'TATA-PR-PR(14)(7prefix)']);
+conns.push([91, 297, 'TATA-PR-PR(141)(7prefix)']);
+conns.push([91, 298, 'TATA-PR-PR(142)(7prefix)']);
+conns.push([91, 300, 'TATA-PR-PR(143)(7prefix)']);
+conns.push([79, 0, 'All']);
+conns.push([79, 232, 'TELECARD-PAK-PR-PR(TELENOR)(CLOSE RTP)']);
+conns.push([79, 287, 'TELECARD-PAK-PR-PR(TELENOR)(CLOSE RTP)(BTS)']);
+conns.push([79, 208, 'TELECARD-PAK-PR-PR(TELENOR)(open RTP)']);
+conns.push([79, 235, 'TELECARD-PR(TELENOR)(6-prefix)(open RTP)']);
+conns.push([79, 211, 'TELECARD-PR(TELENOR)(7-prefix)(close RTP)']);
+conns.push([43, 0, 'All']);
+conns.push([43, 25345, 'TELSTRA-BAN-PR-PR(Astra)']);
+conns.push([43, 68, 'TELSTRA-BAN-PR-PR(PTCL)']);
+conns.push([43, 25402, 'TELSTRA-BAN-PR-PR(Quickom)']);
+conns.push([99, 0, 'All']);
+conns.push([99, 373, 'TELSTRA-JAPAN-PR-PR(1prefix)']);
+conns.push([99, 370, 'TELSTRA-JAPAN-PR-PR(7prefix)']);
+conns.push([66, 0, 'All']);
+conns.push([66, 149, 'TELSTRA-KSA-PR-PR']);
+conns.push([114, 0, 'All']);
+conns.push([114, 21525, 'TELSTRA-PR-PREFIX-7-PAK-FIXED']);
+conns.push([113, 0, 'All']);
+conns.push([113, 21241, 'TELSTRA-ST-PREFIX-7-PAK-FIXED']);
+conns.push([72, 0, 'All']);
+conns.push([72, 228, 'TELSTRA-PAK-PR-PR']);
+conns.push([72, 223, 'TELSTRA-PAK-PR-PR(6prefix)']);
+conns.push([72, 184, 'TELSTRA-PAK-PR-PR(7prefix)']);
+conns.push([72, 4411, 'TELSTRA-PAK-PR-PR(7prefix)(Quickcom)']);
+conns.push([72, 25694, 'TELSTRA-PAK-PR-PR(TELENOR)']);
+conns.push([72, 25392, 'TELSTRA-PAK-PR-PR(WC)']);
+conns.push([72, 336, 'TELSTRA-PAK-PR-PR(tata)']);
+conns.push([29, 0, 'All']);
+conns.push([29, 293, 'INTERNAL-TELSTRA(SB2SBC)']);
+conns.push([29, 25399, 'TELSTRA-CAMBODIA-PR-PR']);
+conns.push([29, 25394, 'TELSTRA-ERI-PR-PR']);
+conns.push([29, 148, 'TELSTRA-MAL-PR-PR']);
+conns.push([29, 152, 'TELSTRA-MAL-PR-PR/ST']);
+conns.push([29, 340, 'TELSTRA-PR-PR']);
+conns.push([29, 342, 'TELSTRA-PR-PR(test)']);
+conns.push([29, 123, 'TELSTRA-PR-PR-CHARLIE(MOBILINK)']);
+conns.push([29, 130, 'TELSTRA-PR-PR-CHARLIE(TELENOR)']);
+conns.push([29, 145, 'TELSTRA-PR-PR-CHARLIE(UFONE)']);
+conns.push([29, 124, 'TELSTRA-PR-PR-CHARLIE(WARID)']);
+conns.push([29, 47, 'TELSTRA-SRI-PR-PR']);
+conns.push([29, 91, 'TELSTRA-USA-PR-PR']);
+conns.push([29, 38, 'TELSTRA-YEM-PR-PR']);
+conns.push([124, 0, 'All']);
+conns.push([124, 25766, 'TELSTRA-PR-PR(DID)']);
+conns.push([27, 0, 'All']);
+conns.push([27, 341, 'TELSTRA--ST-ST/PR(test)']);
+conns.push([27, 90, 'TELSTRA-AFG-ST-ST/PR']);
+conns.push([27, 6152, 'TELSTRA-AFG-ST-ST/PR(Quickcom)']);
+conns.push([27, 25404, 'TELSTRA-BAN-ST-ST/PR(PTCL)']);
+conns.push([27, 51, 'TELSTRA-IND-ST-ST/PR(via cloud)']);
+conns.push([27, 33, 'TELSTRA-MAL-ST-ST/PR']);
+conns.push([27, 20956, 'TELSTRA-PAK-ST-ST/PR']);
+conns.push([27, 25325, 'TELSTRA-PAK-TELENOR-ST/PR(ZONG)']);
+conns.push([27, 1969, 'TELSTRA-SINGAPORE-ST-ST/PR']);
+conns.push([27, 1965, 'TELSTRA-SINGAPORE-ST-ST/PR(7prefix)']);
+conns.push([27, 31, 'TELSTRA-SRI-ST-ST/PR']);
+conns.push([27, 5709, 'TELSTRA-ST-PR(ZONG)(VOVIDA)']);
+conns.push([27, 125, 'TELSTRA-ST-ST-CHARLIE(MOBILINK)']);
+conns.push([27, 131, 'TELSTRA-ST-ST-CHARLIE(TELENOR)']);
+conns.push([27, 144, 'TELSTRA-ST-ST-CHARLIE(UFONE)']);
+conns.push([27, 126, 'TELSTRA-ST-ST-CHARLIE(WARID)']);
+conns.push([27, 25352, 'TELSTRA-ST-ST-PR(TELENOR)(CRTP)']);
+conns.push([27, 272, 'TELSTRA-ST-ST/PR(TELENOR)(BTS)']);
+conns.push([27, 251, 'TELSTRA-ST-ST/PR(UFONE)']);
+conns.push([95, 0, 'All']);
+conns.push([95, 335, 'TELSTRA-TUNISIA-PR-PR']);
+conns.push([77, 0, 'All']);
+conns.push([77, 203, 'TRIO-HUB-BD-BTCL-PR-PR(4001)']);
+conns.push([77, 204, 'TRIO-HUB-BD-BTCL-PR-PR(4002)']);
+conns.push([77, 205, 'TRIO-HUB-BD-CC(48440)']);
+conns.push([58, 0, 'All']);
+conns.push([58, 113, 'US-MATRIX-A2Z-PR-PR (168.6)']);
+conns.push([58, 114, 'US-MATRIX-A2Z-PR-PR (168.8)']);
+conns.push([35, 0, 'All']);
+conns.push([35, 49, 'VERSCOM-EGYPT-PR-PR']);
+conns.push([26, 0, 'All']);
+conns.push([26, 30, 'VERSCOM-BRAVO-BTCL']);
+conns.push([54, 0, 'All']);
+conns.push([54, 102, 'VIA-CLOUD-BAN-PR-PR(.200)']);
+conns.push([54, 101, 'VIA-CLOUD-BAN-PR-PR(.74)']);
+conns.push([102, 0, 'All']);
+conns.push([102, 3066, 'VIA-CLOUD-PR-PR(.200)']);
+conns.push([102, 3204, 'VIA-CLOUD-SRI-PR-PR(.200)']);
+conns.push([55, 0, 'All']);
+conns.push([55, 110, 'VOVIDA-PR-PR']);
+conns.push([55, 301, 'VOVIDA-PR-PR(LANK)']);
+conns.push([55, 337, 'VOVIDA-PR-PR(Reaz)']);
+conns.push([55, 107, 'VOVIDA-PREFIX-7']);
+conns.push([52, 0, 'All']);
+conns.push([52, 96, 'VOXBEAM-USA-PR-PR(.134)']);
+conns.push([52, 95, 'VOXBEAM-USA-PR-PR(133)']);
+conns.push([52, 97, 'VOXBEAM-USA-PR-PR(251)']);
+conns.push([93, 0, 'All']);
+conns.push([93, 13091, 'WaveCrest-PR-PR(178.22.14.70)']);
+conns.push([93, 13092, 'WaveCrest-PR-PR(74.201.101.50)']);
+conns.push([28, 0, 'All']);
+conns.push([28, 15026, 'ZONG-A2Z-CHARLIE-PR(.156)(VARSHA)']);
+conns.push([28, 15027, 'ZONG-A2Z-CHARLIE-PR(.73)(VARSHA)']);
+conns.push([28, 34, 'ZONG-A2Z-PR-PR(.156)']);
+conns.push([28, 221, 'ZONG-A2Z-PR-PR(.156)(6-prefix)']);
+conns.push([28, 154, 'ZONG-A2Z-PR-PR(.156)(CHARLIE)']);
+conns.push([28, 35, 'ZONG-A2Z-PR-PR(.73)']);
+conns.push([28, 222, 'ZONG-A2Z-PR-PR(.73)(6-prefix)']);
+conns.push([28, 155, 'ZONG-A2Z-PR-PR(.73)(CHARLIE)']);
+conns.push([28, 25691, 'ZONG-ST-ST(.156)']);
+conns.push([28, 25690, 'ZONG-ST-ST(.73)']);
+conns.push([105, 0, 'All']);
+conns.push([105, 25760, 'CALLNTALK--PR-PR(TELSTRA)']);
+conns.push([105, 25403, 'CALLNTALK-BAN-PR-PR(PTCL)']);
+conns.push([105, 17673, 'CALLNTALK-CHARLIE-PR(JAPAN)']);
+conns.push([105, 11580, 'CALLNTALK-CHARLIE-PR(UFONE)']);
+conns.push([105, 25752, 'CALLNTALK-PAK-ORTP-PR-PR']);
+conns.push([105, 25759, 'CALLNTALK-PAK-ORTP-PR-PR(Prefix-7)']);
+conns.push([105, 25753, 'CALLNTALK-PAK-ORTP-PR-PR(QUICKCOM)']);
+conns.push([105, 25765, 'CALLNTALK-PAK-PR-PR(UFONE)']);
+conns.push([105, 24159, 'CALLNTALK-PR-CHARLIE(IND)(Quick)']);
+conns.push([105, 16813, 'CALLNTALK-PR-CHARLIE(PAK)(601)(Quickcom)']);
+conns.push([105, 9195, 'CALLNTALK-PR-CHARLIE(QUICKCOM)(3-11)']);
+conns.push([105, 10705, 'CALLNTALK-PR-CHARLIE(QUICKCOM)(ANI)']);
+conns.push([105, 7866, 'CALLNTALK-PR-CHARLIE(QUICKCOM)(Pak-CC)']);
+conns.push([105, 8685, 'CALLNTALK-PR-CHARLIE(RETAIL)(BAN)']);
+conns.push([105, 8695, 'CALLNTALK-PR-CHARLIE(RETAIL)(ERI)']);
+conns.push([105, 7867, 'CALLNTALK-PR-CHARLIE(RETAIL)(PAK)']);
+conns.push([105, 11377, 'CALLNTALK-PR-CHARLIE(RETAIL)(PAK)(ANI)']);
+conns.push([105, 25350, 'CALLNTALK-PR-CHARLIE(RETAIL)(PAK)(PURE)']);
+conns.push([105, 25390, 'CALLNTALK-PR-CHARLIE(RETAIL)(PAK)(next-pagee)']);
+conns.push([105, 8684, 'CALLNTALK-PR-CHARLIE(RETAIL)(PHIL)']);
+conns.push([105, 8686, 'CALLNTALK-PR-CHARLIE(RETAIL)(SRILANKA)']);
+conns.push([105, 8680, 'CALLNTALK-PR-CHARLIE(RETAIL)(UAE)']);
+conns.push([105, 8683, 'CALLNTALK-PR-CHARLIE(RETAIL)(YEM)']);
+conns.push([105, 8608, 'CALLNTALK-PR-CHARLIE(SGP)']);
+conns.push([105, 21476, 'CALLNTALK-PR-CHARLIE(TELKART)']);
+conns.push([105, 11944, 'CALLNTALK-PR-CHARLIE(Via-cloud)']);
+conns.push([105, 25724, 'CALLNTALK-PR-PR(AUSTRALIA)(QUICKCOM)']);
+conns.push([105, 8696, 'CALLNTALK-PR-PR(BAN)']);
+conns.push([105, 25346, 'CALLNTALK-PR-PR(BAN)(Astra)']);
+conns.push([105, 25763, 'CALLNTALK-PR-PR(BAN)(Wave)']);
+conns.push([105, 17080, 'CALLNTALK-PR-PR(BTS)']);
+conns.push([105, 25405, 'CALLNTALK-PR-PR(CITIC)']);
+conns.push([105, 8705, 'CALLNTALK-PR-PR(ERI)']);
+conns.push([105, 25719, 'CALLNTALK-PR-PR(ETHOPIA)']);
+conns.push([105, 15437, 'CALLNTALK-PR-PR(HK)']);
+conns.push([105, 10698, 'CALLNTALK-PR-PR(IND)']);
+conns.push([105, 11638, 'CALLNTALK-PR-PR(IND)(63-ANI)']);
+conns.push([105, 13673, 'CALLNTALK-PR-PR(IND)(Averiqtel)']);
+conns.push([105, 25751, 'CALLNTALK-PR-PR(IND)(Quickcom)']);
+conns.push([105, 17350, 'CALLNTALK-PR-PR(JAPAN)']);
+conns.push([105, 23271, 'CALLNTALK-PR-PR(Manor)']);
+conns.push([105, 17085, 'CALLNTALK-PR-PR(PAK)(FTDL)']);
+conns.push([105, 25334, 'CALLNTALK-PR-PR(PAK)(LANCKTEL)']);
+conns.push([105, 8697, 'CALLNTALK-PR-PR(PAK)(NGT)']);
+conns.push([105, 8698, 'CALLNTALK-PR-PR(PHIL)']);
+conns.push([105, 8702, 'CALLNTALK-PR-PR(SGP)']);
+conns.push([105, 25338, 'CALLNTALK-PR-PR(SGP)(Retail)']);
+conns.push([105, 8699, 'CALLNTALK-PR-PR(SRILANKA)']);
+conns.push([105, 9023, 'CALLNTALK-PR-PR(Speedflow)']);
+conns.push([105, 8700, 'CALLNTALK-PR-PR(UAE)']);
+conns.push([105, 25084, 'CALLNTALK-PR-PR(VOVIDA)']);
+conns.push([105, 25335, 'CALLNTALK-PR-PR(WAVE)']);
+conns.push([105, 8701, 'CALLNTALK-PR-PR(YEM)']);
+conns.push([105, 25750, 'CALLNTALK-PR-PR(YEM)(Saif)']);
+conns.push([105, 22112, 'CALLNTALK-PR-PREFIX-1-PAK-FIXED']);
+conns.push([105, 25699, 'CALLNTALK-PR-PREFIX-1-PAK-FIXED(NGT)']);
+conns.push([105, 21250, 'CALLNTALK-PR-PREFIX-7-PAK-FIXED']);
+conns.push([105, 25721, 'CALLNTALK-PR-PREFIX-7-PAK-FIXED(PURE)']);
+conns.push([105, 9194, 'CALLNTALK-ST-PR(IND)']);
+conns.push([137, 0, 'All']);
+conns.push([137, 25792, 'callntalk-internal']);
+conns.push([117, 0, 'All']);
+conns.push([117, 25683, 'next-pagee-Bangladesh--premium/premium-135-BA']);
+conns.push([101, 0, 'All']);
+conns.push([101, 25327, 'QGC-BD-PR-CLI(185.231.78.26)(PTCL)']);
+conns.push([101, 25401, 'QGC-BD-PR-PR(Quickcom)']);
+conns.push([101, 25348, 'QGC-IND-CHARLIE-PR(QUICKCOM)']);
+conns.push([101, 25328, 'QGC-IND-PR-CLI(185.231.78.26)(JUNCTIONZ)']);
+conns.push([101, 25330, 'QGC-IND-PR-PR']);
+conns.push([101, 25333, 'QGC-IND-PR-PR(CRTP)']);
+conns.push([101, 25715, 'QGC-IND-PR-PR(CRTP)(QUICKCOM)']);
+conns.push([101, 25524, 'QGC-IND-PR-PR(TDM)']);
+conns.push([101, 25664, 'QGC-IND-PR-PR(TDM)(TEST)']);
+conns.push([101, 25762, 'QGC-INDIA-PR-CHARLIE']);
+conns.push([101, 25388, 'QGC-JAPAN-PR-CHARLIE']);
+conns.push([101, 25717, 'QGC-JAPAN-PR-PR']);
+conns.push([101, 25739, 'QGC-PAK-PR-CHARLIE(ORTP)(MANOR)']);
+conns.push([101, 3372, 'QGC-PAK-PR-PR(7prefix)((185.231.78.26)']);
+conns.push([101, 25730, 'QGC-PAK-PR-PR(ORTP)']);
+conns.push([101, 25784, 'QGC-PR-PR(UFONE)(JUNCTIONZ)(CRTP)']);
+conns.push([101, 2122, 'QGC-PR-PR-CLI(185.231.78.26)']);
+conns.push([101, 25326, 'QGC-PR-PR-CLI(185.231.78.26)(TEST)']);
+conns.push([78, 0, 'All']);
+conns.push([78, 206, 'tiro-hub-Bangladesh--premium/premium-127-BA']);
+
+
+function setConnectionsList(id) {
+    var form=document.forms['filter_form'];
+
+    removeAllOptions(form.connection);
+    for (i = 0; i < conns.length; i++) {
+        if (conns[i][0] == id) {
+            addOption(form.connection, conns[i][2], conns[i][1]);
+        }
+    }
+}
+
+// create namespace
+Ext.namespace('sspExt');
+
+Ext.onReady(function() {
+    Ext.QuickTips.init();
+    Ext.apply(Ext.QuickTips.getQuickTip(), {
+        maxWidth: 500
+    });
+
+    var ds = new Ext.data.Store({
+        url: 'activecalls.php',
+        baseParams: {action: 'get_filter_callers_list'},
+        reader: new Ext.data.XmlReader({
+                        totalRecords: "total",
+                        record: "row",
+                        id: "id"},
+                [{name: 'id'}, {name: 'value'}])
+    });
+    var resultTpl = new Ext.XTemplate(
+        '<tpl for="."><div class="callerSearch-item">',
+            '{value}',
+        '</div></tpl>'
+    );
+    ds.add([ new Ext.data.Record({ id: '0_0', value: 'All' }) ]);
+
+    var caller = new Ext.form.ComboBox({
+        applyTo: '_caller',
+        id: 'caller',
+        forceSelection: true,
+        store: ds,
+        displayField: 'value',
+        valueField: 'id',
+        hiddenName: 'caller',
+        width: 175,
+        listWidth: 250,
+        tpl: resultTpl,
+        itemSelector: 'div.callerSearch-item',
+        minChars: 0,
+        pageSize: 20,
+        queryDelay: 1000,
+        typeAhead: true,
+        cls: 'dp3',
+        emptyClass: 'vi2',
+        fieldClass: 'vi2',
+        focusClass: 'vi2'
+    });
+
+    ds.add([ new Ext.data.Record({ id: '0_0', value: 'All' }) ]);
+    caller.setValue('0_0');
+});
+
+</script>
+
+
+
+<form action="activecalls.php" method="GET" name="filter_form">
+
+<table>
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" id="table1">
+    <tr>
+      <td align="left" class="Headline">
+            Active Calls: 9 ROUTING / 28 CONNECTED / 37 TOTAL
+      </td>
+    </tr>       
+</table>
+
+<div class="formcol">
+
+  <div class="grouptitle">
+        Filter  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="groupdata">
+
+    <div class="dataname" style="padding-top: 1px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">CLI</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="cli_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" name="cli" value="" class="sel2">
+    </div>
+
+    <div class="dataname">
+        Caller    </div>
+    <div class="dataval">
+        <input type="text" class="vi2" id="_caller" >
+    </div>
+
+    <div class="dataname">
+        State    </div>
+    <div class="dataval">
+      <select name="state_type" class="sel2">
+        <option value="1" selected>All        <option value="2" >ROUTING        <option value="3" >CONNECTED             
+      </select>
+    </div>
+
+  </div>
+
+  <div class="groupdata">
+
+    <div class="dataname" style="padding-top: 1px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">CLD</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="cld_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" name="cld" value="" class="sel2">
+    </div>
+
+  </div>
+
+  <div class="groupdata">
+
+    <div class="dataname">
+        Vendor    </div>
+    <div class="dataval">
+      <select name="vendor" class="sel2" onChange="setConnectionsList(this.value)">
+        <option value="0" selected>All</option>
+                  <option value="15" >BICS</option>
+                  <option value="37" >BICS-IND-PR</option>
+                  <option value="106" >BICS-JAP-PR-PR</option>
+                  <option value="11" >BICS-PR-PR</option>
+                  <option value="104" >BICS-SINGAPORE-PR-PR</option>
+                  <option value="110" >BICS-ST/PLUS</option>
+                  <option value="56" >BTS</option>
+                  <option value="9" >BTS-BAN-PR-PR</option>
+                  <option value="82" >BTS-LAOS-PR-PR</option>
+                  <option value="30" >BTS-PR-PR-ETHOPIA</option>
+                  <option value="49" >CENTRED-TEL-ST-PLUS(444)</option>
+                  <option value="69" >CENTREDTEL-BD-ST-ST</option>
+                  <option value="109" >CENTREDTEL-ETHOPIA-ST-ST</option>
+                  <option value="44" >CENTREDTEL-INDIA_CLI</option>
+                  <option value="42" >CENTREDTEL-INDIA_PREMIUM(ORTP)</option>
+                  <option value="38" >CENTREDTEL-NEP-ST-ST</option>
+                  <option value="3" >CENTREDTEL-PAK-ST-ST(90Prefix)</option>
+                  <option value="12" >CENTREDTEL-ST-ST</option>
+                  <option value="32" >CITIC</option>
+                  <option value="65" >CITIC-IND-PR-PR</option>
+                  <option value="47" >DID-CONNECTION</option>
+                  <option value="87" >FTDL</option>
+                  <option value="22" >GLOBACOM</option>
+                  <option value="40" >GLOBAL-VOIP</option>
+                  <option value="136" >GNGN</option>
+                  <option value="39" >GTS</option>
+                  <option value="17" >HAYO-PAK-PR-PR</option>
+                  <option value="20" >HAYO-PR-PR-BD</option>
+                  <option value="31" >HGC</option>
+                  <option value="36" >IN2NET-BD-IGW-PR</option>
+                  <option value="10" >IN2NET-TECHNOLOGIES-BAN-PR-PR</option>
+                  <option value="13" >IN2NET-TECHNOLOGIES-IND-ST-ST</option>
+                  <option value="46" >INS-TELECOM-PR-PR(00)</option>
+                  <option value="90" >INS-TELECOM-ST-ST(99)</option>
+                  <option value="85" >INS-TELECOM-ST/PLUS(22)(BTCL)</option>
+                  <option value="45" >INTERNAL-TATA</option>
+                  <option value="112" >JUNCTIONZ-FIX-PAK-PR-PR</option>
+                  <option value="4" >JUNCTIONZ-PAK-PR-PR</option>
+                  <option value="50" >JUNCTIONZ-PAK-PR-PR(ST/PLUS)</option>
+                  <option value="94" >LANCKTEL-PAK-ST-ST</option>
+                  <option value="34" >LANCKTEL-PR-PR</option>
+                  <option value="97" >Lets-Dial</option>
+                  <option value="53" >MAINBERG</option>
+                  <option value="73" >MANOR-IT</option>
+                  <option value="57" >NGT</option>
+                  <option value="41" >OMAN-TEL-IND-PR-PR</option>
+                  <option value="14" >OMAN-TEL-PR-PR</option>
+                  <option value="33" >OMAN-TEL-YEM-PR-PR</option>
+                  <option value="16" >OMANTEL-PAK</option>
+                  <option value="48" >OTEGLOBE-A2Z-PR-PR</option>
+                  <option value="75" >PTCL-CC-Special(1000)</option>
+                  <option value="5" >PTCL-PAK-LL-PR-PR</option>
+                  <option value="19" >PTCL-PAK-MOBILE-PR-PR</option>
+                  <option value="115" >QGC-CC</option>
+                  <option value="51" >QUICKCOM</option>
+                  <option value="67" >QUICKCOM-BAN-ST-ST</option>
+                  <option value="8" >QUICKCOM-BTCL-PR-BRAVO (PREFIX 6)</option>
+                  <option value="71" >QUICKCOM-CC</option>
+                  <option value="96" >QUICKCOM-NEP-ST-ST</option>
+                  <option value="7" >QUICKCOM-PAK-PR-PR</option>
+                  <option value="21" >QUICKCOM-PR-PR</option>
+                  <option value="25" >QUICKCOM-ST-ST</option>
+                  <option value="70" >Quickcom-CC-Special(1000)</option>
+                  <option value="74" >Quickcom-special</option>
+                  <option value="119" >SAIF-GLOBAL-CC</option>
+                  <option value="118" >SAIF-GLOBAL-CLI</option>
+                  <option value="128" >SAIF-GLOBAL-ST-ST</option>
+                  <option value="59" >SB-PTCL-PAK-PR-PR</option>
+                  <option value="121" >SB-QGC</option>
+                  <option value="123" >SB-SAIF-GLOBAL-CLI</option>
+                  <option value="60" >SB-SKY-TELECOM-UK-PAK-PR-PR</option>
+                  <option value="122" >SB-ZONG-PR-PR</option>
+                  <option value="100" >SB1toSS1</option>
+                  <option value="129" >SB7-PTCL-PAK-PR-PR</option>
+                  <option value="130" >SB7-QGC-PR-PR</option>
+                  <option value="134" >SB7-QUICKCOM-PR-PR</option>
+                  <option value="131" >SB7-SAIF-GLOBAL-CLI</option>
+                  <option value="132" >SB7-SKY-TELECOM-UK-PAK-PR-PR</option>
+                  <option value="135" >SB7-TELSTRA-PR-PR</option>
+                  <option value="133" >SB7-ZONG-PR-PR</option>
+                  <option value="108" >SHENGLITEL-CC</option>
+                  <option value="111" >SKY-TELECOM-UK-FIX-PAK-PR-PR</option>
+                  <option value="6" >SKY-TELECOM-UK-PAK-PR-PR</option>
+                  <option value="81" >SPEEDFLOW-PR-PR</option>
+                  <option value="83" >SPEEDFLOW-ST-ST</option>
+                  <option value="88" >SS-BTS-BAN-PR-PR</option>
+                  <option value="62" >SS-JUNCTIONZ-PAK-PR-PR</option>
+                  <option value="64" >SS-JUNCTIONZ-PAK-ST-PLUS/ST</option>
+                  <option value="89" >SS-QUICKCOM-BAN-ST-ST</option>
+                  <option value="61" >SS-TELSTRA-PAK-PR-PR</option>
+                  <option value="63" >SS-TELSTRA-PAK-ST-ST</option>
+                  <option value="92" >SS-TELSTRA-PR-PR</option>
+                  <option value="23" >SUPERSMART</option>
+                  <option value="2" >System Vendor</option>
+                  <option value="86" >TATA</option>
+                  <option value="103" >TATA-IND-PR-PR</option>
+                  <option value="91" >TATA-PAK-PR-PR(7-prefix)</option>
+                  <option value="79" >TELECARD-PR-PR</option>
+                  <option value="43" >TELSTRA-BAN-PR-PR</option>
+                  <option value="99" >TELSTRA-JAPAN-PR-PR</option>
+                  <option value="66" >TELSTRA-KSA-PR-PR</option>
+                  <option value="114" >TELSTRA-PAK-LL-PR-PR</option>
+                  <option value="113" >TELSTRA-PAK-LL-ST-ST</option>
+                  <option value="72" >TELSTRA-PAK-PR-PR</option>
+                  <option value="29" >TELSTRA-PR-PR</option>
+                  <option value="124" >TELSTRA-PR-PR(DID)</option>
+                  <option value="27" >TELSTRA-ST-ST</option>
+                  <option value="95" >TELSTRA-TUNISIA-PR-PR</option>
+                  <option value="77" >TRIO-HUB-BD-BTCL-PR-PR</option>
+                  <option value="58" >US-MATRIX-A2Z-PR-PR</option>
+                  <option value="35" >VERSCOM-PR-PR</option>
+                  <option value="26" >VERSCOM-ST-ST</option>
+                  <option value="54" >VIA-CLOUD-BAN-PR-PR</option>
+                  <option value="102" >VIA-CLOUD-PR-PR</option>
+                  <option value="55" >VOVIDA</option>
+                  <option value="52" >VOXBEAM-USA-PR-PR</option>
+                  <option value="93" >WAVECREST-PR-PR</option>
+                  <option value="28" >ZONG-PR-PR</option>
+                  <option value="105" >callntalk</option>
+                  <option value="137" >callntalk-internal</option>
+                  <option value="117" >next-pagee</option>
+                  <option value="101" >qgc</option>
+                  <option value="78" >tiro-hub</option>
+              </select>
+    </div>
+
+    <div class="dataname">
+        Connection    </div>
+    <div class="dataval">
+      <select name="connection" class="sel2">
+                  <option value="0" selected>All</option>
+              </select>
+    </div>
+
+  </div>
+
+  <div class="groupdata">
+
+    <div class="dataname">
+        Limit Calls    </div>
+    <div class="dataval">
+      <select name="limit_calls" class="sel2">
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="200">200</option>
+                  <option value="500">500</option>
+                  <option value="1000">1000</option>
+                  <option value="2000">2000</option>
+                  <option value="5000">5000</option>
+                  <option value="0" selected>All</option>
+              </select>
+    </div>
+
+  </div>
+
+  <div class="groupdata">
+
+    <div class="dataname">
+        Show Latest First    </div>
+    <div class="dataval">
+      <input name="show_latest_first" type="checkbox" value="1"  />
+    </div>
+
+  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="genrep">
+    <input type="submit" name="filter_bt" value="Filter">
+  </div>
+
+</div>
+
+</form>
+
+<div class="separator"></div>
+
+<table cellpadding='0' cellspacing='0' width="100%">
+    <tr bgcolor="#DDDDDD">
+        <td width="5%" rowspan=2 align="center" class='borderall'><strong>#</strong></td>
+            <td align="center" rowspan=2 class='borderallbutleft'><strong>Caller</strong></td>
+        <td align="center" rowspan=2 class='borderallbutleft'><strong>CLI</strong></td>
+        <td align="center" rowspan=2 class='borderallbutleft'><strong>CLD</strong></td>
+        <td align="center" rowspan=2 class='borderallbutleft'><strong>State</strong></td>
+        <td align="center" rowspan=2 class='borderallbutleft'><strong>Vendor</strong></td>
+        <td align="center" rowspan=2 class='borderallbutleft'><strong>Connection</strong></td>
+        <td align="center" rowspan=2 class='borderallbutleft'><strong>Direction</strong></td>
+        <td align="center" colspan=2 class='borderallbutleft'><strong>Media IP</strong></td>
+        <td align="center" rowspan=2 class='borderallbutleft'><strong>Delay</strong></td>
+        <td align="center" rowspan=2 class='borderallbutleft'><strong>Duration</strong></td>
+        <td align="center" rowspan=2 class='borderallbutleft'><strong>Action</strong></td>
+    </tr>
+    <tr bgcolor="#DDDDDD">
+        <td align="center" class='borderbottomright'><strong>Caller</strong></td>
+        <td align="center" class='borderbottomright'><strong>Callee</strong></td>
+    </tr>
+
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117715224</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97337357612</td>
+            <td align="center" class="borderbottomright">1923068868663</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.200</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">19.566</td>
+            <td align="center" class="borderbottomright">47:38</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(34137122008813)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117719375</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97366672120</td>
+            <td align="center" class="borderbottomright">1923040832738</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.200</td>
+            <td align="center" class="borderbottomright">202.92.22.4</td>
+            <td align="center" class="borderbottomright">14.530</td>
+            <td align="center" class="borderbottomright">40:56</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(63837270437122)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117724965</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97366369258</td>
+            <td align="center" class="borderbottomright">1923089366779</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.200</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">11.237</td>
+            <td align="center" class="borderbottomright">31:25</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(14672559734854)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117726606</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97336973460</td>
+            <td align="center" class="borderbottomright">1923073439023</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">151.248.99.172</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">9.446</td>
+            <td align="center" class="borderbottomright">28:10</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(40885592275346)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117727320</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97336100420</td>
+            <td align="center" class="borderbottomright">1923006600165</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.200</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">17.820</td>
+            <td align="center" class="borderbottomright">26:20</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(33504369798206)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117729319</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">97335302922</td>
+            <td align="center" class="borderbottomright">1923414954523</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=19&action=edit">PTCL-PAK-MOBILE-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25734&id_vendor=19">PTCL-PR-PR-TELENOR(113)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">194.25.206.235</td>
+            <td align="center" class="borderbottomright">119.159.238.162</td>
+            <td align="center" class="borderbottomright">15.553</td>
+            <td align="center" class="borderbottomright">21:09</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(22797631313741)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117729384</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97333433998</td>
+            <td align="center" class="borderbottomright">6923322256514</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=19&action=edit">PTCL-PAK-MOBILE-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=79&id_vendor=19">PTCL-(113) (ORTP)(PREFIX-6)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.213</td>
+            <td align="center" class="borderbottomright">119.159.238.162</td>
+            <td align="center" class="borderbottomright">17.036</td>
+            <td align="center" class="borderbottomright">20:59</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(6151758685063)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117729455</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=181">saarctel</a></td>
+            <td align="center" class="borderbottomright">9661438542094</td>
+            <td align="center" class="borderbottomright">1923405535974</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=19&action=edit">PTCL-PAK-MOBILE-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25734&id_vendor=19">PTCL-PR-PR-TELENOR(113)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">142.4.217.204</td>
+            <td align="center" class="borderbottomright">119.159.238.163</td>
+            <td align="center" class="borderbottomright">12.768</td>
+            <td align="center" class="borderbottomright">20:53</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(40865414200849)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117731851</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=26">Quickcomm-Globe</a></td>
+            <td align="center" class="borderbottomright">966538841623</td>
+            <td align="center" class="borderbottomright">1923374891313</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=118&action=edit">SAIF-GLOBAL-CLI</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25788&id_vendor=118">SAIF-GLOBAL-PR-PR-ORTP(QUICKCOM)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">185.32.78.180</td>
+            <td align="center" class="borderbottomright">221.120.204.105</td>
+            <td align="center" class="borderbottomright">16.235</td>
+            <td align="center" class="borderbottomright">14:17</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(71440277193842)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117733367</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97334824651</td>
+            <td align="center" class="borderbottomright">6923366492726</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=19&action=edit">PTCL-PAK-MOBILE-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=80&id_vendor=19">PTCL-(97) (ORTP)(PREFIX-6)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.213</td>
+            <td align="center" class="borderbottomright">119.159.238.133</td>
+            <td align="center" class="borderbottomright">17.413</td>
+            <td align="center" class="borderbottomright">10:17</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(47624371155547)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117733583</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">393208336128</td>
+            <td align="center" class="borderbottomright">1923480437104</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=19&action=edit">PTCL-PAK-MOBILE-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25735&id_vendor=19">PTCL-PR-PR-TELENOR(97)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">194.25.206.206</td>
+            <td align="center" class="borderbottomright">119.159.238.131</td>
+            <td align="center" class="borderbottomright">19.387</td>
+            <td align="center" class="borderbottomright">09:36</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(89826473157407)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117733594</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=29">Vovida</a></td>
+            <td align="center" class="borderbottomright">+97333055154</td>
+            <td align="center" class="borderbottomright">7923329107195</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=101&action=edit">qgc</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25739&id_vendor=101">QGC-PAK-PR-CHARLIE(ORTP)(MANOR)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">178.22.15.245</td>
+            <td align="center" class="borderbottomright">58.181.96.3</td>
+            <td align="center" class="borderbottomright">11.987</td>
+            <td align="center" class="borderbottomright">09:40</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(31737078193866)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117733987</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=33">PTCL</a></td>
+            <td align="center" class="borderbottomright">966567148166</td>
+            <td align="center" class="borderbottomright">18801705173126</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=67&action=edit">QUICKCOM-BAN-ST-ST</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=150&id_vendor=67">QUICKCOM-BAN-ST-ST-PR(PTCL)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">119.159.238.132</td>
+            <td align="center" class="borderbottomright">173.201.38.45</td>
+            <td align="center" class="borderbottomright">25.075</td>
+            <td align="center" class="borderbottomright">08:13</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(65196810675670)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117734839</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">97333051726</td>
+            <td align="center" class="borderbottomright">1923419451726</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=118&action=edit">SAIF-GLOBAL-CLI</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25788&id_vendor=118">SAIF-GLOBAL-PR-PR-ORTP(QUICKCOM)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">194.25.206.75</td>
+            <td align="center" class="borderbottomright">221.120.204.103</td>
+            <td align="center" class="borderbottomright">15.876</td>
+            <td align="center" class="borderbottomright">05:49</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(35748504694343)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117735055</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">393934740785</td>
+            <td align="center" class="borderbottomright">1923135824849</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">209.222.98.70</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">6.995</td>
+            <td align="center" class="borderbottomright">05:18</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(9992056199347)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117735395</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=33">PTCL</a></td>
+            <td align="center" class="borderbottomright">966543685310</td>
+            <td align="center" class="borderbottomright">18801870827136</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=67&action=edit">QUICKCOM-BAN-ST-ST</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=150&id_vendor=67">QUICKCOM-BAN-ST-ST-PR(PTCL)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">119.159.238.133</td>
+            <td align="center" class="borderbottomright">185.32.78.184</td>
+            <td align="center" class="borderbottomright">11.706</td>
+            <td align="center" class="borderbottomright">03:58</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(7246690324644)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117735688</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=33">PTCL</a></td>
+            <td align="center" class="borderbottomright">97431279147</td>
+            <td align="center" class="borderbottomright">18801625515486</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=57&action=edit">NGT</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25748&id_vendor=57">NGT-BAN-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">119.159.238.131</td>
+            <td align="center" class="borderbottomright">103.205.81.10</td>
+            <td align="center" class="borderbottomright">15.327</td>
+            <td align="center" class="borderbottomright">02:42</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(37448950178340)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117735953</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=29">Vovida</a></td>
+            <td align="center" class="borderbottomright">+966509651205</td>
+            <td align="center" class="borderbottomright">7923325494033</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=101&action=edit">qgc</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25739&id_vendor=101">QGC-PAK-PR-CHARLIE(ORTP)(MANOR)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">178.22.15.245</td>
+            <td align="center" class="borderbottomright">58.181.96.3</td>
+            <td align="center" class="borderbottomright">11.685</td>
+            <td align="center" class="borderbottomright">01:43</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(10318113714437)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736016</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97337605103</td>
+            <td align="center" class="borderbottomright">1923114201662</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.213</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">7.376</td>
+            <td align="center" class="borderbottomright">01:35</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(46219959287272)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117736143</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">18748619</td>
+            <td align="center" class="borderbottomright">1923419453419</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=118&action=edit">SAIF-GLOBAL-CLI</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25788&id_vendor=118">SAIF-GLOBAL-PR-PR-ORTP(QUICKCOM)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">31.193.169.251</td>
+            <td align="center" class="borderbottomright">202.125.157.119</td>
+            <td align="center" class="borderbottomright">16.758</td>
+            <td align="center" class="borderbottomright">01:02</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(56030363463709)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736250</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=33">PTCL</a></td>
+            <td align="center" class="borderbottomright">971503466355</td>
+            <td align="center" class="borderbottomright">18801763807730</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=67&action=edit">QUICKCOM-BAN-ST-ST</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=150&id_vendor=67">QUICKCOM-BAN-ST-ST-PR(PTCL)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">119.159.238.131</td>
+            <td align="center" class="borderbottomright">173.201.38.45</td>
+            <td align="center" class="borderbottomright">14.468</td>
+            <td align="center" class="borderbottomright">00:40</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(10738967413427)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117736252</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=181">saarctel</a></td>
+            <td align="center" class="borderbottomright">9660590003251</td>
+            <td align="center" class="borderbottomright">1923199243411</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">142.4.217.204</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">24.747</td>
+            <td align="center" class="borderbottomright">00:29</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(31174730857230)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736256</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">97333252426</td>
+            <td align="center" class="borderbottomright">1923435048108</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=115&action=edit">QGC-CC</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25791&id_vendor=115">QGC-PAK-CC-PR(TDM)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">194.25.206.69</td>
+            <td align="center" class="borderbottomright">185.32.78.183</td>
+            <td align="center" class="borderbottomright">12.094</td>
+            <td align="center" class="borderbottomright">00:41</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(86152915302328)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117736298</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">393883641533</td>
+            <td align="center" class="borderbottomright">1923467162448</td>
+            <td align="center" class="borderbottomright">ROUTING</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=115&action=edit">QGC-CC</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25791&id_vendor=115">QGC-PAK-CC-PR(TDM)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">194.25.206.69</td>
+            <td align="center" class="borderbottomright">185.32.78.181</td>
+            <td align="center" class="borderbottomright">45.507</td>
+            <td align="center" class="borderbottomright">00:00</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(30135163613477)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736326</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=26">Quickcomm-Globe</a></td>
+            <td align="center" class="borderbottomright">+12263877853</td>
+            <td align="center" class="borderbottomright">1923343611931</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=118&action=edit">SAIF-GLOBAL-CLI</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25788&id_vendor=118">SAIF-GLOBAL-PR-PR-ORTP(QUICKCOM)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">91.223.215.202</td>
+            <td align="center" class="borderbottomright">221.120.204.105</td>
+            <td align="center" class="borderbottomright">8.727</td>
+            <td align="center" class="borderbottomright">00:31</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(33065301026882)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117736343</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97336180391</td>
+            <td align="center" class="borderbottomright">1923290920507</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.200</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">13.036</td>
+            <td align="center" class="borderbottomright">00:24</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(84191144812145)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736347</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=33">PTCL</a></td>
+            <td align="center" class="borderbottomright">971528736026</td>
+            <td align="center" class="borderbottomright">18801763190502</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=57&action=edit">NGT</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25748&id_vendor=57">NGT-BAN-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">119.159.238.132</td>
+            <td align="center" class="borderbottomright">103.205.81.14</td>
+            <td align="center" class="borderbottomright">19.674</td>
+            <td align="center" class="borderbottomright">00:16</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(10057586089449)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117736368</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97337202821</td>
+            <td align="center" class="borderbottomright">1923214140154</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.200</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">19.572</td>
+            <td align="center" class="borderbottomright">00:12</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(33728400453600)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736369</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">393512525538</td>
+            <td align="center" class="borderbottomright">1923407484754</td>
+            <td align="center" class="borderbottomright">CONNECTED</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">194.25.206.107</td>
+            <td align="center" class="borderbottomright">202.92.17.59</td>
+            <td align="center" class="borderbottomright">11.194</td>
+            <td align="center" class="borderbottomright">00:20</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(15992091909014)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117736388</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97336965374</td>
+            <td align="center" class="borderbottomright">1923258328383</td>
+            <td align="center" class="borderbottomright">ROUTING</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.213</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">27.453</td>
+            <td align="center" class="borderbottomright">00:00</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(81892792454187)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736422</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97336152926</td>
+            <td align="center" class="borderbottomright">1923252039640</td>
+            <td align="center" class="borderbottomright">ROUTING</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">151.248.99.172</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">18.720</td>
+            <td align="center" class="borderbottomright">00:00</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(25711460192814)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117736446</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=33">PTCL</a></td>
+            <td align="center" class="borderbottomright">393512618126</td>
+            <td align="center" class="borderbottomright">18801731932950</td>
+            <td align="center" class="borderbottomright">ROUTING</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=67&action=edit">QUICKCOM-BAN-ST-ST</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=150&id_vendor=67">QUICKCOM-BAN-ST-ST-PR(PTCL)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">119.159.238.133</td>
+            <td align="center" class="borderbottomright">5.223.80.136</td>
+            <td align="center" class="borderbottomright">13.932</td>
+            <td align="center" class="borderbottomright">00:00</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(3809019251923)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736485</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=30">Via-Cloud</a></td>
+            <td align="center" class="borderbottomright">97337308498</td>
+            <td align="center" class="borderbottomright">1923295707645</td>
+            <td align="center" class="borderbottomright">ROUTING</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=6&action=edit">SKY-TELECOM-UK-PAK-PR-PR</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=7&id_vendor=6">SKY-TELECOM-UK-PAK-PR-PR(25)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">87.252.96.200</td>
+            <td align="center" class="borderbottomright">202.92.22.5</td>
+            <td align="center" class="borderbottomright">6.222</td>
+            <td align="center" class="borderbottomright">00:00</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(34407669026533)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117736493</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=29">Vovida</a></td>
+            <td align="center" class="borderbottomright">+97466047543</td>
+            <td align="center" class="borderbottomright">7923339077392</td>
+            <td align="center" class="borderbottomright">ROUTING</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=101&action=edit">qgc</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25739&id_vendor=101">QGC-PAK-PR-CHARLIE(ORTP)(MANOR)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">178.22.15.245</td>
+            <td align="center" class="borderbottomright">58.181.96.3</td>
+            <td align="center" class="borderbottomright">5.201</td>
+            <td align="center" class="borderbottomright">00:00</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(48115605492994)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736502</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=33">PTCL</a></td>
+            <td align="center" class="borderbottomright">971554910403</td>
+            <td align="center" class="borderbottomright">18801814942990</td>
+            <td align="center" class="borderbottomright">ROUTING</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=67&action=edit">QUICKCOM-BAN-ST-ST</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=150&id_vendor=67">QUICKCOM-BAN-ST-ST-PR(PTCL)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">119.159.238.131</td>
+            <td align="center" class="borderbottomright">5.223.90.37</td>
+            <td align="center" class="borderbottomright">3.794</td>
+            <td align="center" class="borderbottomright">00:00</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(25830030585559)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td align="center" class="borderallbuttop">117736503</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">393313127821</td>
+            <td align="center" class="borderbottomright">1923447125605</td>
+            <td align="center" class="borderbottomright">ROUTING</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=118&action=edit">SAIF-GLOBAL-CLI</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25788&id_vendor=118">SAIF-GLOBAL-PR-PR-ORTP(QUICKCOM)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">194.25.206.209</td>
+            <td align="center" class="borderbottomright"></td>
+            <td align="center" class="borderbottomright">3.797</td>
+            <td align="center" class="borderbottomright">00:00</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(75070840568406)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+                                    
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td align="center" class="borderallbuttop">117736513</td> 
+                <td align="center" class="borderbottomright">Acct. <a href="accounts.php?action=edit&account=123">astra-global</a></td>
+            <td align="center" class="borderbottomright">97333652905</td>
+            <td align="center" class="borderbottomright">1923447594077</td>
+            <td align="center" class="borderbottomright">ROUTING</td>
+            <td align="center" class="borderbottomright">
+                            <a href="vendors.php?i_vendor=115&action=edit">QGC-CC</a>
+                        </td>
+            <td align="center" class="borderbottomright">
+                            <a href="connections.php?action=edit&account=25791&id_vendor=115">QGC-PAK-CC-PR(TDM)</a>
+                        </td>
+            <td align="center" class="borderbottomright">vendor</td>
+            <td align="center" class="borderbottomright">194.25.206.75</td>
+            <td align="center" class="borderbottomright"></td>
+            <td align="center" class="borderbottomright">2.236</td>
+            <td align="center" class="borderbottomright">00:00</td>
+            <td align="center" class="borderbottomright">
+                <a href="#" onClick="javascript: delete_warning(83026630174840)"><img src="images/stop.png" alt="Disconnect"/></a>
+            </td>
+        </tr>
+                
+    </table>
+</td></tr></table>
+
+<form id="call_form" method="GET" action="activecalls.php">
+        <input type="hidden" name="call_id" value="">
+        <input type="hidden" name="action" value="">
+        <input type="hidden" name="caller" value="0_0">
+        <input type="hidden" name="cli" value="">
+        <input type="hidden" name="cld" value="">
+        <input type="hidden" name="cli_clause" value="0">
+        <input type="hidden" name="cld_clause" value="0">
+        <input type="hidden" name="limit_calls" value="0">
+        <input type="hidden" name="vendor" value="0">
+        <input type="hidden" name="connection" value="0">
+        <input type="hidden" name="state_type" value="1">
+        <input type="hidden" name="filter_bt" value="1">
+</form>
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode("10 Apr 2026 16:47:19 (Etc/UTC)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+</body>
+</html>

@@ -1,0 +1,216 @@
+Yes — now it is ready to implement properly.
+
+Your refinements solved the two biggest enterprise risks:
+
+uncontrolled auto-routing
+weak explainability foundation
+
+The architecture is now mature enough for:
+
+Policy-Governed Intelligent Failover
+
+which is a legitimate telecom enterprise feature.
+
+Most Important Point You Added
+
+This is critical:
+
+carrier → prefixes → countries → active portfolio exposure
+
+must exist BEFORE Sprint 1 UI work starts.
+
+You are correct:
+the Explainability Drawer depends on:
+
+routing blast-radius intelligence
+
+Without that join:
+
+exposure % becomes inaccurate
+affected-prefix calculations break
+portfolio-risk numbers lose trust
+Recommended Pre-Sprint 0
+
+(do BEFORE Sprint 1)
+
+Build/Validate:
+Prefix Exposure Resolver
+
+Required chain:
+
+Vendor
+    ↓
+Prefixes Served
+    ↓
+Destination Countries
+    ↓
+Traffic Share
+    ↓
+Portfolio Exposure %
+
+This should become:
+
+reusable backend service
+
+Example:
+
+resolveVendorExposure(vendorId)
+
+Output:
+
+{
+  "portfolioExposure": 42,
+  "affectedPrefixes": ["88017", "88018"],
+  "countries": ["Bangladesh"],
+  "activeCallShare": 38,
+  "revenueShare": 44
+}
+
+VERY important foundation.
+
+Your Auto-Failover Refinements Are Also Correct
+
+These additions are excellent:
+
+Field	Why Important
+maxDurationMinutes	prevents silent indefinite failover
+notificationRequired	operational visibility
+simulationValidatedAt	enforces simulation dependency
+
+All 3 should absolutely exist.
+
+Final Recommended Policy Object
+{
+  "routeClass": "STANDARD",
+  "autoFailover": true,
+
+  "minimumAsr": 38,
+  "maximumFas": 5,
+  "minimumStability": 55,
+
+  "maxTrafficShift": 20,
+  "maxDurationMinutes": 30,
+
+  "notificationRequired": true,
+
+  "simulationValidatedAt": "2026-05-25T18:00:00Z",
+
+  "approvedFailoverVendors": [
+    "CarrierX",
+    "CarrierY"
+  ],
+
+  "rollbackWindowMinutes": 30
+}
+
+This is now:
+
+enterprise-safe telecom automation
+Most Important Constraint
+
+(You correctly identified this)
+
+approved failover vendor list is human-curated
+
+This is the single most important safety boundary.
+
+The system:
+
+selects from whitelist only
+
+It NEVER:
+
+invents vendors
+adds vendors
+modifies commercial relationships
+changes governance rules
+
+That keeps risk contained.
+
+VERY IMPORTANT ARCHITECTURAL DECISION
+
+You are absolutely correct:
+
+policy must be DB-persisted
+
+NOT hardcoded.
+
+Recommended Ownership
+Destination Manager owns:
+thresholds
+enable/disable
+failover vendor whitelist
+max shift %
+duration limits
+notification rules
+
+This is exactly correct governance.
+
+Recommended DB Model
+intelligent_failover_policies
+
+Fields:
+
+routeGroupId
+destinationPrefix
+enabled
+routeClass
+minimumAsr
+maximumFas
+minimumStability
+maxTrafficShift
+maxDurationMinutes
+approvedFailoverVendors
+notificationRequired
+rollbackWindowMinutes
+updatedBy
+updatedAt
+
+This becomes:
+
+operational governance layer
+Final Recommended Implementation Sequence
+PRE-SPRINT 0
+Exposure Intelligence Foundation
+vendor exposure resolver
+prefix→portfolio joins
+blast-radius service
+SPRINT 1
+Explainability Drawer
+executive verdict
+evidence summary
+blast radius
+projection summary
+SPRINT 2
+Simulation Sandbox
+pure computation engine
+side-by-side projections
+concentration modeling
+no-side-effect enforcement
+SPRINT 3
+Policy-Governed Intelligent Failover
+policy engine
+route thresholds
+whitelisted failover vendors
+temporary route reorder
+rollback engine
+notification flow
+SPRINT 4
+Governance & Closed Loop
+Destination Manager approvals
+override rationale
+time-to-decision
+outcome tracking
+rollback analysis
+confidence calibration
+MOST IMPORTANT INSIGHT
+
+You are NOT implementing:
+
+AI decides routing
+
+You are implementing:
+
+policy-governed operational self-healing
+
+That is a fundamentally different — and much safer — enterprise architecture.

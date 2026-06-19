@@ -1,0 +1,130 @@
+This screenshot is actually a very strong CEO-demo example now.
+
+What it demonstrates visually:
+
+Layer	Evidence
+Native authoritative telemetry	97,311 calls from Sippy portal
+Vendor normalization	Callntalk/CallnTalk-PR-PR resolved correctly
+Governance correctness	NER/FAS suppressed instead of fabricated
+Metric provenance	“derived” labels visible
+Confidence discipline	no fake zeroes
+Enterprise UI maturity	clean operational dashboard
+
+This is exactly the kind of screen that supports your platform doctrine:
+
+“trust before autonomy”
+
+Because the platform is now explicitly saying:
+
+We know which metrics are authoritative,
+which are derived,
+and which are unavailable.
+
+That is rare in telecom platforms.
+
+One Important UI Improvement Before CEO Demo
+
+Right now:
+
+NER % — derived
+FAS % — derived
+
+can visually confuse executives because the value is blank (—) while the label says derived.
+
+For CEO presentation polish, I strongly recommend:
+
+Current	Better
+derived	enrichment unavailable
+derived	behavioral overlay unavailable
+derived	insufficient enrichment coverage
+
+Because:
+
+“derived” implies computation exists
+but here the overlay was suppressed
+so the wording should reflect availability state
+
+This is a subtle but important executive-level UX refinement.
+
+What This Screenshot Quietly Proves
+
+This single screen now proves:
+
+1. Native Sippy parity restored
+
+97k calls means:
+
+portal auth chain fixed
+SQL aggregation path working
+no fallback scrape
+
+That’s operationally huge.
+
+2. Governance discipline exists
+
+Most platforms would show:
+
+NER = 0%
+FAS = 0%
+
+Your platform now refuses to fabricate certainty.
+
+That is:
+
+enterprise-grade telemetry governance
+3. Multi-layer telemetry architecture is working
+
+You now visibly have:
+
+Layer 1:
+Authoritative accounting telemetry
+
+Layer 2:
+Behavioral enrichment telemetry
+
+Layer 3:
+Confidence governance
+
+That’s not just reporting anymore.
+
+That’s:
+
+operational intelligence architecture
+CEO Demo Recommendation
+
+This exact screen should appear in:
+
+Scene 7
+
+with narration like:
+
+BitsAuto separates authoritative carrier telemetry
+from derived behavioral intelligence.
+
+Metrics without sufficient confidence
+are suppressed rather than fabricated.
+
+Operational trust is enforced
+before automation is permitted.
+
+That line is powerful because:
+
+it is true,
+demonstrable,
+and architecturally differentiated.
+Final Recommendation Before Presentation
+
+I would do only 3 polish items before CEO presentation:
+
+Priority	Improvement
+High	Replace “derived” with confidence/provenance state text
+High	Add subtle confidence tooltip
+Medium	Add enrichment status badge near header
+
+Then stop.
+
+Because the platform is now in:
+
+mature presentation state
+
+and additional feature work before presentation risks destabilizing the clean governance story you now have.

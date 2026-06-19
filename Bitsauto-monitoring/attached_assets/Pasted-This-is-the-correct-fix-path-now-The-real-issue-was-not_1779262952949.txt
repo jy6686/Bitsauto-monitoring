@@ -1,0 +1,213 @@
+This is the correct fix path now.
+
+The real issue was not just UI filtering anymore — it was:
+
+ephemeral in-memory topology state
+
+After every restart:
+
+vendor registry collapsed
+destination registry collapsed
+country registry partially survived
+KAM topology fragmented
+client aliases drifted
+
+because only the live snapshot rebuilt state.
+
+Now the architecture is finally aligned correctly:
+
+Layer	Persistence
+liveCallsCache	ephemeral
+presenceCache	persisted
+crossDimCache	rebuilt from presence/live
+KAM topology	restored from presence
+arc lifecycle	stable across restart
+
+That is the correct separation.
+
+Most important thing fixed
+
+This was the key architectural correction:
+
+onConflictDoUpdate
+
+instead of:
+
+onConflictDoNothing
+
+Before:
+
+first write persisted
+future snapshots silently stopped updating
+
+Which would eventually create:
+
+stale idle topology
+
+Now:
+
+lastSeen refreshes
+peakToday refreshes
+lifecycle continuity survives restart correctly
+
+Very important correction.
+
+The new lifecycle is finally correct
+
+The platform now behaves like:
+
+DB registry
+  ↓ hydrate
+presenceCache
+  ↓ enrich
+live snapshot
+  ↓ render
+BitsEye 2
+
+instead of:
+
+live snapshot
+  ↓
+temporary UI topology
+
+That is the correct operational architecture.
+
+Why this finally solves the disappearing sidebar problem
+
+Now:
+
+sidebar entities no longer depend on current traffic existence
+
+They depend on:
+
+persistent topology memory
+
+Exactly as a telecom monitoring platform should behave.
+
+This is especially important for KAM workflows
+
+Because KAM visibility is:
+
+relationship persistence
+
+not:
+
+concurrent call persistence
+
+Operators need to see:
+
+who owns what
+which routes existed
+what topology was active today
+
+even during:
+
+quiet periods
+outages
+maintenance windows
+restarts
+
+Now the platform can finally do that consistently.
+
+The architecture is now semantically coherent
+
+This matters a lot.
+
+You now have:
+
+Concern	Correct Layer
+Real-time calls	liveCallsCache
+Entity continuity	presenceCache
+Restart durability	DB registry
+Relationship topology	crossDimCache
+UI visibility	presence-backed render
+Historical continuity	entityConcurrentHistory
+
+Before:
+
+multiple concerns leaked into the live snapshot
+
+Now they are properly separated.
+
+That is a major stabilization milestone.
+
+One extremely important improvement happened implicitly
+
+This line:
+
+Phase 1 loads all 4 dimensions from DB
+
+means the platform now has:
+
+cold-start topology continuity
+
+Huge operational improvement.
+
+Previously:
+
+restart = empty NOC
+operators lose topology memory
+wallboards appear broken
+
+Now:
+
+restart preserves topology identity
+idle entities still visible immediately
+wallboards remain semantically stable
+
+That is enterprise-grade behavior.
+
+The system now finally matches the intended product philosophy
+
+The original goal was:
+
+persistent telecom observability
+
+not:
+
+temporary active-call visualization
+
+With DB-backed presence persistence,
+the platform now actually behaves according to that philosophy.
+
+Remaining likely cleanup
+
+One thing still worth checking later:
+
+crossDimCache
+
+is still rebuilt in-memory only.
+
+That is okay for now,
+because:
+
+it is derivative
+reconstructible
+lower criticality
+
+But eventually:
+
+relationship persistence may also deserve hydration
+
+especially for:
+
+KAM topology continuity
+vendor concentration memory
+correlation continuity
+
+Not urgent now,
+but worth noting.
+
+Final assessment
+
+This was the real stabilization layer the platform needed.
+
+The system has now crossed from:
+
+live dashboard
+
+into:
+
+persistent operational topology system
+
+That is a major architectural milestone.

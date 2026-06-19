@@ -1,0 +1,247 @@
+Good catch — this is the key point where BitsEye looks “live”, but the data model is still misunderstood.
+
+Let’s separate two different metrics that are mixed in the UI.
+
+🧠 What you’re seeing: “concurrent calls”
+
+BitsEye does show concurrent calls, and that part is NOT CDR-based aggregation in the same way as total calls.
+
+It is computed differently.
+
+🔍 There are 2 data types in BitsEye
+1. CDR-based metrics (batch)
+
+These are:
+
+Total Calls
+ASR
+ACD
+Cost
+Vendor breakdown
+Country breakdown
+Source:
+
+✔ CDR cache (post-call records)
+
+Nature:
+
+📦 historical aggregation (15-min delayed or batch windowed)
+
+2. Concurrent calls (REAL-TIME derived metric)
+
+This is the confusing part.
+
+Source is NOT CDR totals.
+
+It is derived from:
+
+🔥 Active call/session state (SBC / switch layer)
+
+Typically:
+
+SIP INVITE received → call starts
+call still active → counted
+BYE received → removed
+
+So:
+
+🟡 Concurrent calls = live session table / in-memory active call tracking
+
+NOT CDR.
+
+⚙️ Why it still looks “CDR-based UI”
+
+Because both are merged in same dashboard:
+
+Widget	Source
+KPI cards (ASR, cost, etc.)	CDR
+Time-series calls	CDR buckets
+Concurrent calls gauge	Live session tracker
+📊 Correct mental model of BitsEye
+                 ┌────────────────────┐
+                 │  Live Call Engine  │
+                 │ (SIP / SBC Layer)  │
+                 └────────┬───────────┘
+                          │
+          active sessions │ (real-time)
+                          ▼
+               Concurrent Calls Metric
+                          │
+                          ├──────────────┐
+                          ▼              ▼
+              Call ends (BYE)      Still active
+                          │
+                          ▼
+                 CDR Generated
+                          │
+                 ETL (5–15 min)
+                          ▼
+            Aggregated CDR Cache
+                          ▼
+         Charts / KPIs / Breakdown
+🔴 Key insight (very important)
+
+BitsEye is actually a hybrid system:
+
+❌ NOT pure CDR dashboard
+❌ NOT pure real-time system
+✅ It is:
+
+CDR analytics + live session overlay
+
+🧩 Why this matters for your new architecture
+
+You already built:
+
+✔ CDR analytics layer (POST /dashboard)
+
+This covers:
+
+total calls
+ASR / ACD
+cost
+breakdowns
+❗ What you have NOT modeled yet:
+
+live concurrency stream
+
+That is a separate pipeline:
+
+active call registry
+per-switch session state
+heartbeat or SIP table
+⚠️ Important correction to earlier assumption
+
+Earlier conclusion:
+
+“BitsEye is not live system”
+
+is still TRUE — but incomplete.
+
+More precise version:
+
+BitsEye is NOT real-time analytics, but it DOES include a real-time session counter for concurrency only.
+
+💡 Final clean definition
+BitsEye has 2 engines:
+1. CDR Analytics Engine (delayed)
+5–15 min lag
+all charts, KPIs, breakdowns
+fully batch-based
+2. Live Session Counter (real-time)
+concurrent calls only
+switch/SBC active call state
+not part of CDR
+🚀 Design implication for your new system
+
+You now have a strategic choice:
+
+Option A (current build)
+
+Keep dashboard CDR-only (what you already did)
+
+Option B (enhanced observability)
+
+Add second lightweight API:
+
+GET /api/telemetry/concurrent-calls
+
+Backed by:
+
+active session table
+Redis/in-memory store
+or Sippy live stats
+🧠 One-line summary
+
+BitsEye charts = CDR (delayed batch)
+BitsEye concurrent calls = live session tracking (real-time overlay)
+
+If you want next step, I can design:
+
+👉 “Unified Observability Model (CDR + Live + AI Ops)”
+
+so your platform becomes future-proof instead of split systems.
+
+what we are building Concurrent calls or CDR calls 
+yes/no
+
+No — we are building CDR calls (not concurrent/live calls).
+
+What you already implemented is a CDR-based analytics dashboard, not real-time concurrency tracking.
+
+but we need concurrent calls 
+and 
+what your building report using siurce CDR 
+
+Yes — we need concurrent calls too, but they are a different data source.
+
+Let’s separate it clearly:
+
+✅ What we are building right now
+1. CDR Analytics Report (YES, already built)
+
+Source:
+
+📦 CDR cache / aggregated CDR tables
+
+Gives you:
+
+Total calls
+ASR / ACD
+Cost
+Vendor / client / country breakdown
+Time-series (hourly/daily buckets)
+
+👉 This is your analytics/reporting layer
+
+🔴 What is NOT included yet
+2. Concurrent Calls (NOT CDR-based)
+
+Source:
+
+🔥 Live session state (switch/SBC/Sippy active calls)
+
+Gives you:
+
+Active calls RIGHT NOW
+Peak concurrency
+Real-time load
+Live traffic spikes
+
+👉 This is your real-time monitoring layer
+
+🧠 Simple truth
+Feature	Source	Status
+CDR Reports (analytics dashboard)	CDR cache	✅ Built
+Concurrent calls (live system)	Active call sessions	❌ Not built yet
+⚙️ Why they are different
+CDR (what we built)
+After call ends
+Stored permanently
+Used for billing + analytics
+15 min delay OK
+Concurrent calls (what you want now)
+During the call
+Changes every second
+Needs live tracking (SBC/Sippy/Redis)
+No delay acceptable
+🚀 Final answer
+We are currently building:
+
+✔ CDR-based reporting system
+
+We are NOT yet building:
+
+❌ Concurrent call live monitoring system
+
+If you want next step
+
+Say:
+
+“Add concurrent calls layer”
+
+and I’ll design:
+
+real-time API (/concurrent-calls)
+data source (Sippy/SBC/Redis)
+UI widget (live counter + graph)

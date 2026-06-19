@@ -1,0 +1,74 @@
+Let me read the current cut logic to find the issue:
+
+
+3 actions
+The logs confirm the new path format is correct (no .wav, single uniqueId). The root problem is clear from the sequence:
+
+Hangup → PJSIP/sippy-endpoint   ← kills B-leg
+  → bridge dissolves
+  → Asterisk also kills A-leg (default bridge teardown)
+  → Redirect arrives too late — A-leg already gone
+
+The fix: Use AMI Redirect with ExtraChannel to atomically redirect both legs simultaneously — A-leg to gov-playback, B-leg to a gov-hangup context. This pulls both out of the bridge cleanly before either gets destroyed.
+
+Let me read the cut logic and apply the fix:
+
+
+2 actions
+The root cause is clear from the sequence in logs:
+
+Hangup(PJSIP/sippy-endpoint)   ← kills B-leg
+  → bridge dissolves            ← Asterisk hangs up A-leg too (bridge teardown)
+  → wait 1.2s
+  → Redirect(SIP/sippy-XXXX)   ← too late, A-leg is already dead
+
+Fix: Use AMI Redirect with ExtraChannel — atomically pulls both legs out of the bridge at the same time:
+
+A-leg → gov-playback (StopMixMonitor + Wait + Playback)
+B-leg → gov-hangup (just Hangup)
+Neither leg dies from bridge teardown. The bridge dissolves cleanly because both sides left voluntarily.
+
+Step 1 — Add gov-hangup context to Asterisk (run on your Asterisk server):
+
+cat >> /etc/asterisk/extensions_custom.conf << 'EOF'
+[gov-hangup]
+exten => s,1,Hangup()
+EOF
+asterisk -rx "dialplan reload"
+grep -A 2 "gov-hangup" /etc/asterisk/extensions_custom.conf
+
+Step 2 — Update the AMI and governance code:
+
+
+2 actions
+Now update cutVendorLeg to use the atomic method — removing the old hangup + 1.2s delay + separate redirect:
+
+
+2 actions
+I need to keep the hangup method since the fallback path still calls it:
+
+
+2 actions
+Need to add back the hangup method for the fallback path, and tell the user to add gov-hangup to Asterisk:
+
+
+2 actions
+Good — the backend code is updated. Now run this one command on your Asterisk server to add the gov-hangup context:
+
+cat >> /etc/asterisk/extensions_custom.conf << 'EOF'
+[gov-hangup]
+exten => s,1,Hangup()
+EOF
+asterisk -rx "dialplan reload"
+grep -A 2 "gov-hangup" /etc/asterisk/extensions_custom.conf
+
+Expected output:
+
+[gov-hangup]
+exten => s,1,Hangup()
+
+Once that's done, make a test call. The new flow in the logs should look like:
+
+[ami-governance] CutAndPlayback → A-leg=SIP/sippy-XXXX B-leg=PJSIP/sippy-endpoint-XXXX file=/var/spool/asterisk/monitor/XXXXXX
+
+Both legs leave the bridge at exactly the same moment — B-leg goes to gov-hangup (disconnects cleanly), A-leg goes to gov-playback (StopMixMonitor → Wait(1) → Playback → Hangup). No more bridge teardown killing the A-leg.

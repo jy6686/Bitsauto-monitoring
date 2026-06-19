@@ -1,0 +1,419 @@
+es — now I can clearly see the gap.
+
+Your current dashboard (first screenshot) only implemented:
+
+one large Total Traffic chart
+tiny stacked side cards
+too much empty whitespace
+weak visual density
+missing intelligence layout hierarchy
+
+But the reference dashboard (second screenshot) has:
+
+dense operational intelligence layout
+balanced 2-column traffic section
+proper chart proportions
+inline mini sparklines
+stats footer under main graph
+real “carrier NOC” feel
+
+The current implementation is only ~40% of the intended design.
+
+The correct structure should be EXACTLY like the reference:
+
+Top Row
+
+Active Calls
+Network Health
+System State
+
+Second Row (MOST IMPORTANT)
+LEFT 65%
+
+Total Traffic (large chart)
+Stats footer:
+Current
+Min
+Max
+Average
+
+RIGHT 35%
+
+Top 3 Clients
+Top 3 Vendors
+Top 3 Destinations
+
+Each top entity card must contain:
+
+rank number
+entity name
+sparkline
+call count
+ASR/CR %
+
+NOT tiny static cards.
+
+Third Row
+
+Live Calls table
+
+Fourth Row
+
+KPI strip
+ASR
+MOS
+PDD
+ACD
+NER
+CPS
+
+What is missing right now:
+
+proper section proportions
+mini sparkline charts
+stats footer
+density
+spacing consistency
+aligned card heights
+intelligence-first visual hierarchy
+
+Most importantly:
+DO NOT redesign again.
+
+Just replicate the reference layout precisely using the existing data/apis/components.
+
+That is the correct stabilization target.
+
+Pasted text.txt
+Document
+
+This is now the correct stabilization direction.
+
+You fixed the two most important operational risks in the alerting system:
+
+Cooldown invalidation bug
+Previously:
+operator resolved incident
+cooldown still existed
+engine silently suppressed re-fire
+operators could miss recurring outages
+
+Now:
+
+resolve actually clears the exact entity cooldown key
+recurring incidents can re-trigger correctly
+operator trust improves immediately
+Wrong email pipeline
+Previously:
+threshold engine used legacy monitoring alert path
+wrong rules table
+plain text emails
+disconnected architecture
+
+Now:
+
+threshold engine uses proper incident template flow
+unified SMTP stack
+severity-aware HTML emails
+consistent operational language
+
+And Phase 2 is effectively complete:
+the system now has:
+
+incident engine
+lifecycle handling
+notification center
+HTML email delivery
+severity formatting
+suggested actions
+acknowledgement workflow
+
+The remaining work is now mainly operational hardening, not architecture.
+
+Most importantly:
+you correctly identified that Call Recording is already ~70% built structurally.
+The remaining work is integration:
+
+real recording source
+playback
+retention
+search indexing
+
+That is the correct next phase after notifications stabilize.
+
+But before touching recording:
+spend a short stabilization window on:
+
+incident duplicate testing
+cooldown testing
+restart persistence testing
+email delivery testing
+drawer UX verification
+polling load verification
+
+Do not add:
+
+more notification systems
+more dashboards
+more graphs
+more navigation
+more semantic layers
+
+The platform finally has enough operational surface area.
+Now reliability matters more than expansion.
+
+can you share prompt/srcipt in one go to implement 
+BITSAUTO — STABILIZATION PHASE PROMPT
+(STRICT IMPLEMENTATION MODE)
+
+OBJECTIVE:
+Stabilize BitsEye 2 and the main NOC dashboard into a production-grade operational monitoring system BEFORE adding any new platform modules.
+
+CRITICAL RULE:
+DO NOT introduce:
+- new navigation systems
+- mega menus
+- new dashboards
+- new dimensions
+- new analytics engines
+- AI systems
+- correlation engines
+- semantic systems
+- additional sidebars
+- new graph libraries
+- redesigns
+
+ONLY stabilize, align, and complete existing infrastructure.
+
+====================================================
+PHASE 1 — BITS EYE 2 STABILIZATION
+====================================================
+
+GOAL:
+Ensure entity persistence, graph continuity, topology stability, and operational consistency.
+
+IMPLEMENT:
+
+1. ENTITY PRESENCE PERSISTENCE
+- Persist ALL entity dimensions:
+  - clients
+  - vendors
+  - countries
+  - destinations
+  - KAMs
+- Use entity_presence_registry table
+- Restore on restart
+- Preserve:
+  - idle state
+  - lastSeen
+  - peakToday
+  - sparkline history
+  - crossDim relationships
+
+2. IDLE ENTITY RETENTION
+Idle entities MUST:
+- remain visible
+- show active=0
+- retain sparkline history
+- retain topology relationships
+- retain sidebar placement
+
+DO NOT:
+- remove entities on zero calls
+- collapse sidebar sections
+- hide topology
+
+3. GRAPH STABILIZATION
+Fix:
+- stuck right-edge buckets
+- chart flickering
+- animation redraws
+- averaging lag
+- zero-blip graph collapse
+
+RULES:
+- latest bucket ALWAYS uses latest raw value
+- disable chart animation
+- preserve historical smoothing
+- preserve continuity during poll gaps
+
+4. POLL SAFETY
+Protect against:
+- temporary Sippy empty responses
+- XML-RPC timeouts
+- reconnect blips
+
+REQUIRE:
+- consecutive zero confirmation guard
+- no immediate entity idle transitions
+- no topology wipes from transient failures
+
+====================================================
+PHASE 2 — TRAFFIC INTELLIGENCE LAYER
+====================================================
+
+GOAL:
+Transform dashboard from snapshot monitor into traffic intelligence view.
+
+DO NOT redesign platform.
+ONLY reorganize existing data.
+
+FINAL DASHBOARD STRUCTURE:
+
+TOP ROW:
+- Active Calls
+- Network Health
+- System State
+
+SECOND ROW:
+LEFT (65%)
+- Total Traffic chart
+- LIVE / DAILY / WEEKLY toggle
+- CALLS / ASR / MINUTES toggle
+- footer stats:
+  - current
+  - min
+  - max
+  - average
+
+RIGHT (35%)
+- Top 3 Clients
+- Top 3 Vendors
+- Top 3 Destinations
+
+Each card MUST include:
+- rank
+- entity name
+- mini sparkline
+- active count
+- connect-rate %
+
+THIRD ROW:
+- Live Calls table
+
+FOURTH ROW:
+- KPI strip
+  - ASR
+  - MOS
+  - PDD
+  - ACD
+  - NER
+  - CPS
+
+REUSE ONLY:
+- existing entity-history endpoint
+- existing CDR cache
+- existing live-slice
+- existing concurrent history
+- existing sparkline component
+
+DO NOT add new APIs unless absolutely required.
+
+====================================================
+PHASE 3 — NOTIFICATION ENGINE HARDENING
+====================================================
+
+GOAL:
+Stabilize alert lifecycle and operational trust.
+
+IMPLEMENT:
+
+1. THRESHOLD ENGINE
+Metrics:
+- asr_drop
+- traffic_gone
+- cps_spike
+
+Requirements:
+- rolling baselines
+- cooldowns
+- deduplication
+- auto-resolve
+- severity levels
+
+2. INCIDENT LIFECYCLE
+States:
+- active
+- acknowledged
+- resolved
+
+Manual resolve MUST:
+- clear cooldown correctly
+- allow re-fire immediately if issue returns
+
+3. EMAIL ALERTING
+Implement:
+buildIncidentAlertEmail()
+
+Requirements:
+- severity-colored template
+- summary
+- entity
+- metric
+- threshold
+- detected time
+- suggested action
+
+MUST use:
+- existing SMTP stack
+- existing email settings
+- existing nodemailer system
+
+DO NOT:
+- create new notification systems
+- add Slack/Telegram/SMS
+- add escalation chains
+- add AI alerts
+
+====================================================
+PHASE 4 — CALL RECORDING
+====================================================
+
+GOAL:
+Complete integration ONLY.
+
+Already exists:
+- UI
+- routing
+- filters
+- download placeholder
+
+IMPLEMENT:
+- real backend source
+- playback
+- retention policy
+- search
+- audio player
+
+DO NOT redesign UI.
+
+====================================================
+STRICT RULES
+====================================================
+
+DO:
+- stabilize
+- align
+- harden
+- reuse
+- preserve operational continuity
+
+DO NOT:
+- expand architecture
+- redesign navigation
+- add abstractions
+- create new dashboards
+- add experimental systems
+
+TARGET:
+Carrier-grade VoIP NOC stability and operator trust.
+
+SUCCESS CONDITION:
+Operators can:
+- monitor traffic continuously
+- trust graphs
+- trust alerts
+- trust topology
+- trust persistence
+- recover from restart without losing context
+- operate entire NOC without UI confusion

@@ -1,0 +1,122 @@
+Asterisk cleanly ending (0).
+Executing last minute cleanups
+[root@REVE-OTP ~]# sngrep -I /path/to/working.pcap
+Couldn't open pcap file /path/to/working.pcap: /path/to/working.pcap: No such file or directory
+[root@REVE-OTP ~]# [otp-playback]
+-bash: [otp-playback]: command not found
+[root@REVE-OTP ~]# exten => s,1,Answer()
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# same  => n,Wait(1)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# same  => n,Playback(custom/your_otp_is)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# same  => n,SayDigits(${CALLERID(name)})
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# same  => n,Wait(1)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# same  => n,SayDigits(${CALLERID(name)})
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# same  => n,Hangup()
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# 
+[root@REVE-OTP ~]# ; ── BitsAuto: Media recording anchor ─────────────────────────────────────────
+-bash: syntax error near unexpected token `;'
+[root@REVE-OTP ~]# [sippy-media-anchor]
+-bash: [sippy-media-anchor]: command not found
+[root@REVE-OTP ~]# ; Governance calls: 2060 + 1-digit product code + CC+MC
+-bash: syntax error near unexpected token `;'
+[root@REVE-OTP ~]# ; Example: 20601923332171282 → product=1, dest=923332171282
+-bash: syntax error near unexpected token `;'
+[root@REVE-OTP ~]# exten => _2060X.,1,NoOp(BitsAuto Governance: product=${EXTEN:4:1} dest=${EXTEN:5} uid=${UNIQUEID})
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Set(GOV_PRODUCT=${EXTEN:4:1})
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,b)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Dial(SIP/sippy/${EXTEN:5},3600,Tt)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Hangup()
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# 
+[root@REVE-OTP ~]# ; OTP calls: prefix 1 + destination → hand off to otp-playback
+-bash: syntax error near unexpected token `;'
+[root@REVE-OTP ~]# exten => _1.,1,NoOp(OTP call: ${EXTEN})
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Answer()
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Goto(otp-playback,s,1)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# 
+[root@REVE-OTP ~]# ; Unknown → drop
+-bash: syntax error near unexpected token `;'
+[root@REVE-OTP ~]# exten => _X.,1,NoOp(Unhandled call in anchor: ${EXTEN})
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Hangup()
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# 
+[root@REVE-OTP ~]# ; ── BitsAuto: Post-cut playback to customer ──────────────────────────────────
+-bash: syntax error near unexpected token `;'
+[root@REVE-OTP ~]# [gov-playback]
+-bash: [gov-playback]: command not found
+[root@REVE-OTP ~]# exten => s,1,NoOp(Governance playback: ${GOV_PLAYBACK_FILE})
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Answer()
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Wait(1)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Playback(${GOV_PLAYBACK_FILE})
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#  same => n,Hangup()
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# nano /etc/asterisk/extensions_custom.conf
+[root@REVE-OTP ~]# cat /etc/asterisk/extensions_custom.conf
+cat > /etc/asterisk/extensions_custom.conf << 'EOF'
+[otp-playback]
+exten => s,1,Answer()
+same  => n,Wait(1)
+same  => n,Playback(custom/your_otp_is)
+same  => n,SayDigits(${CALLERID(name)})
+same  => n,Wait(1)
+same  => n,SayDigits(${CALLERID(name)})
+same  => n,Hangup()
+
+; ── BitsAuto: Media recording anchor ─────────────────────────────────────────
+[sippy-media-anchor]
+exten => _2060X.,1,NoOp(BitsAuto Governance: product=${EXTEN:4:1} dest=${EXTEN:5} uid=${UNIQUEID})
+ same => n,Set(GOV_PRODUCT=${EXTEN:4:1})
+ same => n,MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,b)
+ same => n,Dial(SIP/sippy/${EXTEN:5},3600,Tt)
+ same => n,Hangup()
+
+exten => _1.,1,NoOp(OTP call: ${EXTEN})
+ same => n,Answer()
+ same => n,Goto(otp-playback,s,1)
+
+exten => _X.,1,NoOp(Unhandled call in anchor: ${EXTEN})
+ same => n,Hangup()
+
+; ── BitsAuto: Post-cut playback to customer ──────────────────────────────────
+[gov-playback]
+exten => s,1,NoOp(Governance playback: ${GOV_PLAYBACK_FILE})
+ same => n,Answer()
+ same => n,Wait(1)
+ same => n,Playback(${GOV_PLAYBACK_FILE})
+ same => n,Hangup()
+EOF
+[root@REVE-OTP ~]# asterisk -rx "dialplan reload"
+Dialplan reloaded.
+[root@REVE-OTP ~]# asterisk -rx "dialplan show sippy-media-anchor"
+[ Context 'sippy-media-anchor' created by 'pbx_config' ]
+  '_1.' =>          1. NoOp(OTP call: ${EXTEN})                   [extensions_custom.conf:19]
+                    2. Answer()                                   [extensions_custom.conf:20]
+                    3. Goto(otp-playback,s,1)                     [extensions_custom.conf:21]
+  '_2060X.' =>      1. NoOp(BitsAuto Governance: product=${EXTEN:4:1} dest=${EXTEN:5} uid=${UNIQUEID}) [extensions_custom.conf:13]
+                    2. Set(GOV_PRODUCT=${EXTEN:4:1})              [extensions_custom.conf:14]
+                    3. MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,b) [extensions_custom.conf:15]
+                    4. Dial(SIP/sippy/${EXTEN:5},3600,Tt)         [extensions_custom.conf:16]
+                    5. Hangup()                                   [extensions_custom.conf:17]
+  '_X.' =>          1. NoOp(Unhandled call in anchor: ${EXTEN})   [extensions_custom.conf:23]
+                    2. Hangup()                                   [extensions_custom.conf:24]
+
+-= 3 extensions (10 priorities) in 1 context. =-
+[root@REVE-OTP ~]# 

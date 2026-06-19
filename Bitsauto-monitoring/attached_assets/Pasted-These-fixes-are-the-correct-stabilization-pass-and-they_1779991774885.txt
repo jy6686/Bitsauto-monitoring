@@ -1,0 +1,224 @@
+These fixes are the correct stabilization pass and they solve the exact operational gaps that were blocking the Finance layer from behaving like a coherent telecom billing system. The uploaded implementation notes confirm the issues were rooted in:
+
+identity normalization,
+DMR fallback logic,
+duplicated navigation composition,
+Sippy account binding inconsistencies.
+
+Most important improvement:
+
+the platform is now moving toward a single client identity model.
+
+That is critical.
+
+What Was Fixed Correctly
+1. Invoice Generation → Client Identity
+
+(correct direction)
+
+Even though the temporary fix auto-fills customerName from tariff metadata, the architectural direction is now correct:
+
+invoices belong to clients,
+
+not tariffs.
+
+Very important distinction.
+
+Long-term:
+
+invoice.client_id
+invoice.i_account
+invoice.account_name
+
+must become:
+
+primary billing identity.
+
+Tariff should remain:
+
+rating logic,
+pricing structure,
+margin resolution only.
+2. DMR Fallback Logic
+
+(correct operational decision)
+
+This was the biggest operational blocker.
+
+Using:
+
+CDR cache fallback
+
+when Sippy account stats fail is the correct telecom-grade resilience strategy.
+
+Very important you DID NOT:
+
+hard fail DMR generation
+
+Telecom operational systems should degrade gracefully.
+
+Good decision.
+
+3. Duplicate Sidebar Cleanup
+
+(correct architecture correction)
+
+This was absolutely necessary.
+
+You already committed to:
+
+top-nav portal governance.
+
+So duplicated finance items across:
+
+Platform,
+Finance,
+Operations
+
+was creating:
+
+navigation pollution.
+
+Removing the duplicated Finance items from Platform was the correct cleanup.
+
+4. Reconciliation → Sippy Account Dropdown
+
+(correct normalization move)
+
+This is extremely important.
+
+The reconciliation layer should NEVER rely on:
+
+manual client naming
+
+Binding directly to:
+
+iAccount + username
+
+from Sippy is the correct operational source-of-truth.
+
+Very important long-term.
+
+MOST IMPORTANT ARCHITECTURAL LESSON
+
+You are now discovering:
+
+identity normalization
+
+is the real foundation layer of telecom finance governance.
+
+Without it:
+
+invoices drift,
+reconciliation mismatches,
+DMR breaks,
+disputes fragment,
+AI assurance becomes noisy.
+
+So the next proper architecture layer is:
+
+Client Identity Resolution Engine.
+What Should Be Built NEXT
+
+(highest priority stabilization)
+
+T001 — Client Identity Layer
+
+Table:
+
+client_identity_map
+
+Fields:
+
+i_account
+sippy_username
+billing_name
+crm_name
+display_name
+portal_name
+account_manager
+external_ref
+
+This becomes:
+
+canonical identity source.
+T002 — Finance Cockpit Completion
+
+Now possible because:
+
+DMR stabilized,
+reconciliation normalized,
+invoice ownership corrected,
+AI assurance exists.
+
+This becomes:
+
+operational finance workspace.
+T003 — DMR Operational Hardening
+
+Add:
+
+fallback source badges,
+source confidence,
+missing-source indicators,
+retry queue,
+reconciliation confidence scoring.
+
+Very important operationally.
+
+T004 — Billing Identity Refactor
+
+Eventually:
+
+invoice.client_id
+
+must replace:
+
+invoice.tariff_id
+
+as the primary billing grouping.
+
+This is critical.
+
+VERY IMPORTANT UX RULE
+
+Continue removing:
+
+duplicate navigation surfaces
+
+The architecture direction is already correct:
+
+Portal
+  ↓
+Section Tabs
+  ↓
+Context Sidebar
+
+NOT:
+
+huge repeated sidebars
+
+Good correction.
+
+Strategic Status
+
+You are now in:
+
+stabilization and operational coherence phase.
+
+Earlier:
+
+feature expansion,
+governance infrastructure,
+portal composition,
+operational intelligence.
+
+Now:
+
+identity normalization
+
+and:
+
+operational consistency.
+
+That is the correct next maturity phase for BitsAuto.

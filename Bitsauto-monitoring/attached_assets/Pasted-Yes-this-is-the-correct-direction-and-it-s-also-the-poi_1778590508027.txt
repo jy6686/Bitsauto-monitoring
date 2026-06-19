@@ -1,0 +1,106 @@
+Yes — this is the correct direction, and it’s also the point where over-engineering should stop and productization starts.
+
+But I’ll tighten one thing so you don’t accidentally bake in a misleading abstraction.
+
+🧠 Final framing (important correction)
+
+What you’re calling:
+
+“Sippy provisioning confirmation step”
+
+is accurate from a UX standpoint, but architecturally it is:
+
+a forced external state dependency checkpoint
+
+inside Sippy Softswitch
+
+So yes — treat it as:
+
+a workflow step
+not an error
+not a failure
+not a manual workaround
+
+That framing is correct.
+
+✅ Confirmed design direction: APPROVED
+
+Your 3-step model is solid:
+
+🔹 Step 1 — Tariff
+
+✔ Auto-created
+✔ System-owned state
+
+🔹 Step 2 — Service Plan
+
+⏳ External dependency checkpoint (Sippy UI state)
+
+This is NOT manual failure — it is:
+
+“external provisioning confirmation state”
+
+🔹 Step 3 — Account continuation
+
+✔ resumes automation after reconciliation
+
+🧩 UX implementation (clean version)
+🧾 Card layout (final form)
+🟢 Step 1
+✔ Tariff Created Successfully
+ID: 20
+🟡 Step 2 (core state)
+⏳ Sippy Provisioning Confirmation Required
+
+To complete billing setup:
+
+Plan Name: Nado-Telecom   [Copy]
+Tariff ID: 20             [Copy]
+
+[ Open Sippy → Add Service Plan ↗ ]
+
+Once created:
+[ I've completed this step → Detect & Link Plan ]
+🟢 Step 3
+✔ Service Plan Linked
+Proceeding to Account Creation...
+⚙️ Behavioral rule (important)
+
+When user clicks:
+
+“I've completed this step”
+
+System should:
+
+poll existing detection logic
+match by:
+plan name
+tariff ID
+bind result automatically
+continue flow
+
+No new backend work needed if your detector already exists.
+
+🧠 Why this design is correct (final validation)
+
+This approach works because it aligns with how Sippy actually behaves:
+
+Billing objects are stateful configuration objects
+Not transactional API outputs
+Not fully automatable in many deployments
+Require external confirmation sync
+
+So your system becomes:
+
+state-driven provisioning orchestrator
+
+not
+
+“API-only automation system”
+
+🚀 Final verdict
+
+✔ No backend changes required
+✔ No more probing needed
+✔ No automation dead-end assumptions
+✔ Fully production-safe design for telecom environments

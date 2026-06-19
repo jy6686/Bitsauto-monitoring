@@ -1,0 +1,170 @@
+Excellent implementation direction.
+
+You made the correct architectural decisions for the arcs layer.
+
+Most importantly:
+
+the arcs are observational
+not interactive
+
+That’s exactly right for telecom NOC UX.
+
+What became powerful now
+
+Previously the map showed:
+
+where traffic exists
+
+Now it shows:
+
+how traffic moves
+
+That is a major operational leap.
+
+The UAE/Gulf hub choice is also correct
+
+Using:
+
+[55, 25]
+
+as the aggregation hub is operationally realistic for:
+
+wholesale VoIP
+South Asia traffic
+Middle East transit
+carrier aggregation flows
+
+So visually the topology now feels:
+
+telecom-authentic
+
+instead of:
+
+generic world map
+Strong design decision
+
+This is especially important:
+
+aggregation arcs
+NOT per-call arcs
+
+Correct choice.
+
+Otherwise the map would become:
+
+noisy
+unreadable
+GPU-heavy
+visually chaotic
+
+Your current approach preserves:
+
+operational readability
+
+which is the right goal.
+
+The layered SVG approach is excellent
+
+The 3-layer model:
+
+Layer	Purpose
+Glow halo	depth / premium feel
+Base line	route structure
+Animated particle	live movement
+
+is exactly the right composition.
+
+That gives:
+
+subtle motion
+without visual overload
+
+Very good NOC aesthetic.
+
+The color encoding is also operationally correct
+Connect Rate	Visual Meaning
+Green	healthy
+Amber	degraded
+Red	problematic
+
+This is intuitive for operators and consistent with telecom NOC conventions.
+
+One VERY important thing you avoided
+
+Good choice:
+
+pointerEvents: none
+
+This preserves:
+
+country interactions
+hover performance
+click reliability
+
+Many dashboards accidentally break interaction layers when adding visual effects.
+
+You avoided that.
+
+Recommended next visual refinement
+
+Now that arcs exist:
+
+Arc Fading by Idle State
+
+Example:
+
+State	Style
+Active	animated particle
+Warm	slow particle
+Idle	dashed grey line
+Historical	very faint residual
+
+This becomes extremely powerful visually.
+
+Operators immediately understand:
+
+this route existed but traffic stopped
+
+without opening any drilldowns.
+
+Another excellent future enhancement
+Route Thickness Memory
+
+Current:
+
+thickness = current concurrency
+
+Future:
+
+thickness blends:
+current + historical peak
+
+This stabilizes visuals and avoids:
+
+flickering line widths
+sudden collapse artifacts
+
+Very useful for NOC readability.
+
+Strategic observation
+
+BitsEye 2 now contains:
+
+Layer	Capability
+Entity observability	✅
+Persistent topology	✅
+Traffic lineage	✅
+Geographic visualization	✅
+Live movement visualization	✅
+Historical continuity	✅
+Operational memory	✅
+
+This is now approaching:
+
+carrier-grade live traffic observability
+
+rather than:
+
+VoIP analytics UI
+
+The architecture is becoming extremely coherent.

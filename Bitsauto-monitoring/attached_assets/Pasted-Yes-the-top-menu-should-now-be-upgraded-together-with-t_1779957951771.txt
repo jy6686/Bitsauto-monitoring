@@ -1,0 +1,293 @@
+Yes — the top menu should now be upgraded together with the Portal Governance Framework.
+
+Because once portals are introduced:
+
+the current flat top menu becomes obsolete.
+
+Right now your top menu still behaves like:
+
+global navigation
+
+But after portalization:
+the top menu should become:
+
+workspace navigation.
+
+That is a major architectural shift.
+
+Recommended Final Top Menu Architecture
+Current (Old)
+Dashboard | Finance | Platform | Security | Reports
+
+Problem:
+
+feature-centric,
+overloaded,
+no department separation,
+poor scalability,
+everything mixed together.
+Recommended (New)
+LEVEL 1 = Workspace Switcher
+
+Top-left:
+
+[KAM ▼]
+
+Available:
+
+KAM
+NOC
+Finance
+Partner
+Client
+Admin
+
+THIS becomes:
+
+the new primary navigation.
+LEVEL 2 = Portal Domain Navigation
+
+Example:
+
+KAM Portal
+Dashboard | Clients | Commercial | Finance
+
+NOT:
+
+100 modules
+LEVEL 3 = Context Sidebar
+
+Example:
+
+KAM → Clients
+
+Sidebar becomes:
+
+Client Accounts
+Account Health
+Traffic Analytics
+ASR / ACD
+CDR Viewer
+Balance Monitor
+
+This is:
+
+enterprise navigation hierarchy.
+Final Navigation Structure
+Workspace
+   ↓
+Top Domain Menu
+   ↓
+Context Sidebar
+   ↓
+Module
+
+This is exactly how:
+
+Salesforce,
+AWS,
+Azure,
+ServiceNow,
+Cisco,
+HubSpot Enterprise
+
+structure large systems.
+
+Recommended Top Menus Per Portal
+KAM Portal
+Top Menu
+Dashboard
+Clients
+Commercial
+Finance
+Reports
+Why
+
+KAM thinks:
+
+account-first,
+relationship-first,
+commercial-first.
+
+NOT:
+
+systems-first.
+NOC Portal
+Top Menu
+Monitoring
+Routing
+QoS
+Troubleshooting
+AI Ops
+Security
+
+Dense operational UX.
+
+Finance Portal
+Top Menu
+Billing
+Reconciliation
+Collections
+Revenue
+Governance
+Reports
+
+Structured and process-oriented.
+
+Partner Portal
+Top Menu
+Dashboard
+Traffic
+Rates
+Invoices
+Reports
+Support
+
+Simplified operational access.
+
+Admin Portal
+Top Menu
+Platform
+Access Control
+Navigation
+Integrations
+Audit
+Settings
+
+Very limited visibility.
+
+VERY IMPORTANT CHANGE
+Top Menu should become:
+dynamic + DB-driven
+
+NOT:
+
+hardcoded arrays
+
+Use:
+
+portal_sections
+
+Example:
+
+portal	section
+kam	Clients
+kam	Commercial
+noc	Monitoring
+finance	Billing
+
+This allows:
+
+reordering,
+hiding,
+adding,
+moving,
+without code deploys.
+Recommended New Tables
+portal_sections
+id
+portal_id
+title
+icon
+sort_order
+is_active
+portal_section_modules
+section_id
+module_id
+display_order
+
+This gives:
+
+full governance flexibility.
+Strong Recommendation
+Add:
+Favorites Bar
+
+Top-right quick access:
+
+Pinned:
+DMR
+Invoices
+Account Health
+AI Assurance
+
+Huge operational UX improvement.
+
+Another Important Recommendation
+Add:
+Global Search / Command Palette
+CMD + K
+
+Search:
+
+modules,
+clients,
+invoices,
+disputes,
+DMR,
+routes,
+alerts.
+
+At your platform size:
+this becomes critical.
+
+Recommended Top Bar Layout
+FINAL
+[ Portal Switcher ]
+
+[ Portal Domain Menu ]
+
+                    [ Global Search ]
+                    [ Favorites ]
+                    [ Notifications ]
+                    [ User ]
+
+Very clean.
+Very scalable.
+Very enterprise.
+
+MOST IMPORTANT RULE
+Sidebar should NEVER contain:
+everything
+
+After this refactor:
+sidebar becomes:
+
+contextual only.
+
+That is the biggest UX improvement you can make.
+
+Correct Rollout Strategy
+Phase 1
+
+Portal governance foundation
++
+new top menu shell
+
+Phase 2
+
+KAM portal
+
+Phase 3
+
+NOC portal
+
+Phase 4
+
+Finance portal
+
+Phase 5
+
+Partner/client specialization
+
+This sequence is exactly right.
+
+Final Recommendation
+
+Yes —
+
+update the top menu now together with the Portal Governance Framework.
+
+Because:
+once portals exist,
+the old global top menu architecture no longer fits the platform.

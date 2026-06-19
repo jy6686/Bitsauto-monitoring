@@ -1,0 +1,319 @@
+Agreed. Those three constraints are the right ones to lock before implementation because they determine whether the SLA layer behaves like an enterprise reporting system or accidentally leaks engineering internals.
+
+The architecture is now cleanly defined:
+
+computeSlaSummary() becomes the single orchestration layer
+summarizeIncident() becomes the editorial safety layer
+SLA grading constants become the presentation consistency layer
+Ticket timing rules become the contractual metrics layer
+
+A few additional implementation details worth freezing now before code starts:
+
+1. Incident Translation Layer — Final Safety Rule
+
+Your “lookup-first + safe fallback” approach is exactly right.
+
+Recommended structure:
+
+const INCIDENT_TRANSLATIONS = {
+  asr_drop: "Temporary call completion degradation",
+  mos_drop: "Temporary voice quality degradation",
+  pdd_spike: "Elevated call setup delay",
+  rtp_timeout: "Temporary media connectivity issue",
+};
+
+Fallback:
+
+return "Temporary service condition — resolved";
+
+Critical rule:
+
+Never concatenate raw alert text
+Never pass through exception messages
+Never expose SIP codes
+Never expose route/vendor names
+
+This module should behave like a sanitization boundary.
+
+2. SLA Grade System — Recommended Final Bands
+
+These should live in one constants module:
+
+SLA_THRESHOLDS = {
+  asr: {
+    excellent: 80,
+    good: 70,
+    fair: 55,
+  },
+  ner: {
+    excellent: 95,
+    good: 90,
+    fair: 80,
+  },
+  mos: {
+    excellent: 4.1,
+    good: 3.8,
+    fair: 3.4,
+  },
+  pdd: {
+    excellent: 2,
+    good: 4,
+    fair: 6,
+  },
+};
+
+This prevents:
+
+portal grades drifting from PDFs
+future email reports using different thresholds
+operators manually interpreting KPIs differently
+3. Ticket Responsiveness — Contract-Safe Definitions
+
+Your null-not-zero rule is extremely important.
+
+Correct behavior:
+
+Metric	Open Ticket	Resolved Ticket
+firstResponseMinutes	null until first operator reply	fixed value
+resolutionMinutes	null until resolved	fixed value
+
+Why this matters:
+
+0 implies immediate action
+null correctly means “not yet achieved”
+
+That distinction matters in:
+
+enterprise audits
+SLA disputes
+future automated reporting
+4. One Important Addition — SLA Period Snapshotting
+
+Right now the design computes reports dynamically from live data.
+
+That is fine for V1.
+
+But later, enterprise customers may ask:
+
+“Why did last month’s SLA report change?”
+
+Eventually you will want:
+
+immutable monthly SLA snapshots
+generated once
+stored permanently
+
+Not needed now, but the architecture should keep that future path open.
+
+Meaning:
+
+computeSlaSummary() should return a deterministic serializable object
+avoid embedding volatile live references
+avoid recomputing “current state” inside historical reports
+5. Unified Operations Console — Long-Term Structural Role
+
+Worth locking conceptually now:
+
+The Unified Operations Console should become the operational parent surface for:
+
+alerts
+tickets
+verdicts
+live traffic
+incident timelines
+
+Meaning future ticket escalation and correlation systems should attach there first, not to isolated pages.
+
+That prevents:
+
+duplicated incident state
+fragmented operator workflows
+parallel alert/ticket systems
+6. Future Alert Correlation — Recommended Data Model Direction
+
+When correlation arrives later, the important architectural move will be:
+
+alerts  -> grouped into incidents
+incidents -> attached to entities
+entities -> attached to clients
+
+That hierarchy is what enables:
+
+client-safe SLA narratives
+root-cause analysis
+blast-radius reporting
+automated incident summaries
+
+Without that structure, correlation becomes impossible to scale cleanly.
+
+The platform architecture is now converging properly:
+
+client-safe presentation layer
+operator intelligence layer
+unified operational workflow layer
+future causality/correlation layer
+
+That is the correct progression for a telecom operations platform moving toward enterprise-grade operational intelligence.
+
+can we implement?
+
+Yes — this is fully implementable with your current architecture, and importantly:
+
+no new telecom integrations are required
+no new Sippy APIs are required
+no routing exposure is required
+no schema redesign is required for V1
+
+You already have the hardest parts built:
+
+account-scoped portal
+quality computation
+ticket lifecycle
+alert infrastructure
+entity verdict framework
+export framework
+timezone normalization direction
+client-safe boundaries
+
+So this is now mostly:
+
+aggregation + presentation + editorial safety
+
+What is realistically implementable NOW
+Executive SLA Reporting — ✅ Ready Now
+
+Very feasible because:
+
+CDRs already exist
+quality metrics already computed
+tickets already timestamped
+alerts already stored
+exports already exist
+
+This is mainly:
+
+compute helpers
+translation layer
+UI sections
+PDF/CSV formatting later
+
+Low architectural risk.
+
+Unified Operations Console — ✅ Ready After SLA
+
+Also implementable now because:
+
+all data sources already exist independently
+
+You already have:
+
+Live Traffic
+Alerts
+Verdicts
+Tickets
+NOC Command
+Routing Actions
+
+The work is:
+
+orchestration
+layout
+prioritization
+workflow design
+
+This is more UX/system-design work than backend engineering.
+
+Alert Correlation Intelligence — ✅ But V1 Should Be Scoped Carefully
+
+Implementable, but should be phased.
+
+Realistic V1
+
+Start with:
+
+entity grouping
+temporal clustering
+severity merging
+
+Example:
+
+ASR drop
++
+MOS degradation
++
+RTP timeout
+within 5 minutes
+on same connection
+= one incident
+
+That is realistic and high-value.
+
+Do NOT start with:
+ML prediction
+AI root-cause reasoning
+automated remediation
+probabilistic causality graphs
+
+Those become fragile very quickly.
+
+Recommended Actual Build Sequence
+Phase 1 — Executive SLA Reporting
+
+Lowest risk, highest business visibility.
+
+Build:
+
+computeSlaSummary()
+summarizeIncident()
+SLA grades
+Reports tab
+CSV export
+PDF-ready payload structure
+Phase 2 — Unified Operations Console
+
+Operator workflow consolidation.
+
+Build:
+
+one NOC surface
+live incidents
+active tickets
+entity verdicts
+quick actions
+operational timeline
+Phase 3 — Alert Correlation V1
+
+Start simple and deterministic.
+
+Build:
+
+incident grouping engine
+entity correlation
+blast radius summary
+impact counts
+causality timeline
+What should NOT be built yet
+
+Avoid these until correlation stabilizes:
+
+auto-remediation
+AI-generated operational actions
+autonomous rerouting
+predictive degradation scoring
+automatic customer notifications
+
+Those belong much later.
+
+Biggest architectural success so far
+
+You made the correct separation between:
+
+Layer	Purpose
+Client Portal	Trust + transparency
+Operator Console	Action + control
+SLA Reporting	Executive narrative
+Correlation Layer	Operational intelligence
+
+Most telecom platforms fail because they mix all four together.
+
+Your current direction avoids that mistake.

@@ -1,0 +1,126 @@
+Yes — and this is actually the cleanest point to simplify the whole system.
+
+Final Decision: Yes, remove auth rule collection from the wizard
+
+You should remove Step 5 (Authentication Rules) entirely from the wizard and move it to the Client Config → Auth Tab (post-provision only).
+
+That decision is not just UI cleanup — it fixes a real architectural problem.
+
+Why this is the correct move (for BitsAuto specifically)
+1. Auth rules only make sense in Sippy context
+
+Right now your wizard collects auth rules before a Sippy account exists.
+
+That creates a broken abstraction:
+
+IP exists in BitsAuto (PENDING)
+Sippy account does not exist yet
+auth rules have no valid target system
+
+So Step 5 is currently declarative UI without execution context.
+
+2. Your new model depends on “Provisioned state”
+
+With your final architecture:
+
+Wizard → BitsAuto only
+Provision → creates Sippy account
+After that → Sippy becomes real target system
+
+So auth rules must live after Provisioned state, otherwise:
+
+You’re configuring something that doesn’t yet exist.
+
+3. It prevents partial / orphan configurations
+
+If Step 5 stays in wizard, you will inevitably get:
+
+auth rules saved in DB
+but client never provisioned (abandoned wizard)
+or provisioning fails after rules exist
+
+That creates:
+
+orphan rules
+reconciliation complexity
+audit confusion
+
+Removing Step 5 eliminates this entire class of bugs.
+
+Final Architecture (Clean Version)
+🧩 PHASE 1 — Wizard (BitsAuto only, no Sippy calls)
+Company Creation
+Client Credentials + Trunks
+IP Collection (ALL = PENDING)
+Review & Save
+
+👉 Result:
+
+Client exists in BitsAuto only
+No Sippy account yet
+No auth rules anywhere
+🔐 PHASE 2 — IP Approval (Admin only)
+Admin approves / rejects IPs
+Still NO Sippy interaction
+
+👉 System state:
+
+Approved IPs = eligible for provisioning
+Pending IPs = ignored
+Rejected = blocked
+🚀 PHASE 3 — PROVISION BUTTON (Admin only)
+
+Single action:
+
+Create Sippy account
+Push ALL approved IPs → auth rules
+Mark client as PROVISIONED
+
+👉 After this:
+
+Sippy becomes active system of record
+⚙️ PHASE 4 — Client Config (Post-Provision only)
+
+Now UI unlocks:
+
+Auth Tab (NEW HOME of Step 5)
+Add auth rules per IP
+Backend guard: only approved IPs allowed
+Instant sync to Sippy
+IP Management
+Add IP → PENDING
+Approve → incremental push to Sippy
+Revoke → immediate removal from Sippy
+Critical Backend Rule (non-negotiable)
+POST /api/auth-rules
+
+if (!client.isProvisioned) {
+  throw Error("Client not provisioned in Sippy");
+}
+
+if (ip.status !== "APPROVED") {
+  throw Error("IP not approved");
+}
+
+This is what enforces your security model — not UI.
+
+What you gain by removing Step 5
+Before
+Wizard collects auth rules
+But no execution context
+Mixed lifecycle states
+After
+Wizard = provisioning preparation only
+Config page = live system control
+Sippy interaction only happens after explicit approval chain
+Final Verdict
+
+Yes — remove Step 5 completely from the wizard.
+
+That change is what turns BitsAuto from:
+
+“form-based provisioning tool”
+
+into:
+
+“controlled telecom provisioning system with enforced state transitions”

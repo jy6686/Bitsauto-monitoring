@@ -1,0 +1,155 @@
+The destination classification now looks correct.
+
+From the screenshots:
+
+✅ Fixed
+Pakistan (+92) only
+Eritrea (+291) only
+No more USA/Canada
+No more UK
+No more Suriname
+No more Burkina Faso
+No more random countries
+
+The Destination Impact Analysis is now showing only the two governed destinations:
+
+Destination	Total Calls
+Pakistan	3,190
+Eritrea	1,810
+
+which matches your governance configuration and traffic pattern.
+
+❌ Remaining Issue: CDR Generation
+
+The bigger problem now is visible in the Billing Reconciliation screen.
+
+Current status:
+
+Total Governed: 500
+OK: 4
+No CDR: 496
+
+That means:
+
+CDR Match Rate = 4 / 500
+             = 0.8%
+
+which is extremely low.
+
+What the screenshots indicate
+
+Governance records exist:
+
+206092304285200
+→ 92374083801
+2060923098729175
+→ 923740861998
+2060923028574665
+→ 923729176797
+
+Governance engine is capturing calls correctly.
+
+However:
+
+Customer Billed = NULL
+Vendor Cost     = NULL
+Margin          = NULL
+Status          = No CDR
+
+for almost every record.
+
+Most Likely Cause
+
+The CDR lookup logic is still searching using the wrong number format.
+
+Governance stores:
+
+2060 + Country Code + Number
+
+Example:
+
+206092374083801
+
+But Sippy CDR may store:
+
+92374083801
+
+or
+
+92374083801
+
+after translation.
+
+If Billing Reconciliation searches:
+
+CLD = 206092374083801
+
+but Sippy stores:
+
+CLD = 92374083801
+
+then:
+
+No CDR Found
+
+for every governance call.
+
+What Needs Validation
+
+For one failed record:
+
+206092304285200
+→ 92374083801
+
+check:
+
+Governed Call
+
+Stored:
+
+CLD = 206092304285200
+Sippy CDR
+
+Actual:
+
+CLD = ?
+
+Need to see:
+
+exact CLD stored in Sippy
+exact CLI stored in Sippy
+connect time
+disconnect time
+My suspicion
+
+Destination analytics is fixed.
+
+CDR reconciliation is not fixed.
+
+The reconciliation engine is probably still matching:
+
+2060+92+number
+
+against Sippy CDRs that contain:
+
+92+number
+
+or another translated format.
+
+Next Check
+
+Take one row from the Billing Reconciliation table:
+
+#11522
+206092304285200
+→ 92374083801
+
+and search directly in Sippy CDR:
+
+by CLD
+by ANI
+by start time ±60 seconds
+
+If the CDR exists in Sippy but reconciliation still shows "No CDR", then the matching logic is wrong, not the CDR generation itself.
+
+Based on the screenshots, the destination issue appears resolved, but the CDR matching/reconciliation process is still failing, which is why 496 out of 500 governed calls show No CDR.

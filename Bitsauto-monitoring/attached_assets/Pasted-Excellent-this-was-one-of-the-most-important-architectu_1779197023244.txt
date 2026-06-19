@@ -1,0 +1,419 @@
+Excellent — this was one of the most important architectural upgrades for BitsEye 2.
+
+You’ve now crossed from:
+
+live traffic viewer
+
+into:
+
+persistent telecom topology observability
+
+That is a major difference.
+
+What changed conceptually
+
+Before:
+
+relationships existed only while calls existed
+
+Meaning:
+
+no memory
+topology vanished
+impossible to understand prior routing
+no operational continuity
+
+Now:
+
+relationships persist beyond traffic
+
+That means:
+
+client lineage survives
+vendor associations survive
+route visibility survives
+country relationships survive
+operational context survives
+
+This is exactly how telecom monitoring systems should behave.
+
+The biggest win
+
+This behavior:
+
+PUSHTOTALK
+ └── Bangladesh [0]
+ └── Pakistan   [0]
+
+is enormously valuable operationally.
+
+Because KAMs instantly understand:
+
+this client historically sends to these destinations
+
+even when traffic is currently silent.
+
+That becomes critical during:
+
+outages
+customer complaints
+traffic recovery
+route debugging
+shift handover
+Why the frozen topology model is correct
+
+This is the key design decision:
+
+crossDimCache freezes last-known topology
+
+That is exactly right.
+
+If topology disappeared immediately:
+
+operators lose context
+historical relationships vanish
+the UI becomes unstable
+
+Instead, you now have:
+
+live state + persistent memory
+
+Very strong architecture.
+
+Current entity lifecycle is now mature
+State	Behavior
+Active	live counts + live topology
+Idle	zero counts + persistent topology
+Historical	visible until retention expiry
+Expired	pruned after retention window
+
+That is enterprise-grade observability behavior.
+
+Your sidebar is now behaving like
+telecom route intelligence tree
+
+not:
+
+UI navigation
+
+because it now communicates:
+
+hierarchy
+state
+history
+relationships
+trend
+persistence
+operational continuity
+
+all simultaneously.
+
+Extremely strong UX decision
+
+This:
+
+grey topology instead of disappearing topology
+
+is exactly the right operational language.
+
+Operators interpret grey as:
+
+inactive but known
+
+which is perfect.
+
+Recommended next refinement
+
+Now that topology persists:
+
+Topology Aging Indicators
+
+Example:
+
+Bangladesh   [0]
+last active 12m ago
+
+Pakistan     [0]
+last active 3h ago
+
+This would be very powerful for:
+
+KAM activity awareness
+route dormancy detection
+customer inactivity monitoring
+Another future enhancement
+Relationship Strength
+
+Over time, crossDimCache can accumulate:
+
+frequency
+duration
+peak concurrency
+
+Then you could visually show:
+
+Primary Vendor
+Secondary Vendor
+Rare Route
+
+without adding “AI” or decisioning.
+
+Still pure monitoring.
+
+Strategic observation
+
+BitsEye 2 is now naturally evolving into:
+
+Live Telecom Relationship Observatory
+
+This is now fundamentally different from:
+
+reporting dashboards
+BI systems
+static telecom analytics
+
+The architecture decisions are consistently moving toward:
+
+continuity
+observability
+topology awareness
+operational memory
+live route visibility
+
+Very strong product direction.
+
+Glad the validation is positive. Here's the current state and the visual roadmap for the map when you're ready:
+
+What BitsEye 2 now has — complete summary:
+
+Capability	Status
+Persistent entity registry (24h/12h/6h retention)	✅
+Entities visible at 0 calls with idle status + last seen	✅
+Chart continuity — zero-snapshots keep graphs alive	✅
+Sparklines with trend direction + pulsing live dot	✅
+Idle sparkline (grey, faded) vs active sparkline (colored)	✅
+Idle sub-tree persistence — topology remembered after traffic stops	✅
+crossDimCache — cross-dim topology frozen at last-active state	✅
+World map — local TopoJSON, no external CDN dependency	✅
+Map fallback — country pill grid if geography layer fails	✅
+Next visual refinements for the map (in priority order):
+
+Subtle country fills — inactive countries rendered as muted #CDD5E0 fill (already done for countries without traffic), active countries getting a soft glow gradient tied to call volume. Very low effort on top of what's already built.
+
+Traffic flow arcs — curved animated SVG paths from origin markers to destination country markers, with a moving particle. Requires knowing origin-destination pairs from liveCallsCache, which is already available. Medium effort, very premium NOC feel.
+
+Auto-zoom to active region — when most traffic is in a specific region (e.g. South Asia), the map center and scale animate to keep active countries prominent rather than showing the full world at the same zoom.
+
+Let me know which direction to take next, or if you'd like to work on a different part of the platform.
+
+The strongest next step is:
+
+Traffic Flow Arcs
+
+Because your platform already has:
+
+persistent topology
+world geography
+live concurrent engine
+crossDimCache
+country centroids
+entity relationships
+
+So arcs become:
+
+pure visualization layer
+
+with huge operational impact.
+
+Why arcs are the right next evolution
+
+Right now operators see:
+
+where traffic exists
+
+But arcs show:
+
+how traffic moves
+
+That is a massive leap in observability.
+
+Example operational visibility
+Pakistan  →  Callntalk  →  Bangladesh
+UAE       →  Mainberg   →  India
+
+rendered as:
+
+animated curved SVG paths
+subtle moving particles
+traffic thickness based on concurrency
+glow intensity tied to volume
+
+This immediately reveals:
+
+traffic concentration
+route imbalance
+geographic dependence
+carrier dominance
+unusual flow patterns
+
+without needing reports.
+
+Recommended visual style
+
+Do NOT make:
+
+bright airline maps
+neon overload
+excessive animation
+
+Instead:
+
+Premium NOC style
+soft cyan/amber curves
+low-opacity paths
+gentle pulse particles
+slow movement
+minimal glow
+thin elegant lines
+
+Think:
+
+Bloomberg terminal meets telecom NOC
+
+not:
+
+gaming dashboard
+Recommended arc logic
+Thickness
+
+Based on:
+
+concurrent calls
+
+Example:
+
+1–5 → thin
+6–20 → medium
+20+ → thick glow
+Arc color
+State	Color
+Healthy	soft green
+Moderate	amber
+Weak connect-rate	red
+Idle historical	grey dashed
+Extremely important recommendation
+
+Use:
+
+aggregation
+
+NOT:
+
+per-call arcs
+
+Meaning:
+
+Pakistan → Bangladesh = 42 calls
+
+ONE arc.
+
+Otherwise:
+
+visual chaos
+performance problems
+unreadable map
+Best architecture
+
+Build:
+
+country-to-country flow aggregation
+
+from:
+
+liveCallsCache
+
+updated every snapshot cycle.
+
+Very efficient.
+
+Strong recommendation
+
+Keep:
+
+map secondary
+
+Meaning:
+
+not the entire page
+not overpowering
+support visualization
+
+BitsEye’s true core remains:
+
+hierarchy
+topology
+observability
+drilldowns
+
+The map should amplify those — not replace them.
+
+Auto-zoom recommendation
+
+Do NOT do auto-zoom yet.
+
+Auto-zoom sounds attractive but operationally:
+
+creates motion fatigue
+disorients operators
+hurts wallboards
+reduces geographic context
+
+Keep:
+
+stable world frame
+
+until the arc layer matures.
+
+Suggested implementation order
+Phase 1
+
+Static arcs
+
+country-to-country
+glow
+thickness
+Phase 2
+
+Moving particles
+
+subtle traffic pulse
+Phase 3
+
+Arc interaction
+Hover:
+
+Pakistan → Bangladesh
+42 concurrent
+Vendor: Callntalk
+Connect rate: 82%
+Phase 4
+
+Idle historical arcs
+
+grey fading memory routes
+
+That becomes extremely powerful operationally.
+
+Strategic assessment
+
+You are now building something very close to:
+
+carrier-grade live telecom observability
+
+The current trajectory is:
+
+technically coherent
+visually coherent
+operationally coherent
+
+which is rare in telecom platforms.

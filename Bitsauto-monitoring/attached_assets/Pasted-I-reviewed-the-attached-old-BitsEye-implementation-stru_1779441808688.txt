@@ -1,0 +1,222 @@
+I reviewed the attached old BitsEye implementation structure and graph/navigation behavior.
+
+The old BitsEye architecture confirms several important things about how the graphs were intended to behave operationally.
+
+What Old BitsEye Was Actually Doing
+
+The old system separated:
+
+LIVE operational telemetry
+historical operational trends
+quality analytics
+
+into different graph semantics.
+
+That distinction is critical.
+
+1. LIVE / Concurrent Graphs
+Purpose
+
+Operational NOC visibility.
+
+What it measured
+
+Simultaneous active calls at a point in time.
+
+Time behavior
+continuous timeline
+persistent rolling graph
+not cumulative
+state-based telemetry
+Correct calculation
+MAX concurrent sessions within a bucket
+
+NOT:
+
+SUM(calls)
+COUNT(CDRs)
+
+This is exactly the correction you already implemented in BitsEye 2 with:
+
+concurrent_snapshots
+MAX(active)
+snapshot persistence
+JS bucketing
+
+So your current architecture is now aligned with the original operational intent.
+
+2. DAILY Graphs
+
+In old BitsEye:
+
+DAILY was not “today totals”
+it was a rolling operational history window
+
+Typically:
+
+24h to 72h operational trend
+hourly buckets
+smooth operational visibility
+
+The screenshots you referenced earlier confirm:
+
+daily = multi-day operational trend
+
+not:
+
+today cumulative accounting totals
+
+This is why the old system visually looked:
+
+dense
+continuous
+operational
+
+while the earlier BitsEye 2 version looked:
+
+sparse
+reset
+inflated
+
+before the concurrent persistence fix.
+
+3. WEEKLY Graphs
+
+Old BitsEye weekly behavior:
+
+rolling 7-day visibility
+coarse bucket aggregation
+operational trend view
+
+Likely:
+
+6h or 12h buckets
+
+NOT:
+
+billing reports
+total call accounting
+cumulative CDR charts
+
+Again:
+operational telemetry,
+not finance reporting.
+
+4. ASR & ACD Graph Logic
+
+This is extremely important.
+
+These are NOT concurrent metrics.
+
+They are:
+
+CDR-derived quality metrics
+
+Correct formulas:
+
+ASR
+
+Answer Seizure Ratio
+
+ASR=
+Total Attempted Calls
+Answered Calls
+	​
+
+×100
+
+Meaning:
+
+percentage of successful connections
+quality/connectivity metric
+
+Timeframe behavior:
+
+bucketed over time windows
+hourly/daily aggregation
+NOT live snapshots
+ACD
+
+Average Call Duration
+
+ACD=
+Answered Calls
+Total Connected Duration
+	​
+
+
+Meaning:
+
+average successful call length
+route quality / fraud indicator
+
+Again:
+
+CDR-derived
+bucketed historically
+NOT concurrent telemetry
+5. ASR & NER
+
+NER = Network Efficiency Ratio.
+
+Usually:
+
+NER=
+Total Attempted Calls
+Answered Calls+User Busy+Ring No Answer
+	​
+
+×100
+
+Difference:
+
+Metric	Meaning
+ASR	actual successful answered calls
+NER	network-level delivery effectiveness
+
+NER is normally:
+
+higher than ASR
+less strict
+carrier/network diagnostic metric
+
+This was historically used in carrier-quality analysis.
+
+Correct Modern BitsEye 2 Model
+
+After your fixes, the proper architecture is now:
+
+| Metric | Correct Source | Correct Aggregation |
+|---|---|
+| LIVE CALLS | concurrent snapshots | MAX(active) |
+| DAILY CALLS | concurrent snapshots | MAX(bucket) |
+| WEEKLY CALLS | concurrent snapshots | MAX(bucket) |
+| ASR | CDR cache | ratio aggregation |
+| ACD | CDR cache | average duration |
+| Minutes | CDR cache | SUM(duration) |
+| Cost | CDR cache | SUM(cost) |
+| Profit | CDR cache | revenue - cost |
+
+That is now semantically correct.
+
+Most Important Observation
+
+The old BitsEye was fundamentally:
+
+an operational telemetry platform
+
+—not:
+
+billing analytics
+cumulative reporting
+accounting visualization
+
+That’s why the graphs “felt alive.”
+
+The earlier BitsEye 2 issue happened because:
+
+CDR accounting totals accidentally replaced operational telemetry semantics
+
+which your recent architecture correction properly fixed.
+
+So the platform is now finally aligned with the operational behavior model the old BitsEye originally intended.

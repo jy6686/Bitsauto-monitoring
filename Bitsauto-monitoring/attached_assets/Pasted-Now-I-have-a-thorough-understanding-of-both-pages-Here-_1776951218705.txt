@@ -1,0 +1,31 @@
+Now I have a thorough understanding of both pages. Here are my suggestions — grouped by page and priority:
+
+Settings Page
+Connection Tab
+
+"Open Portal" icon button next to the saved Portal URL — an ExternalLink button that opens portalUrl in a new browser tab. Currently the URL field is just a text input with no action when the URL is already saved.
+"View Live Calls" shortcut on the Sign-In card — when connected, a small button that jumps to /noc?view=live-calls so the user can immediately validate the connection is pulling data.
+Alerts Tab
+
+"Clients & Vendors" link in Email Alerts — line 566 has the static text "Per-client alert emails can be set in the Clients & Vendors section." This should be a clickable link to /team?tab=monitoring instead of dead text.
+Watcher change-event rows — each event in the Sippy Watcher log (e.g., routing group changed, account modified) could be a clickable row that deep-links to the relevant page, e.g. routing group changes → /routing-manager?tab=routing-groups.
+Users & Switches Tab
+
+"Open in Sippy" per user — each row in the Sippy Users table could have a small ExternalLink button that opens that user's profile directly in the Sippy portal (portalUrl + /admin/accounts/user/{userId}).
+Routing Manager Page
+Routing Groups tab
+
+"Analyse" button per group row — a small LCR icon button on each routing group row that navigates to /lcr-analyser?rg={id}, similar to the prefix-level LCR link already in Destination Sets.
+Approval badge link — when a create/edit/delete returns requiresApproval, the success toast currently just says "Request #N queued". The request number #N could be a clickable link to /approvals?id={requestId} so admins can jump straight to it.
+Destination Sets tab
+
+"View in Rate Cards" on prefix rows — the +{prefix} entry already has a "Run LCR" button (great). Adding a Rate Cards button beside it (/rate-cards?prefix={prefix}) would complete the analysis flow.
+Vendor name links in DS routes — the vendorName shown in the DS routes table could link to /billing?vendor={vendorName} for a quick billing view.
+QBR Dashboard
+
+Clickable vendor rows — each vendor card/row in the QBR list is currently display-only. Clicking the vendor name could navigate to /lcr-analyser?vendor={vendorName} or open a mini-drawer with LCR + fraud shortcuts.
+Clickable KPI summary cards — the four top KPI cards (Network ASR, ACD, Volume, Cost) could navigate to the NOC or Analytics page filtered to the same time window.
+Connections tab
+
+"View Billing" link per connection — a small icon button on each row linking to /billing?connection={connId}.
+"Fraud Check" link per connection — a fraud icon button linking to /fraud?connection={connId}.

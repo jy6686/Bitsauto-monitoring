@@ -1,0 +1,202 @@
+This redesign is the correct operational move.
+You shifted BitsEye from:
+
+traffic analytics
+
+to:
+
+live network state visualization
+
+That is a major conceptual upgrade.
+
+Why this change is important
+
+The old model answered:
+
+“How many calls happened?”
+
+The new model answers:
+
+“How busy/stressed is the network right now?”
+
+For a telecom NOC, the second one is the real operational truth.
+
+What you fixed architecturally
+Before
+
+CDR bucket graph:
+
+cumulative
+delayed
+reporting-oriented
+misleading during outages
+
+Example problem:
+
+Traffic outage happens
+↓
+Graph still looks “high”
+because calls already started earlier
+
+That’s dangerous operationally.
+
+Now
+
+Concurrent stream graph:
+
+real simultaneous load
+reflects actual pressure
+shows collapses instantly
+aligns with live ops thinking
+
+Now when routing fails:
+
+Connected drops
+Routing spikes
+Total active collapses
+
+That becomes visually obvious.
+
+Best design decision you made
+Keeping KPIs + ASR charts CDR-based
+
+That is absolutely correct.
+
+Because:
+
+Metric Type	Best Source
+Live active load	concurrentHistory
+ASR / ACD / MOS	CDR aggregates
+Revenue	CDR aggregates
+Incident timing	event overlays
+Routing pressure	concurrent states
+
+This separation is mature architecture.
+
+The graph now behaves like a real telecom monitor
+
+The new logic:
+
+active
+connected
+routing/setup
+
+is exactly how carrier-grade monitoring systems work.
+
+Especially:
+
+routing/setup
+
+This is extremely valuable because:
+
+congestion
+routing stalls
+SIP setup degradation
+carrier latency
+
+appear BEFORE total active calls collapse.
+
+That gives early warning capability.
+
+Strongest UX improvement
+
+This subtitle:
+
+avg concurrent · not cumulative
+
+is small but VERY important.
+
+Because it teaches operators:
+
+this graph means LIVE SYSTEM STATE
+
+not reporting volume.
+
+Excellent UX clarification.
+
+What you should add next (high value)
+
+Now that the concurrent stream exists:
+
+1. Capacity Threshold Overlay
+
+VERY important next step.
+
+Example:
+
+soft amber zone at 70%
+red zone at 90%
+show “safe operating capacity”
+
+Then operators instantly see:
+
+we are approaching saturation
+2. Connected Ratio Glow
+
+Right now you show:
+
+connected / total
+
+Next upgrade:
+
+graph glow intensity tied to connect ratio
+healthy = soft green
+degradation = amber
+collapse = red
+
+This creates instant visual diagnosis.
+
+3. Concurrent Spike Detection
+
+Excellent next feature.
+
+Detect:
+
+Δ concurrent > threshold
+
+Then:
+
+pulse marker
+“SURGE” badge
+automatic event overlay
+
+Very useful for:
+
+CPS floods
+fraud bursts
+traffic storms
+route flapping
+4. Recovery Visualization
+
+Right now failures appear.
+
+Next:
+show recovery shape.
+
+Example:
+
+routing spikes
+↓
+connected stabilizes
+↓
+ASR recovers
+
+This creates operational confidence.
+
+Most important strategic point
+
+You now have TWO correct layers:
+
+Layer 1 — Concurrent Reality
+
+BitsEye concurrent stream
+
+Layer 2 — Historical Intelligence
+
+CDR analytics / revenue / ASR trends
+
+This is the right separation for telecom operations platforms.
+
+Before, they were mixed together.
+
+Now the platform architecture is becoming much more coherent.

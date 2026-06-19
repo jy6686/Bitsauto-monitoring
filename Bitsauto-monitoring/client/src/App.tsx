@@ -1,0 +1,883 @@
+import { Switch, Route, useLocation } from "wouter";
+import { queryClient } from "./lib/queryClient";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { LayoutShell } from "@/components/layout-shell";
+import { useAuth } from "@/hooks/use-auth";
+import { useEffect, Component, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { Loader2, ShieldOff } from "lucide-react";
+import type { Role } from "@shared/schema";
+import { MGMT_CONFIGURABLE_FEATURES } from "@shared/schema";
+import { CommandPalette } from "@/components/command-palette";
+import { usePortalTheme } from "@/hooks/use-portal-theme";
+
+class GlobalErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: "2rem", fontFamily: "monospace", color: "#f87171", background: "#0a0a0a", minHeight: "100vh" }}>
+          <h2 style={{ fontSize: "1.2rem", marginBottom: "1rem" }}>⚠ Application Error</h2>
+          <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: "0.75rem", background: "#111", padding: "1rem", borderRadius: "0.5rem" }}>
+            {this.state.error.toString()}{"\n\n"}{this.state.error.stack}
+          </pre>
+          <button
+            style={{ marginTop: "1rem", color: "#60a5fa", textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
+            onClick={() => { this.setState({ error: null }); window.location.reload(); }}>
+            Reload page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+import { ThemeProvider } from "@/hooks/use-theme";
+import { TimezoneProvider } from "@/context/timezone-context";
+import { OrgScopeProvider } from "@/context/org-scope-context";
+import { PortalProvider } from "@/context/portal-context";
+import KamDashboardPage from "@/pages/kam-dashboard";
+import ApiKeysPage from "@/pages/api-keys";
+import TestCallPage from "@/pages/test-call";
+import LcrAnalyserPage from "@/pages/lcr-analyser";
+import CallFlowSimulatorPage from "@/pages/call-flow-simulator";
+import VendorSlaScorecardPage from "@/pages/vendor-sla-scorecard";
+import CarrierScoringPage from "@/pages/carrier-scoring";
+import VendorHealthPage from "@/pages/vendor-health";
+import CostOptimisationPage from "@/pages/cost-optimisation";
+import MultiSwitchPage from "@/pages/multi-switch";
+import WhatsappAlertsPage from "@/pages/whatsapp-alerts";
+import AccountNamesPage from "@/pages/account-names";
+import DashboardPage from "@/pages/dashboard";
+import CallsListPage from "@/pages/calls-list";
+import CallDetailPage from "@/pages/call-detail";
+import AlertsPage from "@/pages/alerts";
+import SettingsPage from "@/pages/settings";
+import ReportsPage from "@/pages/reports";
+import TeamPage from "@/pages/team";
+import ClientsPage from "@/pages/clients";
+import FraudPage from "@/pages/fraud";
+import CDRsPage from "@/pages/cdrs";
+import ToolsPage from "@/pages/tools";
+import AccountPage from "@/pages/account";
+import LoginPage from "@/pages/login";
+import TrafficMapPage from "@/pages/traffic-map";
+import BalanceMonitorPage from "@/pages/balance-monitor";
+import DIDsPage from "@/pages/dids";
+import ServerMonitoringPage from "@/pages/server-monitoring";
+import GraphsPage from "@/pages/graphs";
+import BitsEyePage from "@/pages/bitseye";
+import BitsEye2Page from "@/pages/bitseye2";
+import RateCardsPage from "@/pages/rate-cards";
+import RateManagerPage from "@/pages/rate-manager";
+import AnalyticsPage from "@/pages/analytics";
+import ProductsPage from "@/pages/products";
+import ProductRegistryPage from "@/pages/product-registry";
+import DealsPage from "@/pages/deals";
+import DestinationCatalogPage from "@/pages/destination-catalog";
+import ClientRateReportPage from "@/pages/client-rate-report";
+import TariffProfilesPage from "@/pages/tariff-profiles";
+import NotFound from "@/pages/not-found";
+import QosHeatmapPage from "@/pages/qos-heatmap";
+import SlaBreachesPage from "@/pages/sla-breaches";
+import BillingDisputesPage from "@/pages/billing-disputes";
+import TestCampaignsPage from "@/pages/test-campaigns";
+import ChatPage from "@/pages/chat";
+import FirewallPage from "@/pages/firewall";
+import VpnConfigPage from "@/pages/vpn-config";
+import EmailCentrePage from "@/pages/email-centre";
+import CommercialNotificationsPage from "@/pages/commercial-notifications";
+import SenderProfilesPage from "@/pages/sender-profiles";
+import TariffVersionsPage from "@/pages/tariff-versions";
+import RatingVerificationPage from "@/pages/rating-verification";
+import RatingSnapshotsPage from "@/pages/rating-snapshots";
+import ExecutiveReportsPage from "@/pages/executive-reports";
+import InvoicesPage from "@/pages/invoices";
+import CarrierReconciliationPage from "@/pages/carrier-reconciliation";
+import UnbilledUsagePage from "@/pages/unbilled-usage";
+import AccountStatementPage from "@/pages/account-statement";
+import InvoiceSchedulesPage from "@/pages/invoice-schedules";
+import PaymentRemindersPage from "@/pages/payment-reminders";
+import { CdrRerateWS } from "@/pages/cdr-rerate";
+import CDRReconciliationPage from "@/pages/cdr-reconciliation";
+import CommunicationPoliciesPage from "@/pages/communication-policies";
+import DMRPage from "@/pages/dmr";
+import ClientReconciliationPage from "@/pages/client-reconciliation";
+import MarginIntelligencePage from "@/pages/margin-intelligence";
+import DisputeDefensePage from "@/pages/dispute-defense";
+import AiAssurancePage from "@/pages/ai-assurance";
+import PartnerProfilesPage from "@/pages/partner-profiles";
+import PortalLoginPage from "@/pages/portal/portal-login";
+import PortalDashboardPage from "@/pages/portal/portal-dashboard";
+import PortalInvoicesPage from "@/pages/portal/portal-invoices";
+import PortalDisputesPage from "@/pages/portal/portal-disputes";
+import PortalCreditNotesPage from "@/pages/portal/portal-credit-notes";
+import PortalReconciliationPage from "@/pages/portal/portal-reconciliation";
+import InvoiceJobsPage from "@/pages/invoice-jobs";
+import InvoiceTemplatesPage from "@/pages/invoice-templates";
+import DisputeCasesPage from "@/pages/dispute-cases";
+import CreditNotesPage from "@/pages/credit-notes";
+import CreditControlPage from "@/pages/credit-control";
+import ClientIdentityPage from "@/pages/client-identity";
+import FinanceCockpitPage from "@/pages/finance-cockpit";
+import RoutingManagerPage from "@/pages/routing-manager";
+import AuthStudioPage from "@/pages/auth-studio";
+import ApprovalQueuePage from "@/pages/approval-queue";
+import VendorsPage from "@/pages/vendors";
+import ApprovalSettingsPage from "@/pages/approval-settings";
+import CompanyProfilePage from "@/pages/company-profile";
+import SipTracePage from "@/pages/sip-trace";
+import RoutingIntelligencePage from "@/pages/routing-intelligence";
+import NumberIntelligencePage from "@/pages/number-intelligence";
+import SbcMonitorPage from "@/pages/sbc-monitor";
+import ClientPortalPage from "@/pages/client-portal";
+import ResellerPage from "@/pages/reseller";
+import CompliancePage from "@/pages/compliance";
+import SmsMonitorPage from "@/pages/sms-monitor";
+import VoiceOtpPage from "@/pages/voice-otp";
+import TerminationChainsPage from "@/pages/termination-chains";
+import CallGovernancePage from "@/pages/call-governance";
+import AiOpsPage from "@/pages/ai-ops";
+import AiRouteCopilotPage from "@/pages/ai-route-copilot";
+import CarrierIntelligencePage from "@/pages/carrier-intelligence";
+import IntelligencePage from "@/pages/intelligence";
+import IntelligenceValidationPage from "@/pages/intelligence-validation";
+import VendorPrefixIntelligencePage from "@/pages/vendor-prefix-intelligence";
+import RbacMatrixPage from "@/pages/rbac-matrix";
+import LiveTrafficMapPage from "@/pages/live-traffic-map";
+import VendorStabilityTimelinePage from "@/pages/vendor-stability-timeline";
+import VendorRcaPage from "@/pages/vendor-rca";
+import RouteOptimisationPage from "@/pages/route-optimisation";
+import TrafficSteeringPage from "@/pages/traffic-steering";
+import SimulationSandboxPage from "@/pages/simulation-sandbox";
+import RtpAnalyticsPage from "@/pages/rtp-analytics";
+import ReplayEnginePage from "@/pages/replay";
+import NetworkTopologyPage from "@/pages/network-topology";
+import NocCommandPage from "@/pages/noc-command";
+import NocDashboardPage from "@/pages/noc-dashboard";
+import NocIncidentsPage from "@/pages/noc-incidents";
+import RouteIntelligencePage from "@/pages/route-intelligence";
+import MfaSetupPage from "@/pages/mfa-setup";
+import MfaVerifyPage from "@/pages/mfa-verify";
+import SecurityOpsPage from "@/pages/security-ops";
+import OpsConsolePage from "@/pages/ops-console";
+import IncidentDetailPage from "@/pages/incident-detail";
+import ConsolePage from "@/pages/console";
+import VendorProfilePage from "@/pages/vendor-profile";
+import StirShakenPage from "@/pages/stir-shaken";
+import CallRecordingsPage from "@/pages/call-recordings";
+import PortalViewPage from "@/pages/portal-view";
+import SelfHealPage from "@/pages/self-heal";
+import SidebarSettingsPage from "@/pages/sidebar-settings";
+import NavigationGovernancePage from "@/pages/navigation-governance";
+import WorkspaceSettingsPage from "@/pages/workspace-settings";
+import CompanyListPage from "@/pages/company-list";
+import CompanyCreatePage from "@/pages/company-create";
+import CompanyOnboardingPage from "@/pages/company-onboarding";
+import ClientWizardPage from "@/pages/client-wizard";
+import ClientConfigPage from "@/pages/client-config";
+import RevenueHeatmapPage from "@/pages/revenue-heatmap";
+import CodecAnalyticsPage from "@/pages/codec-analytics";
+import TrafficForecastPage from "@/pages/traffic-forecast";
+import AuditLogPage from "@/pages/audit-log";
+import AsrAcdReportPage from "@/pages/asr-acd-report";
+import LiveTrafficPage from "@/pages/live-traffic";
+import NotificationCentrePage from "@/pages/notification-centre";
+import BillingPage from "@/pages/billing";
+import WorkspaceHomePage from "@/pages/workspace-home";
+import ReconciliationLabPage from "@/pages/recon-lab";
+import { WorkspaceShell } from "@/components/workspace-shell";
+
+// ── Workspace composition helper ─────────────────────────────────────────────
+// Creates a stable module-level component that wraps an existing page in a
+// WorkspaceShell tab bar. Call at module level only — never inside a component.
+function withWorkspace(slug: string, Component: React.ComponentType<any>) {
+  function Wrapped() {
+    return (
+      <WorkspaceShell workspaceSlug={slug}>
+        <Component />
+      </WorkspaceShell>
+    );
+  }
+  Wrapped.displayName = `${slug}:${Component.displayName ?? Component.name ?? 'Page'}`;
+  return Wrapped;
+}
+
+// ── Phase 2: Finance Consolidation ───────────────────────────────────────────
+// billing-ops workspace
+const BillingWS          = withWorkspace('billing-ops', BillingPage);
+const InvoicesWS         = withWorkspace('billing-ops', InvoicesPage);
+const InvoiceJobsWS      = withWorkspace('billing-ops', InvoiceJobsPage);
+const InvoiceTemplatesWS = withWorkspace('billing-ops', InvoiceTemplatesPage);
+const CreditNotesWS      = withWorkspace('billing-ops', CreditNotesPage);
+const CreditControlWS    = withWorkspace('billing-ops', CreditControlPage);
+const ProductsWS         = withWorkspace('billing-ops', ProductsPage);
+const RateCardsWS        = withWorkspace('billing-ops', RateCardsPage);
+const TariffVersionsWS   = withWorkspace('billing-ops', TariffVersionsPage);
+
+// revenue-assurance workspace
+const DmrWS             = withWorkspace('revenue-assurance', DMRPage);
+const ClientReconWS     = withWorkspace('revenue-assurance', ClientReconciliationPage);
+const CarrierReconWS    = withWorkspace('revenue-assurance', CarrierReconciliationPage);
+const CdrReconDispWS    = withWorkspace('revenue-assurance', CDRReconciliationPage);
+const AiAssuranceWS     = withWorkspace('revenue-assurance', AiAssurancePage);
+const MarginIntelWS     = withWorkspace('revenue-assurance', MarginIntelligencePage);
+const TrafficForecastWS = withWorkspace('revenue-assurance', TrafficForecastPage);
+const RevenueHeatmapWS  = withWorkspace('revenue-assurance', RevenueHeatmapPage);
+
+// billing-ops finance suite additions
+const UnbilledUsageWS    = withWorkspace('billing-ops', UnbilledUsagePage);
+const AccountStatementWS = withWorkspace('billing-ops', AccountStatementPage);
+const InvoiceSchedulesWS = withWorkspace('billing-ops', InvoiceSchedulesPage);
+const PaymentRemindersWS = withWorkspace('billing-ops', PaymentRemindersPage);
+
+// dispute-governance workspace
+const BillingDisputesWS  = withWorkspace('dispute-governance', BillingDisputesPage);
+const DisputeCasesWS     = withWorkspace('dispute-governance', DisputeCasesPage);
+const DisputeDefenseWS   = withWorkspace('dispute-governance', DisputeDefensePage);
+const CommercialNotifsWS = withWorkspace('dispute-governance', CommercialNotificationsPage);
+
+// Pages accessible to each role
+const ROLE_PATHS: Record<Role, string[]> = {
+  super_admin:  ['/', '/calls', '/alerts', '/reports', '/settings', '/team', '/approvals'],
+  admin:        ['/', '/calls', '/alerts', '/reports', '/settings', '/team', '/approvals'],
+  noc_operator: ['/', '/calls', '/approvals'],
+  team_lead:    ['/', '/calls', '/approvals'],
+  management:   ['/', '/calls', '/alerts', '/reports'],
+  viewer:       ['/', '/calls'],
+};
+
+// Build a quick lookup: route → feature key (used by ProtectedRoute)
+const MGMT_FEATURE_BY_ROUTE: Record<string, string> = Object.fromEntries(
+  MGMT_CONFIGURABLE_FEATURES.map(f => [f.route, f.key])
+);
+
+function ProtectedRoute({
+  component: Component,
+  requiredRoles,
+  viewerAssignment,
+  mgmtFeature,
+}: {
+  component: React.ComponentType<any>;
+  requiredRoles?: Role[];
+  viewerAssignment?: string;
+  mgmtFeature?: string;
+}) {
+  const { user, role, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  // For viewers: check if they have the required assignment to access this page
+  const needsAssignmentCheck = !isLoading && !!user && role === 'viewer' && !!viewerAssignment && !!requiredRoles && !requiredRoles.includes('viewer');
+  const { data: assignmentsData, isLoading: assignmentsLoading } = useQuery<{ items: string[] }>({
+    queryKey: ['/api/user/monitoring-assignments'],
+    enabled: needsAssignmentCheck,
+    staleTime: 60_000,
+  });
+
+  // For management users on mgmtFeature-gated routes: check if feature is enabled by admin
+  const needsMgmtCheck = !isLoading && !!user && role === 'management' && !!mgmtFeature;
+  const { data: mgmtPerms, isLoading: mgmtPermsLoading } = useQuery<{ enabledFeatures: string[] }>({
+    queryKey: ['/api/settings/mgmt-permissions'],
+    enabled: needsMgmtCheck,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      setLocation("/login");
+    }
+  }, [user, isLoading, setLocation]);
+
+  if (isLoading || (needsAssignmentCheck && assignmentsLoading) || (needsMgmtCheck && mgmtPermsLoading)) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user) return null;
+
+  // Role-based access check
+  if (requiredRoles && !requiredRoles.includes(role)) {
+    // Viewers with a matching assignment are granted access
+    if (role === 'viewer' && viewerAssignment && assignmentsData?.items?.includes(viewerAssignment)) {
+      return (
+        <LayoutShell>
+          <Component />
+        </LayoutShell>
+      );
+    }
+
+    // Access denied
+    return (
+      <LayoutShell>
+        <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center">
+          <ShieldOff className="w-14 h-14 text-muted-foreground/30" />
+          <h2 className="text-2xl font-bold">Access Restricted</h2>
+          <p className="text-muted-foreground max-w-sm">
+            Your <span className="font-semibold capitalize">{role}</span> role does not have permission to view this page.
+            Contact your Admin to request access.
+          </p>
+        </div>
+      </LayoutShell>
+    );
+  }
+
+  // Management feature gate: admin controls which configurable features management can access
+  if (role === 'management' && mgmtFeature && mgmtPerms) {
+    const enabled = mgmtPerms.enabledFeatures ?? [];
+    if (!enabled.includes(mgmtFeature)) {
+      return (
+        <LayoutShell>
+          <div className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center">
+            <ShieldOff className="w-14 h-14 text-muted-foreground/30" />
+            <h2 className="text-2xl font-bold">Feature Not Enabled</h2>
+            <p className="text-muted-foreground max-w-sm">
+              Your Admin has not enabled this feature for the Management role.
+              Contact your Admin to request access.
+            </p>
+          </div>
+        </LayoutShell>
+      );
+    }
+  }
+
+  const isCompact = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('compact') === '1';
+  if (isCompact) return <Component />;
+
+  return (
+    <LayoutShell>
+      <Component />
+    </LayoutShell>
+  );
+}
+
+function Router() {
+  return (
+    <Switch>
+      <Route path="/login" component={LoginPage} />
+
+      <Route path="/">
+        {() => <ProtectedRoute component={DashboardPage} requiredRoles={['admin','management','viewer']} />}
+      </Route>
+      <Route path="/calls">
+        {() => <ProtectedRoute component={CallsListPage} requiredRoles={['admin','management','viewer']} />}
+      </Route>
+      <Route path="/calls/:id">
+        {() => <ProtectedRoute component={CallDetailPage} requiredRoles={['admin','management','viewer']} />}
+      </Route>
+      <Route path="/alerts">
+        {() => <ProtectedRoute component={AlertsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead','destination_manager','routing_admin']} viewerAssignment="alerts" mgmtFeature="alerts" />}
+      </Route>
+      <Route path="/reports">
+        {() => <ProtectedRoute component={ReportsPage} requiredRoles={['admin','management']} viewerAssignment="reports" mgmtFeature="reports" />}
+      </Route>
+      <Route path="/settings">
+        {() => <ProtectedRoute component={SettingsPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/clients">
+        {() => <ProtectedRoute component={ClientsPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/fraud">
+        {() => <ProtectedRoute component={FraudPage} requiredRoles={['admin','management']} viewerAssignment="fraud_fas" mgmtFeature="fraud_fas" />}
+      </Route>
+      <Route path="/cdrs">
+        {() => <ProtectedRoute component={CDRsPage} requiredRoles={['admin','management']} viewerAssignment="cdr_viewer" mgmtFeature="cdr_viewer" />}
+      </Route>
+      <Route path="/tools">
+        {() => <ProtectedRoute component={ToolsPage} requiredRoles={['admin','management']} mgmtFeature="tools" />}
+      </Route>
+      <Route path="/team">
+        {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/traffic-map">
+        {() => <ProtectedRoute component={TrafficMapPage} requiredRoles={['admin','management']} viewerAssignment="traffic_map" mgmtFeature="traffic_map" />}
+      </Route>
+      <Route path="/revenue-heatmap">
+        {() => <ProtectedRoute component={RevenueHeatmapWS} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/codec-analytics">
+        {() => <ProtectedRoute component={CodecAnalyticsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/traffic-forecast">
+        {() => <ProtectedRoute component={TrafficForecastWS} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/audit-log">
+        {() => <ProtectedRoute component={AuditLogPage} requiredRoles={['admin','management','destination_manager','routing_admin']} />}
+      </Route>
+      <Route path="/balance">
+        {() => <ProtectedRoute component={BalanceMonitorPage} requiredRoles={['admin','management']} viewerAssignment="balance_monitor" mgmtFeature="balance_monitor" />}
+      </Route>
+      <Route path="/dids">
+        {() => <ProtectedRoute component={DIDsPage} requiredRoles={['admin','management']} viewerAssignment="did_management" mgmtFeature="did_management" />}
+      </Route>
+      <Route path="/server-monitoring">
+        {() => <ProtectedRoute component={ServerMonitoringPage} requiredRoles={['admin','management']} viewerAssignment="server_monitoring" mgmtFeature="server_monitoring" />}
+      </Route>
+      <Route path="/graphs">
+        {() => <ProtectedRoute component={GraphsPage} requiredRoles={['admin','management']} viewerAssignment="graphs" mgmtFeature="graphs" />}
+      </Route>
+      <Route path="/bitseye">
+        {() => <ProtectedRoute component={BitsEyePage} requiredRoles={['admin','management']} viewerAssignment="bitseye" mgmtFeature="bitseye" />}
+      </Route>
+      <Route path="/bitseye2">
+        {() => <ProtectedRoute component={BitsEye2Page} requiredRoles={['admin','management']} viewerAssignment="bitseye" mgmtFeature="bitseye" />}
+      </Route>
+      <Route path="/live-traffic">
+        {() => <ProtectedRoute component={LiveTrafficPage} requiredRoles={['admin','management','noc_operator','viewer','team_lead','super_admin']} />}
+      </Route>
+      <Route path="/asr-acd">
+        {() => <ProtectedRoute component={AsrAcdReportPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/account">
+        {() => <ProtectedRoute component={AccountPage} requiredRoles={['admin','management','viewer']} />}
+      </Route>
+      <Route path="/rate-cards">
+        {() => <ProtectedRoute component={RateCardsWS} requiredRoles={['admin','management']} mgmtFeature="rate_cards" />}
+      </Route>
+      <Route path="/rate-manager">
+        {() => <ProtectedRoute component={RateManagerPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/analytics">
+        {() => <ProtectedRoute component={AnalyticsPage} requiredRoles={['admin','management']} mgmtFeature="analytics" />}
+      </Route>
+      <Route path="/api-keys">
+        {() => <ProtectedRoute component={ApiKeysPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/test-call">
+        {() => <ProtectedRoute component={TestCallPage} requiredRoles={['admin','management']} mgmtFeature="test_call" />}
+      </Route>
+      <Route path="/lcr-analyser">
+        {() => <ProtectedRoute component={LcrAnalyserPage} requiredRoles={['admin','management','routing_admin']} mgmtFeature="lcr_analyser" />}
+      </Route>
+      <Route path="/call-flow-simulator">
+        {() => <ProtectedRoute component={CallFlowSimulatorPage} requiredRoles={['admin','management']} mgmtFeature="call_flow_simulator" />}
+      </Route>
+      <Route path="/vendor-sla-scorecard">
+        {() => <ProtectedRoute component={VendorSlaScorecardPage} requiredRoles={['admin','management','destination_manager','routing_admin']} mgmtFeature="vendor_sla" />}
+      </Route>
+      <Route path="/carrier-scoring">
+        {() => <ProtectedRoute component={CarrierScoringPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="carrier_scoring" />}
+      </Route>
+      <Route path="/vendor-health">
+        {() => <ProtectedRoute component={VendorHealthPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/cost-optimisation">
+        {() => <ProtectedRoute component={CostOptimisationPage} requiredRoles={['admin','management','destination_manager']} mgmtFeature="cost_optimisation" />}
+      </Route>
+      <Route path="/multi-switch">
+        {() => <ProtectedRoute component={MultiSwitchPage} requiredRoles={['admin','management']} mgmtFeature="multi_switch" />}
+      </Route>
+      <Route path="/whatsapp-alerts">
+        {() => <ProtectedRoute component={WhatsappAlertsPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/account-names">
+        {() => <ProtectedRoute component={AccountNamesPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/products">
+        {() => <ProtectedRoute component={ProductsWS} requiredRoles={['admin','management']} mgmtFeature="products" />}
+      </Route>
+      <Route path="/destination-catalog">
+        {() => <DestinationCatalogPage />}
+      </Route>
+      <Route path="/product-registry">
+        {() => <ProtectedRoute component={ProductRegistryPage} requiredRoles={['admin','management']} />}
+      </Route>
+
+      <Route path="/client-rate-report">
+        {() => <ProtectedRoute component={ClientRateReportPage} requiredRoles={['admin','management','destination_manager']} />}
+      </Route>
+
+      <Route path="/tariff-profiles">
+        {() => <ProtectedRoute component={TariffProfilesPage} requiredRoles={['admin','management','destination_manager']} />}
+      </Route>
+
+      <Route path="/deals">
+        {() => <ProtectedRoute component={DealsPage} requiredRoles={['admin','management']} />}
+      </Route>
+
+      <Route path="/qos-heatmap">
+        {() => <ProtectedRoute component={QosHeatmapPage} requiredRoles={['admin','management']} mgmtFeature="qos_heatmap" />}
+      </Route>
+      <Route path="/sla-breaches">
+        {() => <ProtectedRoute component={SlaBreachesPage} requiredRoles={['admin','management']} mgmtFeature="sla_breaches" />}
+      </Route>
+      <Route path="/billing-disputes">
+        {() => <ProtectedRoute component={BillingDisputesWS} requiredRoles={['admin','management']} mgmtFeature="billing_disputes" />}
+      </Route>
+      <Route path="/test-campaigns">
+        {() => <ProtectedRoute component={TestCampaignsPage} requiredRoles={['admin','management']} mgmtFeature="test_campaigns" />}
+      </Route>
+      <Route path="/chat">
+        {() => <ProtectedRoute component={ChatPage} requiredRoles={['admin','management','viewer']} />}
+      </Route>
+      <Route path="/firewall">
+        {() => <ProtectedRoute component={FirewallPage} requiredRoles={['admin','management']} mgmtFeature="firewall" />}
+      </Route>
+      <Route path="/vpn-config">
+        {() => <ProtectedRoute component={VpnConfigPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/email-centre">
+        {() => <ProtectedRoute component={EmailCentrePage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/commercial-notifications">
+        {() => <ProtectedRoute component={CommercialNotifsWS} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/sender-profiles">
+        {() => <ProtectedRoute component={SenderProfilesPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/tariff-versions">
+        {() => <ProtectedRoute component={TariffVersionsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/rating-verification">
+        {() => <ProtectedRoute component={RatingVerificationPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/rating-snapshots">
+        {() => <ProtectedRoute component={RatingSnapshotsPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/executive-reports">
+        {() => <ProtectedRoute component={ExecutiveReportsPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/invoices">
+        {() => <ProtectedRoute component={InvoicesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/carrier-reconciliation">
+        {() => <ProtectedRoute component={CarrierReconWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/unbilled-usage">
+        {() => <ProtectedRoute component={UnbilledUsageWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/account-statement">
+        {() => <ProtectedRoute component={AccountStatementWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/invoice-schedules">
+        {() => <ProtectedRoute component={InvoiceSchedulesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/payment-reminders">
+        {() => <ProtectedRoute component={PaymentRemindersWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/cdr-rerate">
+        {() => <ProtectedRoute component={CdrRerateWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/communication-policies">
+        {() => <ProtectedRoute component={CommunicationPoliciesPage} requiredRoles={['admin']} />}
+      </Route>
+      <Route path="/dmr">
+        {() => <ProtectedRoute component={DmrWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/cdr-reconciliation">
+        {() => <ProtectedRoute component={CdrReconDispWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/client-reconciliation">
+        {() => <ProtectedRoute component={ClientReconWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/margin-intelligence">
+        {() => <ProtectedRoute component={MarginIntelWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/dispute-defense">
+        {() => <ProtectedRoute component={DisputeDefenseWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/ai-assurance">
+        {() => <ProtectedRoute component={AiAssuranceWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/client-identity">
+        {() => <ProtectedRoute component={ClientIdentityPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance-cockpit">
+        {() => <ProtectedRoute component={FinanceCockpitPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/partner-profiles">
+        {() => <ProtectedRoute component={PartnerProfilesPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/portal/login" component={PortalLoginPage} />
+      <Route path="/portal/dashboard" component={PortalDashboardPage} />
+      <Route path="/portal/invoices" component={PortalInvoicesPage} />
+      <Route path="/portal/disputes" component={PortalDisputesPage} />
+      <Route path="/portal/credit-notes" component={PortalCreditNotesPage} />
+      <Route path="/portal/reconciliation" component={PortalReconciliationPage} />
+      <Route path="/invoice-jobs">
+        {() => <ProtectedRoute component={InvoiceJobsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/invoice-templates">
+        {() => <ProtectedRoute component={InvoiceTemplatesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/dispute-cases">
+        {() => <ProtectedRoute component={DisputeCasesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/credit-notes">
+        {() => <ProtectedRoute component={CreditNotesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/credit-control">
+        {() => <ProtectedRoute component={CreditControlWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/notification-centre">
+        {() => <ProtectedRoute component={NotificationCentrePage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/billing">
+        {() => <ProtectedRoute component={BillingWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/routing-manager">
+        {() => <ProtectedRoute component={RoutingManagerPage} requiredRoles={['admin', 'management', 'routing_admin']} mgmtFeature="routing_manager" />}
+      </Route>
+      <Route path="/auth-studio">
+        {() => <ProtectedRoute component={AuthStudioPage} requiredRoles={['admin', 'management', 'routing_admin']} />}
+      </Route>
+      <Route path="/approvals">
+        {() => <ProtectedRoute component={ApprovalQueuePage} requiredRoles={['admin', 'management', 'super_admin', 'noc_operator', 'team_lead', 'destination_manager', 'routing_admin']} mgmtFeature="approval_queue" />}
+      </Route>
+      <Route path="/vendors">
+        {() => <ProtectedRoute component={VendorsPage} requiredRoles={['admin', 'management', 'destination_manager', 'routing_admin']} mgmtFeature="vendor_connections" />}
+      </Route>
+      <Route path="/vendors/:name">
+        {() => <ProtectedRoute component={VendorProfilePage} requiredRoles={['admin', 'management', 'destination_manager', 'routing_admin']} />}
+      </Route>
+      <Route path="/approval-settings">
+        {() => <ProtectedRoute component={ApprovalSettingsPage} requiredRoles={['admin', 'super_admin', 'destination_manager']} />}
+      </Route>
+      <Route path="/company-profile">
+        {() => <ProtectedRoute component={CompanyProfilePage} requiredRoles={['admin', 'management']} mgmtFeature="company_profile" />}
+      </Route>
+      <Route path="/sip-trace">
+        {() => <ProtectedRoute component={SipTracePage} requiredRoles={['admin','management']} mgmtFeature="sip_trace" />}
+      </Route>
+      <Route path="/routing-intelligence">
+        {() => <ProtectedRoute component={RoutingIntelligencePage} requiredRoles={['admin','management','destination_manager','routing_admin']} mgmtFeature="routing_intelligence" />}
+      </Route>
+      <Route path="/number-intelligence">
+        {() => <ProtectedRoute component={NumberIntelligencePage} requiredRoles={['admin','management']} mgmtFeature="number_intelligence" />}
+      </Route>
+      <Route path="/sbc-monitor">
+        {() => <ProtectedRoute component={SbcMonitorPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="sbc_monitor" />}
+      </Route>
+      <Route path="/client-portal">
+        {() => <ProtectedRoute component={ClientPortalPage} requiredRoles={['admin','management']} mgmtFeature="client_portal" />}
+      </Route>
+      <Route path="/reseller">
+        {() => <ProtectedRoute component={ResellerPage} requiredRoles={['admin','management']} mgmtFeature="reseller" />}
+      </Route>
+      <Route path="/compliance">
+        {() => <ProtectedRoute component={CompliancePage} requiredRoles={['admin','management']} mgmtFeature="compliance" />}
+      </Route>
+      <Route path="/sms-monitor">
+        {() => <ProtectedRoute component={SmsMonitorPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/voice-otp">
+        {() => <ProtectedRoute component={VoiceOtpPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/termination-chains">
+        {() => <ProtectedRoute component={TerminationChainsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/ai-ops">
+        {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="ai_ops" />}
+      </Route>
+      <Route path="/route-testing">
+        {() => <ProtectedRoute component={AiRouteCopilotPage} requiredRoles={['admin','management','routing_admin']} />}
+      </Route>
+      <Route path="/aiops">
+        {() => <ProtectedRoute component={AiOpsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="ai_ops" />}
+      </Route>
+      <Route path="/carrier-intelligence">
+        {() => <ProtectedRoute component={CarrierIntelligencePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead','destination_manager']} />}
+      </Route>
+      <Route path="/intelligence">
+        {() => <ProtectedRoute component={IntelligencePage} requiredRoles={['admin','management','destination_manager']} />}
+      </Route>
+      <Route path="/intelligence-validation">
+        {() => <ProtectedRoute component={IntelligenceValidationPage} requiredRoles={['admin','management','destination_manager']} />}
+      </Route>
+      <Route path="/live-traffic-map">
+        {() => <ProtectedRoute component={LiveTrafficMapPage} requiredRoles={['admin','noc','management']} />}
+      </Route>
+      <Route path="/vendor-prefix-intelligence">
+        {() => <ProtectedRoute component={VendorPrefixIntelligencePage} requiredRoles={['admin','management','destination_manager']} />}
+      </Route>
+      <Route path="/vendor-stability-timeline">
+        {() => <ProtectedRoute component={VendorStabilityTimelinePage} requiredRoles={['admin','management','destination_manager','routing_admin']} />}
+      </Route>
+      <Route path="/vendor-rca">
+        {() => <ProtectedRoute component={VendorRcaPage} requiredRoles={['admin','management','destination_manager']} />}
+      </Route>
+      <Route path="/route-optimisation">
+        {() => <ProtectedRoute component={RouteOptimisationPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin','destination_manager']} />}
+      </Route>
+      <Route path="/traffic-steering">
+        {() => <ProtectedRoute component={TrafficSteeringPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin','destination_manager']} />}
+      </Route>
+      <Route path="/simulation-sandbox">
+        {() => <ProtectedRoute component={SimulationSandboxPage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin','destination_manager']} />}
+      </Route>
+      <Route path="/rtp-analytics">
+        {() => <ProtectedRoute component={RtpAnalyticsPage} requiredRoles={['admin','management']} mgmtFeature="rtp_analytics" />}
+      </Route>
+      <Route path="/replay">
+        {() => <ProtectedRoute component={ReplayEnginePage} requiredRoles={['admin','management']} mgmtFeature="replay" />}
+      </Route>
+      <Route path="/network-topology">
+        {() => <ProtectedRoute component={NetworkTopologyPage} requiredRoles={['admin','management']} mgmtFeature="network_topology" />}
+      </Route>
+      <Route path="/noc-dashboard">
+        {() => <ProtectedRoute component={NocDashboardPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/noc-incidents">
+        {() => <ProtectedRoute component={NocIncidentsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/route-intelligence">
+        {() => <ProtectedRoute component={RouteIntelligencePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/noc-command">
+        {() => <ProtectedRoute component={NocCommandPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} mgmtFeature="noc_command" />}
+      </Route>
+      <Route path="/ops-console">
+        {() => <ProtectedRoute component={OpsConsolePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/incidents/:id">
+        {() => <ProtectedRoute component={IncidentDetailPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/console">
+        {() => <ProtectedRoute component={ConsolePage} requiredRoles={['admin','management','noc_operator','team_lead','super_admin']} />}
+      </Route>
+      <Route path="/stir-shaken">
+        {() => <ProtectedRoute component={StirShakenPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/call-recordings">
+        {() => <ProtectedRoute component={CallRecordingsPage} requiredRoles={['admin','management']} />}
+      </Route>
+      <Route path="/call-governance">
+        {() => <ProtectedRoute component={CallGovernancePage} requiredRoles={['admin','management','noc_operator','super_admin']} />}
+      </Route>
+      <Route path="/portal/:token">
+        {(params) => <PortalViewPage />}
+      </Route>
+      <Route path="/self-heal">
+        {() => <ProtectedRoute component={SelfHealPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/sidebar-settings">
+        {() => <ProtectedRoute component={SidebarSettingsPage} requiredRoles={['admin']} />}
+      </Route>
+      {/* Workspace Settings — operational admin view (portal on/off, themes) */}
+      <Route path="/workspace-settings">
+        {() => <ProtectedRoute component={WorkspaceSettingsPage} requiredRoles={['admin', 'super_admin']} />}
+      </Route>
+      {/* Governance Console — architecture layer, super_admin only */}
+      <Route path="/governance">
+        {() => <ProtectedRoute component={NavigationGovernancePage} requiredRoles={['super_admin', 'admin']} />}
+      </Route>
+      {/* Keep legacy route for backward compat */}
+      <Route path="/navigation-governance">
+        {() => <ProtectedRoute component={NavigationGovernancePage} requiredRoles={['admin', 'super_admin']} />}
+      </Route>
+      {/* Reconciliation Lab — admin diagnostics: recording integrity, CDR recon, identity audit */}
+      <Route path="/recon-lab">
+        {() => <ProtectedRoute component={ReconciliationLabPage} requiredRoles={['admin', 'super_admin']} />}
+      </Route>
+
+      <Route path="/company/list">
+        {() => <ProtectedRoute component={CompanyListPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/company/create">
+        {() => <ProtectedRoute component={CompanyCreatePage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/company/edit/:id">
+        {() => <ProtectedRoute component={CompanyCreatePage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/company/onboarding">
+        {() => <ProtectedRoute component={CompanyOnboardingPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/client/wizard">
+        {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
+      </Route>
+      <Route path="/client-wizard">
+        {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
+      </Route>
+      <Route path="/client/config">
+        {() => <ProtectedRoute component={ClientConfigPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
+      </Route>
+
+      <Route path="/workspace/:domain">
+        {() => <ProtectedRoute component={WorkspaceHomePage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+
+      <Route path="/kam-dashboard">
+        {() => <ProtectedRoute component={KamDashboardPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+
+      <Route path="/rbac">
+        {() => <ProtectedRoute component={RbacMatrixPage} requiredRoles={['admin','super_admin']} />}
+      </Route>
+
+      <Route path="/mfa-setup">
+        {() => <ProtectedRoute component={MfaSetupPage} requiredRoles={['admin','super_admin','management','finance','noc_operator','team_lead','kam','viewer']} />}
+      </Route>
+
+      <Route path="/mfa-verify">
+        {() => <MfaVerifyPage />}
+      </Route>
+
+      <Route path="/security-ops">
+        {() => <ProtectedRoute component={SecurityOpsPage} requiredRoles={['admin','super_admin']} />}
+      </Route>
+
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+function AppCore() {
+  const [cmdOpen, setCmdOpen] = useState(false);
+  usePortalTheme();
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (e instanceof KeyboardEvent && (e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCmdOpen(v => !v);
+      }
+    };
+    const customHandler = () => setCmdOpen(v => !v);
+    document.addEventListener('keydown', handler);
+    document.addEventListener('open-command-palette', customHandler);
+    return () => {
+      document.removeEventListener('keydown', handler);
+      document.removeEventListener('open-command-palette', customHandler);
+    };
+  }, []);
+
+  return (
+    <>
+      <Toaster />
+      <Router />
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+    </>
+  );
+}
+
+function App() {
+  return (
+    <GlobalErrorBoundary>
+      <ThemeProvider>
+        <TimezoneProvider>
+          <QueryClientProvider client={queryClient}>
+            <OrgScopeProvider>
+              <PortalProvider>
+                <TooltipProvider>
+                  <AppCore />
+                </TooltipProvider>
+              </PortalProvider>
+            </OrgScopeProvider>
+          </QueryClientProvider>
+        </TimezoneProvider>
+      </ThemeProvider>
+    </GlobalErrorBoundary>
+  );
+}
+
+export default App;

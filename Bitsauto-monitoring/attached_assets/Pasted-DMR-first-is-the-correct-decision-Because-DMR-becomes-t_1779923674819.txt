@@ -1,0 +1,222 @@
+DMR first is the correct decision.
+
+Because:
+
+DMR becomes the operational telecom economics foundation
+
+for everything else.
+
+Acknowledgement tracking is valuable, but it is:
+
+governance enhancement.
+
+DMR is:
+
+revenue assurance infrastructure.
+
+That distinction matters.
+
+Why DMR Should Come First
+
+DMR unlocks:
+
+Capability	Depends on DMR
+Daily drift detection	✅
+Margin leakage alerts	✅
+Daily profitability	✅
+Invoice confidence	✅
+QoS economics	✅
+Fraud economics	✅
+AI anomaly detection	✅
+Operational reconciliation	✅
+
+Acknowledgement tracking only enhances:
+
+communication defensibility.
+
+DMR enhances:
+
+telecom financial intelligence itself.
+
+Much higher leverage.
+
+Strongest Architectural Reason
+
+You already completed:
+
+Layer	Status
+Tariff Truth	✅
+Rating Verification	✅
+Immutable Snapshots	✅
+Invoice Governance	✅
+Reconciliation Intelligence	✅
+
+The missing operational layer is now:
+
+daily normalized telecom economics.
+
+That is exactly what DMR provides.
+
+Correct Build Sequence
+NEXT
+DMR Engine
+
+Build:
+
+normalized daily economics
+drift classification
+discrepancy queues
+recalculation workflow
+DMR dashboard
+THEN
+Acknowledgement Tracking
+
+Very fast follow-on.
+
+Because:
+
+notification infrastructure exists,
+recipient tracking exists,
+communication policies exist,
+delivery audit exists.
+
+That implementation is now small.
+
+Recommended DMR Architecture
+Core Flow
+Sippy Daily Summary
++
+Client CDRs
++
+Vendor CDRs
++
+Immutable Tariff Versions
++
+Rating Verification
+=
+DMR
+Core Components
+1. DMR Aggregation Engine
+
+Daily:
+
+duration
+billed seconds
+buy amount
+sell amount
+margin
+ASR
+ACD
+PDD
+
+normalized per:
+
+client
+vendor
+destination
+day
+2. DMR Reconciliation Engine
+
+Compare:
+
+Sippy Summary
+vs
+BitsAuto DMR
+
+Then classify:
+
+exact_match
+duration_drift
+amount_drift
+tariff_mismatch
+missing_cdr
+duplicate_cdr
+3. DMR Dashboard
+
+Most important operational view.
+
+Needs:
+
+differences-only mode
+recalculation action
+severity levels
+trend charts
+client/vendor filters
+
+Exactly like the screenshots.
+
+4. Recalculate Workflow
+
+Correct behavior:
+
+Pull fresh Sippy reports
+→ rebuild DMR
+→ rerun verification
+→ update drift status
+
+NOT:
+
+invoice regeneration.
+5. DMR → Invoice Linkage
+
+Most important future linkage:
+
+Only:
+
+verified DMR days
+
+should feed:
+
+invoice generation confidence.
+
+Very important.
+
+MOST IMPORTANT LONG-TERM RESULT
+
+Once DMR exists:
+BitsAuto officially becomes:
+
+Telecom Revenue Assurance Operations Platform
+
+because now it can:
+
+monitor economics daily,
+verify tariffs continuously,
+detect margin leakage operationally,
+validate invoices before generation,
+and feed AI intelligence later.
+
+That is enterprise telecom maturity.
+
+Then Acknowledgement Tracking
+
+After DMR, acknowledgement tracking becomes:
+
+very easy.
+
+Likely just:
+
+opened_at
+acknowledged_at
+ack_channel
+
+plus:
+
+webhook,
+tracking pixel,
+acknowledgement endpoint.
+
+Very small compared to DMR.
+
+FINAL RECOMMENDATION
+
+Correct sequence:
+
+1. DMR Engine
+2. Daily Reconciliation Dashboard
+3. Drift Classification
+4. Recalculation Workflow
+5. DMR → Invoice Confidence Linkage
+6. Acknowledgement Tracking
+
+That is the highest-value operational path now.

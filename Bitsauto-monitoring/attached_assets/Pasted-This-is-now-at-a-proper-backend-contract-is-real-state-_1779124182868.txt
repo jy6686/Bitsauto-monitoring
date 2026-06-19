@@ -1,0 +1,165 @@
+This is now at a proper “backend contract is real” state — not design anymore, actual system behavior. Good.
+
+I’ll review it like an implementation gate.
+
+✅ What is already correct (strong points)
+1. Filter contract v1 is stable
+
+You’ve correctly done:
+
+versioned input (v1)
+separation of:
+filters
+time
+
+✔ This is exactly what prevents future AI Ops / forecasting breakage.
+
+2. Granularity logic is correctly server-owned
+
+This rule is critical and correctly placed:
+
+≤24h → hourly
+≤7d → 6-hour
+
+7d → daily
+
+✔ This prevents frontend drift and keeps all analytics consistent.
+
+3. Response shape is correctly “dashboard-first”
+
+You’ve correctly normalized into:
+
+KPIs
+timeSeries
+breakdown tables
+top-N dimensions
+meta block
+
+✔ This is exactly what React should consume (no transformation needed)
+
+⚠️ Important corrections (before you scale this)
+
+These are not blockers, but they matter long-term.
+
+1. CDR cache field mismatch → you already noticed part of it
+
+You said:
+
+gb_external_description and switch_name don’t exist
+
+Good catch.
+
+But implication is deeper:
+
+You now have 3 layers of naming:
+Layer	Meaning
+Filter contract	Business dimensions (UI)
+Mapping layer	Canonical analytics dimensions
+CDR schema	Raw storage fields
+You MUST introduce a mapping layer explicitly
+
+Otherwise this will spread everywhere later.
+
+Example:
+
+const DIMENSION_MAP = {
+  c_company_name: "clientName",
+  v_company_name: "vendor",
+  country: "country",
+  switch_name: null // reserved / no-op
+};
+
+👉 Without this, every new feature will re-invent mapping logic.
+
+2. One missing concept: “aggregation base unit”
+
+Right now you assume:
+
+CDR cache → aggregated directly
+
+But you should define:
+
+Base normalization step:
+
+Every record must first become:
+
+{
+  timestamp,
+  client,
+  vendor,
+  country,
+  duration,
+  cost,
+  status,
+  pdd,
+  direction
+}
+
+Why this matters:
+
+prevents per-query schema coupling
+avoids rewriting aggregation per endpoint later
+supports AI Ops anomaly detection later (this is key)
+3. KPI calculation consistency rule (important edge case)
+
+You already noted:
+
+mos = null when no answered calls
+
+Extend that pattern:
+
+All derived KPIs must follow deterministic rules:
+ASR = answered / total
+ACD = total duration / answered calls
+MOS = null if answered = 0
+PDD = avg(pdd only answered calls OR all calls — must define once)
+
+👉 This must live in a single utility module, not inline in route.
+
+🧠 Architectural verdict
+
+Your API design is now:
+
+✔ Correct shape
+✔ Correct ownership boundaries
+✔ Correct time aggregation model
+✔ Correct separation from UI
+🚀 What you’ve actually built (important insight)
+
+This is no longer just:
+
+“BitsEye dashboard endpoint”
+
+It is now:
+
+Platform-level analytics compiler v1
+
+Because:
+
+filter contract is reusable
+aggregation logic is reusable
+KPI engine is reusable
+time bucketing is standardized
+
+This will directly plug into:
+
+AI Ops anomaly detection (Phase A)
+Revenue forecasting (Phase B)
+Carrier scoring models
+⚡ Final approval
+
+✔ API shape: correct
+✔ filter model: correct
+✔ time logic: correct
+✔ response contract: correct
+✔ separation of concerns: correct
+
+👉 Proceed to Step 2
+
+You are clear to move to:
+
+React filter sidebar (FancyTree replacement)
+
+When you start that, the key rule is simple:
+
+It must only emit Filter v1. Nothing else. No business logic leakage.

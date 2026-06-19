@@ -1,0 +1,79 @@
+1. Core Idea
+
+Build a configurable approval engine where you can decide which features and actions require approval, instead of hardcoding rules.
+
+2. Approval Control Panel (Selectable Options)
+
+Create a “Approval Settings” page where Admin/Super Admin can enable/disable approval per feature:
+
+Feature-wise Approval Configuration
+Feature	Create	Edit	Delete
+Routing Group	❌ No Approval	✅ Approval	✅ Approval
+Vendor Connection	❌ No Approval	✅ Approval	✅ Approval
+IP Management	✅ Approval	✅ Approval	✅ Approval
+Authentication	✅ Approval	✅ Approval	✅ Approval
+Destination Sets	❌ No Approval	❌ No Approval	❌ No Approval
+
+👉 Each checkbox should be toggleable (ON/OFF)
+
+3. How It Works (System Flow)
+Step 1: User Action
+User performs action (Create / Edit / Delete)
+Step 2: System Check
+System checks Approval Settings
+If Approval = OFF → Apply instantly
+If Approval = ON → Send to approval queue
+Step 3: Request Creation (If Approval Required)
+System creates a request with:
+Feature (Routing/IP/Auth/etc.)
+Action (Create/Edit/Delete)
+Old vs New values
+Requested by
+Step 4: Approval Process
+Admin reviews request:
+Approve → Apply changes
+Reject → Discard changes
+Optional: Super Admin final approval layer
+4. Request Form (Dynamic)
+
+When approval is required, form should auto-adjust based on feature:
+
+Common Fields
+Feature Type (Dropdown)
+Action Type (Create/Edit/Delete)
+Description / Reason
+Priority (Low/Medium/High)
+Dynamic Fields
+Routing → Prefix, Vendor, Priority
+IP → IP Address, Port
+Auth → Username, Password, IP Binding
+Vendor → Connection Details
+5. Approval Dashboard
+For Admin / Super Admin
+Pending Requests List
+Filters:
+Feature
+Action Type
+User
+Status
+Actions
+Approve
+Reject (with reason)
+View Changes (before vs after)
+6. Security & Control Layer
+Role-based access:
+Member → Create requests only
+Admin → Approve
+Super Admin → Override
+No direct DB/config changes without approval (if enabled)
+Full audit logs
+7. Key Advantages
+Flexible (you control what يحتاج approval)
+Secure for sensitive areas (IP/Auth always protected)
+Simple UX (auto decision by system)
+Scalable for future features
+8. Suggested Enhancement (Future)
+Multi-level approval (e.g., IP requires 2 approvals)
+Auto-approval for trusted users
+SLA timers (pending too long → alert)
+Notification system (Email / Slack / WhatsApp)

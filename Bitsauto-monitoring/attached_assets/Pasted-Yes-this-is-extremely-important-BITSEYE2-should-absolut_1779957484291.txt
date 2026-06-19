@@ -1,0 +1,224 @@
+Yes — this is extremely important.
+
+BITSEYE2 should absolutely exist inside the KAM Portal hierarchy
+
+But:
+
+NOT as a raw engineering analytics page.
+
+It should become:
+
+“Account Health Intelligence”
+
+because for KAM:
+
+the client relationship matters,
+not network engineering metrics directly.
+Correct KAM Hierarchy (Updated)
+KAM Portal
+Dashboard
+Clients
+   ├── Client Accounts
+   ├── Onboarding Wizard
+   ├── Account Health (BitsEye2)
+   ├── Traffic Analytics
+   ├── ASR / ACD
+   ├── CDR Viewer
+   └── Balance Monitor
+
+Commercial
+   ├── Send Rate
+   ├── Rate History
+   ├── Commercial Notices
+   ├── WhatsApp Alerts
+   └── Reports
+
+Finance (Read Only)
+   ├── Invoices
+   ├── Disputes
+   └── Credit Notes
+Rename Recommendation
+
+Instead of:
+
+BitsEye2
+
+inside KAM portal use:
+
+Account Health
+
+Because KAMs understand:
+
+health,
+quality,
+traffic,
+revenue,
+client risk.
+
+NOT:
+
+telemetry engines,
+RCA pipelines,
+operational intelligence systems.
+What Account Health (BitsEye2) Should Show in KAM Portal
+Client-Centric KPIs
+Traffic
+current traffic,
+7-day trend,
+top destinations,
+peak hours.
+Quality
+ASR,
+ACD,
+PDD,
+SIP error distribution,
+route degradation.
+Commercial Risk
+balance risk,
+invoice overdue,
+dispute count,
+margin compression warning.
+Relationship Signals
+recent rate sends,
+QoS advisories,
+WhatsApp alerts,
+acknowledgements pending.
+AI Signals
+unusual traffic drop,
+destination loss,
+margin anomaly,
+ASR collapse.
+IMPORTANT:
+KAM should NEVER see engineering internals
+
+Hide:
+
+RTP packet analysis,
+SIP ladder trace,
+firewall events,
+vendor route internals,
+translation rules,
+raw carrier scores,
+codec debugging.
+
+Those belong to:
+
+NOC Portal
+Correct BitsEye2 Ownership
+Portal	BitsEye2 View
+NOC	Engineering/telemetry version
+Finance	Revenue assurance version
+KAM	Account health version
+Client	Simplified analytics version
+
+Same engine.
+Different presentation layer.
+
+This is:
+
+enterprise-grade architecture.
+Recommended KAM Dashboard Layout
+Section 1 — Account Health Overview
+Healthy Clients: 84
+At Risk: 6
+Critical: 2
+Section 2 — Client Health Grid
+Client	ASR	Traffic	Balance	Status
+Vovida	62%	▲ 14%	OK	Healthy
+Etisalat	41%	▼ 22%	Low	Risk
+DU	29%	▼ 48%	OK	Critical
+Section 3 — Commercial Actions Needed
+• 4 rate acknowledgements pending
+• 2 clients below ASR threshold
+• 3 balances entering grace period
+• 1 dispute unresolved > 5 days
+Recommended Navigation Placement
+Best Structure
+Clients
+   └── Account Health
+
+NOT:
+
+Analytics
+   └── BitsEye2
+
+Again:
+
+workflow-centric navigation.
+Best Internal Architecture
+
+Use:
+
+same BitsEye2 engine
+
+but:
+
+different portal adapters.
+
+Example:
+
+bitsEyeAdapter("kam")
+bitsEyeAdapter("noc")
+bitsEyeAdapter("finance")
+
+Each adapter:
+
+filters widgets,
+changes terminology,
+changes permissions,
+changes drill-down depth.
+Strong Recommendation
+Add Health Status Classification
+
+Every client:
+
+Healthy
+Watch
+Risk
+Critical
+
+computed from:
+
+ASR,
+traffic trend,
+disputes,
+balance,
+margin,
+fraud alerts,
+QoS degradation.
+
+This becomes:
+
+the primary KAM operating signal.
+Final Recommended KAM Structure
+KAM Portal
+Dashboard
+
+Clients
+ ├── Client Accounts
+ ├── Account Health (BitsEye2)
+ ├── Traffic Analytics
+ ├── ASR / ACD
+ ├── CDR Viewer
+ └── Balance Monitor
+
+Commercial
+ ├── Send Rate
+ ├── Rate History
+ ├── Commercial Notices
+ ├── WhatsApp Alerts
+ └── Reports
+
+Finance
+ ├── Invoices (read)
+ ├── Disputes
+ └── Credit Notes
+
+This is:
+
+clean,
+scalable,
+enterprise-grade,
+department-oriented,
+workflow-oriented,
+and operationally correct.

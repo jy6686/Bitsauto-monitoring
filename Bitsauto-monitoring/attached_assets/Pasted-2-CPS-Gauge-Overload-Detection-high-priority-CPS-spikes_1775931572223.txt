@@ -1,0 +1,44 @@
+2. CPS Gauge / Overload Detection (high priority)
+CPS spikes are the #1 cause of Sippy crashes. We need:
+
+A real-time CPS gauge with a red zone marker at the configured limit
+Alert if CPS > 80% of max for more than 30 seconds (pre-crash warning)
+Automatic email/webhook notification
+3. Outage Detection & Recovery Timeline (high priority)
+Since Sippy could go completely offline:
+
+A background poller (server-side, every 30 s) that checks if the XML-RPC API responds
+Logs down_at and recovered_at timestamps to the database
+Dashboard shows an outage history table — duration, cause (API timeout / auth fail / 5xx), recovery time
+A persistent red banner on the NOC dashboard when the server is currently down
+4. Bandwidth Monitor (medium priority)
+If the Sippy version supports it:
+
+Inbound/outbound RTP bandwidth (MB/s) from getMonitoringGraphData
+Useful to detect media overload separate from SIP signaling overload
+Alert if bandwidth > 80% of estimated NIC capacity
+5. Registration Storm / SIP Flood Detection (medium priority)
+Monitor SIP registrations count from monitoring graphs
+A sudden spike in REGISTER messages often precedes a brute-force attack or misconfigured PBX mass-registering
+Alert if registrations/min doubles versus the previous 5-minute average
+6. Disk & Memory Pressure Indicators (medium priority)
+getSystemConfig exposes some system parameters
+If the Sippy version supports it, getMonitoringGraphData can return disk/memory time-series
+Alert threshold: disk > 85% full (CDR database grows fast)
+7. Carrier / Trunk Outage Detection (medium priority)
+Already partially there with FAS detection, but we should add:
+
+Per-carrier ASR drop alert: if a specific vendor's ASR falls below 20% for 3 consecutive minutes → that trunk is likely down
+Auto-suspension recommendation with one-click route disable
+8. Automated Alert Delivery (essential companion)
+All of the above is useless without notification:
+
+Email alert (SMTP, already in settings schema)
+Webhook / Slack / Teams push
+Configurable per-metric thresholds stored in DB per NOC team member
+My Recommendation: Where to Start
+Given what we already have in the codebase, the fastest and highest-value things to build first are:
+
+Server Reachability Poller + Outage Log — pure backend, works even when Sippy is partially up
+Live Health Panel page — uses getCountersStats (already integrated) + getMonitoringGraphData(cps_total)
+CPS Gauge on the main NOC dashboard — single widget, highest impact for NOC operators

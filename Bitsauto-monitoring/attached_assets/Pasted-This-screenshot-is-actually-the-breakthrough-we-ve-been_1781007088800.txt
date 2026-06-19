@@ -1,0 +1,209 @@
+This screenshot is actually the breakthrough we've been looking for.
+
+The Sippy Profit & Loss report proves something very important:
+
+Vendor Cost Exists in Sippy
+
+Look at these columns:
+
+Revenue, USD	Cost, USD	Margin, USD
+0.0467	0.0434	0.0033
+0.0467	0.0492	-0.0025
+0.0239	0.0007	0.0232
+
+Sippy is already calculating:
+
+Revenue
+Cost
+Margin
+
+for every call.
+
+Therefore:
+
+❌ Vendor cost is NOT missing from Sippy
+
+❌ Destination Sets are NOT preventing cost calculation
+
+❌ Sippy 2024 is NOT the problem
+
+✅ The problem is that BitsAuto is reading the wrong CDR source
+
+Most Important Discovery
+
+Your screenshot shows:
+
+Profit & Loss Report
+
+not
+
+Customer CDR Report
+
+These are different datasets.
+
+Currently BitsAuto is pulling:
+
+Customer Portal CDR
+
+which contains:
+
+CLI
+CLD
+Duration
+Amount
+
+but NOT:
+
+Cost
+Margin
+Vendor
+
+The Profit & Loss report clearly has:
+
+Vendor/Connection
+Revenue
+Cost
+Margin
+
+which means Sippy already has the financial truth.
+
+What This Changes
+
+Earlier we were discussing:
+
+Option A
+Estimate Vendor Cost
+
+using:
+
+Rate × Duration
+
+I would now reject that completely.
+
+Because Sippy already has:
+
+Actual Cost
+New Priority
+
+Before building anything:
+
+Investigate:
+
+profit_loss_report.php
+
+specifically:
+
+Where does this page get its data?
+
+Possible sources:
+
+XML-RPC
+Internal API
+Database query
+Backend report engine
+
+One of those already contains:
+
+Revenue
+Cost
+Margin
+Vendor
+Connection
+What I See In The Screenshot
+
+Example row:
+
+Revenue = 0.0239
+Cost    = 0.0007
+Margin  = 0.0232
+
+For:
+
+Acct. PUSHTOTALK
+PAKISTAN Mobile
+
+This is exactly what the Billing Check tab wants.
+
+The data already exists.
+
+Revised Vendor Cost Investigation
+Question 1
+
+Can Sippy export the Profit & Loss report?
+
+Check:
+
+Download
+
+button visible in screenshot.
+
+If CSV includes:
+
+Revenue
+Cost
+Margin
+
+then we already have a usable integration path.
+
+Question 2
+
+Does XML-RPC expose the same report?
+
+Search for methods like:
+
+getProfitLoss
+getPLReport
+getTrafficReport
+Question 3
+
+Does the report have a call identifier?
+
+If export contains:
+
+Call-ID
+Conf-ID
+Setup Time
+CLI
+CLD
+
+then matching governed calls becomes straightforward.
+
+New Conclusion
+
+The screenshot proves:
+
+Sippy already knows vendor cost.
+
+Therefore:
+
+Priority 0.2
+
+changes from:
+
+Find Vendor Cost
+
+to:
+
+Find How To Extract Vendor Cost
+
+That's a much smaller problem.
+
+My Recommendation
+
+Do not implement estimated vendor cost.
+
+Instead investigate:
+
+profit_loss_report.php
+
+because that page is already displaying:
+
+Vendor
+Connection
+Revenue
+Cost
+Margin
+
+which is exactly the data model the Call Governance Billing Check and Deal Workspace ultimately need.
+
+This is actually very good news—the financial data exists in Sippy. We just need to locate the correct extraction method rather than inventing a parallel costing engine.

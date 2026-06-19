@@ -1,0 +1,115 @@
+[root@REVE-OTP ~]# nano /etc/asterisk/manager_custom.conf
+[root@REVE-OTP ~]# asterisk -rx "manager reload"
+[root@REVE-OTP ~]# asterisk -rx "dialplan show sippy-media-anchor"
+[ Context 'sippy-media-anchor' created by 'pbx_config' ]
+  '_.' =>           1. NoOp(BitsAuto Governance: ${CHANNEL} uid=${UNIQUEID}) [extensions_custom.conf:12]
+                    2. MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,b) [extensions_custom.conf:13]
+                    3. Dial(${SIPPY_DEST},3600,Tt)                [extensions_custom.conf:14]
+                    4. Hangup()                                   [extensions_custom.conf:15]
+
+-= 1 extension (4 priorities) in 1 context. =-
+[root@REVE-OTP ~]# asterisk -rx "sip show peer sippy"
+
+
+  * Name       : sippy
+  Description  : 
+  Secret       : <Not set>
+  MD5Secret    : <Not set>
+  Remote Secret: <Not set>
+  Context      : from-trunk-sip-sippy
+  Record On feature : automon
+  Record Off feature : automon
+  Subscr.Cont. : <Not set>
+  Language     : en
+  Tonezone     : <Not set>
+  AMA flags    : Unknown
+  Transfer mode: open
+  CallingPres  : Presentation Allowed, Not Screened
+  Callgroup    : 
+  Pickupgroup  : 
+  Named Callgr : 
+  Nam. Pickupgr: 
+  MOH Suggest  : 
+  Mailbox      : 
+  VM Extension : *97
+  LastMsgsSent : 0/0
+  Call limit   : 0
+  Max forwards : 0
+  Dynamic      : No
+  Callerid     : "" <>
+  MaxCallBR    : 384 kbps
+  Expire       : -1
+  Insecure     : port,invite
+  Force rport  : Yes
+  Symmetric RTP: Yes
+  ACL          : No
+  ContactACL   : No
+  DirectMedACL : No
+  T.38 support : No
+  T.38 EC mode : Unknown
+  T.38 MaxDtgrm: 4294967295
+  DirectMedia  : No
+  PromiscRedir : No
+  User=Phone   : No
+  Video Support: No
+  Text Support : No
+  Ign SDP ver  : No
+  Trust RPID   : No
+  Send RPID    : No
+  Path support : No
+  Path         : N/A
+  TrustIDOutbnd: Legacy
+  Subscriptions: Yes
+  Overlap dial : Yes
+  DTMFmode     : rfc2833
+  Timer T1     : 500
+  Timer B      : 32000
+  ToHost       : 191.101.30.107
+  Addr->IP     : 191.101.30.107:5060
+  Defaddr->IP  : (null)
+  Prim.Transp. : UDP
+  Allowed.Trsp : UDP
+  Def. Username: 
+  SIP Options  : (none)
+  Codecs       : (ulaw|alaw|gsm|g726|g722)
+  Auto-Framing : No
+  Status       : UNREACHABLE
+  Useragent    : 
+  Reg. Contact : 
+  Qualify Freq : 60000 ms
+  Keepalive    : 0 ms
+  Sess-Timers  : Accept
+  Sess-Refresh : uas
+  Sess-Expires : 1800 secs
+  Min-Sess     : 90 secs
+  RTP Engine   : asterisk
+  Parkinglot   : 
+  Use Reason   : No
+  Encryption   : No
+  RTCP Mux     : No
+
+[root@REVE-OTP ~]# cat /etc/asterisk/extensions_custom.conf
+
+[otp-playback]
+exten => s,1,Answer()
+same  => n,Wait(1)
+same  => n,Playback(custom/your_otp_is)
+same  => n,SayDigits(${CALLERID(name)})
+same  => n,Wait(1)
+same  => n,SayDigits(${CALLERID(name)})
+same  => n,Hangup()
+; ── BitsAuto: Media recording anchor ─────────────────────────────────────────
+[sippy-media-anchor]
+exten => _.,1,NoOp(BitsAuto Governance: ${CHANNEL} uid=${UNIQUEID})
+ same => n,MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,b)
+ same => n,Dial(${SIPPY_DEST},3600,Tt)
+ same => n,Hangup()
+
+; ── BitsAuto: Post-cut playback to customer ──────────────────────────────────
+[gov-playback]
+exten => s,1,NoOp(Governance playback: ${GOV_PLAYBACK_FILE})
+ same => n,Answer()
+ same => n,Wait(1)
+ same => n,Playback(${GOV_PLAYBACK_FILE})
+ same => n,Hangup()
+[root@REVE-OTP ~]# 

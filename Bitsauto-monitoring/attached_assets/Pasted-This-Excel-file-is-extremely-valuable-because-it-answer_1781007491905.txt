@@ -1,0 +1,202 @@
+This Excel file is extremely valuable because it answers several questions immediately.
+
+What the Export Confirms
+
+The Profit & Loss export contains 4347 rows and these columns:
+
+Caller
+Vendor Name
+Connection Name
+CLI
+CLD
+Country
+Description
+Setup Time
+Selling Duration
+Selling Billed Duration
+Buying Duration
+Buying Billed Duration
+Revenue
+Cost
+Margin
+Currency
+
+Most importantly:
+
+Revenue
+Cost
+Margin
+
+are already exported by Sippy.
+
+That means:
+
+✅ Vendor cost exists
+
+✅ Margin exists
+
+✅ Buying billed duration exists
+
+✅ Selling billed duration exists
+
+Biggest Discovery
+
+The export already contains:
+
+CLI
+CLD
+Setup Time
+Revenue
+Cost
+Margin
+
+These are exactly the fields BitsAuto needs to correlate governed calls.
+
+You do not need:
+
+Estimated Vendor Cost
+
+You do not need:
+
+Tariff × Duration
+
+You do not need:
+
+Shadow Margin Engine
+
+Sippy already calculated everything.
+
+Even Better News
+
+The export contains:
+
+Buying Duration
+Buying Billed Duration
+
+and
+
+Selling Duration
+Selling Billed Duration
+
+So BitsAuto can eventually show:
+
+Metric	Source
+Customer Duration	Selling Duration
+Customer Billed	Selling Billed Duration
+Vendor Duration	Buying Duration
+Vendor Billed	Buying Billed Duration
+Revenue	Revenue
+Cost	Cost
+Margin	Margin
+
+This is exactly what the Billing Check tab has been missing.
+
+What I Would Do Next
+
+Priority 0.2 should now become:
+
+Investigation A (Highest Priority)
+
+Determine whether:
+
+Download CSV/XLSX
+
+can be automated.
+
+Because if the report can be generated programmatically, then:
+
+BitsAuto
+↓
+Profit & Loss Feed
+↓
+Governance Correlation
+
+becomes straightforward.
+
+Investigation B
+
+Check whether:
+
+Setup Time
++
+CLI
++
+CLD
+
+uniquely identify a call.
+
+From the export, it appears they probably do.
+
+If yes:
+
+Governed Call
+↓
+Match P&L Row
+↓
+Revenue
+Cost
+Margin
+
+becomes very reliable.
+
+Revised Roadmap
+
+Priority 0.1
+
+CDR Matching
+
+Priority 0.2
+
+Profit & Loss Data Extraction
+
+(not Vendor Cost Discovery anymore)
+
+Priority 0.3
+
+Billing Verification
+
+using actual:
+
+Revenue
+Cost
+Margin
+
+from Sippy.
+
+One Additional Observation
+
+I can already see rows like:
+
+Revenue = 0.004083
+Cost    = 0.000117
+Margin  = 0.003967
+
+and even:
+
+Revenue = 0
+Cost    = 0.000017
+Margin  = -0.000017
+
+This means the export also captures:
+
+Loss-making calls
+
+which is extremely useful for:
+
+Revenue Protection
+Margin Intelligence
+Voice Trading
+Deal Workspace
+Governance Billing Check
+Conclusion
+
+This spreadsheet proves that the financial truth layer already exists inside Sippy.
+
+The next task is not to calculate vendor cost.
+
+The next task is:
+
+Extract Profit & Loss data from Sippy
+and correlate it with governed calls.
+
+That is now the shortest path to completing Priority 0.2 and unlocking accurate margin reporting inside BitsAuto.

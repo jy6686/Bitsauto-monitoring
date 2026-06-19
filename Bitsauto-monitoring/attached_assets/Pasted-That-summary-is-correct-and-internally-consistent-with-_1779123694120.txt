@@ -1,0 +1,117 @@
+That summary is correct and internally consistent with the direction you’ve been steering this.
+
+There’s only one important refinement to keep it “implementation-safe” (so Replit or any dev doesn’t misinterpret scope):
+
+🔧 Key clarification (important before build starts)
+1. “No Sippy calls” needs a slight precision update
+
+More accurate version:
+
+No real-time Sippy dependency in the UI layer
+
+But backend may still:
+
+read from existing ingestion pipeline
+or use cached Sippy-derived tables
+
+So the rule becomes:
+
+✔ UI = zero Sippy awareness
+✔ Backend = only aggregated / cached datasets
+
+2. Filter object is the real contract boundary (critical)
+
+This is the most important architectural artifact in your system now.
+
+It is not just an output of the tree — it becomes:
+
+the universal query key for ALL analytics modules going forward
+
+Meaning it will likely be reused by:
+
+AI Ops Center (Phase A)
+Traffic Forecasting
+Revenue Heatmap
+Carrier Scoring
+
+So this is actually a platform primitive, not just BitsEye refactor.
+
+3. Hidden but important implication (often missed)
+
+Once you remove:
+
+iframe execution
+processSpanView
+generateRequest
+
+You are also removing:
+
+implicit coupling between UI selection and time-series computation
+
+So backend must now explicitly define:
+
+time window rules
+aggregation granularity (hourly/daily)
+grouping dimensions priority
+
+This is currently “hidden inside frontend behavior”.
+
+It must move to API.
+
+🧱 Final corrected architecture (production-safe version)
+UI (React Sidebar)
+FancyTree replacement
+emits ONLY:
+{ filters }
+API Layer
+POST /api/analytics/dashboard
+
+Responsible for:
+
+interpreting filter object
+applying time window rules
+selecting aggregation strategy
+returning structured analytics payload
+Analytics Engine (backend core)
+CDR aggregation
+routing stats
+vendor/client breakdowns
+destination grouping
+
+(no UI logic, no iframe assumptions)
+
+React Dashboard
+
+Consumes:
+
+KPI blocks
+time-series dataset
+breakdown tables
+pie/bar distributions
+🧠 Strategic note (important for your platform roadmap)
+
+This refactor is not just “BitsEye cleanup”.
+
+It is effectively:
+
+The first standardized analytics contract layer for the entire VoIP platform.
+
+That means later:
+
+AI Ops anomaly detection can reuse filters
+Revenue forecasting can reuse filters
+Security/fraud can reuse filters
+
+So you are accidentally (but correctly) defining:
+
+a shared “analytics state protocol” for the platform
+
+👍 Ready state
+
+Your breakdown is already implementation-ready.
+
+When you say “start”, best order (as you correctly proposed) is:
+
+API contract + aggregation response schema (foundation)
+Sidebar filter engine (UI emits contract)
+Dashboard renderer (consumes contract)

@@ -1,0 +1,177 @@
+Good — this is the right next step. You’ve moved from building features → validating a decision system, which is exactly how telecom platforms mature.
+
+Below is a real production-grade testing plan for everything you’ve built (CI, AI Ops, Routing Simulator, Decision Overlay, Entity Verdict).
+
+🧪 BitsAuto AI Telecom System — Real Testing Plan
+🎯 Goal
+
+Verify that the system is:
+
+Correct (outputs make sense)
+Stable (no broken logic under real data)
+Safe (won’t mislead routing decisions)
+Consistent across CI / AI Ops / Routing
+1. 🔌 API-Level Validation Matrix (Core)
+Test all 4 critical endpoints
+Endpoint	Purpose	Pass Criteria
+/api/carrier-intelligence	Health signal (CI)	Returns consistent ASR/ACD/PDD-based score
+/api/ai-ops/entity-verdict	Decision layer	Produces stable verdict for same input
+/api/ai-ops/decision-overlay	Correlation layer	CI + AI Ops + Scoring all visible
+/api/routing-simulator/preview	What-if engine	No crashes, deterministic output
+🔬 Test Cases (must run manually first)
+Case A — Healthy Carrier
+
+Expected:
+
+ASR > 50%
+ACD stable
+No AI Ops events
+
+👉 Expected Output:
+
+CI: HEALTHY
+Verdict: HEALTHY
+AI Ops: NONE
+Routing impact: neutral
+Case B — Degrading Carrier (real telecom scenario)
+ASR dropping
+ACD unstable
+1–2 medium AI Ops events
+
+👉 Expected:
+
+CI: DEGRADED
+Verdict: WATCH
+AI Ops: PARTIAL
+Routing impact: slight risk increase
+Case C — Fraud / FAS scenario
+sudden ASR collapse
+high retry ratio
+FAS event present
+
+👉 Expected (critical rule test):
+
+CI: CRITICAL
+Verdict: CRITICAL (override rule)
+AI Ops: HIGH severity
+Routing impact: DO NOT USE
+Case D — New Carrier (no data)
+no CI history
+no AI Ops events
+
+👉 Expected:
+
+Verdict: UNSCORED
+Confidence: LOW
+Reason: insufficient data
+2. 🧠 Logic Consistency Testing (Most Important)
+Check this rule across all systems:
+🔴 Single source of truth rule:
+
+CI defines health
+AI Ops defines risk
+Routing defines execution
+
+Test:
+
+Pick one carrier → verify:
+
+System	Must agree?
+CI vs Verdict	CI should anchor verdict
+AI Ops vs Verdict	AI Ops should only adjust
+Routing Simulator	must never contradict CI blindly
+3. 📊 Cross-System Alignment Test
+This is where most telecom systems fail
+
+Pick 1 carrier and verify:
+
+CI
+ASR = 45
+ACD = low
+state = DEGRADED
+AI Ops
+1 high severity event
+Verdict Engine
+MUST NOT output HEALTHY ❌
+MUST output WATCH or DEGRADED ✔
+
+👉 If mismatch happens → fusion bug exists
+
+4. 🔄 Routing Simulator Validation
+Test logic correctness:
+Scenario:
+
+Remove best-performing route
+
+Expected:
+
+traffic redistributes
+health score drops OR risk increases
+no infinite loops or negative weights
+Check:
+No NaN values
+No negative traffic shares
+Deterministic output (same input = same result)
+5. ⚡ Performance & Load Check
+
+Even without heavy infra:
+
+Simulate mentally:
+Action	Risk
+12 Sippy calls per simulation	Medium latency risk
+CI + AI Ops join per entity	CPU-heavy aggregation
+Large routing groups (50+)	potential slowdown
+Must verify:
+No blocking UI calls
+Cached responses where possible
+Simulator is trigger-based (not auto-run)
+6. 🧭 Operator Trust Test (MOST IMPORTANT)
+
+Ask this question per screen:
+
+“Would a NOC engineer trust this enough to change routing?”
+
+Check:
+
+Are warnings understandable?
+Are verdicts explainable?
+Is AI Ops noise too high?
+Is CI clearly dominant signal?
+7. 🚨 Failure Mode Checklist
+
+Watch for these critical issues:
+
+❌ Wrong fusion behavior
+CI says CRITICAL but verdict says HEALTHY
+❌ AI Ops overweighting
+one alert flips entire system incorrectly
+❌ Routing hallucination
+simulator predicts impossible traffic redistribution
+❌ Inconsistent entity matching
+same carrier appears under 2 names
+8. 📈 Final System Health Scorecard
+
+After testing, assign:
+
+Area	Score
+CI accuracy	/10
+AI Ops relevance	/10
+Verdict correctness	/10
+Routing simulation realism	/10
+Operator clarity	/10
+🧠 Final Interpretation
+
+If all tests pass:
+
+You don’t have a dashboard anymore
+You have a telecom decision system
+
+👉 What you should do next (very important)
+
+Run tests in this order:
+
+CI sanity check (single carrier)
+Verdict correctness check
+AI Ops correlation check
+Routing simulation validation
+Operator review

@@ -1,0 +1,200 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Light mode (default) ─────────────────────────────────────────────────── */
+:root {
+  --background: 210 40% 98%;
+  --foreground: 222.2 84% 4.9%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+
+  --primary: 222.2 47.4% 20%;
+  --primary-foreground: 210 40% 98%;
+
+  --secondary: 210 40% 92%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+
+  --muted: 210 40% 93%;
+  --muted-foreground: 215.4 16.3% 40%;
+
+  --accent: 210 40% 92%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 214.3 31.8% 82%;
+  --input: 214.3 31.8% 82%;
+  --ring: 222.2 84% 4.9%;
+
+  --success: 142 71% 38%;
+  --warning: 45 93% 40%;
+  --danger: 0 84% 55%;
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────────────────── */
+.dark {
+  --background: 224 71% 4%;
+  --foreground: 213 31% 91%;
+
+  --card: 224 71% 4%;
+  --card-foreground: 213 31% 91%;
+
+  --popover: 224 71% 4%;
+  --popover-foreground: 215 20.2% 65.1%;
+
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 212.7 26.8% 83.9%;
+
+  --success: 142 71% 45%;
+  --warning: 45 93% 47%;
+  --danger: 0 84% 60%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: 'Inter', sans-serif;
+  }
+  
+  /* Dashboard specific styles */
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom Scrollbar for dashboard feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-background;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full hover:bg-muted-foreground/50 transition-colors;
+}
+
+/* ── NOC Animation System ───────────────────────────────────────────────────── */
+
+@keyframes noc-pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%       { box-shadow: 0 0 28px 6px rgba(239, 68, 68, 0.13); }
+}
+
+@keyframes noc-pulse-amber {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50%       { box-shadow: 0 0 22px 5px rgba(245, 158, 11, 0.11); }
+}
+
+@keyframes noc-pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+  50%       { box-shadow: 0 0 18px 4px rgba(34, 197, 94, 0.10); }
+}
+
+@keyframes noc-scan {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(4000%); }
+}
+
+@keyframes noc-flow-right {
+  0%   { left: -8%;  opacity: 0;   }
+  12%  { opacity: 1;               }
+  88%  { opacity: 0.85;            }
+  100% { left: 108%; opacity: 0;   }
+}
+
+@keyframes noc-breathe {
+  0%, 100% { opacity: 0.03; }
+  50%       { opacity: 0.09; }
+}
+
+@keyframes noc-spark {
+  0%   { transform: translateY(0) scale(1);  opacity: 1; }
+  100% { transform: translateY(-14px) scale(0); opacity: 0; }
+}
+
+@keyframes noc-float-in {
+  0%   { opacity: 0; transform: translateY(14px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes noc-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes noc-cause-ring {
+  0%   { opacity: 0.55; transform: scale(1); }
+  70%  { opacity: 0;    transform: scale(2.4); }
+  100% { opacity: 0;    transform: scale(2.4); }
+}
+
+@keyframes noc-packet-flow {
+  0%   { stroke-dashoffset: 300; }
+  100% { stroke-dashoffset: 0; }
+}
+
+@keyframes noc-breathe-glow {
+  0%, 100% { opacity: 0.12; }
+  50%       { opacity: 0.28; }
+}
+
+@keyframes noc-chart-scan {
+  0%   { left: -32%; opacity: 0; }
+  8%   { opacity: 1; }
+  88%  { opacity: 0.7; }
+  100% { left: 132%; opacity: 0; }
+}
+
+@keyframes noc-live-dot-ring {
+  0%   { opacity: 0.7; transform: scale(1);   }
+  65%  { opacity: 0;   transform: scale(2.8); }
+  100% { opacity: 0;   transform: scale(2.8); }
+}
+
+@keyframes noc-live-dot-core {
+  0%, 100% { opacity: 1;   transform: scale(1);    }
+  50%       { opacity: 0.7; transform: scale(0.85); }
+}
+
+/* Utility classes */
+.noc-glow-red   { animation: noc-pulse-red   3.6s ease-in-out infinite; }
+.noc-glow-amber { animation: noc-pulse-amber 3.6s ease-in-out infinite; }
+.noc-glow-green { animation: noc-pulse-green 3.6s ease-in-out infinite; }
+.noc-float-in   { animation: noc-float-in 0.45s cubic-bezier(0.22,1,0.36,1) both; }
+.noc-fade-in    { animation: noc-fade-in  0.35s ease both; }
+.noc-cause-ring {
+  animation: noc-cause-ring 1.8s ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.noc-packet-flow { animation: noc-packet-flow 2.4s linear infinite; }
+.noc-breathe    { animation: noc-breathe-glow 3s ease-in-out infinite; }

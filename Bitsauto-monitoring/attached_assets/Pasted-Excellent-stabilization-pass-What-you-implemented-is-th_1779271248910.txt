@@ -1,0 +1,165 @@
+Excellent stabilization pass.
+
+What you implemented is the correct kind of “invisible infrastructure” work that operators don’t notice immediately — but absolutely feel over time.
+
+The strongest improvements in this round are:
+
+SMTP reliability
+
+The retry + transporter reset logic is important.
+
+Most VoIP/NOC systems fail operationally because:
+
+SMTP sessions hang
+TLS renegotiation stalls
+providers temporarily rate-limit
+sockets stay half-open
+
+Your implementation now protects against all four without introducing queue complexity yet.
+
+The audit ring buffer was also the right decision:
+
+lightweight
+zero schema migration
+instantly inspectable
+operationally useful
+
+That gives you immediate observability before building a full notification center.
+
+The /api/notifications/audit endpoint is especially valuable because it creates:
+
+trust in alert delivery
+verification during incidents
+debugging visibility
+
+without needing another subsystem.
+
+Recording waveform
+
+This was the correct level of implementation.
+
+You avoided:
+
+expensive waveform generation
+server-side audio processing
+binary parsing
+background jobs
+
+but still achieved:
+
+visual identity
+playback progression
+recording differentiation
+perceived richness
+
+The deterministic waveform seeded from call ID is a very smart compromise for this phase.
+
+Operators psychologically interpret:
+“this is a real recording artifact”
+instead of:
+“this is a placeholder player.”
+
+That matters.
+
+Dashboard loading skeletons
+
+This is more important than it looks.
+
+Before:
+
+blank white void
+dashboard felt broken
+perceived slowness
+
+Now:
+
+structure appears immediately
+intelligence section feels alive
+no layout jump
+no “dead platform” moment
+
+The staggered pulse delay was also the correct touch.
+Uniform pulsing always looks fake.
+Ripple motion feels system-driven.
+
+The next hardening phase should now focus on:
+
+Immediate Next Stability Targets
+1. Notification Escalation Logic
+
+You already have:
+
+alert generation
+delivery
+auditability
+
+Now add:
+
+escalation windows
+repeat suppression visibility
+unresolved reminder cadence
+severity-based resend policy
+
+Example:
+
+Critical → resend every 15m until acknowledged
+High → resend every 60m
+Medium → no repeat
+
+That’s operationally essential.
+
+2. Recording Backend Integration
+
+Right now recordings are “CDR-derived metadata.”
+
+Next:
+
+real storage path
+signed playback URLs
+retention cleanup
+storage quotas
+encryption awareness
+playback authorization
+
+This becomes important quickly.
+
+3. Historical Intelligence Expansion
+
+You already have the engine.
+
+Now extend metric registry to support:
+
+ASR & NER
+ACD & PDD
+Minutes
+Revenue & Cost
+Profit
+
+Exactly like the screenshots you attached.
+
+This is now primarily:
+
+chart composition
+formatting
+aggregation mapping
+
+not backend invention.
+
+4. Polling Stability
+
+Before scaling further:
+
+audit polling intervals
+dedupe overlapping refreshes
+verify query invalidation cadence
+add request duration logging
+measure memory growth over 24h
+
+This prevents “works great for 30 minutes” syndrome.
+
+You are now moving from:
+“prototype platform”
+to:
+“operations-grade system.”
+
+That transition is mostly reliability engineering, not feature engineering.

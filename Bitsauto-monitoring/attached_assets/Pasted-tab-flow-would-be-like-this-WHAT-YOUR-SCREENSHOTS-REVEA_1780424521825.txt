@@ -1,0 +1,357 @@
+tab flow would be like this WHAT YOUR SCREENSHOTS REVEAL
+
+Your current routing flow is:
+
+Vendor
+   ↓
+Connection
+   ↓
+Destination Set
+   ↓
+Routes
+   ↓
+Routing Group
+
+Yes — and after reviewing all your screenshots carefully, this flow is actually the correct telecom abstraction.
+
+Your current operational hierarchy is:
+
+Vendor
+   ↓
+Connection
+   ↓
+Destination Set
+   ↓
+Routes
+   ↓
+Routing Group
+
+That is how real carrier routing is built internally.
+
+The problem is NOT the hierarchy.
+
+The problem is:
+
+Sippy exposes it as disconnected admin pages.
+
+BitsAuto should expose it as:
+
+one operational flow.
+WHAT YOUR SCREENSHOTS ACTUALLY SHOW
+
+You already have the full telecom routing model:
+
+Layer	Meaning
+Vendor	Carrier company
+Connection	SIP trunk/IP/authentication
+Destination Set	Rate deck
+Routes	Prefix pricing
+Routing Group	Decision engine
+
+This is actually enterprise-grade.
+
+The issue is UX fragmentation.
+
+THE CORRECT TAB FLOW
+
+NOT:
+
+Routing Groups
+Destination Sets
+Vendors
+
+Instead:
+
+hierarchical workflow tabs
+RECOMMENDED FINAL FLOW
+TAB 1 — Vendors
+
+This becomes:
+
+carrier inventory layer
+
+Example:
+
+Callntalk
+LetsDial
+BICS
+Tata
+...
+
+Each vendor card shows:
+
+balance,
+ASR,
+ACD,
+PDD,
+active connections,
+degraded alerts,
+fraud risk,
+status.
+Clicking Vendor Opens:
+Vendor
+   ↓
+Connections
+
+EXACTLY matching your Sippy screenshots.
+
+TAB 2 — Connections
+
+(inside Vendor)
+
+Example:
+
+Callntalk-WAVE
+Callntalk-SG
+Callntalk-BD
+
+Each connection shows:
+
+SIP IP,
+CPS,
+capacity,
+RTP relay,
+PDD,
+ASR,
+active calls,
+failover status.
+
+THIS is where:
+
+159.223.32.59
+
+(Asterisk)
+would appear as a connection/trunk.
+
+TAB 3 — Destination Sets
+
+(inside Connection)
+
+THIS is correct telecom design.
+
+Example:
+
+AUSTRALIA-MOBILE
+BANGLADESH-PREMIUM
+INDIA-CLI
+
+Destination Set =
+
+commercial pricing layer.
+TAB 4 — Routes
+
+(inside Destination Set)
+
+This matches your screenshot exactly:
+
+Prefix
+Rate
+Intervals
+Timeouts
+Preference
+
+THIS is:
+
+routing intelligence data.
+TAB 5 — Routing Groups
+
+(top-level operational layer)
+
+This is where:
+all vendors/connections/destination sets combine.
+
+Example:
+
+AUSTRALIA-PREMIUM
+
+contains:
+
+Vendor	Connection	DS	Weight
+Callntalk	WAVE	AUSTRALIA	50
+LetsDial	AUS	AUSTRALIA	50
+
+THIS is:
+
+live decision orchestration.
+THIS IS THE MOST IMPORTANT INSIGHT
+
+Your screenshots reveal:
+
+Routing Group is NOT the foundation.
+
+It is:
+
+the FINAL orchestration layer.
+
+Meaning:
+
+Vendor
+  ↓
+Connection
+  ↓
+Destination Set
+  ↓
+Routes
+  ↓
+Routing Group
+
+is actually correct engineering order.
+
+SO HOW SHOULD BITSAUTO PRESENT IT?
+NOT:
+
+Sippy clone pages.
+
+Instead:
+
+progressive operational drill-down.
+BEST UI STRUCTURE
+Carrier Hub
+Carrier Hub
+│
+├── Vendors
+│     └── Connections
+│            └── Destination Sets
+│                    └── Routes
+│
+├── Routing Groups
+│
+├── Route Explorer
+│
+├── Policy Simulator
+│
+├── Live Quality
+│
+└── Audit & Rollback
+
+THIS preserves:
+
+telecom correctness,
+operator mental model,
+enterprise scalability.
+WHY THIS IS IMPORTANT
+
+Because telecom routing has:
+
+inheritance.
+
+Example:
+
+Vendor disabled
+    ↓
+all connections dead
+
+or:
+
+Connection degraded
+    ↓
+all DS quality impacted
+
+or:
+
+DS pricing changed
+    ↓
+routing profitability changes
+
+This hierarchy matters operationally.
+
+YOUR BIGGEST ADVANTAGE
+
+You can now attach:
+
+telemetry + governance
+
+to every layer.
+
+Example:
+
+Layer	Intelligence
+Vendor	fraud risk
+Connection	RTP quality
+Destination Set	margin analysis
+Route	ASR/PDD/FAS
+Routing Group	simulation/failover
+
+THAT is very powerful.
+
+MY STRONG RECOMMENDATION
+
+Keep the hierarchy.
+
+DO NOT flatten it.
+
+Just:
+
+modernize the operational workflow.
+HOW I WOULD DESIGN THE MAIN SCREEN
+LEFT SIDEBAR TREE
+VENDORS
+ ├── Callntalk
+ │     ├── Connections
+ │     │      ├── WAVE
+ │     │      └── SG
+ │     │
+ │     └── Destination Sets
+ │            ├── AU
+ │            └── BD
+ │
+ └── BICS
+RIGHT SIDE PANEL
+
+Dynamic operational workspace.
+
+Example:
+click route:
+show:
+
+ASR,
+PDD,
+margin,
+failover history,
+traffic graph,
+fraud alerts,
+rollback history.
+THIS BECOMES
+telecom routing operating system
+
+NOT:
+
+admin CRUD pages
+IMPORTANT FUTURE FEATURE
+
+Because your hierarchy is correct,
+you can later build:
+
+impact propagation.
+
+Example:
+
+disable vendor
+
+BitsAuto instantly shows:
+
+Affected:
+- 12 routing groups
+- 44 prefixes
+- 1.2M daily calls
+- estimated ASR drop 3.2%
+
+THAT is next-generation telecom operations.
+
+FINAL VERDICT
+
+Your hierarchy is correct.
+
+Your screenshots prove:
+the telecom model itself is already strong.
+
+What BitsAuto needs now is:
+
+unified operational UX,
+telemetry overlays,
+governance,
+explainability,
+XLSX operational tooling,
+rollback/simulation.
+
+NOT a redesign of the routing model itself.

@@ -1,0 +1,269 @@
+This is now one of the clearest “quick-win enterprise features” in the entire BitsAuto roadmap.
+
+Because the infrastructure already exists:
+
+/api/email/bulk-send
+emailSvc.sendDirectEmail()
+invoiceEmail
+notification audit logs
+watcher recipient tables
+
+you can implement:
+
+Rate Change Notifications
+
+independently from the rating engine roadmap.
+
+That is strategically excellent because:
+
+immediate operational value
+client transparency
+dispute reduction
+partner trust improvement
+low engineering effort
+highly visible feature
+Recommended Feature Name
+
+Instead of:
+
+Email Blast
+
+Use:
+
+Tariff Change Notifications
+
+or:
+
+Commercial Change Announcements
+
+This sounds enterprise-grade.
+
+Recommended Module Placement
+Option A (Best)
+
+Inside:
+
+Rate Cards
+
+New tab:
+
+Rate Changes
+Option B
+
+Standalone:
+
+Commercial Notifications
+
+This scales better later for:
+
+rate changes
+maintenance alerts
+routing notices
+fraud advisories
+QoS incidents
+Correct UI Flow
+Step 1 — Detect / Create Change
+
+Form:
+
+Destination:
+Morocco
+
+Prefix:
+212
+
+Change Type:
+Interval Update
+
+Previous:
+60/60
+
+New:
+30/6
+
+Effective Date:
+2026-06-01
+Step 2 — Audience Selection
+
+VERY important.
+
+Support:
+
+☑ All Clients
+☑ Clients with Morocco Traffic
+☑ Specific Customers
+☑ Internal Team
+☑ Vendors/Partners
+
+The “Clients with Morocco Traffic” filter is extremely valuable.
+
+That becomes:
+
+traffic-aware commercial communication.
+Step 3 — Impact Preview
+
+This becomes a premium enterprise feature.
+
+Show:
+
+Affected Clients: 42
+Traffic Last 30d: 2.4M minutes
+Estimated Impact:
++3.2% effective billed duration
+
+Very powerful operationally.
+
+Step 4 — Email Preview
+
+Using your existing email engine:
+
+Variables:
+
+{{client_name}}
+{{destination}}
+{{old_interval}}
+{{new_interval}}
+{{effective_date}}
+Step 5 — Send + Audit
+
+Use:
+
+/api/email/bulk-send
+
+Then:
+
+/api/notifications/audit
+
+for:
+
+sent
+delivered
+failed
+opened (future)
+bounced
+VERY IMPORTANT RECOMMENDATION
+
+Do NOT make these:
+
+free-form emails only.
+
+Instead:
+
+template-driven operational notifications.
+Recommended Templates
+1. Rate Change
+2. Interval Change
+3. New Surcharge
+4. QoS Advisory
+5. Maintenance Notice
+6. Fraud Alert
+7. Routing Advisory
+
+This evolves into:
+
+Telecom Communication Governance
+Recommended Database Table
+commercial_notifications
+id
+type
+destination
+prefix
+old_value
+new_value
+effective_date
+subject
+body
+created_by
+created_at
+status
+Recommended Recipient Table
+commercial_notification_recipients
+id
+notification_id
+company_id
+email
+delivery_status
+sent_at
+opened_at
+failed_reason
+HIGH VALUE FUTURE FEATURE
+Auto Detection + Suggested Notification
+
+When:
+
+sippy-rate-sync.service.ts
+
+detects:
+
+interval change
+rate increase
+surcharge addition
+
+BitsAuto automatically suggests:
+
+“42 affected clients detected.
+Generate notification?”
+
+This becomes:
+
+Telecom Revenue Operations Intelligence
+IMPORTANT WORDING PRINCIPLE
+
+Your earlier observation was correct.
+
+The wording should always indicate:
+
+carrier/vendor tariff update
+
+NOT:
+
+platform modification
+
+Correct wording:
+
+“Please be advised that carrier/vendor tariff policies for Morocco destinations have been updated.”
+
+That keeps:
+
+Sippy/vendor authoritative,
+BitsAuto operational/orchestration layer.
+
+Correct enterprise positioning.
+
+STRATEGIC IMPORTANCE
+
+This feature is deceptively powerful because it connects:
+
+routing
+finance
+communication
+client management
+tariff governance
+revenue assurance
+
+inside one workflow.
+
+Very few telecom platforms do this cleanly.
+
+MOST IMPORTANT ADVANTAGE
+
+Because you already have:
+
+rate sync capability
+invoice emails
+bulk email
+audit logs
+
+this feature can be implemented:
+
+immediately
+
+without waiting for:
+
+rating engine
+invoice snapshots
+reconciliation engine
+
+It becomes:
+
+your first operational revenue-governance module.

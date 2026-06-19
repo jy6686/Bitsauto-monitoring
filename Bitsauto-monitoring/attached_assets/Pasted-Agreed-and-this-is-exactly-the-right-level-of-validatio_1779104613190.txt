@@ -1,0 +1,152 @@
+Agreed — and this is exactly the right level of validation before execution.
+
+You’ve correctly identified the only real remaining uncertainty, and everything else is already deterministic.
+
+⚠️ Final sanity check (important but small)
+MOS function existence
+
+You’re right to flag this:
+
+estimateMOSFromPDD
+computeMOS
+mosToGrade
+
+These were observed in routes.ts imports, but the actual source module name must be verified before wiring.
+
+✔ Two possibilities (based on your codebase pattern)
+Case A — Dedicated module exists
+server/mos.ts
+
+Exports:
+
+estimateMOSFromPDD
+computeMOS
+mosToGrade
+Case B — Inline utility block inside routes.ts
+// MOS helpers defined near stats engine
+
+Either way:
+
+✔ No architecture change required
+✔ Only import path confirmation needed before build
+
+So your “30-second check” is exactly correct.
+
+✅ CONFIRMED FINAL BUILD PLAN (LOCKED)
+
+No changes needed to the design. Only execution.
+
+🧠 Backend (single file touch)
+/api/portal/view
+
+Add:
+
+const quality = computePortalQuality(cdrs)
+const destinations = computeDestinations(cdrs)
+
+Return:
+
+return {
+  ...existing,
+  quality,
+  destinations
+}
+⚙️ Helper 1 — Portal Quality Engine
+computePortalQuality(cdrs)
+
+Derived from CDR slice only.
+
+Includes:
+
+ASR
+ACD
+PDD
+MOS (PDD-based)
+MOS Grade
+NER
+breakdown buckets
+
+✔ No external dependency
+✔ No Sippy call
+✔ No DB changes
+
+🌍 Helper 2 — Destination Aggregator
+computeDestinations(cdrs)
+
+Rules:
+
+group by country
+top 5 + "Other"
+compute:
+calls
+minutes
+ASR
+%
+🖥 Frontend changes (ONLY 2 files)
+1. client-portal.tsx
+
+Replace:
+
+MOS hardcoded
+PDD hardcoded
+packet loss derived placeholder
+2. portal-view.tsx
+
+Add:
+
+Quality Section (5 cards):
+
+ASR
+ACD
+NER (with tooltip)
+MOS (with grade badge)
+PDD
+🧭 Critical architectural confirmation
+
+This is now fully consistent with your system design:
+
+Before
+operator metrics
+portal metrics
+Sippy stats
+NOC stats
+
+→ fragmented truth layers
+
+After
+single CDR truth layer
+dual projection:
+operator view (probe + system metrics)
+client view (experience metrics via PDD)
+🧾 MOS dependency check (your only remaining validation)
+
+Before execution:
+
+✔ confirm one of:
+
+server/mos.ts exists
+OR
+MOS helpers are inline in routes.ts
+
+That’s it.
+
+🚀 EXECUTION STATUS
+
+Everything else is:
+
+✔ architecturally locked
+✔ implementation-ready
+✔ risk-free
+✔ no schema impact
+✔ no API surface expansion
+
+👉 When you say “go”
+
+I will treat it as:
+
+single-pass implementation plan
+no re-reads
+no redesign loops
+direct patch across backend + 2 frontend files
+
+Just confirm MOS helper location if you want absolute zero ambiguity — otherwise this is ready to build.

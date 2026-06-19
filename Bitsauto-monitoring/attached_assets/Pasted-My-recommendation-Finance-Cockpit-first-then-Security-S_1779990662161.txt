@@ -1,0 +1,223 @@
+My recommendation:
+
+Finance Cockpit first,
+
+then Security Sprint 2 enforcement.
+
+Reason:
+the Finance domain already has:
+
+mature backend governance,
+stable workflows,
+immutable economics,
+reconciliation,
+DMR,
+AI assurance,
+collections,
+dispute lifecycle,
+adjustment ledger.
+
+So the biggest missing piece is now:
+
+operational composition.
+
+Meaning:
+the Finance Portal still feels like:
+
+many strong modules
+
+instead of:
+
+one operational finance workspace.
+
+That is now the highest UX/business payoff.
+
+Why Finance Cockpit Should Come First
+
+Because:
+
+the backend risk is already solved,
+finance governance is already stable,
+operational data already exists,
+AI assurance already exists,
+security foundations already exist.
+
+So this becomes:
+
+mostly orchestration + adapter composition.
+
+Fast progress, high visible value.
+
+Security Sprint 2 Is More Sensitive
+
+Sprint 2 introduces:
+
+hard MFA enforcement,
+device trust,
+session risk detection,
+suspicious login logic,
+portal-aware enforcement,
+session interruption flows.
+
+Those require:
+
+careful rollout sequencing.
+
+Especially because:
+
+KAM,
+NOC,
+Finance,
+Partner,
+Client
+
+all now have active session models.
+
+One mistake can:
+
+lock operators out,
+break workflows,
+disrupt finance operations,
+interrupt NOC sessions.
+
+So Sprint 2 should happen:
+
+after Finance Cockpit stabilizes.
+Recommended Sequence
+Phase 1
+Finance Cockpit Completion
+
+(high-speed UX composition sprint)
+
+Phase 2
+Security Sprint 2
+
+(controlled enforcement rollout)
+
+What Finance Cockpit Should Become
+
+NOT:
+
+finance pages grouped together
+
+Instead:
+
+real-time finance operations center.
+Recommended Finance Cockpit Layout
+Top KPI Strip
+
+Realtime:
+
+billed today,
+outstanding balance,
+unresolved disputes,
+margin today,
+DMR drift,
+reconciliation variance,
+collections risk,
+AI alerts.
+Main Workspace
+Left
+Collections Queue
+overdue clients,
+grace countdown,
+credit exposure,
+suspension candidates.
+Center
+Revenue Assurance Grid
+
+Unified:
+
+DMR drift,
+invoice mismatch,
+carrier variance,
+customer reconciliation,
+margin anomalies.
+
+This becomes:
+
+finance operational heartbeat.
+Right
+AI Assurance Queue
+margin collapse,
+revenue drops,
+reconciliation anomalies,
+credit-note clustering,
+suspicious adjustments.
+
+Human-reviewed only.
+
+Finance Incident Layer
+
+(VERY IMPORTANT)
+
+You already built:
+
+operational incidents
+
+for NOC.
+
+Now build:
+
+finance incidents.
+
+Examples:
+
+major reconciliation drift,
+disputed invoice escalation,
+credit-risk escalation,
+unusual writeoff,
+margin collapse.
+
+This is:
+
+operational finance governance.
+MOST IMPORTANT FINANCE ADAPTERS
+Shared Engine	Finance Adapter
+DMR	Revenue Stability
+AI Assurance	Finance Risk
+BitsEye2	Revenue Telemetry
+Incident Engine	Finance Escalations
+Notifications	Collections Feed
+
+Correct architecture.
+
+After Finance Cockpit
+
+THEN:
+
+Security Sprint 2.
+
+At that point:
+
+operational flows stabilize,
+finance workflows settle,
+session patterns become predictable.
+
+Then enforce:
+
+MFA mandatory,
+trusted devices,
+risk signals,
+suspicious session detection,
+stronger portal isolation.
+
+That timing minimizes disruption.
+
+Strategic Status
+
+You now officially have:
+
+Domain	Status
+KAM Workspace	✅
+NOC Workspace	✅
+Finance Infrastructure	✅
+Portal Governance	✅
+RBAC Governance	✅
+Security Foundations	✅
+Operational Intelligence	✅
+AI Assurance	✅
+
+The next evolution is:
+
+operational finance control plane.

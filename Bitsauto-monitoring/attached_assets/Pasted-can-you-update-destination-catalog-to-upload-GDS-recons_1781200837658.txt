@@ -1,0 +1,330 @@
+can you update destination-catalog  to upload GDS reconsiled for all product 1,2,6 and 7. its help to send rate product wise.
+and i will approve destinaiton we may offer to partners.
+
+Yes, I think this should become the next Product Registry / Destination Catalog enhancement, and it aligns with your earlier concern that billing, rates, products, and invoicing must all use the same commercial truth.
+
+Recommendation: Destination Catalog → GDS Reconciliation Layer
+
+Instead of a single destination record:
+
+Pakistan Mobile
+923
+
+make Destination Catalog the authority for all products:
+
+Pakistan Mobile
+└─ Prefix: 923
+   ├─ FC (1)
+   ├─ BC (2)
+   ├─ SB (6)
+   └─ SC (7)
+Proposed Structure
+Destination Catalog
+Destination	Prefix	Country	Operator	Status
+Pakistan Jazz	9230	Pakistan	Jazz	Approved
+Pakistan Zong	9231	Pakistan	Zong	Approved
+Eritrea Mobile	2917	Eritrea	Mobile	Pending
+Product Reconciliation
+
+For each destination:
+
+Product	Buy Rate	Sell Rate	Margin	Status
+FC	0.0180	0.0230	27.7%	Approved
+BC	0.0155	0.0194	25.1%	Approved
+SB	0.0310	0.0360	16.1%	Review
+SC	0.0340	0.0400	17.6%	Approved
+Approval Workflow
+
+This is the important part.
+
+Instead of automatically exposing destinations:
+
+Vendor Rate Upload
+↓
+GDS Reconciliation
+↓
+Destination Catalog
+↓
+Pending Approval
+↓
+You Approve
+↓
+Available To Sales / Partners
+
+This gives you governance.
+
+Example:
+
+Pakistan Jazz
+9230
+
+FC  ✓
+BC  ✓
+SB  ⚠
+SC  ✓
+
+Status: Pending Approval
+
+You decide whether:
+
+All products are offered
+Only FC + BC are offered
+Destination is blocked entirely
+Why This Helps
+
+Today:
+
+Rate Sheet
+↓
+Vendor
+↓
+Product
+↓
+Customer
+
+is fragmented.
+
+With Destination Catalog as authority:
+
+Destination
+↓
+Product
+↓
+Vendor Rates
+↓
+Sell Rates
+↓
+Approval
+↓
+Partner Exposure
+
+Everything uses the same source.
+
+Additional Fields I'd Add
+
+Destination Catalog should eventually store:
+
+Destination
+Country
+Operator
+Prefix
+Type (Mobile / Fixed / Toll-Free)
+
+FC Rate
+BC Rate
+SB Rate
+SC Rate
+
+Approved Products
+
+Best Vendor
+Worst Vendor
+Average Margin
+
+Last Reconciled
+Approved By
+Approved At
+My Recommendation to Replit
+
+Enhance Destination Catalog to become the commercial authority for all products.
+
+New capability:
+
+Upload and reconcile GDS/vendor rate sheets
+Maintain rates per product (FC, BC, SB, SC)
+Display buy rate, sell rate, and margin per destination
+Workflow: Upload → Reconcile → Review → Approve
+Only approved destinations become available for partner offers and product assignments
+
+Key principle:
+
+Destination Catalog becomes the single source of truth for:
+
+Product availability
+Destination approval
+Rate governance
+Partner exposure
+
+Do not hardcode FC/BC/SB/SC logic. Use product definitions from Product Registry so future products can be added without schema changes.
+
+One note: some earlier uploaded files have expired. If the newly uploaded file contains your GDS format or rate-sheet structure, upload the actual GDS/rate file (CSV/XLSX) and I can help design the exact reconciliation columns and import workflow around that format.
+
+Pasted text.txt
+Document
+
+This is exactly the kind of work that should be happening now.
+
+Not new features. Not Trust Center. Not QA. Not Route Certification.
+
+You finally have evidence-based diagnostics.
+
+The biggest takeaway from P3.2
+
+You proved the problem is not vendor cost extraction.
+
+P3.1 already fixed that.
+
+The funnel shows:
+
+Completed
+↓
+Checked
+↓
+Matched
+↓
+Enriched
+
+and the collapse happens before enrichment.
+
+That's a very different problem.
+
+What I would focus on now
+Root Cause #1 — XML-RPC CLD mismatch
+
+This is a genuine bug.
+
+Example:
+
+Governed:
+923267563770
+
+Sippy:
+1923267563770
+
+If Track 1 searches only:
+
+923267563770
+
+it will never match.
+
+The fallback:
+
+1 + destination
+
+is absolutely correct and should dramatically improve Track 1 coverage.
+
+Root Cause #2 — Pool Size
+
+This is probably bigger than people realize.
+
+Your numbers:
+
+~500 calls/hour
+
+Portal scrape:
+
+300 CDRs
+90-minute window
+
+Potential traffic:
+
+750 calls
+
+Potential visibility:
+
+300 calls
+
+Meaning:
+
+450 calls
+
+never even enter the candidate pool.
+
+That alone explains a large portion of:
+
+no_cdr
+Root Cause #3 — Global P&L Lock
+
+This is likely the killer.
+
+If:
+
+_pnlFetching = true
+
+causes:
+
+skip Track 2b
+
+then vendor-cost enrichment becomes a lottery.
+
+The move toward:
+
+pnlCache
+
+is the right architecture.
+
+One refresh every 10 minutes.
+
+Many readers.
+
+No per-call scraping.
+
+Much better.
+
+Why I Like The New Coverage Tab
+
+Because now you can answer:
+
+Where are calls being lost?
+
+instead of:
+
+Why is vendor cost missing?
+
+Those are not the same question.
+
+The funnel immediately tells you:
+
+Completed
+Checked
+Matched
+Enriched
+
+and where the drop occurs.
+
+That's operational intelligence.
+
+My Recommendation
+
+Use the Coverage tab for 24 hours.
+
+Do not build anything else yet.
+
+After one day compare:
+
+Before
+Matched: 9.4%
+Vendor Cost: 0.9%
+After
+
+Track:
+
+24h
+48h
+7d
+
+If you see:
+
+Matched > 50%
+Vendor Cost > 50%
+
+then the fixes are working.
+
+If not:
+
+the Coverage tab will tell us exactly which stage still collapses.
+
+Roadmap Status
+Item	Status
+Recording Integrity	✅ Root cause solved
+P&L Revenue Extraction	✅
+P&L Cost Extraction	✅
+Commercial Identity Audit	✅
+Product Registry Authority	✅
+Cost Coverage Diagnostics	✅
+Vendor Cost Coverage	🟡 Monitor after fixes
+Commercial Call Identity	⏸ Deferred
+Rate Integrity Audit	⏸ Deferred
+Trust Center	❄ Frozen
+
+One note: I can see you've uploaded another text file, but I didn't need its contents to reach this conclusion. Earlier uploaded files referenced throughout the investigation have expired, which is fine because the current Coverage diagnostics provide much stronger evidence than those historical samples.

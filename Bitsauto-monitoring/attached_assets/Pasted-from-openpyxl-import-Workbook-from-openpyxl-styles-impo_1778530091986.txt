@@ -1,0 +1,74 @@
+from openpyxl import Workbook
+from openpyxl.styles import Font
+import pandas as pd
+
+# Try importing libraries
+try:
+    import pycountry
+except ImportError:
+    pycountry = None
+
+try:
+    from phonenumbers.phonenumberutil import country_code_for_region
+except ImportError:
+    country_code_for_region = None
+
+rows = []
+
+if pycountry:
+    countries = sorted(list(pycountry.countries), key=lambda x: x.name)
+    
+    for c in countries:
+        iso2 = getattr(c, "alpha_2", "")
+        iso3 = getattr(c, "alpha_3", "")
+        numeric = getattr(c, "numeric", "")
+        official_name = getattr(c, "official_name", c.name)
+
+        # Get dialing code if available
+        dialing_code = ""
+        if country_code_for_region and iso2:
+            try:
+                code = country_code_for_region(iso2)
+                dialing_code = f"+{code}" if code else ""
+            except:
+                dialing_code = ""
+
+        naming_convention = f"{c.name} ({iso2})"
+
+        rows.append({
+            "Country Name": c.name,
+            "Official Name": official_name,
+            "ISO2 Code": iso2,
+            "ISO3 Code": iso3,
+            "Numeric Code": numeric,
+            "Dialing Code": dialing_code,
+            "Suggested Naming Convention": naming_convention
+        })
+
+df = pd.DataFrame(rows)
+
+# Create Excel workbook
+wb = Workbook()
+ws = wb.active
+ws.title = "Global Country Codes"
+
+# Write dataframe to worksheet
+headers = list(df.columns)
+ws.append(headers)
+
+for cell in ws[1]:
+    cell.font = Font(bold=True)
+
+for row in df.itertuples(index=False):
+    ws.append(list(row))
+
+# Adjust column widths
+for column_cells in ws.columns:
+    length = max(len(str(cell.value)) if cell.value is not None else 0 for cell in column_cells)
+    ws.column_dimensions[column_cells[0].column_letter].width = min(length + 5, 40)
+
+file_path = "/mnt/data/Global_Country_Codes.xlsx"
+wb.save(file_path)
+
+print(f"Excel file created: {file_path}")
+print(f"Total countries included: {len(df)}")

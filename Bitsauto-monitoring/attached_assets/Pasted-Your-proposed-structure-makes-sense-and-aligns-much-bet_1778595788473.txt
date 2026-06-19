@@ -1,0 +1,141 @@
+Your proposed structure makes sense and aligns much better with the actual operational workflow of the platform. After reviewing the current sidebar architecture, this organization is cleaner, more scalable, and easier for users to navigate.
+Recommended Implementation Plan
+Phase 1 — Sidebar Restructuring (Recommended First Step)
+Create two new top-level sidebar groups:
+
+Client Operations
+Move the following existing features into this group:
+
+
+Rate Plan (/company-profile)
+
+
+Accounts (/clients)
+
+
+Balance (/balance)
+
+
+Client Portal (/client-portal)
+
+
+BitsEye (/bitseye)
+
+
+Traffic Map (/traffic-map)
+
+
+
+Vendor Operations
+Move/promote the following features into this group:
+
+
+Vendors (/vendors)
+
+
+Connections (promote from Routing Manager sub-tab → standalone page)
+
+
+Destination Sets (promote from Routing Manager sub-tab → standalone page)
+
+
+Routing Groups (promote from Routing Manager sub-tab → standalone page)
+
+
+Test Suite (/test-call)
+
+
+
+Additional Configuration Requirements
+
+
+Keep both groups expandable/collapsible using the existing sidebar behavior.
+
+
+Preserve Light Mode and Dark Mode compatibility.
+
+
+Maintain existing wizard/tab navigation where already implemented.
+
+
+Preserve routing permissions and existing API bindings after moving items.
+
+
+
+Recommended UX Improvement
+For promoted Routing Manager tabs:
+
+
+Add breadcrumb navigation:
+
+
+Vendor Operations → Connections
+
+
+Vendor Operations → Destination Sets
+
+
+
+
+Keep deep-link support intact for direct URL access.
+
+
+
+Phase 2 — Advanced Sidebar Management (After Validation)
+Once the new structure is confirmed stable:
+Add Drag-and-Drop Sidebar Management
+Implement:
+
+
+Drag-and-drop between groups
+
+
+Reorder items dynamically
+
+
+Save layout preferences per user/admin
+
+
+Persist:
+
+
+group order
+
+
+item order
+
+
+expanded/collapsed state
+
+
+hidden/visible modules
+
+
+
+
+Suggested stack:
+
+
+@dnd-kit/core
+
+
+localStorage + /api/settings/sidebar-layout
+
+
+
+Final Recommendation
+Do not rebuild the sidebar from scratch.
+Your current architecture is already strong.
+The best path is:
+
+
+Restructure into operational groups
+
+
+Promote critical routing tabs into first-class modules
+
+
+Add sidebar intelligence/personalization later
+
+
+This keeps the platform scalable while improving usability for NOC, routing, finance, and vendor-management workflows.

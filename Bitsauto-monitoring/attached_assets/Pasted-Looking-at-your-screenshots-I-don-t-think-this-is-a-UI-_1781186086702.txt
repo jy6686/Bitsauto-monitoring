@@ -1,0 +1,266 @@
+Looking at your screenshots, I don't think this is a "UI bug" anymore. This looks like a data acquisition failure.
+
+What the screenshots tell us
+Billing Check
+
+You have:
+
+Total Governed = 500
+OK = 0
+Loss = 0
+Check = 0
+Checking CDRs = 500
+
+and every row shows:
+
+No CDR
+
+That means:
+
+Governance Engine = WORKING
+Billing Correlation = FAILING
+
+The governance system is clearly creating records because:
+
+Cut IDs exist
+CLI → CLD exists
+Cut times exist
+Gov Cut seconds exist
+
+So the problem is not governance.
+
+The problem is:
+
+governed_calls
+   ↓
+CDR Match
+   ↓
+FAILED
+
+for every row.
+
+Recording Section
+
+I also see:
+
+Recording
+Not found
+
+on calls that show:
+
+Status = Cut
+
+That is a separate issue.
+
+Your flow is supposed to be:
+
+Vendor Cut
+↓
+Playback Started
+↓
+Record File Generated
+↓
+Store Path
+↓
+Show Recording
+
+But the recording path isn't being found later.
+
+Two Independent Problems
+Problem 1: Billing
+
+Current status:
+
+500 governed calls
+500 no_cdr
+
+This is almost certainly one of:
+
+A. CDR scraper broken
+
+Sippy page changed.
+
+B. Destination normalization mismatch
+
+Example:
+
+Governance:
+923493341934
+
+Sippy:
+1923493341934
+
+No match.
+
+C. Time window mismatch
+
+Governance:
+
+12:31:30
+
+CDR:
+
+12:31:58
+
+Outside matching window.
+
+D. CDR cache not refreshing
+
+Very possible.
+
+What I would verify FIRST
+
+Take one call:
+
+#22472
+923449747343
+12:31:30
+
+Search directly in Sippy.
+
+Questions:
+
+Does CDR exist?
+Does CLD match?
+What format?
+What exact setup time?
+
+If Sippy has the CDR:
+
+Problem = BitsAuto matching
+
+If Sippy doesn't:
+
+Problem = CDR acquisition
+Problem 2: Recordings
+
+The screenshot is more revealing.
+
+I see:
+
+Playback Started
+
+in Audit Log.
+
+That means:
+
+Asterisk generated playback
+
+But UI says:
+
+Not Found
+
+That usually means one of three things:
+
+Recording file deleted
+
+Check:
+
+ls -lah /var/spool/asterisk/monitor/
+Wrong path stored
+
+Example:
+
+Stored:
+
+/var/spool/asterisk/monitor/1780922333.wav
+
+Actual:
+
+/var/spool/asterisk/monitor/1780922333.32377.wav
+Recording created on another server
+
+Very common.
+
+Governance event:
+
+Asterisk Server A
+
+UI lookup:
+
+Asterisk Server B
+
+Result:
+
+Not Found
+My Concern
+
+You've spent several days fixing:
+
+CLI matching
+CLD matching
+Prefix handling
+Caller/Callee swaps
+
+Yet:
+
+500 / 500
+No CDR
+
+means the root issue is probably deeper.
+
+I would stop patching matching logic temporarily and verify:
+
+For ONE governed call
+
+Can BitsAuto retrieve:
+
+CDR
+Revenue
+Cost
+Margin
+Recording
+
+for a single known call.
+
+If one call works:
+
+Scale matching
+
+If one call doesn't:
+
+Fix acquisition first
+What I would ask the developer/agent to do next
+
+Not build anything.
+
+Run a trace on one governed call:
+
+Governed Call ID
+↓
+Destination
+↓
+Track 1 Search
+↓
+Track 2 Search
+↓
+Track 3 Search
+↓
+Track 4 Search
+↓
+CDR Found?
+↓
+Recording Found?
+
+and print every step.
+
+Until a single governed call can show:
+
+Revenue
+Cost
+Margin
+Recording
+
+I would not move to:
+
+Trust Center
+Route Certification
+Q-Score
+Quality Assurance
+CLI Certification
+
+because the current blocker is still Priority 0:
+
+Financial Truth Layer
+
+The screenshots suggest the platform is successfully governing calls, but it is not successfully reconciling them back to CDRs and recordings afterward, which is the core issue that needs root-cause analysis.

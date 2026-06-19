@@ -1,0 +1,187 @@
+Priority 1 — Live Traffic Stabilization should come first.
+
+Not because it is the most exciting feature, but because it is now the foundation underneath:
+
+Live Traffic
+Entity Verdict
+Routing projections
+future SLA reporting
+executive analytics
+
+If the live telemetry layer drifts or behaves inconsistently under load, every higher-level decision layer becomes untrustworthy.
+
+Recommended Immediate Plan
+Phase A — Telemetry Validation Harness
+
+Before changing architecture, build a controlled validation layer around the existing engine.
+
+Validate:
+
+Area	What to test
+Rolling ASR accuracy	1m/5m/15m windows match raw CDR truth
+Snapshot drift	repeated recalculation consistency
+Sparse traffic handling	1–3 call windows don't spike falsely
+Delta correctness	↑↓ indicators only move on meaningful changes
+Memory growth	long-running process stability
+WS reconnect	browser reconnect after disconnect/network flap
+Multi-client fanout	multiple dashboards subscribed simultaneously
+Recompute latency	snapshot generation time under large cache
+
+This is operational hardening, not feature work.
+
+Then move to Priority 2 — Investigate Workflow
+
+This is the highest operator-value UX improvement.
+
+Because right now operators still mentally stitch together:
+
+Live Traffic
+Verdicts
+AI Ops
+Routing
+Simulator
+
+The platform should do that stitching automatically.
+
+Recommended workflow design
+Single Investigate Drawer
+
+Click any:
+
+account
+vendor
+connection
+routing group
+
+from:
+
+Live Traffic
+Carrier Intelligence
+ASR/ACD Report
+Verdict cards
+
+And open ONE unified operational drawer.
+
+Drawer Sections
+1️⃣ Live Status
+
+Current:
+
+active calls
+rolling ASR
+rolling ACD
+CPS
+trend arrows
+2️⃣ Entity Verdict
+
+Reuse existing VerdictCard directly:
+
+verdict
+confidence
+reasoning
+signals
+AI Ops corroboration
+
+No duplicate logic.
+
+3️⃣ Recent AI Ops Events
+
+Last 24–48h:
+
+carrier_failure
+infra anomaly
+FAS spike
+ASR collapse
+reroute recommendations
+
+Chronological timeline.
+
+4️⃣ Routing Exposure
+
+Show:
+
+routing groups using this carrier
+current weight
+routing priority
+affected destinations
+
+This becomes extremely valuable operationally.
+
+5️⃣ Simulator Preview
+
+Inline lightweight preview:
+
+“If removed → projected group HS”
+“If deprioritized → projected ASR delta”
+
+No execution buttons.
+
+Why this matters
+
+This transforms the platform from:
+
+“many telecom tools”
+
+into:
+
+“one operational workflow”
+
+That is the real maturity step.
+
+Priority 3 — Executive Layer (after stabilization)
+
+The advisor is right:
+you now finally have enough trustworthy telemetry for executive reporting.
+
+But executive dashboards before stabilization are dangerous because:
+
+executives trust visuals immediately
+they will not understand telemetry caveats
+inconsistent live metrics destroy confidence fast
+
+So:
+
+stabilize
+unify workflows
+then expose executive reporting
+
+That order is correct.
+
+One additional recommendation
+
+Before building the Investigate workflow, establish a canonical entity identity standard.
+
+Right now you have:
+
+accountName
+clientName
+vendor
+connection
+routing group
+iConnection
+accountId
+
+The drawer/workflow layer will become messy unless every entity resolves through a single identity normalization layer.
+
+Example:
+
+entityType: "connection"
+entityId: "123"
+canonicalName: "XYZ Pakistan"
+vendorName: "XYZ Telecom"
+
+This will save enormous complexity later.
+
+My recommendation summary
+Build next:
+✅ Live Traffic Stabilization Suite
+
+Then:
+
+✅ Unified Investigate Workflow
+
+Then:
+
+✅ Executive / SLA / QoS layer
+
+That sequence matches the current maturity of the platform and avoids feature sprawl while strengthening operator trust.

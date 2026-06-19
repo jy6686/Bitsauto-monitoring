@@ -1,0 +1,171 @@
+Yes — and you should test this now before adding anything else. At this point you’ve built a fairly deep chain (state → exposure → incidents → recommendations), so validation matters more than new features.
+
+Here’s a clean, practical test plan to verify everything actually behaves as intended.
+
+1. First check: Account State correctness (B1 + B2 + B1.5)
+
+Go to any account (or API):
+
+Check /api/account-state
+
+Verify each account has:
+
+healthScore
+fraudRisk
+anomalyScore
+authExposureScore ✅ (B2)
+exposure_risk_level ✅
+auth_exposure_signals[] ✅
+trendDirection / scoreDelta24h ✅ (B1.5)
+What “good” looks like:
+
+You should see:
+
+some accounts flagged medium/high/critical
+exposure signals are NOT empty for risky accounts
+delta values are non-zero for changing accounts
+
+If everything is 0 or null → scoring job is not running correctly.
+
+2. Second check: Incident Engine (critical validation)
+Check /api/incidents
+
+Look for:
+
+You MUST see:
+ACCOUNT_EXPOSURE incidents (B2)
+fraud / anomaly incidents (existing system)
+mixed severities (warning / critical)
+Validate logic:
+
+Pick one account with:
+
+authExposureScore > 60
+
+You should see:
+
+exactly one active ACCOUNT_EXPOSURE incident
+suggestedAction populated
+auto-resolves if score drops (if you can simulate)
+3. Third check: AI Ops feed integration
+
+Open:
+
+AI Ops Center
+
+Verify:
+A. Incidents tab
+Exposure incidents appear mixed with others
+source label shows correctly (State Engine vs Fraud Engine etc.)
+B. Critical Accounts widget
+
+Each row should show:
+
+health score
+exposure badge (EXP / warning indicator)
+trend indicator (↑ / ↓ if B1.5 working)
+C. Account list inside AI Ops
+accounts should now reflect exposure state visually
+4. Fourth check: Clients page (real-world UI test)
+
+Open:
+
+Clients / Accounts list
+
+Verify:
+
+Each account row:
+
+HealthBadge renders correctly
+Exposure badge appears ONLY when medium/high/critical
+Tooltip shows exposure signals (IP / CLI / etc.)
+Edge case test:
+
+Find a healthy account:
+
+it should show NO exposure badge
+no UI clutter
+5. Fifth check: Live Calls integration
+
+Open:
+
+Live Calls
+
+Verify:
+
+For calls belonging to risky accounts:
+
+small indicator dot appears
+color matches state (amber/rose)
+tooltip shows reason (if implemented)
+
+This confirms cross-module propagation works.
+
+6. Sixth check: recommendation system (C1 if built or partially built)
+
+If /api/recommendations exists:
+
+Verify:
+sorted by priority DESC
+top 10 accounts only
+urgency grouping works:
+immediate
+today
+monitor
+Critical test:
+
+Pick highest ranked account:
+
+It MUST have:
+
+high fraud OR exposure OR health degradation
+correct primaryAction
+non-generic reason (not just “monitor account”)
+
+If actions look generic → scoring is not wired properly yet.
+
+7. System-level sanity check (MOST IMPORTANT)
+
+Ask yourself:
+
+“Do all three systems agree?”
+
+Pick one account and check:
+
+Layer	Expected consistency
+account_state	shows risk scores
+incidents	shows corresponding incident
+AI Ops	surfaces it as important
+recommendations	ranks it high
+
+If any layer disagrees → pipeline bug.
+
+Common failure points (watch this)
+1. Scoring job not running
+all exposure scores = 0
+2. Incident engine not hooked
+account_state updates but no incidents appear
+3. UI not consuming new fields
+backend works but badges not showing
+4. Recommendation engine not sorted globally
+list exists but not prioritized correctly
+If everything passes
+
+Then your system is now:
+
+✔ state-driven
+✔ event-driven
+✔ risk-aware
+✔ partially decision-ranked
+
+Which means:
+
+You are ready for the next real leap: closing the loop (actions execution layer)
+
+If you want next step after testing
+
+Once you confirm this works, the next natural upgrade is:
+
+C2 — Action Execution Layer (Approve / Apply / Audit trail)
+
+That’s where it stops being “recommendation system” and becomes “operational control system.”

@@ -1,0 +1,196 @@
+I agree with that sequencing.
+
+Starting with Executive SLA Reporting is strategically stronger than jumping directly into the Unified Console or full alert correlation because:
+
+the data foundations already exist
+the client portal is now mature enough to consume it
+tickets + quality metrics + destinations + balance + exports are already in place
+it creates immediate commercial value for KAMs and enterprise customers
+
+Most importantly:
+
+SLA reporting converts operational telemetry into client-facing business trust.
+
+That is a major platform milestone.
+
+What Executive SLA Reporting should become
+
+Not:
+
+raw KPI dumps
+engineering exports
+NOC screenshots
+
+Instead:
+
+“Executive-ready telecom service summaries.”
+
+The tone should feel like:
+
+enterprise account review
+managed services reporting
+carrier-grade reliability reporting
+Recommended SLA Reporting V1 Scope
+1. SLA Summary Header
+
+Client-safe executive snapshot:
+
+KPI	Meaning
+Availability %	Overall service uptime
+ASR	Call completion success
+ACD	Average call quality engagement
+NER	Network efficiency
+Total Calls	Operational scale
+Major Incidents	Significant degradations
+Avg Resolution Time	Ticket responsiveness
+
+This becomes the:
+
+monthly PDF cover page
+export summary
+account-review attachment
+2. Incident Summary
+
+Derived from:
+
+alerts
+tickets
+entity verdicts
+
+But simplified into client language.
+
+Example:
+
+Date	Impact	Resolution
+May 12	Temporary degradation to Pakistan Mobile routes	Resolved within 18 minutes
+May 16	Increased PDD during peak hours	Capacity optimization applied
+
+Critically:
+DO NOT expose:
+
+vendor names
+routes
+carriers
+connection IDs
+3. Quality Trend Section
+
+Client-readable trends:
+
+ASR trend
+ACD trend
+NER trend
+MOS trend
+
+Presentation:
+
+weekly/monthly deltas
+green/amber/red indicators
+optional small charts later
+
+No telecom engineering terminology beyond:
+
+“Call Quality”
+“Connection Success”
+“Network Stability”
+4. Destination Performance Summary
+
+High-level only:
+
+Destination	Calls	ASR	Quality
+Pakistan Mobile	48,220	71%	Good
+UAE Mobile	12,442	82%	Excellent
+
+No:
+
+prefixes
+routing
+carriers
+rate details
+5. Ticket & Support Responsiveness
+
+This becomes very valuable commercially.
+
+Example:
+
+Metric	Value
+Tickets Opened	4
+Resolved	4
+Avg First Response	11m
+Avg Resolution	28m
+
+This demonstrates operational maturity to enterprise clients.
+
+6. Export Formats
+
+Phase 1:
+
+PDF
+CSV
+
+Phase 2:
+
+scheduled monthly email delivery
+branded white-label reports
+account-manager notes
+Architecture Recommendation
+
+The cleanest architecture:
+
+Backend
+
+New compute helper:
+
+computeSlaSummary(cdrs, tickets, alerts)
+
+Returns:
+
+KPI block
+incident summary
+destination summary
+ticket summary
+
+No new Sippy calls.
+
+Everything derives from:
+
+existing CDR slice
+alerts table
+portal tickets
+entity verdict history
+Frontend
+
+New client portal tab:
+
+Reports / SLA
+
+Sections:
+
+Executive Summary
+Quality Trends
+Incident History
+Destination Summary
+Support Performance
+Export Buttons
+Why this matters commercially
+
+This is the point where the platform stops looking like:
+
+an internal VoIP tool
+
+and starts looking like:
+
+an enterprise telecom service platform
+
+Because enterprise customers care less about:
+
+routing logic
+SIP engineering
+
+and more about:
+
+reliability
+accountability
+responsiveness
+measurable service quality
+
+SLA reporting is how you present that story.

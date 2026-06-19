@@ -1,0 +1,369 @@
+Your direction is correct.
+
+At your current scale, the platform should stop behaving like:
+
+one giant admin panel
+
+and evolve into:
+
+multiple operational workspaces
+
+The screenshot confirms the current issue:
+
+Finance items mixed into Platform,
+Long vertical menus,
+Too many unrelated tools visible together,
+Operators mentally overloaded,
+Navigation optimized for developers instead of departments.
+
+The structure you shared already looks cleaner and more professional than the old long-list Navigation Manager. The next step is not “more menus” — it is:
+
+Workspace-based enterprise UX.
+Current Navigation Style (What You Have)
+
+Current architecture:
+
+Top Menu
+   ↓
+Global Sidebar
+   ↓
+All modules visible
+
+Problem:
+every user sees:
+
+finance,
+operations,
+AI,
+partner,
+security,
+disputes,
+platform settings,
+routing,
+billing,
+notifications,
+
+all together.
+
+This does not scale operationally.
+
+Recommended Enterprise Navigation Architecture
+Final Navigation Hierarchy
+Workspace (Portal)
+    ↓
+Top Domain Navigation
+    ↓
+Context Sidebar
+    ↓
+Module Pages
+
+This is how enterprise systems like:
+
+Salesforce,
+ServiceNow,
+Cisco BroadWorks,
+Genesys,
+AWS Console,
+Azure,
+HubSpot Enterprise
+
+are structured.
+
+Recommended Workspaces / Portals
+1. NOC Portal
+
+For operations teams.
+
+Top Menu
+Monitoring
+Routing
+Alerts
+QoS
+Troubleshooting
+AI Ops
+Sidebar
+
+Only operational tools:
+
+Live Calls
+SIP Trace
+RTP Analysis
+QoS Heatmap
+Carrier Status
+Route Degradation
+NOC Command
+Fraud Alerts
+Hidden
+invoices,
+disputes,
+collections,
+credit notes,
+settlement,
+admin settings.
+2. Finance Portal
+
+For finance/billing teams.
+
+Top Menu
+Billing
+Reconciliation
+Collections
+Revenue
+Reports
+Governance
+Sidebar
+
+Only finance:
+
+Invoices
+Invoice Queue
+Credit Notes
+DMR
+Carrier Reconciliation
+Client Reconciliation
+Margin Intelligence
+AI Assurance
+Adjustment Ledger
+Executive Reports
+Hidden
+SIP tracing,
+routing,
+QoS,
+NOC tools.
+3. KAM Portal
+
+For account managers.
+
+Top Menu
+Accounts
+Traffic
+Clients
+Reports
+Notifications
+Sidebar
+Client Accounts
+Traffic Trends
+Balance Alerts
+ASR/ACD
+Sent Rates
+Notifications
+Account Health
+Client Reports
+Hidden
+finance internals,
+routing,
+security,
+system administration.
+4. Client Portal
+
+Already partially implemented.
+
+Should remain:
+
+clean,
+read-only,
+minimal.
+Sidebar
+Dashboard
+Usage
+Traffic
+Invoices
+Disputes
+Support
+Downloads
+5. Partner Portal
+
+More advanced than client portal.
+
+Sidebar
+Shared Traffic
+Rate Cards
+Settlement
+Margin View
+Reports
+Notifications
+6. Admin / Platform Portal
+
+Very limited users.
+
+Sidebar
+Platform Settings
+Navigation Manager
+Feature Flags
+Access Control
+Audit Logs
+API Keys
+VPN
+Background Jobs
+MOST IMPORTANT CHANGE
+Sidebar should become contextual
+
+Meaning:
+
+When inside:
+
+Finance Portal
+
+the sidebar ONLY shows finance items.
+
+NOT:
+
+NOC,
+routing,
+QoS,
+troubleshooting,
+platform admin.
+
+This is the biggest UX improvement possible right now.
+
+Recommended Top Menu Style
+
+Instead of:
+
+flat tabs
+
+Use:
+
+segmented mega navigation.
+
+Example:
+
+[ Finance ]
+      ↓
+ Billing
+ Reconciliation
+ Collections
+ Reports
+ AI Assurance
+
+This prevents:
+
+overcrowding,
+giant sidebars,
+menu fatigue.
+Strong Recommendation
+Add Workspace Switcher
+
+Top-right:
+
+[NOC ▼]
+
+Click:
+
+NOC Portal
+Finance Portal
+KAM Portal
+Partner Portal
+Admin Portal
+
+This becomes:
+
+the primary navigation layer.
+Recommended Technical Architecture
+Best Approach
+
+Use:
+
+portalMode context
+
+NOT separate apps.
+
+Meaning:
+
+one codebase,
+one router,
+one auth,
+different shells/layouts.
+
+Example:
+
+<PortalShell portal="finance">
+
+loads:
+
+finance sidebar,
+finance dashboard,
+finance permissions,
+finance widgets.
+Navigation Structure Recommendation
+Current
+Top Menu
+   ↓
+100 modules
+Recommended
+Portal
+   ↓
+5-7 top domains
+   ↓
+10-15 contextual sidebar items max
+
+This is critical.
+
+Another Important Recommendation
+Role-based dashboards
+
+Do NOT reuse dashboard for all users.
+
+Each portal should land on:
+its own operational cockpit.
+
+Example:
+
+Finance Dashboard
+overdue invoices,
+revenue trend,
+reconciliation drift,
+margin alerts.
+NOC Dashboard
+active calls,
+carrier degradation,
+ASR drops,
+live alerts.
+KAM Dashboard
+client health,
+traffic growth,
+balance risk,
+disputes.
+
+This massively improves usability.
+
+Best Immediate UX Roadmap
+Phase 1
+
+Navigation cleanup
+
+remove duplicated menu items,
+reduce sidebar length,
+domain grouping,
+finance separation.
+Phase 2
+
+Workspace switcher
+
+NOC,
+Finance,
+KAM,
+Admin.
+Phase 3
+
+Portal-specific sidebars + dashboards.
+
+Phase 4
+
+Permission-aware widgets/components.
+
+Most Important Architectural Principle
+
+You should now think in:
+
+operational domains
+
+NOT:
+
+pages/features
+
+Because the platform is now:
+
+a telecom operating system
+
+not a VoIP admin UI anymore.

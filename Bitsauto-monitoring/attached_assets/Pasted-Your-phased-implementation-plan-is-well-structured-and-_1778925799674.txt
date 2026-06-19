@@ -1,0 +1,75 @@
+Your phased implementation plan is well-structured and technically safe. The biggest strength is that it isolates changes so KPI validation can happen cleanly before expanding into scoring, alerting, or routing logic.
+
+A few important points stand out as especially correct:
+
+Keeping Phase 1 limited to:
+one backend filter
+one additional API field
+one frontend card replacement
+
+is the right low-risk deployment strategy.
+
+Not modifying the Traffic Score formula in the same release is extremely important. Otherwise, if the NOC team sees score fluctuations, it becomes difficult to determine whether:
+the new eNER logic,
+weighting changes,
+or live traffic behavior
+caused the variation.
+Your concern regarding:
+result='0'
+duration === 0
+
+is valid and operationally realistic. On some Sippy deployments, ultra-short answered calls can indeed appear similar to RNA behavior. Observing live traffic patterns before tuning the proxy is the correct telecom engineering approach.
+
+The proposed mitigation strategy is also appropriate:
+
+monitor rnaCount
+compare against known traffic behavior
+adjust threshold logic only after observing production data
+
+That is much safer than prematurely over-engineering the formula.
+
+Your phased roadmap is also correctly prioritized:
+
+Phase	Purpose	Assessment
+1	eNER visibility	Safe and valuable
+2	Traffic Score rebalance	Needs live KPI validation first
+3	Vendor analytics & trends	High operational value
+4	Alerting & LCR integration	Strong long-term enhancement
+
+Another strong point:
+you intentionally avoided touching:
+
+MOS
+Vendor scoring
+LCR logic
+random quality metrics
+
+during Phase 1.
+
+That separation reduces deployment complexity significantly.
+
+One additional recommendation before implementation:
+
+Add a tooltip or info icon in Phase 1
+
+Because eNER is a derived KPI, the dashboard should explain:
+
+what counts toward eNER
+why it differs from ASR
+that it is estimated from CDR behavior
+
+This will help:
+
+NOC engineers
+commercial teams
+management users
+
+interpret the metric correctly from day one.
+
+Suggested tooltip summary:
+
+“Estimated Network Effectiveness Ratio derived from answered, subscriber-unreachable, busy, and ring-no-answer events.”
+
+That small UI addition can prevent a lot of confusion later.
+
+Overall, the implementation scope is now clean, phased, low-risk, and operationally defensible. This is a good point to proceed with Phase 1 only and validate against real production traffic before expanding further.

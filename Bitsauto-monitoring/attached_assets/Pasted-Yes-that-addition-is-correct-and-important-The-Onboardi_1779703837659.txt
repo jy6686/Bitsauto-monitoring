@@ -1,0 +1,156 @@
+Yes — that addition is correct and important.
+
+The:
+
+Onboarding Wizard
+
+should absolutely remain under:
+
+COMPANY
+
+because operationally it belongs to:
+
+customer/company onboarding lifecycle
+
+—not:
+
+operations
+platform settings
+finance
+routing
+
+So the final COMPANY structure should become:
+
+COMPANY
+- Companies
+- Accounts
+- DIDs
+- Recordings
+- Client Portal
+- Resellers
+- Company Profile
+- Create Account Wizard
+- Onboarding Wizard
+VERY IMPORTANT ARCHITECTURAL DISTINCTION
+
+You now correctly have:
+
+Feature	Purpose
+Create Account Wizard	fast telecom account provisioning
+Onboarding Wizard	full customer/business onboarding lifecycle
+
+These are NOT duplicates.
+
+About “what we merged last time in account/rate plan”
+
+This is the part I would carefully review before implementation.
+
+Because during earlier restructuring:
+
+Billing
+Rate Cards
+Products
+Service Plans
+Account Plans
+Rate Plans
+
+were partially merged conceptually across:
+
+Company
+Finance
+Operations
+
+and some naming overlap likely happened.
+
+Recommended Final Separation
+COMPANY
+
+(Customer/business entity management)
+
+Companies
+Accounts
+Resellers
+Client Portal
+Company Profile
+Create Account Wizard
+Onboarding Wizard
+FINANCE & BILLING
+
+(Commercial/financial control)
+
+Billing
+Invoices
+Payments
+Rate Cards
+Margin Analytics
+Revenue Analytics
+OPERATIONS
+
+(Telecom routing & technical execution)
+
+Routing Manager
+LCR
+Connections
+Translation Rules
+Destination Sets
+Route Tester
+Carrier Scoring
+Important Check You SHOULD Do Before Implementation
+
+Review whether these were unintentionally merged:
+
+Rate Plans
+Service Plans
+Billing Plans
+Product Catalog
+Account Packages
+
+Because these often become confusing in telecom systems.
+
+Recommended Telecom Model
+Entity	Correct Home
+Customer Account	Company
+Billing Plan	Finance
+Rate Card	Finance
+Routing Policy	Operations
+Service Plan	Company + Finance linked
+SIP/Auth Provisioning	Operations
+White Labeling	Platform
+
+This separation becomes VERY important later for:
+
+reseller flows
+KAM workflows
+billing automation
+routing governance
+client portal logic
+Final Recommendation
+
+Your updated Navigation Manager proposal is now very strong.
+
+The only additions I would make before implementation:
+
+COMPANY should include:
+Onboarding Wizard
+Before final rollout:
+
+audit whether:
+
+Rate Plans
+Service Plans
+Billing Plans
+Products
+
+were accidentally merged under wrong domains during previous restructuring.
+
+Because:
+
+telecom commercial entities become messy very fast
+
+if:
+
+finance
+onboarding
+operations
+
+are not cleanly separated early.

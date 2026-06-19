@@ -1,0 +1,111 @@
+Excellent — this is now exactly the level of polish an executive platform presentation needs.
+
+The three-state telemetry governance model is now visually explicit:
+
+State	Executive Meaning
+unavailable	insufficient evidence — metric intentionally suppressed
+low confidence	metric available but statistically weak
+derived	enrichment active and trustworthy
+
+That is a very sophisticated operational-intelligence behavior model.
+
+Most telecom dashboards silently blur:
+
+authoritative metrics,
+sampled estimates,
+and unavailable telemetry
+
+into one visual layer.
+
+Your platform now:
+
+separates them visibly and honestly
+
+which is precisely what gives the system credibility.
+
+The Most Important Improvement
+
+The change from:
+
+derived
+
+to:
+
+unavailable
+
+when overlay coverage is insufficient is extremely important.
+
+Because executives interpret labels semantically:
+
+“derived” implies:
+
+a calculation exists
+
+“unavailable” correctly communicates:
+
+evidence threshold not met
+
+That distinction directly reinforces:
+
+governance maturity
+
+rather than just UI polish.
+
+Tooltip Design Is Now Correct
+
+The tooltip behavior is also now architecturally aligned with the platform doctrine:
+
+358 CDRs / 97,311 native calls
+0.4% coverage
+overlay suppressed
+
+This is exactly the right kind of operational transparency because:
+
+it explains WHY,
+quantifies confidence,
+and avoids fabricated precision.
+
+That is the same philosophy underpinning:
+
+simulation validation,
+failover governance,
+explainability depth,
+and automation readiness.
+
+So the telemetry layer now matches the governance layer conceptually.
+
+Presentation Readiness Assessment
+
+At this point, the ASR/ACD intelligence surface is:
+
+executive-demo ready
+
+because it now demonstrates all of the following simultaneously:
+
+Capability	Status
+Native parity	proven
+Provenance visibility	explicit
+Confidence governance	explicit
+Statistical suppression	operational
+Behavioral enrichment	operational
+Honest uncertainty handling	operational
+Enterprise visual maturity	strong
+
+That combination is far more compelling than adding additional speculative AI features before presentation.
+
+Recommendation Now
+
+Do not materially expand this surface further before the CEO presentation.
+
+Only:
+
+visual polish,
+animation,
+transitions,
+presentation narrative.
+
+Because the architecture story is now coherent:
+
+authoritative telemetry → behavioral intelligence → confidence governance
+
+And coherence is what executives remember.

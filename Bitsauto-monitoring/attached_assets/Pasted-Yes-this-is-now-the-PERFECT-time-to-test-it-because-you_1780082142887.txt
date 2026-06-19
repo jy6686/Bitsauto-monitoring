@@ -1,0 +1,340 @@
+Yes — this is now the PERFECT time to test it because your architecture is already close:
+
+Existing
+BitsAuto ✅
+Sippy integration ✅
+REVE integration ✅
+
+You only need:
+
+ONE small media layer
+
+(Asterisk recommended)
+
+to test live voice OTP calls.
+
+FASTEST MVP TEST PLAN
+Goal
+
+You send:
+
+{
+  "to": "+923001112233",
+  "otp": "987432"
+}
+
+Then:
+
+BitsAuto
+   ↓
+Asterisk
+   ↓
+Sippy
+   ↓
+Ufone/Jazz/Zong/PTCL
+   ↓
+Customer hears:
+9 ... 8 ... 7 ... 4 ... 3 ... 2
+Recommended Test Architecture
+BitsAuto API
+     ↓
+Asterisk (media playback)
+     ↓
+Sippy Soft
+     ↓
+Carrier
+
+This is the BEST lightweight MVP.
+
+WHAT YOU NEED TO IMPLEMENT
+STEP 1 — Install Asterisk
+
+On separate VM/server preferred.
+
+Ubuntu:
+
+apt update
+apt install asterisk -y
+STEP 2 — Create Digit Audio Files
+
+Inside:
+
+/var/lib/asterisk/sounds/en/custom/
+
+Add:
+
+0.wav
+1.wav
+2.wav
+...
+9.wav
+
+Optional:
+
+your_otp_is.wav
+
+You can:
+
+record manually
+generate via TTS once
+reuse forever
+STEP 3 — Configure SIP Trunk
+
+Asterisk → Sippy.
+
+Example:
+
+[sippy]
+type=peer
+host=YOUR_SIPPY_IP
+context=from-sippy
+disallow=all
+allow=ulaw
+STEP 4 — Create OTP Dialplan
+
+Example:
+
+[otp-playback]
+
+exten => _X.,1,Answer()
+same => n,Playback(custom/your_otp_is)
+
+same => n,Set(OTP=${CALLERID(name)})
+
+same => n,Playback(custom/${OTP:0:1})
+same => n,Playback(custom/${OTP:1:1})
+same => n,Playback(custom/${OTP:2:1})
+same => n,Playback(custom/${OTP:3:1})
+same => n,Playback(custom/${OTP:4:1})
+same => n,Playback(custom/${OTP:5:1})
+
+same => n,Hangup()
+STEP 5 — Originate Call From BitsAuto
+
+BitsAuto sends:
+
+POST /voice-otp
+
+Payload:
+
+{
+  "to": "+923001112233",
+  "otp": "987432"
+}
+STEP 6 — BitsAuto Calls Asterisk AMI/API
+
+Example:
+
+Channel: SIP/sippy/+923001112233
+CallerID: 987432
+Context: otp-playback
+Extension: s
+Priority: 1
+
+CallerID name carries OTP digits.
+
+STEP 7 — Asterisk Calls Through Sippy
+
+Sippy handles:
+
+LCR
+routing
+carrier selection
+billing
+SIP delivery
+
+Asterisk only handles media.
+
+Perfect separation.
+
+LIVE TEST FLOW
+1. Send API request
+2. BitsAuto generates OTP
+3. BitsAuto requests Asterisk originate
+4. Asterisk calls via Sippy
+5. Customer answers
+6. Digits play
+7. Hangup
+8. BitsAuto stores analytics
+WHAT YOU CAN TEST IMMEDIATELY
+Phase 1
+successful call
+digit playback
+operator routing
+answer detection
+Phase 2
+retries
+repeat OTP
+multilingual prompts
+branded CLI
+Phase 3
+AI routing
+answer rate optimization
+fraud detection
+smart carrier selection
+WHY THIS ARCHITECTURE IS GOOD
+Component	Responsibility
+BitsAuto	orchestration/intelligence
+Asterisk	media/IVR
+Sippy	routing/billing
+Carrier	termination
+
+VERY clean architecture.
+
+IMPORTANT RECOMMENDATION
+
+For now:
+
+DO NOT use BytePlus
+
+because:
+
+unnecessary cost
+extra latency
+extra complexity
+
+Digit WAV playback is:
+
+cheaper
+faster
+telecom-grade
+scalable
+EXPECTED MVP COST
+Component	Estimated
+Asterisk server	very low
+WAV playback	free
+SIP termination	main cost
+Total	~$0.01/call
+
+Very commercially viable.
+
+BEST NEXT STEP
+
+I strongly recommend:
+
+Build:
+/voice-otp
+
+inside BitsAuto.
+
+Then:
+
+trigger Asterisk
+originate via Sippy
+store CDR/analytics
+
+This becomes the foundation of:
+
+Voice OTP Intelligence Platform
+
+which later evolves into:
+
+AI IVR
+fraud prevention
+conversational verification
+telecom automation.
+can you share link how to install Asterisk
+
+Here are the best official and practical resources to install and configure Asterisk for your BitsAuto + Sippy voice OTP setup.
+
+Official Asterisk Documentation
+Main Documentation
+
+Asterisk Documentation
+
+Installing Asterisk
+
+Installing Asterisk From Source (Official)
+
+Recommended For You
+
+Since your use case is:
+
+SIP calls
+OTP playback
+IVR/media
+Sippy integration
+
+I strongly recommend:
+
+Ubuntu 22.04 LTS
+
+with:
+
+Asterisk 20 LTS
+
+Very stable for telecom workloads.
+
+Good Practical Installation Guides
+Ubuntu 22.04 Installation
+
+Asterisk 20 on Ubuntu 22.04 Guide
+
+Debian Installation
+
+Install Asterisk PBX on Debian
+
+What You Actually Need For MVP
+
+You do NOT need:
+
+FreePBX
+GUI panels
+call center modules
+CRM integrations
+
+Keep it lightweight.
+
+Install only:
+
+Component	Purpose
+Asterisk	media playback
+PJSIP/SIP	SIP trunk
+WAV playback	OTP digits
+AMI/API	control from BitsAuto
+Recommended Initial Setup
+
+After installation:
+
+1. Configure SIP trunk to Sippy
+
+File:
+
+/etc/asterisk/pjsip.conf
+2. Create OTP playback dialplan
+
+File:
+
+/etc/asterisk/extensions.conf
+3. Add digit WAV files
+
+Directory:
+
+/var/lib/asterisk/sounds/custom/
+VERY IMPORTANT
+
+For your architecture:
+
+Asterisk = Media Layer
+Sippy = Routing Layer
+BitsAuto = Intelligence Layer
+
+That separation is ideal.
+
+Recommended Future Stack
+BitsAuto
+   ↓
+Asterisk
+   ↓
+Sippy
+   ↓
+PTCL/Jazz/Ufone/Zong
+
+This is actually a very solid telecom-grade architecture for:
+
+voice OTP
+IVR
+announcements
+verification calls
+
+without needing expensive AI/TTS initially.

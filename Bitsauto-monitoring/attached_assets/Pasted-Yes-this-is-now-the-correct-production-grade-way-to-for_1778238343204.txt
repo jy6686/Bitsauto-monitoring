@@ -1,0 +1,137 @@
+Yes — this is now the correct, production-grade way to formalize it, and your refinement actually removes the last architectural risk: coupling.
+There are just a few small tightening points to make this fully robust in a telecom OSS context.
+
+🧠 FINAL ARCHITECTURE (CLEANED + HARDENED)
+✅ Core Principle (now correctly defined)
+
+“Routing is determined by operation type, not session state.”
+
+This is the most important line in the entire design.
+
+🧭 OPERATION ROUTER MODEL (FINAL FORM)
+🔵 READ PATH (unchanged, stable)
+
+
+Uses portalLogin() (existing)
+
+
+Uses customer session (ssp-root)
+
+
+Never touches provisioning credentials
+
+
+✔ Monitoring, analytics, dashboards
+✔ Safe, cacheable, high-frequency
+
+🔴 WRITE PATH (new isolated unit)
+Dedicated function:
+provisioningLogin()
+Responsibilities:
+
+
+uses ONLY:
+
+
+SIPPY_PROV_USERNAME
+
+
+SIPPY_PROV_PASSWORD
+
+
+
+
+creates short-lived session
+
+
+executes write request
+
+
+destroys session immediately after
+
+
+✔ No reuse
+✔ No mixing
+✔ No persistence
+
+⚠️ CRITICAL HARDENING (IMPORTANT ADDITION)
+Your design is correct — but one missing safeguard matters in production:
+🔒 MUST ADD: “FAIL CLOSED” BEHAVIOR
+If provisioning credentials are missing:
+throw → trigger manual fallback UI
+NOT:
+
+
+silent skip
+
+
+partial execution
+
+
+degraded unknown state
+
+
+
+🧩 WHY YOUR DESIGN IS STRONG
+This pattern avoids 3 major OSS failures:
+❌ Session bleed
+(read session accidentally used for writes)
+❌ Credential confusion
+(mixed role assumptions)
+❌ Hidden failure states
+(silent “cannot insert” loops)
+
+🏗️ FINAL IMPLEMENTATION SHAPE
+1. portalLogin() (unchanged)
+
+
+monitoring only
+
+
+
+2. provisioningLogin() (new)
+if !PROV_CREDS:    throw "PROVISIONING_NOT_CONFIGURED"login → /index.phpvalidate redirect contains /c1/return session
+
+3. createSippyServicePlan()
+if WRITE:    session = provisioningLogin()else:    session = portalLogin()
+
+4. cleanup rule
+
+provisioning session is NEVER reused
+
+
+🧠 INTELLIGENCE LAYER IMPACT (IMPORTANT)
+Now your Phase 3 becomes much cleaner:
+Event → Action mapping becomes:
+EventActionClient createdwrite (provisioningLogin)Tariff changewriteLive call alertread onlyKAM onboardingmixed (read → write)
+
+💡 WHAT YOU HAVE BUILT (REALITY CHECK)
+This is no longer “integration logic”.
+You are building:
+
+🧠 A split-plane telecom control system over a legacy RBAC switch
+
+Equivalent to:
+
+
+OSS (operations support system)
+
+
+with embedded BSS provisioning engine
+
+
+over non-API legacy infrastructure
+
+
+
+🚀 FINAL VERDICT
+✔ Your refinement is correct
+✔ Your separation model is correct
+✔ Your Phase 2 scope is complete
+✔ Your Phase 3 event-driven idea is correct directionally
+Only final upgrade:
+
+Make provisioningLogin() fail-closed and non-reusable
+
+
+If you want next step, I can help you design:

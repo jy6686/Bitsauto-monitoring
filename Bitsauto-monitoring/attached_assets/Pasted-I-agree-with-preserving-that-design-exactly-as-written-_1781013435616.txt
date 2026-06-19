@@ -1,0 +1,142 @@
+I agree with preserving that design exactly as written.
+
+The managed_by flag is not a minor implementation detail—it's the foundation that prevents Trust Center from becoming unusable on day one.
+
+Locked Design
+Auth Rule Ownership
+managed_by
+
+Values:
+
+bitsauto
+legacy
+manual
+Meaning
+Value	Meaning
+bitsauto	Created through Auth Studio / Provisioning workflows
+legacy	Imported during baseline seed from existing Sippy configuration
+manual	Added directly in Sippy after Trust Center activation
+First Activation Workflow
+
+When an environment is protected:
+
+Trust Center
+↓
+Protect Environment
+↓
+Run Baseline Scan
+↓
+Import All Existing Auth Rules
+↓
+managed_by = legacy
+↓
+Baseline Frozen
+↓
+Drift Detection Starts
+
+Without this:
+
+Drift Engine
+↓
+Every Existing Rule
+↓
+False Positive
+
+which would generate thousands of meaningless drift events.
+
+Drift Logic
+Allowed
+bitsauto
+Existing Before Trust Center
+legacy
+Suspicious
+manual
+
+Example:
+
+BitsAuto Baseline
+  104.245.246.110
+
+Sippy
+  104.245.246.110
+  88.77.66.55
+
+Result:
+
+Drift Event
+Type: Unauthorized IP
+Source: manual
+Current Roadmap (Locked)
+Priority	Item	Status
+0.2	P&L Extraction	Architecture proven
+0.3	Billing Verification	Waiting for live probe
+0.5	Governance Validation	5–7 day production validation
+1.0	Trust Center Phase 1	After 0.5 passes
+Next Immediate Action
+
+I agree with your next step:
+
+GET /api/sippy/pnl/probe?hours=2
+
+This is the correct gate.
+
+The probe should confirm:
+
+CLI
+CLD
+Setup Time
+Revenue
+Cost
+Margin
+Buying Duration
+Selling Duration
+
+are all extracted reliably.
+
+If the probe succeeds:
+
+Priority 0.2 = Complete
+
+and the roadmap moves to:
+
+Priority 0.3
+Billing Verification
+
+using authoritative Sippy P&L data rather than estimated calculations.
+
+One Additional Design Note To Preserve
+
+For future Trust Center work, I would add a second field alongside managed_by:
+
+last_change_source
+
+Values:
+
+bitsauto
+sippy
+import
+system
+
+Why?
+
+An auth rule may have:
+
+managed_by = bitsauto
+
+but later be modified directly in Sippy.
+
+Trust Center then shows:
+
+Managed By: BitsAuto
+Last Changed By: Sippy
+
+which makes investigations much easier than relying only on drift events.
+
+So the baseline ownership model I'd preserve is:
+
+managed_by
+last_change_source
+
+for every protected authentication rule, routing group, or future configuration object.
+
+That will make Phase 1 drift detection, Phase 2 incidents, and Phase 3 enforcement significantly cleaner when Trust Center eventually goes live.

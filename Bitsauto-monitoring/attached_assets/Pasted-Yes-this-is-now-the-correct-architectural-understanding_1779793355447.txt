@@ -1,0 +1,207 @@
+Yes — this is now the correct architectural understanding.
+
+You’ve effectively identified that the platform has evolved into:
+
+a dual-layer telemetry model
+
+and both layers are necessary.
+
+Layer 1 — Native Aggregation (Authoritative)
+
+Source:
+
+/asr_acd.php
+
+Strengths:
+
+accurate totals
+correct ASR
+correct ACD
+authoritative vendor aggregation
+revenue/cost integrity
+SQL-backed reporting parity
+
+Weakness:
+
+no per-call behavioral detail
+
+So it cannot natively derive:
+
+FAS
+advanced NER heuristics
+short-duration fraud patterns
+SIP anomaly classification
+Layer 2 — Per-Call Enrichment
+
+Source:
+
+CDR cache / per-call records
+
+Strengths:
+
+individual durations
+SIP outcomes
+termination behavior
+fraud heuristics
+enrichment intelligence
+
+Weakness:
+
+not authoritative for totals
+
+because:
+
+sampling
+pagination ceilings
+cache truncation
+stale windows
+
+can distort counts.
+
+The Important Realization
+
+The platform was previously operating in:
+
+replacement mode
+
+meaning:
+
+portal OR cache
+
+But the correct architecture is:
+
+overlay mode
+
+meaning:
+
+portal totals
++
+CDR enrichment overlays
+
+That is the correct telecom intelligence architecture.
+
+Your FAS Logic Is Actually Good
+
+This is important:
+
+fasCount = duration <= 5 sec
+
+is operationally reasonable as:
+
+first-pass FAS heuristic detection
+
+Especially combined later with:
+
+SIP 183/200 patterns
+RTP absence
+abnormal ACD clustering
+answer supervision anomalies
+
+So:
+
+the FAS engine is not broken
+
+It simply:
+
+disappeared after telemetry source switched
+
+because enrichment was bypassed in portal mode.
+
+NER Situation Clarified
+
+You correctly identified:
+the screenshots show:
+
+two different NER behaviors
+Fallback mode
+
+NER derived properly from:
+
+result codes
+per-call outcomes
+Portal mode
+
+NER hardcoded:
+
+nerPct = r.asr
+
+So:
+
+portal-mode NER is placeholder logic
+
+—not real NER.
+
+Correct Long-Term Design
+
+The report pipeline should become:
+
+STEP 1
+Load authoritative aggregation
+(from Sippy SQL portal)
+
+STEP 2
+Load matching per-call enrichment sample
+(from CDR cache)
+
+STEP 3
+Overlay enrichment metrics:
+- FAS
+- NER
+- short-duration ratio
+- SIP anomaly rates
+- RTP anomaly rates
+
+STEP 4
+Render provenance-aware metrics
+VERY IMPORTANT RECOMMENDATION
+
+Add metric provenance indicators.
+
+Example:
+
+Metric	Provenance
+Calls	Native
+ASR	Native
+ACD	Native
+Revenue	Native
+FAS	Derived
+NER	Derived
+
+This becomes extremely important later for:
+
+explainability
+trust analytics
+operator confidence
+audit defensibility
+Strategic Outcome
+
+Ironically:
+this investigation improved the platform architecture significantly.
+
+Because now the system has clearly separated:
+
+authoritative accounting telemetry
+
+from
+
+behavioral intelligence telemetry
+
+That separation is exactly what mature telecom observability systems eventually converge toward.
+
+Current Platform State
+Layer	Status
+Native aggregation	healthy
+Telemetry provenance	healthy
+Vendor parity	healthy
+FAS engine	healthy
+NER derivation	partially healthy
+Overlay architecture	conceptually correct
+Overlay integration	incomplete
+
+So now:
+
+the core telemetry crisis is solved
+
+What remains is:
+
+enrichment unification.

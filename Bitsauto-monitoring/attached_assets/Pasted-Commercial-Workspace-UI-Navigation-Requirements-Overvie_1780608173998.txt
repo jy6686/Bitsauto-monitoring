@@ -1,0 +1,301 @@
+Commercial Workspace UI & Navigation Requirements
+
+Overview
+
+All newly developed commercial features should be organized into dedicated workspace modules rather than being added as individual top-level menu items or dropdown menus.
+
+The objective is to create a clean, scalable, and business-focused user experience where each department operates from its own workspace.
+
+⸻
+
+Voice Trading Workspace
+
+A dedicated top-level menu should be created:
+
+Voice Trading
+
+When users click on Voice Trading, they should enter a dedicated commercial workspace containing tab-based navigation.
+
+The Voice Trading workspace should be fully commercial-focused and separate from routing, NOC, and technical operations.
+
+⸻
+
+Voice Trading Dashboard (Default Tab)
+
+The landing page should display:
+
+Commercial Metrics
+
+* Revenue
+* Cost
+* Margin
+* Minutes
+* ASR
+* ACD
+
+Live Trading Information
+
+* Current Vendor Rates
+* Customer Rates
+* Active Routes
+* Route Names
+* Top Destinations
+* Rate Change Alerts
+* Vendor Notifications
+
+Trading Windows
+
+* Pending Deals
+* Pending Rate Approvals
+* Vendor Increases
+* Customer Notifications Due
+* Margin Risk Alerts
+
+⸻
+
+Trading Authorization & Approval Workflow
+
+Traders should only be able to offer rates within approved margin limits.
+
+Standard Workflow
+
+The Trading Manager or Department Head defines:
+
+* Minimum Margin
+* Allowed Discount Range
+* Product Pricing Rules
+
+The system automatically calculates:
+
+* Cost
+* Suggested Sell Rate
+* Minimum Allowed Rate
+* Margin %
+
+Aggressive Pricing Requests
+
+If a trader wants to offer a rate below the approved margin threshold:
+
+* Submit Approval Request
+* Manager receives notification
+* Manager reviews request
+* Manager approves or rejects
+
+Only approved requests can be offered to customers.
+
+⸻
+
+Rate Management Workspace
+
+A separate commercial workspace should be created for rate operations.
+
+Main Menu
+
+Rates
+
+or
+
+Rate Management
+
+or
+
+Pricing Management
+
+⸻
+
+Tab 1 – Rate Dashboard
+
+Displays:
+
+* Vendor Rate Changes
+* Customer Rate Changes
+* Pending Notifications
+* Product-Based Pricing Summary
+* Margin Analysis
+* Recent Updates
+
+⸻
+
+Tab 2 – Rate Editor
+
+Used for viewing and editing pricing.
+
+Features:
+
+* Search Destination
+* Search Product
+* Search Customer
+* Compare Current vs Previous Rates
+* Compare Vendor vs Customer Rates
+
+Rate Editor Limitations
+
+The Rate Editor should support:
+
+* Single Destination Rate
+* Single Product Rate
+* Breakout Rate
+* Flat Rate
+
+It should not be used for mass customer distributions.
+
+⸻
+
+Tab 3 – Send Rates
+
+Used for customer rate distribution.
+
+Filters
+
+* Customer
+* Multiple Customers
+* Product
+* Active Customers
+* Inactive Customers
+* Dormant Customers
+* Region
+* Destination
+
+Features
+
+* Send rates to multiple customers simultaneously.
+* Send multiple destinations simultaneously.
+* Product-based rate sheet generation.
+* Email distribution.
+* Scheduled delivery.
+
+⸻
+
+Tab 4 – Rate Notifications
+
+A complete notification and audit center.
+
+Displays:
+
+* All sent rate sheets
+* Sender
+* Date & Time
+* Customer
+* Product
+* Status
+
+Status Examples
+
+* Draft
+* Pending Approval
+* Scheduled
+* Sent
+* Delivered
+* Opened
+* Failed
+
+⸻
+
+Tab 5 – Vendor Cost Impact Analysis
+
+Displays:
+
+* Vendor Rate Increase
+* Effective Date
+* Margin Impact
+* Affected Customers
+* Affected Products
+
+Automatically identifies customers requiring updates.
+
+⸻
+
+Tab 6 – 7-Day Notice Queue
+
+Displays:
+
+* Customers requiring notice
+* Destinations affected
+* Current Sell Rate
+* New Recommended Rate
+* Effective Date
+* Days Remaining
+
+This becomes the operational work queue for traders.
+
+⸻
+
+Tab 7 – Product Rate History
+
+Displays:
+
+Product
+
+* First Class
+* Business Class
+* Special Bravo
+* Special Charlie
+
+History
+
+* Previous Rates
+* Current Rates
+* Increase/Decrease Analysis
+* Effective Dates
+* Customer Pricing History
+
+⸻
+
+Tab 8 – Approval Center
+
+Displays:
+
+* Aggressive Pricing Requests
+* Margin Exception Requests
+* Manual Overrides
+* Approval History
+
+⸻
+
+Tab 9 – Reports & Analytics
+
+Reports include:
+
+* Revenue Analysis
+* Margin Analysis
+* Customer Pricing History
+* Vendor Rate History
+* Product Performance
+* Trader Activity
+
+⸻
+
+UI Design Standard
+
+All future commercial modules should follow the same structure.
+
+Instead of creating multiple top-level menus:
+
+Recommended Structure
+
+Voice Trading
+├── Dashboard
+├── Deals
+├── Route Board
+├── Notifications
+├── Reports
+
+Rate Management
+├── Dashboard
+├── Rate Editor
+├── Send Rates
+├── Notifications
+├── Vendor Impact Analysis
+├── 7-Day Notice Queue
+├── Product History
+├── Approvals
+├── Reports
+
+Customer Management
+├── Dashboard
+├── Customers
+├── Pricing
+├── Notifications
+├── Reports
+
+This approach keeps the platform organized, scalable, and easy to use while ensuring that all commercial functions remain grouped within dedicated workspaces rather than being scattered across multiple dropdown menus.

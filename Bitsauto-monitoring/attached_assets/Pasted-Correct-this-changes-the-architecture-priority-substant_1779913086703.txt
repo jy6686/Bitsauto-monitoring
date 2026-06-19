@@ -1,0 +1,322 @@
+Correct — this changes the architecture priority substantially.
+
+You identified a telecom-grade billing reality that many VoIP platforms get wrong:
+
+Rating logic must be deterministic before invoicing automation exists.
+
+The interval engine is not “finance UI.”
+It is part of the core telecom rating engine.
+
+Without interval-aware costing:
+
+invoice totals drift,
+reconciliation becomes unreliable,
+margin analytics lie,
+routing intelligence becomes distorted,
+and AI recommendations become dangerous.
+Revised Architecture Hierarchy
+Foundation Layer (must exist first)
+1. Rating & Interval Engine
+
+This becomes the canonical billing calculation layer.
+
+Responsibilities:
+
+interval rounding
+minimum duration
+increment stepping
+effective billed seconds
+effective CPM calculation
+sell/buy cost normalization
+
+Only AFTER this exists should:
+
+invoices,
+reconciliation,
+profitability,
+AI finance analytics
+
+be trusted.
+
+Correct Telecom Billing Formula
+
+The key logic is:
+
+billedSeconds =
+  initialInterval +
+  ceil(
+    max(0, duration - initialInterval)
+    / incrementInterval
+  ) * incrementInterval
+
+Example:
+
+Duration = 65s
+Interval = 60/60
+
+Result:
+
+120 billed seconds
+
+Example:
+
+Duration = 65s
+Interval = 60/1
+
+Result:
+
+65 billed seconds
+
+This directly affects:
+
+vendor cost
+client billing
+margin
+route ranking
+LCR decisions
+QoS profitability
+Most Important Insight
+
+BitsAuto currently treats:
+
+nominal_rate = effective_rate
+
+But in telecom:
+
+effective_rate ≠ nominal_rate
+
+because interval structure changes the actual realized CPM.
+
+This is extremely important for:
+
+short-duration traffic
+failed call patterns
+mobile routes
+scam traffic
+A-Z routing
+CLI rewrite traffic
+Strategic Architecture Improvement
+
+You should now introduce:
+
+Unified Telecom Rating Engine
+
+instead of directly relying on:
+
+Sippy rating assumptions
+imported vendor spreadsheets
+static CPM logic
+Recommended New Core Module
+rating-engine.service.ts
+
+This becomes one of the most critical backend services in the platform.
+
+Responsibilities:
+
+interval calculations
+duration normalization
+sell price calculation
+buy price calculation
+taxes
+surcharges
+currency normalization
+profitability calculations
+expected invoice totals
+reconciliation math
+Required Schema Additions
+Rate Table
+
+Add:
+
+interval_initial INTEGER DEFAULT 60
+interval_increment INTEGER DEFAULT 60
+minimum_duration INTEGER DEFAULT 0
+grace_seconds INTEGER DEFAULT 0
+billing_model VARCHAR
+Recommended Billing Models
+1/1
+6/6
+30/6
+60/1
+60/6
+60/60
+
+Later:
+
+dynamic intervals
+peak/offpeak
+destination overrides
+ANI-based billing
+QoS-adjusted pricing
+Critical Design Requirement
+Versioned Rating Snapshots
+
+This is VERY important.
+
+Never trust live rate tables for historical invoices.
+
+Store:
+
+rate_used
+interval_used
+currency_used
+tax_used
+
+inside:
+
+invoice_cdr_snapshots
+
+Otherwise:
+
+rate changes rewrite history
+disputes become impossible
+rerating breaks finance
+vendor reconciliation fails
+
+Enterprise telecom billing systems solve this with immutable rating snapshots.
+
+Routing Intelligence Impact
+
+This also upgrades your:
+
+AI Routing Recommendation Engine
+
+because now:
+
+route profitability
+
+can be calculated using:
+
+effective realized cost
+
+instead of:
+
+advertised CPM
+
+That is a major competitive advantage.
+
+Example
+
+Vendor A:
+
+Rate = $0.010
+Interval = 60/60
+
+Vendor B:
+
+Rate = $0.011
+Interval = 1/1
+
+Nominally:
+Vendor A looks cheaper.
+
+But with short-duration traffic:
+Vendor B may produce lower actual cost.
+
+This is where:
+
+telecom intelligence,
+routing optimization,
+and finance intelligence
+
+merge together.
+
+Correct Revised Roadmap
+Volume 2 — Telecom Rating Foundation
+Priority 1
+
+Interval-aware rating engine
+
+Priority 2
+
+Immutable rating snapshots
+
+Priority 3
+
+Vendor interval import validation
+
+Priority 4
+
+Effective CPM analytics
+
+Volume 2 — Finance Automation
+
+Only AFTER the above:
+
+automatic invoice dispatch
+invoice generation
+reconciliation
+profitability
+finance governance
+Recommended UI Additions
+Rate Card Editor
+
+Add:
+
+interval preset dropdown
+effective rate preview
+sample cost simulator
+
+Example:
+
+Call Duration: 65s
+Rate: $0.01
+Billing: 60/60
+Cost: $0.02
+
+This becomes extremely useful operationally.
+
+High-Value Future Capability
+
+Once interval-aware billing exists:
+
+You can build:
+
+Realized Margin Intelligence
+
+instead of:
+
+Theoretical Margin Intelligence
+
+Meaning:
+
+actual revenue after rounding
+actual vendor cost after intervals
+actual QoS profitability
+real destination profitability
+route efficiency scoring
+
+That is enterprise-grade telecom intelligence.
+
+Most Important Recommendation
+
+Do NOT let:
+
+invoices,
+routing AI,
+profitability analytics,
+reconciliation,
+or finance dashboards
+
+compute costs independently.
+
+Everything should consume:
+
+ONE centralized telecom rating engine
+
+Otherwise:
+
+invoices differ from routing math,
+reconciliation differs from analytics,
+AI recommendations become inconsistent,
+and finance loses trust in the platform.
+
+The rating engine should become the single source of truth across:
+
+routing
+billing
+reconciliation
+finance
+AI ops
+revenue analytics
+profitability intelligence.

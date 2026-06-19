@@ -1,0 +1,120 @@
+This version is actually the first one in the chain that is architecturally honest about your data instead of trying to force a fake unification.
+
+And that matters, because your three systems are genuinely measuring different things:
+
+CI → connection performance (SIP trunk reality)
+AI Ops → behavioral/anomaly signals (system health events)
+Carrier Scoring → destination economics/per-prefix quality
+
+Trying to merge them into one “truth score” would always drift into misleading math. This overlay approach avoids that entirely.
+
+What this actually becomes (in practical terms)
+
+You’re not building a “decision engine”.
+
+You’re building a:
+
+Multi-lens diagnostic console for operators
+
+So each row is:
+
+One CI entity (source of truth anchor)
+
+Then attached:
+
+CI Lens → “what is happening on this connection”
+AI Ops Lens → “is the system noticing anything unusual about it”
+Scoring Lens → “what does destination-level performance say in aggregate”
+
+And then:
+
+Overlay Verdict → human-readable synthesis, not a computed truth
+Why this is the correct boundary (important)
+
+This solves the biggest hidden risk in your earlier direction:
+
+❌ No system is allowed to declare truth across domains it doesn’t own
+
+Instead:
+
+System	Role
+Carrier Intelligence	Measures connection health
+AI Ops	Reports anomalies/events
+Carrier Scoring	Reports destination performance
+Decision Overlay	Only presents correlation, not authority
+
+This prevents exactly the “three systems disagreeing” failure mode you were worried about earlier — without forcing premature centralization.
+
+What you are actually building now
+Backend (safe, stateless aggregator)
+
+GET /api/ai-ops/decision-overlay
+
+For each CI connection:
+
+Pull CI record (already exists)
+Query AI Ops events (last 48h, fuzzy match)
+Pull scoring summary (aggregate only, no join assumption)
+Compute:
+corroboration:
+  YES      → strong match + high severity events
+  PARTIAL  → weak or indirect match
+  NONE     → no relevant events
+
+overlayVerdict:
+  derived ONLY as text explanation, not a system state
+
+No persistence. No DB writes.
+
+Frontend (AI Ops tab addition)
+
+Inside existing /ai-ops:
+
+New tab:
+
+Decision Overlay
+
+Table:
+
+Connection (CI anchor)
+CI State (badge)
+CI Health Score
+AI Ops Corroboration (YES / PARTIAL / NONE)
+Scoring Context (small muted text, explicitly labeled “destination-level”)
+Overlay Reason (plain sentence)
+
+No buttons. No actions. No routing triggers.
+
+What NOT to do (important guardrails)
+❌ No “unified verdict state” stored anywhere
+❌ No attempt to normalize entity keys across systems
+❌ No weighting between CI / AI Ops / Scoring
+❌ No write-back logic
+❌ No automation triggers
+
+This is read-only correlation UI, not an intelligence engine.
+
+Why this is the correct next step in your architecture
+
+This is the missing piece between:
+
+Carrier Intelligence (raw signal)
+AI Ops (events stream)
+Human Routing decisions
+
+Without this layer, operators mentally do the correlation manually.
+
+With this layer:
+
+You’ve built a “diagnostic lens fusion UI” without creating false authority.
+
+Final answer
+
+Yes — this is safe, well-scoped, and aligned with everything you’ve built.
+
+It is:
+
+low-risk (no state changes)
+high-value (removes operator ambiguity)
+architecturally correct (no forced unification)
+reversible (pure UI + aggregation endpoint)

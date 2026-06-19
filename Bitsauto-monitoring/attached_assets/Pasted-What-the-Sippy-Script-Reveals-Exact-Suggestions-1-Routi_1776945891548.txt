@@ -1,0 +1,53 @@
+What the Sippy Script Reveals — Exact Suggestions
+1 · Routing Group — Create/Edit form
+The actual Sippy form has 3 distinct sections, all of which we're missing beyond just name + policy:
+
+Basic Parameters (we have this)
+
+Group Name ✅
+Advanced Parameters (we're missing all of this)
+
+Description — text field
+Media Relay — dropdown: [ from Connection ] or Built-in RTPproxy
+Final 2xx Timeout (sec) — number input, default 300
+Enable LRN — checkbox (enables the field below when ticked)
+LRN Translation Rule — text field (disabled until LRN enabled)
+Routing Policy — this is the biggest difference: Sippy uses a dual-listbox, not a single dropdown. Users drag/move policies between "Available" and "Active" columns, and can combine + reorder them:
+
+Available pool: preference (Route Preference), prefix (Prefix Length), least_cost (Least Cost)
+Active pool: order (Routing Entries Order), weight (Weighted Distribution)
+Multiple policies can be stacked (e.g. order + weight both active)
+On-Net Routing section (we're completely missing)
+
+Use Connection — full connection dropdown (disabled = off)
+Voicemail Connection — dropdown (only enabled when a connection is selected above)
+Reply Timeout / 100 responses (sec)
+2 · Add Routing Group Member — MAJOR UX gap
+This is the most important difference. Sippy uses a cascading two-step picker:
+
+First pick the Vendor (e.g. "PTCL-PAK-MOBILE-PR-PR")
+Then the Connection dropdown filters automatically to only that vendor's connections
+Currently our form shows all 200+ connections in one flat list — exactly what Sippy avoids. We should implement the same vendor → connection cascade.
+
+Also currently missing from the member form:
+
+Activation Date (datetime, default "now")
+Expiration Date (datetime, default "never")
+Preference as a richer picker (First, 1, 2, 3…Last) not just a free number field
+3 · Routes within a Destination Set
+The API supports these but the current "Add Route" dialog only has prefix + preference:
+
+Huntstop flag (stop searching further routes for this prefix)
+Timeout (seconds to wait before moving on)
+Price 1 / Price N (initial + subsequent per-minute rates)
+Interval 1 / Interval N (billing increments, e.g. 60s/6s)
+Forbidden toggle (block this prefix outright)
+Activation / Expiration date
+Proposed implementation plan
+Priority	Change	Effort
+Critical	RG Member: vendor-first cascading connection picker	Medium
+Critical	RG Member: Activation + Expiration date pickers	Small
+High	RG form: Description + 2xx Timeout + LRN enable/rule	Small
+High	RG form: Dual-listbox policy selector (Available ↔ Active)	Medium
+High	RG form: On-Net Routing section (connection + voicemail + timeout)	Medium
+Medium	Route dialog: price/interval/timeout/huntstop/forbidden fields

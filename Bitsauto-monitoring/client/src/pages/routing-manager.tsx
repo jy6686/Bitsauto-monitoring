@@ -1,0 +1,5282 @@
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useSearch, useLocation } from "wouter";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  Route, RefreshCw, Database, Server, Network, CheckCircle2,
+  AlertCircle, Clock, Layers, Wifi, ChevronRight, Search, Filter,
+  Loader2, GitBranch, BarChart3, Eye, Settings2, Construction,
+  ArrowRight, Activity, Timer, AlertTriangle, Zap,
+  List, Grid3X3, ShieldAlert, XCircle, Shield,
+  Plus, Pencil, Trash2, ExternalLink, DollarSign, CreditCard, X,
+  Power, Upload, Download, FileSpreadsheet, Building2, Radio, TrendingUp,
+} from "lucide-react";
+import * as XLSX from "xlsx";
+import { ToastAction } from "@/components/ui/toast";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+
+// ── Helpers ─────────────────────────────────────────────────────────────────────
+
+function approvalToastOpts(data: any, navigate: (to: string) => void) {
+  if (!data?.requiresApproval) return null;
+  return {
+    title: "Submitted for approval",
+    description: `Request #${data.requestId} queued for review.`,
+    action: <ToastAction altText="View request" onClick={() => navigate(`/approvals?id=${data.requestId}`)}>View →</ToastAction>,
+  };
+}
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+type CacheMeta = {
+  last_sync_at:     string | null;
+  last_sync_status: "ok" | "error" | "syncing" | "pending";
+  last_sync_error:  string | null;
+  rg_count:         number;
+  ds_count:         number;
+  conn_count:       number;
+};
+
+type RoutingGroup = {
+  i_routing_group: number;
+  name:            string;
+  policy:          string | null;
+  media_relay:     string | null;
+  on_net:          boolean;
+  members_count:   number;
+  cached_at:       string;
+};
+
+type DestinationSet = {
+  i_destination_set: number;
+  name:              string;
+  currency:          string | null;
+  description:       string | null;
+  connect_fee:       number | null;
+  free_seconds:      number | null;
+  grace_period:      number | null;
+  route_count:       number;
+  cld_translation:   string | null;
+  cli_translation:   string | null;
+  cached_at:         string;
+};
+
+type Connection = {
+  i_connection: number;
+  name:         string;
+  i_vendor:     number | null;
+  vendor_name:  string | null;
+  host:         string | null;
+  protocol:     string | null;
+  blocked:      boolean;
+  cached_at:    string;
+};
+
+type RgMember = {
+  iRoutingGroupMember: number | null;
+  iConnection:         number | null;
+  iConnectionGroup:    number | null;
+  iDestinationSet:     number | null;
+  preference:          number | null;
+  weight:              number | null;
+  activationDate:      string | null;
+  expirationDate:      string | null;
+  connectionName:      string | null;
+  vendorName:          string | null;
+  blocked:             boolean;
+  host:                string | null;
+  destSetName:         string | null;
+  destSetRouteCount:   number | null;
+};
+type RgDetail = { members: RgMember[]; ok: boolean; message: string };
+
+type DsRoute = {
+  prefix:          string;
+  preference:      number | null;
+  huntstop:        number | null;
+  timeout:         number | null;
+  price1:          number | null;
+  priceN:          number | null;
+  forbidden:       boolean | null;
+  activationDate:  string | null;
+  expirationDate:  string | null;
+};
+type DsRoutesData = { success: boolean; list: DsRoute[]; message: string };
+
+type QbrVendor = {
+  vendor:         string;
+  connectionName?: string;
+  host?:          string;
+  protocol?:      string;
+  blocked:        boolean;
+  totalCalls:     number;
+  answeredCalls:  number;
+  asr:            number;
+  acd:            number;
+  pdd:            number;
+  qbrScore:       number;
+  status:         'excellent' | 'good' | 'degraded' | 'critical';
+  totalMinutes:   number;
+  totalCost:      number;
+};
+type QbrSummary = {
+  totalCalls:     number;
+  answeredCalls:  number;
+  asr:            number;
+  acd:            number;
+  pdd:            number;
+  activeRoutes:   number;
+  degradedRoutes: number;
+};
+type QbrMeta = { hours: number; cdrsAnalyzed: number; updatedAt: string | null };
+type QbrData  = { vendors: QbrVendor[]; summary: QbrSummary; meta: QbrMeta };
+
+type DSRef = {
+  iDS:        number;
+  dsName:     string;
+  routeCount: number;
+  rgName:     string;
+  iRg:        number;
+  preference: number | null;
+};
+type ConnRef = {
+  iConnection: number;
+  connName:    string;
+  vendorName:  string;
+  preference:  number | null;
+  rgName:      string;
+};
+type CovConn = {
+  iConnection: number;
+  name:        string;
+  vendorName:  string | null;
+  host:        string | null;
+  protocol:    string | null;
+  blocked:     boolean;
+  coveredDSets: DSRef[];
+};
+type CovDS = {
+  iDS:                  number;
+  name:                 string;
+  routeCount:           number;
+  cldTranslation:       string | null;
+  connectedConnections: ConnRef[];
+};
+type CovGaps = {
+  unusedConnections:  CovConn[];
+  orphanDSets:        CovDS[];
+  singleCoveredDSets: CovDS[];
+};
+type CoverageMatrix = {
+  connections:     CovConn[];
+  destinationSets: CovDS[];
+  gaps:            CovGaps;
+  rgCount:         number;
+  failedRGs:       number;
+  buildTimeMs:     number;
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function policyLabel(policy: string | null): string {
+  if (!policy) return "—";
+  const map: Record<string, string> = {
+    "least_cost":          "Least Cost",
+    "prefix,preference":   "Prefix + Preference",
+    "prefix":              "Prefix Length",
+    "preference":          "Route Preference",
+    "order":               "Entries Order",
+    "order,weight":        "Order + Weight",
+    "weighted":            "Weighted",
+  };
+  return map[policy] ?? policy;
+}
+
+function policyColor(policy: string | null): string {
+  if (!policy) return "text-muted-foreground";
+  if (policy.includes("least_cost")) return "text-emerald-400";
+  if (policy.includes("prefix"))     return "text-cyan-400";
+  if (policy.includes("weighted"))   return "text-violet-400";
+  if (policy.includes("preference")) return "text-amber-400";
+  return "text-blue-400";
+}
+
+function relTime(iso: string | null): string {
+  if (!iso) return "never";
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1)  return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+// ── RgMembersPanel ─────────────────────────────────────────────────────────────
+
+function RgMembersPanel({ groupId }: { groupId: number }) {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const [deleteTarget, setDeleteTarget] = useState<{ memberId: number; label: string } | null>(null);
+
+  // ── Edit member state ──
+  const [editMember,     setEditMember]     = useState<any | null>(null);
+  const [editMemberPref, setEditMemberPref] = useState("1");
+  const [editMemberWeight, setEditMemberWeight] = useState("1");
+  const [editMemberAct,  setEditMemberAct]  = useState("now");
+  const [editMemberExp,  setEditMemberExp]  = useState("never");
+
+  // "Add entry" inline row state — matches Sippy UI (vendor → connection → dest set → dates → order → weight)
+  const [rowVendorId, setRowVendorId] = useState<number | null>(null);
+  const [rowConn,     setRowConn]     = useState("");
+  const [rowDs,       setRowDs]       = useState("");
+  const [rowPref,     setRowPref]     = useState("1");
+  const [rowWeight,   setRowWeight]   = useState("1");
+  const [rowAct,      setRowAct]      = useState("now");
+  const [rowExp,      setRowExp]      = useState("never");
+
+  const { data, isLoading, refetch } = useQuery<RgDetail>({
+    queryKey: ["/api/routing-cache/routing-groups", groupId, "detail"],
+  });
+
+  // Live vendor list from Sippy (all vendors, not just cached)
+  const { data: sippyVendorsData, isLoading: vendorsLoading } = useQuery<{ vendors: { iVendor: number; name: string }[] }>({
+    queryKey: ["/api/sippy/vendors"],
+    staleTime: 60_000,
+    select: (d: any) => ({
+      vendors: (d.vendors ?? []).map((v: any) => ({ iVendor: v.iVendor ?? v.i_vendor, name: v.name }))
+        .sort((a: any, b: any) => a.name.localeCompare(b.name))
+    }),
+  });
+
+  // Live connections for selected vendor from Sippy
+  const { data: vendorConnsData, isLoading: vendorConnsLoading } = useQuery<{ connections: { iConnection: number; name: string }[] }>({
+    queryKey: ["/api/sippy/vendors", rowVendorId, "connections"],
+    enabled: rowVendorId !== null,
+    staleTime: 30_000,
+    select: (d: any) => ({
+      connections: (d.connections ?? []).map((c: any) => ({ iConnection: c.iConnection, name: c.name }))
+        .sort((a: any, b: any) => a.name.localeCompare(b.name))
+    }),
+  });
+
+  // Destination sets from cache
+  const { data: setsData } = useQuery<{ sets: DestinationSet[] }>({
+    queryKey: ["/api/routing-cache/destination-sets"],
+  });
+  const cachedSets = setsData?.sets ?? [];
+
+  const addMut = useMutation({
+    mutationFn: async (body: object) => (await apiRequest("POST", `/api/sippy/routing-groups/${groupId}/members`, body)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Routing entry added" });
+      setRowVendorId(null); setRowConn(""); setRowDs(""); setRowPref("1"); setRowWeight("1"); setRowAct("now"); setRowExp("never");
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error adding routing entry", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: async (memberId: number) => (await apiRequest("DELETE", `/api/sippy/routing-groups/${groupId}/members/${memberId}`)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Routing entry removed" });
+      setDeleteTarget(null);
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error removing entry", description: e.message, variant: "destructive" }),
+  });
+
+  const editMemberMut = useMutation({
+    mutationFn: async ({ memberId, body }: { memberId: number; body: object }) =>
+      (await apiRequest("PUT", `/api/sippy/routing-groups/${groupId}/members/${memberId}`, body)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Routing entry updated" });
+      setEditMember(null);
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error updating entry", description: e.message, variant: "destructive" }),
+  });
+
+  const handleAdd = () => {
+    if (!rowConn || !rowDs || !rowPref) return;
+    addMut.mutate({
+      iConnection:     parseInt(rowConn),
+      iDestinationSet: parseInt(rowDs),
+      preference:      parseInt(rowPref) || 1,
+      weight:          parseInt(rowWeight) || 1,
+      activationDate:  rowAct === "now"   ? undefined : rowAct,
+      expirationDate:  rowExp === "never" ? undefined : rowExp,
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-3 px-4 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading routing entries from Sippy…
+      </div>
+    );
+  }
+
+  const members = data?.members ?? [];
+
+  const thCls = "text-left px-2 py-1.5 font-semibold text-muted-foreground text-[11px] whitespace-nowrap";
+  const cellCls = "px-2 py-1.5 text-xs";
+  const selCls  = "w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary";
+
+  return (
+    <>
+      {/* Sippy-style Routing Entries table with inline add row */}
+      <div className="mx-4 mb-3">
+        {!data?.ok && (
+          <div className="py-2 text-xs text-rose-400/80 italic">
+            Failed to load entries: {data?.message ?? "Sippy unavailable"}
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-md border border-border/40 bg-background/40">
+          <table className="w-full min-w-[860px] text-xs">
+            <thead>
+              <tr className="bg-muted/40 border-b border-border/30">
+                <th className={thCls}>Vendor</th>
+                <th className={thCls}>Connection</th>
+                <th className={thCls}>Destination Set</th>
+                <th className={thCls}>Activation Date</th>
+                <th className={thCls}>Expiration Date</th>
+                <th className={cn(thCls, "text-center")}>Order #</th>
+                <th className={cn(thCls, "text-center")}>Weight</th>
+                <th className={cn(thCls, "w-8")} />
+              </tr>
+            </thead>
+            <tbody>
+              {members.length === 0 && data?.ok && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-3 text-xs text-muted-foreground/50 italic text-center">
+                    No routing entries yet — use the row below to add one.
+                  </td>
+                </tr>
+              )}
+              {members.map((m, i) => (
+                <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", m.blocked && "opacity-40")}>
+                  <td className={cellCls}>
+                    {m.vendorName
+                      ? <span className="font-medium text-amber-400/90">{m.vendorName}</span>
+                      : <span className="text-muted-foreground/40">—</span>}
+                  </td>
+                  <td className={cellCls}>
+                    <div className="font-medium">{m.connectionName ?? `#${m.iConnection}`}</div>
+                    {m.host && <div className="text-[10px] text-muted-foreground/60 font-mono">{m.host}</div>}
+                  </td>
+                  <td className={cellCls}>
+                    {m.destSetName
+                      ? <span className="text-violet-400 font-medium">{m.destSetName}</span>
+                      : <span className="text-muted-foreground/40">{m.iDestinationSet ? `DS #${m.iDestinationSet}` : "—"}</span>}
+                    {m.destSetRouteCount != null && (
+                      <span className="ml-1 text-[10px] text-muted-foreground/50">({m.destSetRouteCount} routes)</span>
+                    )}
+                  </td>
+                  <td className={cn(cellCls, "text-muted-foreground/70 font-mono text-[10px]")}>
+                    {m.activationDate ?? "now"}
+                  </td>
+                  <td className={cn(cellCls, "text-muted-foreground/70 font-mono text-[10px]")}>
+                    {m.expirationDate ?? "never"}
+                  </td>
+                  <td className={cn(cellCls, "text-center font-mono font-bold text-cyan-400")}>{m.preference ?? "—"}</td>
+                  <td className={cn(cellCls, "text-center font-mono text-muted-foreground")}>{m.weight ?? "—"}</td>
+                  <td className={cn(cellCls, "text-center")}>
+                    <div className="flex items-center justify-center gap-1.5">
+                      {m.iRoutingGroupMember != null && (
+                        <button
+                          data-testid={`btn-edit-member-${m.iRoutingGroupMember}`}
+                          onClick={() => {
+                            setEditMember(m);
+                            setEditMemberPref(m.preference != null ? String(m.preference) : "1");
+                            setEditMemberWeight(m.weight != null ? String(m.weight) : "1");
+                            setEditMemberAct(m.activationDate ?? "now");
+                            setEditMemberExp(m.expirationDate ?? "never");
+                          }}
+                          className="text-primary/50 hover:text-primary transition-colors"
+                          title="Edit entry"
+                        ><Pencil className="h-3.5 w-3.5" /></button>
+                      )}
+                      {m.iRoutingGroupMember != null && (
+                        <button
+                          data-testid={`btn-delete-member-${m.iRoutingGroupMember}`}
+                          onClick={() => setDeleteTarget({ memberId: m.iRoutingGroupMember!, label: m.connectionName ?? `#${m.iRoutingGroupMember}` })}
+                          className="text-rose-400/60 hover:text-rose-400 transition-colors"
+                          title="Remove entry"
+                        ><Trash2 className="h-3.5 w-3.5" /></button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+
+              {/* ── Inline Add Row (matches Sippy UI) ── */}
+              <tr className="border-t border-border/40 bg-muted/10">
+                {/* Vendor — live from Sippy */}
+                <td className="px-1.5 py-1.5">
+                  <select
+                    value={rowVendorId !== null ? String(rowVendorId) : ""}
+                    onChange={e => { const v = e.target.value; setRowVendorId(v ? parseInt(v) : null); setRowConn(""); }}
+                    className={selCls} data-testid="select-entry-vendor"
+                    disabled={vendorsLoading}
+                  >
+                    <option value="">{vendorsLoading ? "Loading vendors…" : "Select Vendor…"}</option>
+                    {(sippyVendorsData?.vendors ?? []).map(v => (
+                      <option key={v.iVendor} value={String(v.iVendor)}>{v.name}</option>
+                    ))}
+                  </select>
+                </td>
+                {/* Connection — live from Sippy, filtered by vendor */}
+                <td className="px-1.5 py-1.5">
+                  <select value={rowConn} onChange={e => setRowConn(e.target.value)}
+                    className={selCls} data-testid="select-entry-conn"
+                    disabled={rowVendorId === null || vendorConnsLoading}
+                  >
+                    <option value="">
+                      {rowVendorId === null ? "Select vendor first" : vendorConnsLoading ? "Loading…" : "Select Connection…"}
+                    </option>
+                    {(vendorConnsData?.connections ?? []).map(c => (
+                      <option key={c.iConnection} value={String(c.iConnection)}>{c.name}</option>
+                    ))}
+                  </select>
+                </td>
+                {/* Destination Set */}
+                <td className="px-1.5 py-1.5">
+                  <datalist id="ds-opts-rg">
+                    {cachedSets.map(s => (
+                      <option key={s.i_destination_set} value={String(s.i_destination_set)}>{s.name}</option>
+                    ))}
+                  </datalist>
+                  <input list="ds-opts-rg" value={rowDs} onChange={e => setRowDs(e.target.value)}
+                    className={selCls} placeholder="DS ID (e.g. 42)" data-testid="input-entry-ds" />
+                </td>
+                {/* Activation Date */}
+                <td className="px-1.5 py-1.5">
+                  <input value={rowAct} onChange={e => setRowAct(e.target.value)}
+                    placeholder="now" className={cn(selCls, "w-28")}
+                    data-testid="input-entry-activation" />
+                </td>
+                {/* Expiration Date */}
+                <td className="px-1.5 py-1.5">
+                  <input value={rowExp} onChange={e => setRowExp(e.target.value)}
+                    placeholder="never" className={cn(selCls, "w-28")}
+                    data-testid="input-entry-expiration" />
+                </td>
+                {/* Order # (preference) */}
+                <td className="px-1.5 py-1.5">
+                  <input type="number" min="1" value={rowPref} onChange={e => setRowPref(e.target.value)}
+                    className={cn(selCls, "w-14 text-center")} data-testid="input-entry-pref" />
+                </td>
+                {/* Weight */}
+                <td className="px-1.5 py-1.5">
+                  <input type="number" min="1" value={rowWeight} onChange={e => setRowWeight(e.target.value)}
+                    className={cn(selCls, "w-14 text-center")} data-testid="input-entry-weight" />
+                </td>
+                {/* Add button */}
+                <td className="px-1.5 py-1.5 text-center">
+                  <button
+                    onClick={handleAdd}
+                    disabled={!rowConn || !rowDs || addMut.isPending}
+                    className="text-primary/60 hover:text-primary transition-colors disabled:opacity-30"
+                    data-testid="btn-add-rg-member"
+                    title="Add routing entry"
+                  >
+                    {addMut.isPending
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <Plus className="h-3.5 w-3.5" />}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Delete Confirm Dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove Routing Entry?</DialogTitle>
+            <DialogDescription>Remove <strong>{deleteTarget?.label}</strong> from this routing group?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteTarget && deleteMut.mutate(deleteTarget.memberId)}
+              disabled={deleteMut.isPending} data-testid="btn-confirm-delete-member">
+              {deleteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Member Dialog ── */}
+      <Dialog open={!!editMember} onOpenChange={o => !o && setEditMember(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Routing Entry</DialogTitle>
+            <DialogDescription>
+              Update preference, weight, and dates for{" "}
+              <strong>{editMember?.connectionName ?? `#${editMember?.iRoutingGroupMember}`}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Order / Preference</Label>
+                <Input type="number" min="1" value={editMemberPref}
+                  onChange={e => setEditMemberPref(e.target.value)}
+                  data-testid="input-edit-member-pref" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Weight</Label>
+                <Input type="number" min="1" value={editMemberWeight}
+                  onChange={e => setEditMemberWeight(e.target.value)}
+                  data-testid="input-edit-member-weight" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Activation Date</Label>
+                <Input value={editMemberAct} onChange={e => setEditMemberAct(e.target.value)}
+                  placeholder="now or YYYY-MM-DD" data-testid="input-edit-member-act" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Expiration Date</Label>
+                <Input value={editMemberExp} onChange={e => setEditMemberExp(e.target.value)}
+                  placeholder="never or YYYY-MM-DD" data-testid="input-edit-member-exp" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
+            <Button onClick={() => editMember && editMemberMut.mutate({ memberId: editMember.iRoutingGroupMember, body: {
+                preference:     parseInt(editMemberPref) || 1,
+                weight:         parseInt(editMemberWeight) || 1,
+                activationDate: editMemberAct === "now"   ? undefined : editMemberAct,
+                expirationDate: editMemberExp === "never" ? undefined : editMemberExp,
+              }})}
+              disabled={editMemberMut.isPending} data-testid="btn-confirm-edit-member">
+              {editMemberMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+// ── DsRoutesPanel ──────────────────────────────────────────────────────────────
+
+function DsRoutesPanel({ dsId, onRunLcr }: { dsId: number; onRunLcr: (prefix: string) => void }) {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const [addOpen, setAddOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [prefix, setPrefix] = useState("");
+  const [routePref, setRoutePref] = useState("");
+  const [routeHuntstop, setRouteHuntstop] = useState(false);
+  const [routeTimeout, setRouteTimeout] = useState("");
+  const [routePrice1, setRoutePrice1] = useState("");
+  const [routePriceN, setRoutePriceN] = useState("");
+  const [routeInterval1, setRouteInterval1] = useState("");
+  const [routeIntervalN, setRouteIntervalN] = useState("");
+  const [routeForbidden, setRouteForbidden] = useState(false);
+
+  // ── Edit route state ──
+  const [editTarget, setEditTarget]       = useState<any | null>(null);
+  const [editPref,    setEditPref]         = useState("");
+  const [editHuntstop,setEditHuntstop]    = useState(false);
+  const [editTimeout, setEditTimeout]     = useState("");
+  const [editPrice1,  setEditPrice1]      = useState("");
+  const [editPriceN,  setEditPriceN]      = useState("");
+  const [editInterval1,setEditInterval1]  = useState("");
+  const [editIntervalN,setEditIntervalN]  = useState("");
+  const [editForbidden,setEditForbidden]  = useState(false);
+
+  // ── XLSX import state ──
+  const xlsxRef        = useRef<HTMLInputElement>(null);
+  const [importPreview, setImportPreview] = useState<any[] | null>(null);
+  const [importOpen,    setImportOpen]    = useState(false);
+  const [importBusy,    setImportBusy]    = useState(false);
+
+  const { data, isLoading, refetch } = useQuery<DsRoutesData>({
+    queryKey: ["/api/sippy/destination-sets", dsId, "routes"],
+  });
+
+  const addMut = useMutation({
+    mutationFn: async (body: object) => (await apiRequest("POST", `/api/sippy/destination-sets/${dsId}/routes`, body)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Route added" });
+      setAddOpen(false); setPrefix(""); setRoutePref(""); setRouteHuntstop(false); setRouteTimeout(""); setRoutePrice1(""); setRoutePriceN(""); setRouteInterval1(""); setRouteIntervalN(""); setRouteForbidden(false);
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error adding route", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: async (p: string) => (await apiRequest("DELETE", `/api/sippy/destination-sets/${dsId}/routes/${encodeURIComponent(p)}`)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Route deleted" });
+      setDeleteTarget(null);
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error deleting route", description: e.message, variant: "destructive" }),
+  });
+
+  const editMut = useMutation({
+    mutationFn: async ({ prefix, body }: { prefix: string; body: object }) =>
+      (await apiRequest("PATCH", `/api/sippy/destination-sets/${dsId}/routes/${encodeURIComponent(prefix)}`, body)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Route updated" });
+      setEditTarget(null);
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Error updating route", description: e.message, variant: "destructive" }),
+  });
+
+  function openEdit(r: any) {
+    setEditTarget(r);
+    setEditPref(r.preference != null ? String(r.preference) : "");
+    setEditHuntstop(!!r.huntstop);
+    setEditTimeout(r.timeout != null ? String(r.timeout) : "");
+    setEditPrice1(r.price1 != null ? String(r.price1) : "");
+    setEditPriceN(r.priceN != null ? String(r.priceN) : "");
+    setEditInterval1(r.interval1 != null ? String(r.interval1) : "");
+    setEditIntervalN(r.intervalN != null ? String(r.intervalN) : "");
+    setEditForbidden(!!r.forbidden);
+  }
+
+  function exportXlsx(routes: any[]) {
+    const rows = routes.map(r => ({
+      Prefix:           r.prefix,
+      Preference:       r.preference ?? "",
+      Price1_USD_min:   r.price1     ?? "",
+      PriceN_USD_min:   r.priceN     ?? "",
+      Interval1_sec:    r.interval1  ?? "",
+      IntervalN_sec:    r.intervalN  ?? "",
+      Timeout:          r.timeout    ?? "",
+      Huntstop:         r.huntstop   ? "Yes" : "No",
+      Forbidden:        r.forbidden  ? "Yes" : "No",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Routes");
+    XLSX.writeFile(wb, `ds-${dsId}-routes.xlsx`);
+  }
+
+  function handleXlsxFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const wb = XLSX.read(ev.target?.result, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        const parsed = raw.map((r: any) => ({
+          prefix:    String(r.Prefix ?? r.prefix ?? "").replace(/^\+/, "").trim(),
+          preference: r.Preference || r.preference ? parseInt(String(r.Preference ?? r.preference)) : undefined,
+          price1:     r.Price1_USD_min || r.price1  ? parseFloat(String(r.Price1_USD_min ?? r.price1))  : undefined,
+          priceN:     r.PriceN_USD_min || r.priceN  ? parseFloat(String(r.PriceN_USD_min ?? r.priceN))  : undefined,
+          interval1:  r.Interval1_sec  || r.interval1 ? parseInt(String(r.Interval1_sec ?? r.interval1)) : undefined,
+          intervalN:  r.IntervalN_sec  || r.intervalN ? parseInt(String(r.IntervalN_sec ?? r.intervalN)) : undefined,
+          timeout:    r.Timeout        || r.timeout ? parseInt(String(r.Timeout ?? r.timeout)) : undefined,
+          huntstop:   /yes|1|true/i.test(String(r.Huntstop ?? r.huntstop ?? "")),
+          forbidden:  /yes|1|true/i.test(String(r.Forbidden ?? r.forbidden ?? "")),
+        })).filter(r => r.prefix.length > 0);
+        setImportPreview(parsed);
+        setImportOpen(true);
+      } catch {
+        toast({ title: "Could not parse XLSX", variant: "destructive" });
+      }
+      if (xlsxRef.current) xlsxRef.current.value = "";
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  async function commitImport() {
+    if (!importPreview) return;
+    setImportBusy(true);
+    let ok = 0, fail = 0;
+    for (const row of importPreview) {
+      try {
+        const { prefix, ...body } = row;
+        const res = await apiRequest("POST", `/api/sippy/destination-sets/${dsId}/routes`, { prefix, ...body });
+        const d = await res.json().catch(() => ({}));
+        if (d?.requiresApproval || d?.success !== false) ok++; else fail++;
+      } catch { fail++; }
+    }
+    setImportBusy(false);
+    setImportOpen(false);
+    setImportPreview(null);
+    toast({ title: `Import complete`, description: `${ok} route(s) submitted${fail ? `, ${fail} failed` : ""}` });
+    refetch();
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-3 px-4 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading routes from Sippy…
+      </div>
+    );
+  }
+
+  const routes = data?.list ?? [];
+
+  return (
+    <>
+      {/* Toolbar: Add / Import / Export */}
+      <div className="px-4 pb-2 flex justify-between items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+            onClick={() => routes.length > 0 && exportXlsx(routes)}
+            disabled={routes.length === 0}
+            data-testid="btn-export-routes-xlsx" title="Export routes to XLSX">
+            <Download className="h-3.5 w-3.5" /> Export
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+            onClick={() => xlsxRef.current?.click()}
+            data-testid="btn-import-routes-xlsx" title="Import routes from XLSX">
+            <Upload className="h-3.5 w-3.5" /> Import
+          </Button>
+          <input ref={xlsxRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
+        </div>
+        <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => setAddOpen(true)}
+          data-testid="btn-add-ds-route">
+          <Plus className="h-3.5 w-3.5" /> Add Route
+        </Button>
+      </div>
+
+      {!data?.success || routes.length === 0 ? (
+        <div className="py-3 px-4 text-xs text-muted-foreground/60 italic">
+          {!data?.success
+            ? `Failed to load: ${data?.message ?? "Sippy unavailable"}`
+            : "No routes yet — click Add Route to create one."}
+        </div>
+      ) : (
+        <div className="overflow-x-auto border border-border/40 rounded-lg mx-4 mb-3 bg-background/40">
+          <table className="w-full text-xs min-w-[620px]">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border/30">
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Prefix</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Pref</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Huntstop</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Timeout</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {routes.map((r, i) => (
+                <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", r.forbidden && "opacity-40")}>
+                  <td className="px-3 py-2 font-mono font-bold text-cyan-400">+{r.prefix}</td>
+                  <td className="px-3 py-2 font-mono text-muted-foreground">{r.preference ?? "—"}</td>
+                  <td className="px-3 py-2 text-center">
+                    {r.huntstop
+                      ? <span className="text-amber-400 font-bold" title="Huntstop enabled">●</span>
+                      : <span className="text-muted-foreground/20">○</span>}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-muted-foreground/70">{r.timeout ? `${r.timeout}s` : "—"}</td>
+                  <td className="px-3 py-2">
+                    {r.forbidden
+                      ? <Badge variant="destructive" className="h-4 text-[9px] px-1.5">Blocked</Badge>
+                      : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      {!r.forbidden && (
+                        <button
+                          data-testid={`btn-lcr-${r.prefix}`}
+                          onClick={() => onRunLcr(r.prefix)}
+                          className="text-[10px] font-semibold text-primary hover:text-primary/70 transition-colors flex items-center gap-0.5"
+                        >
+                          Run LCR <ArrowRight className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                      <button
+                        data-testid={`btn-rate-cards-${r.prefix}`}
+                        onClick={() => navigate(`/rate-cards?prefix=${encodeURIComponent(r.prefix)}`)}
+                        className="text-[10px] font-semibold text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-0.5"
+                        title="View in Rate Cards"
+                      >
+                        <CreditCard className="h-2.5 w-2.5" /> Rates
+                      </button>
+                      <button
+                        data-testid={`btn-edit-route-${r.prefix}`}
+                        onClick={() => openEdit(r)}
+                        className="text-primary/50 hover:text-primary transition-colors"
+                        title="Edit route"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        data-testid={`btn-delete-route-${r.prefix}`}
+                        onClick={() => setDeleteTarget(r.prefix)}
+                        className="text-rose-400/60 hover:text-rose-400 transition-colors"
+                        title="Delete route"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add Route Dialog */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add Route</DialogTitle>
+            <DialogDescription>Add a new prefix/route to this destination set.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Prefix (digits only, no +) *</Label>
+                <Input value={prefix} onChange={e => setPrefix(e.target.value.replace(/\D/g, ""))}
+                  placeholder="e.g. 44 or 9230" data-testid="input-route-prefix" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Preference</Label>
+                <Input type="number" value={routePref} onChange={e => setRoutePref(e.target.value)}
+                  placeholder="optional" data-testid="input-route-pref" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Timeout (sec)</Label>
+                <Input type="number" value={routeTimeout} onChange={e => setRouteTimeout(e.target.value)}
+                  placeholder="optional" data-testid="input-route-timeout" />
+              </div>
+              <div className="space-y-1.5 flex flex-col justify-end">
+                <div className="flex items-center gap-2 py-1">
+                  <input type="checkbox" id="chk-huntstop" checked={routeHuntstop}
+                    onChange={e => setRouteHuntstop(e.target.checked)}
+                    className="h-4 w-4 accent-primary" data-testid="chk-route-huntstop" />
+                  <label htmlFor="chk-huntstop" className="text-sm font-medium cursor-pointer">Huntstop</label>
+                  <span className="text-xs text-muted-foreground">(stop on match)</span>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Price 1 ($/min)</Label>
+                <Input type="number" step="0.0001" value={routePrice1} onChange={e => setRoutePrice1(e.target.value)}
+                  placeholder="e.g. 0.012" data-testid="input-route-price1" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Price N ($/min)</Label>
+                <Input type="number" step="0.0001" value={routePriceN} onChange={e => setRoutePriceN(e.target.value)}
+                  placeholder="e.g. 0.010" data-testid="input-route-priceN" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Interval 1 (sec)</Label>
+                <Input type="number" value={routeInterval1} onChange={e => setRouteInterval1(e.target.value)}
+                  placeholder="e.g. 60" data-testid="input-route-interval1" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Interval N (sec)</Label>
+                <Input type="number" value={routeIntervalN} onChange={e => setRouteIntervalN(e.target.value)}
+                  placeholder="e.g. 6" data-testid="input-route-intervalN" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <input type="checkbox" id="chk-forbidden" checked={routeForbidden}
+                onChange={e => setRouteForbidden(e.target.checked)}
+                className="h-4 w-4 accent-destructive" data-testid="chk-route-forbidden" />
+              <label htmlFor="chk-forbidden" className="text-sm cursor-pointer">
+                <span className="font-medium text-rose-400">Forbidden</span>
+                <span className="text-muted-foreground ml-1">— block all calls on this prefix</span>
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button onClick={() => addMut.mutate({
+                prefix,
+                ...(routePref ? { preference: parseInt(routePref) } : {}),
+                ...(routeHuntstop ? { huntstop: 1 } : {}),
+                ...(routeTimeout ? { timeout: parseInt(routeTimeout) } : {}),
+                ...(routePrice1 ? { price1: parseFloat(routePrice1) } : {}),
+                ...(routePriceN ? { priceN: parseFloat(routePriceN) } : {}),
+                ...(routeInterval1 ? { interval1: parseInt(routeInterval1) } : {}),
+                ...(routeIntervalN ? { intervalN: parseInt(routeIntervalN) } : {}),
+                ...(routeForbidden ? { forbidden: true } : {}),
+              })}
+              disabled={!prefix || addMut.isPending} data-testid="btn-confirm-add-route">
+              {addMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Route"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Route Confirm */}
+      <Dialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Route?</DialogTitle>
+            <DialogDescription>Delete prefix <strong>+{deleteTarget}</strong> from this destination set?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteTarget && deleteMut.mutate(deleteTarget)}
+              disabled={deleteMut.isPending} data-testid="btn-confirm-delete-route">
+              {deleteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Route Dialog ── */}
+      <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Route +{editTarget?.prefix}</DialogTitle>
+            <DialogDescription>Update pricing, intervals, and flags for this prefix.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Preference</Label>
+                <Input type="number" value={editPref} onChange={e => setEditPref(e.target.value)}
+                  placeholder="e.g. 10" data-testid="input-edit-route-pref" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Timeout (sec)</Label>
+                <Input type="number" value={editTimeout} onChange={e => setEditTimeout(e.target.value)}
+                  placeholder="e.g. 30" data-testid="input-edit-route-timeout" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Price 1 ($/min)</Label>
+                <Input type="number" step="0.0001" value={editPrice1} onChange={e => setEditPrice1(e.target.value)}
+                  placeholder="e.g. 0.012" data-testid="input-edit-route-price1" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Price N ($/min)</Label>
+                <Input type="number" step="0.0001" value={editPriceN} onChange={e => setEditPriceN(e.target.value)}
+                  placeholder="e.g. 0.010" data-testid="input-edit-route-priceN" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Interval 1 (sec)</Label>
+                <Input type="number" value={editInterval1} onChange={e => setEditInterval1(e.target.value)}
+                  placeholder="e.g. 60" data-testid="input-edit-route-interval1" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Interval N (sec)</Label>
+                <Input type="number" value={editIntervalN} onChange={e => setEditIntervalN(e.target.value)}
+                  placeholder="e.g. 6" data-testid="input-edit-route-intervalN" />
+              </div>
+            </div>
+            <div className="flex items-center gap-4 pt-1">
+              <label className="flex items-center gap-2 cursor-pointer text-sm">
+                <input type="checkbox" checked={editHuntstop} onChange={e => setEditHuntstop(e.target.checked)}
+                  className="h-4 w-4" data-testid="chk-edit-route-huntstop" />
+                Huntstop
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm">
+                <input type="checkbox" checked={editForbidden} onChange={e => setEditForbidden(e.target.checked)}
+                  className="h-4 w-4 accent-destructive" data-testid="chk-edit-route-forbidden" />
+                <span className="text-rose-400 font-medium">Forbidden</span>
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button onClick={() => editTarget && editMut.mutate({ prefix: editTarget.prefix, body: {
+                ...(editPref       ? { preference: parseInt(editPref) }       : {}),
+                ...(editHuntstop   ? { huntstop: 1 }                          : { huntstop: 0 }),
+                ...(editTimeout    ? { timeout: parseInt(editTimeout) }       : {}),
+                ...(editPrice1     ? { price1: parseFloat(editPrice1) }       : {}),
+                ...(editPriceN     ? { priceN: parseFloat(editPriceN) }       : {}),
+                ...(editInterval1  ? { interval1: parseInt(editInterval1) }   : {}),
+                ...(editIntervalN  ? { intervalN: parseInt(editIntervalN) }   : {}),
+                forbidden: editForbidden,
+              }})}
+              disabled={editMut.isPending} data-testid="btn-confirm-edit-route">
+              {editMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── XLSX Import Preview Dialog ── */}
+      <Dialog open={importOpen} onOpenChange={o => { if (!o && !importBusy) { setImportOpen(false); setImportPreview(null); } }}>
+        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+              Import Preview — {importPreview?.length ?? 0} routes
+            </DialogTitle>
+            <DialogDescription>Review the parsed routes before committing them to Sippy.</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-auto flex-1 border border-border/40 rounded-lg">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-muted/50 border-b border-border/30 sticky top-0">
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Prefix</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Pref</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Price 1</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Price N</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Int1</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">IntN</th>
+                  <th className="px-3 py-2 text-left font-medium text-muted-foreground">Flags</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(importPreview ?? []).map((r, i) => (
+                  <tr key={i} className="border-t border-border/20 hover:bg-muted/20">
+                    <td className="px-3 py-1.5 font-mono font-bold text-cyan-400">+{r.prefix}</td>
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground">{r.preference ?? "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-emerald-400">{r.price1 != null ? `$${r.price1}` : "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-emerald-400">{r.priceN != null ? `$${r.priceN}` : "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground">{r.interval1 ?? "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground">{r.intervalN ?? "—"}</td>
+                    <td className="px-3 py-1.5">
+                      {r.huntstop && <Badge variant="outline" className="h-4 text-[9px] px-1 mr-1">HS</Badge>}
+                      {r.forbidden && <Badge variant="destructive" className="h-4 text-[9px] px-1">Blocked</Badge>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <DialogFooter className="mt-3">
+            <Button variant="outline" onClick={() => { setImportOpen(false); setImportPreview(null); }} disabled={importBusy}>Cancel</Button>
+            <Button onClick={commitImport} disabled={importBusy} data-testid="btn-confirm-import-routes">
+              {importBusy
+                ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Importing…</>
+                : <><Upload className="h-4 w-4 mr-2" /> Commit {importPreview?.length} Routes</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+// ── VendorHubTab ───────────────────────────────────────────────────────────────
+
+type VH_Vendor = {
+  iVendor: number; i_vendor?: number;
+  name: string; balance?: number; currency?: string;
+  blocked?: boolean; i_time_zone?: string;
+};
+type VH_Conn = {
+  iConnection?: number; i_connection?: number;
+  name: string; blocked?: boolean; host?: string;
+  protocol?: string; capacity?: number; max_calls_per_second?: number;
+};
+
+type ProbeVendorStatus = {
+  vendorId:        string;
+  vendorName:      string;
+  reachable:       boolean;
+  latencyMs:       number | null;
+  sipResponseCode: number | null;
+  lastProbed:      string | null;
+  connectionCount: number;
+  reachableCount:  number;
+  uptimePct24h:    number;
+  status:          'reachable' | 'degraded' | 'unreachable';
+};
+
+type ProbeHistoryRow = {
+  probed_at:         string;
+  latency_ms:        number | null;
+  sip_response_code: number | null;
+  reachable:         boolean;
+  error:             string | null;
+  connection_name:   string | null;
+  host:              string | null;
+};
+
+function ReachabilityBadge({ status, latencyMs, lastProbed, compact }: {
+  status?: 'reachable' | 'degraded' | 'unreachable' | null;
+  latencyMs?: number | null;
+  lastProbed?: string | null;
+  compact?: boolean;
+}) {
+  if (!status) {
+    return (
+      <span className="text-[10px] text-muted-foreground/40 italic">
+        {compact ? "—" : "Not probed"}
+      </span>
+    );
+  }
+  if (status === 'reachable') {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
+        {!compact && <span className="text-[10px] text-emerald-400 font-medium">Reachable</span>}
+        {latencyMs != null && <span className="text-[10px] text-muted-foreground font-mono">{latencyMs}ms</span>}
+      </div>
+    );
+  }
+  if (status === 'degraded') {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+        {!compact && <span className="text-[10px] text-amber-400 font-medium">Degraded</span>}
+        {latencyMs != null && <span className="text-[10px] text-muted-foreground font-mono">{latencyMs}ms</span>}
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <span className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
+      {!compact && <span className="text-[10px] text-rose-400 font-medium">Unreachable</span>}
+    </div>
+  );
+}
+
+function ProbeHistoryDialog({ vendorId, vendorName, onClose }: {
+  vendorId: string; vendorName: string; onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery<{ history: ProbeHistoryRow[]; uptimePct24h: number | null }>({
+    queryKey: ["/api/vendors", vendorId, "probe-history"],
+    refetchInterval: 60_000,
+  });
+
+  const history  = data?.history ?? [];
+  const uptime   = data?.uptimePct24h;
+  const last20   = history.slice(-20);
+  const maxLat   = Math.max(...last20.map(r => r.latency_ms ?? 0), 1);
+
+  return (
+    <Dialog open onOpenChange={o => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Radio className="h-4 w-4 text-cyan-400" />
+            Reachability — {vendorName}
+          </DialogTitle>
+          <DialogDescription>Last 24h SIP OPTIONS probe history</DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-6 justify-center text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading probe history…
+          </div>
+        ) : history.length === 0 ? (
+          <div className="py-6 text-center text-xs text-muted-foreground/60 italic">
+            No probe data yet — probes run every 5 minutes automatically.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Summary row */}
+            <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/30 border border-border/30">
+              <div className="text-center">
+                <div className="text-xl font-bold text-foreground">{uptime ?? "—"}%</div>
+                <div className="text-[10px] text-muted-foreground">24h Uptime</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-foreground">{history.length}</div>
+                <div className="text-[10px] text-muted-foreground">Probes</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-foreground">
+                  {history.filter(r => r.reachable).length}
+                </div>
+                <div className="text-[10px] text-muted-foreground">Successful</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-foreground">
+                  {(() => {
+                    const lats = history.filter(r => r.latency_ms != null).map(r => r.latency_ms!);
+                    return lats.length ? `${Math.round(lats.reduce((a, b) => a + b, 0) / lats.length)}ms` : "—";
+                  })()}
+                </div>
+                <div className="text-[10px] text-muted-foreground">Avg Latency</div>
+              </div>
+            </div>
+
+            {/* Spark timeline — last 20 probes as bars */}
+            {last20.length > 0 && (
+              <div>
+                <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">
+                  Recent Probes (latest → left)
+                </div>
+                <div className="flex items-end gap-0.5 h-12">
+                  {[...last20].reverse().map((r, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${new Date(r.probed_at).toLocaleTimeString()} — ${r.reachable ? `${r.latency_ms}ms` : "Unreachable"}`}>
+                      <div
+                        className={cn(
+                          "w-full rounded-sm transition-all",
+                          r.reachable
+                            ? r.latency_ms != null && r.latency_ms > 500
+                              ? "bg-amber-400/80"
+                              : "bg-emerald-400/80"
+                            : "bg-rose-500/80"
+                        )}
+                        style={{ height: r.reachable && r.latency_ms ? `${Math.max(20, (r.latency_ms / maxLat) * 44)}px` : "8px" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between mt-1 text-[9px] text-muted-foreground/40">
+                  <span>oldest</span><span>newest</span>
+                </div>
+              </div>
+            )}
+
+            {/* Recent probe list */}
+            <div className="max-h-48 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground border-b border-border/30">
+                    <th className="text-left pb-1 font-medium">Time</th>
+                    <th className="text-left pb-1 font-medium">Connection</th>
+                    <th className="text-center pb-1 font-medium">Status</th>
+                    <th className="text-right pb-1 font-medium">Latency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...history].reverse().slice(0, 30).map((r, i) => (
+                    <tr key={i} className="border-t border-border/20">
+                      <td className="py-1 text-muted-foreground text-[10px] font-mono">
+                        {new Date(r.probed_at).toLocaleString()}
+                      </td>
+                      <td className="py-1 text-[10px] text-muted-foreground/70 truncate max-w-[100px]">
+                        {r.connection_name ?? r.host ?? "—"}
+                      </td>
+                      <td className="py-1 text-center">
+                        {r.reachable
+                          ? <span className="text-emerald-400 text-[10px]">✓</span>
+                          : <span className="text-rose-400 text-[10px]">✗</span>}
+                      </td>
+                      <td className="py-1 text-right font-mono text-[10px]">
+                        {r.latency_ms != null ? `${r.latency_ms}ms` : r.error ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function VendorHubTab() {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const qc = useQueryClient();
+
+  const [search,          setSearch]          = useState("");
+  const [selectedId,      setSelectedId]      = useState<number | null>(null);
+
+  // ── Add vendor ──
+  const [vOpen,    setVOpen]    = useState(false);
+  const [vName,    setVName]    = useState(""); const [vLogin, setVLogin] = useState("");
+  const [vPass,    setVPass]    = useState(""); const [vCcy,   setVCcy]   = useState("USD");
+
+  // ── Edit vendor ──
+  const [evTarget, setEvTarget] = useState<VH_Vendor | null>(null);
+  const [evName,   setEvName]   = useState("");
+  const [evCcy,    setEvCcy]    = useState("USD");
+
+  // ── Delete vendor ──
+  const [dvTarget, setDvTarget] = useState<VH_Vendor | null>(null);
+
+  // ── Add connection ──
+  const [cOpen,    setCOpen]    = useState(false);
+  const [cName,    setCName]    = useState(""); const [cProto, setCProto] = useState("SIP");
+  const [cDest,    setCDest]    = useState(""); const [cUser,  setCUser]  = useState("");
+  const [cPass,    setCPass2]   = useState(""); const [cCap,   setCCap]   = useState("");
+  const [cCps,     setCCps]     = useState(""); const [cBlocked, setCBlocked] = useState(false);
+
+  // ── Edit connection ──
+  const [ecTarget, setEcTarget] = useState<VH_Conn | null>(null);
+  const [ecName,   setEcName]   = useState(""); const [ecDest, setEcDest] = useState("");
+  const [ecCap,    setEcCap]    = useState(""); const [ecCps,  setEcCps]  = useState("");
+  const [ecBlocked,setEcBlocked]= useState(false);
+
+  // ── Delete connection ──
+  const [dcTarget, setDcTarget] = useState<VH_Conn | null>(null);
+
+  // ── Probe history dialog ──
+  const [probeHistoryTarget, setProbeHistoryTarget] = useState<{ vendorId: string; vendorName: string } | null>(null);
+
+  const { data: vData, isLoading: vLoading } = useQuery<{ vendors: VH_Vendor[]; error?: string }>({
+    queryKey: ["/api/sippy/vendors"],
+    select: (d: any) => ({ vendors: (d.vendors ?? []).map((v: any) => ({ ...v, iVendor: v.iVendor ?? v.i_vendor })) }),
+  });
+
+  // ── Probe status (all vendors, refreshes every 30s) ──
+  const { data: probeStatusData } = useQuery<{ vendors: ProbeVendorStatus[] }>({
+    queryKey: ["/api/vendors/probe-status"],
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+  });
+  const probeStatusMap = new Map<string, ProbeVendorStatus>(
+    (probeStatusData?.vendors ?? []).map(v => [v.vendorId, v])
+  );
+
+  const vendors = (vData?.vendors ?? []).filter(v =>
+    !search || v.name.toLowerCase().includes(search.toLowerCase())
+  );
+  const selected = vData?.vendors?.find(v => v.iVendor === selectedId) ?? null;
+
+  const { data: cData, isLoading: cLoading } = useQuery<{ connections: VH_Conn[] }>({
+    queryKey: ["/api/sippy/vendors", selectedId, "connections"],
+    enabled: selectedId !== null,
+    select: (d: any) => ({ connections: (d.connections ?? []).map((c: any) => ({ ...c, iConnection: c.iConnection ?? c.i_connection })) }),
+  });
+  const connections = cData?.connections ?? [];
+
+  const invalidate = () => { qc.invalidateQueries({ queryKey: ["/api/sippy/vendors"] }); };
+
+  const addVMut = useMutation({
+    mutationFn: (body: object) => apiRequest("POST", "/api/sippy/vendors", body).then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error }); return; }
+      toast({ title: "Vendor created" });
+      setVOpen(false); setVName(""); setVLogin(""); setVPass(""); setVCcy("USD");
+      invalidate();
+      if (d.iVendor) { setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass2(""); setCCap(""); setCCps(""); setCBlocked(false); setSelectedId(d.iVendor); setCOpen(true); }
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const editVMut = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: object }) => apiRequest("PUT", `/api/sippy/vendors/${id}`, body).then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error }); return; }
+      toast({ title: "Vendor updated" }); setEvTarget(null); invalidate();
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const delVMut = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/sippy/vendors/${id}`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Vendor deleted" }); setDvTarget(null);
+      if (selectedId === dvTarget?.iVendor) setSelectedId(null);
+      invalidate();
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const addCMut = useMutation({
+    mutationFn: ({ vendorId, body }: { vendorId: number; body: object }) =>
+      apiRequest("POST", `/api/sippy/vendors/${vendorId}/connections`, body).then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error }); return; }
+      toast({ title: "Connection created" });
+      setCOpen(false); setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass2(""); setCCap(""); setCCps(""); setCBlocked(false);
+      qc.invalidateQueries({ queryKey: ["/api/sippy/vendors", selectedId, "connections"] });
+      qc.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const editCMut = useMutation({
+    mutationFn: ({ connId, body }: { connId: number; body: object }) =>
+      apiRequest("PATCH", `/api/sippy/connections/${connId}`, body).then(r => r.json()),
+    onSuccess: (d: any) => {
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error }); return; }
+      const a = approvalToastOpts(d, navigate);
+      if (a) toast(a); else toast({ title: "Connection updated" });
+      setEcTarget(null);
+      qc.invalidateQueries({ queryKey: ["/api/sippy/vendors", selectedId, "connections"] });
+      qc.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const toggleCMut = useMutation({
+    mutationFn: ({ connId, blocked }: { connId: number; blocked: boolean }) =>
+      apiRequest("PATCH", `/api/sippy/connections/${connId}`, { blocked }).then(r => r.json()),
+    onSuccess: (d: any) => {
+      const a = approvalToastOpts(d, navigate);
+      if (a) toast(a); else toast({ title: "Connection updated" });
+      qc.invalidateQueries({ queryKey: ["/api/sippy/vendors", selectedId, "connections"] });
+      qc.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const delCMut = useMutation({
+    mutationFn: (connId: number) =>
+      apiRequest("DELETE", `/api/sippy/connections/${connId}`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Connection deleted" }); setDcTarget(null);
+      qc.invalidateQueries({ queryKey: ["/api/sippy/vendors", selectedId, "connections"] });
+      qc.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const probeNowMut = useMutation({
+    mutationFn: (vendorId: number) =>
+      apiRequest("POST", `/api/vendors/${vendorId}/probe-now`).then(r => r.json()),
+    onSuccess: (d: any) => {
+      toast({ title: d.reachable ? "Probe succeeded" : "Probe failed", description: d.reachable ? `Latency: ${d.latencyMs}ms (${d.sipResponseCode})` : (d.error ?? "Unreachable") });
+      qc.invalidateQueries({ queryKey: ["/api/vendors/probe-status"] });
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Probe error", description: e.message }),
+  });
+
+  return (
+    <div className="flex gap-4 h-full min-h-[500px]">
+      {/* ── Left: Vendor List ── */}
+      <div className="w-72 shrink-0 flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search vendors…" className="h-8 text-xs pl-8" data-testid="input-vendor-search" />
+          </div>
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1 shrink-0"
+            onClick={() => setVOpen(true)} data-testid="btn-add-vendor">
+            <Plus className="h-3.5 w-3.5" /> Add
+          </Button>
+        </div>
+
+        {vLoading ? (
+          <div className="flex items-center gap-2 py-4 justify-center text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+          </div>
+        ) : vendors.length === 0 ? (
+          <div className="text-xs text-muted-foreground/60 italic text-center py-6">No vendors found.</div>
+        ) : (
+          <div className="space-y-1 overflow-y-auto max-h-[560px] pr-1">
+            {vendors.map(v => (
+              <div key={v.iVendor}
+                data-testid={`vendor-card-${v.iVendor}`}
+                onClick={() => setSelectedId(v.iVendor)}
+                className={cn(
+                  "rounded-lg border p-2.5 cursor-pointer transition-colors",
+                  selectedId === v.iVendor
+                    ? "border-primary/60 bg-primary/5"
+                    : "border-border/40 bg-card/40 hover:bg-muted/30"
+                )}>
+                <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Building2 className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <span className="text-xs font-medium truncate">{v.name}</span>
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button onClick={e => { e.stopPropagation(); setEvTarget(v); setEvName(v.name); setEvCcy(v.currency ?? "USD"); }}
+                      className="p-0.5 rounded text-primary/40 hover:text-primary transition-colors"
+                      data-testid={`btn-edit-vendor-${v.iVendor}`} title="Edit vendor">
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                    <button onClick={e => { e.stopPropagation(); setDvTarget(v); }}
+                      className="p-0.5 rounded text-rose-400/40 hover:text-rose-400 transition-colors"
+                      data-testid={`btn-delete-vendor-${v.iVendor}`} title="Delete vendor">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+                {v.balance != null && (
+                  <div className="mt-1 text-[10px] text-muted-foreground font-mono">
+                    Balance: <span className={v.balance < 0 ? "text-rose-400" : "text-emerald-400"}>
+                      {v.currency ?? "USD"} {Number(v.balance).toFixed(4)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Right: Connection Panel ── */}
+      <div className="flex-1 min-w-0">
+        {!selectedId ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground/40 gap-3 border border-dashed border-border/30 rounded-xl">
+            <Wifi className="h-10 w-10" />
+            <span className="text-sm">Select a vendor to manage its connections</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Wifi className="h-4 w-4 text-cyan-400" />
+                {selected?.name ?? ""} — Connections
+                {selectedId && (() => {
+                  const ps = probeStatusMap.get(String(selectedId));
+                  return ps ? (
+                    <ReachabilityBadge status={ps.status} latencyMs={ps.latencyMs} />
+                  ) : null;
+                })()}
+              </h3>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                  onClick={() => selectedId && setProbeHistoryTarget({ vendorId: String(selectedId), vendorName: selected?.name ?? String(selectedId) })}
+                  data-testid="btn-probe-history">
+                  <TrendingUp className="h-3.5 w-3.5" /> Reachability
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5 text-cyan-400/70 hover:text-cyan-400"
+                  disabled={probeNowMut.isPending || !selectedId}
+                  onClick={() => selectedId && probeNowMut.mutate(selectedId)}
+                  data-testid="btn-probe-now">
+                  {probeNowMut.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Radio className="h-3.5 w-3.5" />}
+                  Probe Now
+                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+                  onClick={() => { setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass2(""); setCCap(""); setCCps(""); setCBlocked(false); setCOpen(true); }}
+                  data-testid="btn-add-connection">
+                  <Plus className="h-3.5 w-3.5" /> Add Connection
+                </Button>
+              </div>
+            </div>
+
+            {cLoading ? (
+              <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading connections…
+              </div>
+            ) : connections.length === 0 ? (
+              <div className="text-xs text-muted-foreground/60 italic py-4">No connections yet.</div>
+            ) : (
+              <div className="overflow-x-auto border border-border/40 rounded-lg bg-background/40">
+                <table className="w-full text-xs min-w-[540px]">
+                  <thead>
+                    <tr className="bg-muted/50 border-b border-border/30">
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Name</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Host</th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">Proto</th>
+                      <th className="px-3 py-2 text-center font-medium text-muted-foreground">Cap</th>
+                      <th className="px-3 py-2 text-center font-medium text-muted-foreground">Reachability</th>
+                      <th className="px-3 py-2 text-center font-medium text-muted-foreground">Status</th>
+                      <th className="px-3 py-2 text-center font-medium text-muted-foreground">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {connections.map((c, i) => {
+                      const connId = c.iConnection ?? (c as any).i_connection;
+                      const vendorProbe = selectedId ? probeStatusMap.get(String(selectedId)) : undefined;
+                      return (
+                        <tr key={i} className={cn("border-t border-border/20 hover:bg-muted/20 transition-colors", c.blocked && "opacity-50")}>
+                          <td className="px-3 py-2 font-medium">{c.name}</td>
+                          <td className="px-3 py-2 font-mono text-muted-foreground text-[10px]">{c.host ?? "—"}</td>
+                          <td className="px-3 py-2">
+                            <Badge variant="outline" className="h-4 text-[9px] px-1">{c.protocol ?? "SIP"}</Badge>
+                          </td>
+                          <td className="px-3 py-2 text-center font-mono text-muted-foreground">{c.capacity ?? "—"}</td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              data-testid={`btn-probe-history-${connId}`}
+                              title="View probe history"
+                              onClick={() => selectedId && setProbeHistoryTarget({ vendorId: String(selectedId), vendorName: vendors.find(v => v.iVendor === selectedId)?.name ?? String(selectedId) })}
+                              className="hover:opacity-80 transition-opacity"
+                            >
+                              <ReachabilityBadge
+                                status={vendorProbe?.status ?? null}
+                                latencyMs={vendorProbe?.latencyMs ?? null}
+                              />
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {c.blocked
+                              ? <Badge variant="destructive" className="h-4 text-[9px] px-1">Blocked</Badge>
+                              : <span className="text-[10px] text-emerald-400 font-medium">Active</span>}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                data-testid={`btn-toggle-conn-${connId}`}
+                                onClick={() => connId && toggleCMut.mutate({ connId, blocked: !c.blocked })}
+                                className={cn("transition-colors", c.blocked ? "text-emerald-400/60 hover:text-emerald-400" : "text-amber-400/60 hover:text-amber-400")}
+                                title={c.blocked ? "Enable connection" : "Disable connection"}
+                              ><Power className="h-3.5 w-3.5" /></button>
+                              <button
+                                data-testid={`btn-edit-conn-${connId}`}
+                                onClick={() => { setEcTarget(c); setEcName(c.name); setEcDest(c.host ?? ""); setEcCap(c.capacity != null ? String(c.capacity) : ""); setEcCps(c.max_calls_per_second != null ? String(c.max_calls_per_second) : ""); setEcBlocked(!!c.blocked); }}
+                                className="text-primary/50 hover:text-primary transition-colors"
+                                title="Edit connection"
+                              ><Pencil className="h-3.5 w-3.5" /></button>
+                              <button
+                                data-testid={`btn-delete-conn-${connId}`}
+                                onClick={() => setDcTarget(c)}
+                                className="text-rose-400/50 hover:text-rose-400 transition-colors"
+                                title="Delete connection"
+                              ><Trash2 className="h-3.5 w-3.5" /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Add Vendor Dialog ── */}
+      <Dialog open={vOpen} onOpenChange={o => !o && setVOpen(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Add Vendor</DialogTitle><DialogDescription>Create a new vendor on Sippy.</DialogDescription></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5"><Label>Name *</Label><Input value={vName} onChange={e => setVName(e.target.value)} placeholder="e.g. Tier1-US" data-testid="input-vendor-name" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Login</Label><Input value={vLogin} onChange={e => setVLogin(e.target.value)} placeholder="Optional" data-testid="input-vendor-login" /></div>
+              <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={vPass} onChange={e => setVPass(e.target.value)} data-testid="input-vendor-pass" /></div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Currency</Label>
+              <select value={vCcy} onChange={e => setVCcy(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm" data-testid="select-vendor-currency">
+                {["USD","EUR","GBP","AED","SAR","PKR","INR"].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVOpen(false)}>Cancel</Button>
+            <Button onClick={() => addVMut.mutate({ name: vName, ...(vLogin ? { login: vLogin } : {}), ...(vPass ? { password: vPass } : {}), i_currency: vCcy })}
+              disabled={!vName || addVMut.isPending} data-testid="btn-confirm-add-vendor">
+              {addVMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Vendor"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Vendor Dialog ── */}
+      <Dialog open={!!evTarget} onOpenChange={o => !o && setEvTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Edit Vendor</DialogTitle><DialogDescription>Update <strong>{evTarget?.name}</strong>.</DialogDescription></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5"><Label>Name *</Label><Input value={evName} onChange={e => setEvName(e.target.value)} data-testid="input-edit-vendor-name" /></div>
+            <div className="space-y-1.5">
+              <Label>Currency</Label>
+              <select value={evCcy} onChange={e => setEvCcy(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm" data-testid="select-edit-vendor-currency">
+                {["USD","EUR","GBP","AED","SAR","PKR","INR"].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEvTarget(null)}>Cancel</Button>
+            <Button onClick={() => evTarget && editVMut.mutate({ id: evTarget.iVendor, body: { name: evName, i_currency: evCcy } })}
+              disabled={!evName || editVMut.isPending} data-testid="btn-confirm-edit-vendor">
+              {editVMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Probe History Dialog ── */}
+      {probeHistoryTarget && (
+        <ProbeHistoryDialog
+          vendorId={probeHistoryTarget.vendorId}
+          vendorName={probeHistoryTarget.vendorName}
+          onClose={() => setProbeHistoryTarget(null)}
+        />
+      )}
+
+      {/* ── Delete Vendor Dialog ── */}
+      <Dialog open={!!dvTarget} onOpenChange={o => !o && setDvTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Delete Vendor?</DialogTitle><DialogDescription>Permanently delete <strong>{dvTarget?.name}</strong> and all its connections from Sippy?</DialogDescription></DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDvTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => dvTarget && delVMut.mutate(dvTarget.iVendor)}
+              disabled={delVMut.isPending} data-testid="btn-confirm-delete-vendor">
+              {delVMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete Vendor"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add Connection Dialog ── */}
+      <Dialog open={cOpen} onOpenChange={o => !o && setCOpen(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Add Connection</DialogTitle><DialogDescription>New SIP connection for {selected?.name}.</DialogDescription></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5"><Label>Name *</Label><Input value={cName} onChange={e => setCName(e.target.value)} placeholder="e.g. PRIMARY-SIP" data-testid="input-conn-name" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Protocol</Label>
+                <select value={cProto} onChange={e => setCProto(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm" data-testid="select-conn-proto">
+                  {["SIP","H323","MGCP","SIPT"].map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5"><Label>Host/IP *</Label><Input value={cDest} onChange={e => setCDest(e.target.value)} placeholder="1.2.3.4" data-testid="input-conn-dest" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Username</Label><Input value={cUser} onChange={e => setCUser(e.target.value)} data-testid="input-conn-user" /></div>
+              <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={cPass} onChange={e => setCPass2(e.target.value)} data-testid="input-conn-pass" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Capacity</Label><Input type="number" value={cCap} onChange={e => setCCap(e.target.value)} placeholder="e.g. 100" data-testid="input-conn-cap" /></div>
+              <div className="space-y-1.5"><Label>Max CPS</Label><Input type="number" value={cCps} onChange={e => setCCps(e.target.value)} placeholder="e.g. 10" data-testid="input-conn-cps" /></div>
+            </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={cBlocked} onChange={e => setCBlocked(e.target.checked)} className="h-4 w-4" data-testid="chk-conn-blocked" />
+              Start as blocked
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCOpen(false)}>Cancel</Button>
+            <Button onClick={() => selectedId && addCMut.mutate({ vendorId: selectedId, body: {
+                name: cName, protocol: cProto, destination: cDest,
+                ...(cUser  ? { username: cUser }          : {}),
+                ...(cPass  ? { password: cPass }          : {}),
+                ...(cCap   ? { capacity: parseInt(cCap) } : {}),
+                ...(cCps   ? { max_calls_per_second: parseInt(cCps) } : {}),
+                blocked: cBlocked,
+              }})}
+              disabled={!cName || !cDest || addCMut.isPending} data-testid="btn-confirm-add-conn">
+              {addCMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create Connection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Connection Dialog ── */}
+      <Dialog open={!!ecTarget} onOpenChange={o => !o && setEcTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Edit Connection</DialogTitle><DialogDescription>Update <strong>{ecTarget?.name}</strong>.</DialogDescription></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5"><Label>Name *</Label><Input value={ecName} onChange={e => setEcName(e.target.value)} data-testid="input-edit-conn-name" /></div>
+            <div className="space-y-1.5"><Label>Host/IP</Label><Input value={ecDest} onChange={e => setEcDest(e.target.value)} placeholder="1.2.3.4" data-testid="input-edit-conn-dest" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5"><Label>Capacity</Label><Input type="number" value={ecCap} onChange={e => setEcCap(e.target.value)} data-testid="input-edit-conn-cap" /></div>
+              <div className="space-y-1.5"><Label>Max CPS</Label><Input type="number" value={ecCps} onChange={e => setEcCps(e.target.value)} data-testid="input-edit-conn-cps" /></div>
+            </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={ecBlocked} onChange={e => setEcBlocked(e.target.checked)} className="h-4 w-4 accent-destructive" data-testid="chk-edit-conn-blocked" />
+              <span className="text-rose-400/80">Blocked</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEcTarget(null)}>Cancel</Button>
+            <Button onClick={() => { const connId = ecTarget?.iConnection ?? (ecTarget as any)?.i_connection; connId && editCMut.mutate({ connId, body: { name: ecName, host: ecDest, ...(ecCap ? { capacity: parseInt(ecCap) } : {}), ...(ecCps ? { max_calls_per_second: parseInt(ecCps) } : {}), blocked: ecBlocked } }); }}
+              disabled={!ecName || editCMut.isPending} data-testid="btn-confirm-edit-conn">
+              {editCMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Connection Dialog ── */}
+      <Dialog open={!!dcTarget} onOpenChange={o => !o && setDcTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Delete Connection?</DialogTitle><DialogDescription>Remove <strong>{dcTarget?.name}</strong> from {selected?.name}?</DialogDescription></DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDcTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { const connId = dcTarget?.iConnection ?? (dcTarget as any)?.i_connection; connId && delCMut.mutate(connId); }}
+              disabled={delCMut.isPending} data-testid="btn-confirm-delete-conn">
+              {delCMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Status Banner ──────────────────────────────────────────────────────────────
+
+function CacheStatusBanner({ meta, onSync, syncing }: {
+  meta: CacheMeta | undefined;
+  onSync: () => void;
+  syncing: boolean;
+}) {
+  const status = meta?.last_sync_status ?? "pending";
+  const colors = {
+    ok:      "border-emerald-500/30 bg-emerald-500/5 text-emerald-300",
+    error:   "border-rose-500/30 bg-rose-500/5 text-rose-300",
+    syncing: "border-blue-500/30 bg-blue-500/5 text-blue-300",
+    pending: "border-amber-500/30 bg-amber-500/5 text-amber-300",
+  };
+  const icons = {
+    ok:      <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
+    error:   <AlertCircle className="h-4 w-4 text-rose-400" />,
+    syncing: <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />,
+    pending: <Clock className="h-4 w-4 text-amber-400" />,
+  };
+
+  return (
+    <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${colors[status]}`}>
+      {icons[status]}
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-medium capitalize">{status === "ok" ? "Cache up to date" : status}</span>
+        <span className="text-xs opacity-60 ml-2">
+          Last synced {relTime(meta?.last_sync_at ?? null)} ·
+          {meta ? ` ${meta.rg_count} routing groups · ${meta.ds_count} destination sets · ${meta.conn_count} connections` : " loading…"}
+        </span>
+        {meta?.last_sync_error && (
+          <p className="text-xs text-rose-400 mt-0.5 truncate">{meta.last_sync_error}</p>
+        )}
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onSync}
+        disabled={syncing || status === "syncing"}
+        data-testid="btn-sync-cache"
+        className="shrink-0 gap-1.5 h-7 text-xs"
+      >
+        {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        {syncing ? "Syncing…" : "Sync Now"}
+      </Button>
+    </div>
+  );
+}
+
+// ── Routing Groups Tab ─────────────────────────────────────────────────────────
+
+const RG_POLICY_OPTIONS = [
+  { value: "prefix,preference", label: "Prefix + Preference (recommended)" },
+  { value: "least_cost",        label: "Least Cost (LCR)" },
+  { value: "order",             label: "Entries Order" },
+  { value: "order,weight",      label: "Order + Weight" },
+  { value: "weighted",          label: "Weighted Distribution" },
+  { value: "preference",        label: "Route Preference" },
+];
+
+const MEDIA_RELAY_OPTIONS = [
+  { value: "built-in",   label: "Built-in RTPproxy" },
+  { value: "direct",     label: "Direct" },
+  { value: "force",      label: "Force (via RTPproxy)" },
+  { value: "disabled",   label: "Disabled" },
+];
+
+const ON_NET_SCOPE_OPTIONS = [
+  { value: "all_accounts",    label: "All Accounts" },
+  { value: "same_customer",   label: "Same Customer" },
+  { value: "same_ip",         label: "Same IP" },
+];
+
+const REMOTE_MGMT_TYPES = [
+  { value: "disabled",  label: "Disabled" },
+  { value: "iex",       label: "IEX" },
+  { value: "megaco",    label: "Megaco/H.248" },
+];
+
+const DS_CURRENCIES_FULL = [
+  { value: "USD", label: "US Dollar (USD)" },
+  { value: "EUR", label: "Euro (EUR)" },
+  { value: "GBP", label: "Pound Sterling (GBP)" },
+  { value: "AED", label: "UAE Dirham (AED)" },
+  { value: "SAR", label: "Saudi Riyal (SAR)" },
+  { value: "PKR", label: "Pakistani Rupee (PKR)" },
+  { value: "INR", label: "Indian Rupee (INR)" },
+  { value: "BDT", label: "Bangladeshi Taka (BDT)" },
+  { value: "EGP", label: "Egyptian Pound (EGP)" },
+  { value: "TRY", label: "Turkish Lira (TRY)" },
+];
+
+type PendingEntry = {
+  id:            string;
+  iConnection:   number;
+  connName:      string;
+  vendorName:    string;
+  iDestinationSet: number;
+  dsName:        string;
+  activationDate: string;
+  expirationDate: string;
+  preference:    number;
+  weight:        number;
+};
+
+type RgFormProps = {
+  rgName: string; setRgName: (v: string) => void;
+  rgDescription: string; setRgDescription: (v: string) => void;
+  rgMediaRelay: string; setRgMediaRelay: (v: string) => void;
+  rgTimeout2xx: string; setRgTimeout2xx: (v: string) => void;
+  rgLrnEnabled: boolean; setRgLrnEnabled: (v: boolean) => void;
+  rgLrnRule: string; setRgLrnRule: (v: string) => void;
+  rgPolicy: string; setRgPolicy: (v: string) => void;
+  rgOnNetConnection: string; setRgOnNetConnection: (v: string) => void;
+  rgVoicemailConn: string; setRgVoicemailConn: (v: string) => void;
+  rgOnNetScope: string; setRgOnNetScope: (v: string) => void;
+  rgReplyTimeout: string; setRgReplyTimeout: (v: string) => void;
+  rgTimeout1xx: string; setRgTimeout1xx: (v: string) => void;
+  rgOnNetTimeout2xx: string; setRgOnNetTimeout2xx: (v: string) => void;
+  idSuffix: string;
+  pendingEntries?: PendingEntry[];
+  setPendingEntries?: (v: PendingEntry[]) => void;
+  cachedConns?: Connection[];
+  cachedSets?: DestinationSet[];
+};
+
+function RgForm({
+  rgName, setRgName, rgDescription, setRgDescription,
+  rgMediaRelay, setRgMediaRelay, rgTimeout2xx, setRgTimeout2xx,
+  rgLrnEnabled, setRgLrnEnabled, rgLrnRule, setRgLrnRule,
+  rgPolicy, setRgPolicy,
+  rgOnNetConnection, setRgOnNetConnection, rgVoicemailConn, setRgVoicemailConn,
+  rgOnNetScope, setRgOnNetScope, rgReplyTimeout, setRgReplyTimeout,
+  rgTimeout1xx, setRgTimeout1xx, rgOnNetTimeout2xx, setRgOnNetTimeout2xx,
+  idSuffix,
+  pendingEntries, setPendingEntries,
+  cachedConns = [], cachedSets = [],
+}: RgFormProps) {
+  // Routing Entries add-row state (always declared, only used when pendingEntries is provided)
+  const [rowVendor, setRowVendor] = useState("");
+  const [rowConn,   setRowConn]   = useState("");
+  const [rowDs,     setRowDs]     = useState("");
+  const [rowPref,   setRowPref]   = useState("1");
+  const [rowWeight, setRowWeight] = useState("1");
+
+  const SectionHeader = ({ label }: { label: string }) => (
+    <div className="flex items-center gap-2 py-1 mb-2 border-b border-border/40">
+      <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5 py-2">
+      {/* Basic Parameters */}
+      <div>
+        <SectionHeader label="Basic Parameters" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Group Name *</Label>
+            <Input value={rgName} onChange={e => setRgName(e.target.value)}
+              placeholder="e.g. Europe-LCR" data-testid={`input-rg-name-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Description</Label>
+            <Input value={rgDescription} onChange={e => setRgDescription(e.target.value)}
+              placeholder="e.g. Primary Europe routes" data-testid={`input-rg-desc-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+
+      {/* Advanced Parameters */}
+      <div>
+        <SectionHeader label="Advanced Parameters" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Media Relay</Label>
+            <Select value={rgMediaRelay} onValueChange={setRgMediaRelay}>
+              <SelectTrigger data-testid={`select-rg-media-relay-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {MEDIA_RELAY_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Final 2xx Timeout, sec</Label>
+            <Input type="number" value={rgTimeout2xx} onChange={e => setRgTimeout2xx(e.target.value)}
+              placeholder="300" data-testid={`input-rg-timeout2xx-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5 flex items-center gap-2 col-span-1">
+            <input type="checkbox" id={`chk-lrn-${idSuffix}`} checked={rgLrnEnabled}
+              onChange={e => setRgLrnEnabled(e.target.checked)}
+              className="h-4 w-4 accent-primary mt-5" data-testid={`chk-rg-lrn-${idSuffix}`} />
+            <label htmlFor={`chk-lrn-${idSuffix}`} className="text-sm font-medium cursor-pointer mt-5">Enable LRN</label>
+          </div>
+          <div className="space-y-1.5">
+            <Label>LRN Translation Rule</Label>
+            <Input value={rgLrnRule} onChange={e => setRgLrnRule(e.target.value)}
+              disabled={!rgLrnEnabled}
+              placeholder={rgLrnEnabled ? "e.g. s/^/1/" : "Enable LRN first"}
+              className="disabled:opacity-40"
+              data-testid={`input-rg-lrn-rule-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+
+      {/* Routing Policy */}
+      <div>
+        <SectionHeader label="Routing Policy" />
+        <div className="space-y-1.5">
+          <Label>Policy *</Label>
+          <Select value={rgPolicy} onValueChange={setRgPolicy}>
+            <SelectTrigger data-testid={`select-rg-policy-${idSuffix}`}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {RG_POLICY_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">
+            Select the routing policy that controls how Sippy selects a carrier connection for each call.
+          </p>
+        </div>
+      </div>
+
+      {/* Routing Entries — only shown when pendingEntries state is provided (Create dialog) */}
+      {pendingEntries !== undefined && setPendingEntries !== undefined && (() => {
+        const reVendors = Array.from(
+          new Map(cachedConns.filter(c => c.vendor_name).map(c => [c.vendor_name!, c.vendor_name!])).entries()
+        ).map(([v]) => v).sort();
+        const reFilteredConns = rowVendor ? cachedConns.filter(c => c.vendor_name === rowVendor) : cachedConns;
+        const reAddRow = () => {
+          if (!rowConn || !rowDs) return;
+          const conn = cachedConns.find(c => String(c.i_connection) === rowConn);
+          const ds   = cachedSets.find(s => String(s.i_destination_set) === rowDs);
+          if (!conn || !ds) return;
+          setPendingEntries([...pendingEntries, {
+            id: `${Date.now()}-${Math.random()}`,
+            iConnection: conn.i_connection, connName: conn.name, vendorName: conn.vendor_name ?? "",
+            iDestinationSet: ds.i_destination_set, dsName: ds.name,
+            activationDate: "now", expirationDate: "never",
+            preference: parseInt(rowPref) || 1, weight: parseInt(rowWeight) || 1,
+          }]);
+          setRowConn(""); setRowDs(""); setRowPref("1"); setRowWeight("1");
+        };
+        return (
+          <div>
+            <SectionHeader label="Routing Entries" />
+            <div className="rounded-md border border-border/40 overflow-hidden text-xs">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-muted/30 border-b border-border/30">
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Vendor</th>
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Connection</th>
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Destination Set</th>
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Activation</th>
+                    <th className="text-left px-2 py-1.5 font-semibold text-muted-foreground">Expiration</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-muted-foreground">Order#</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-muted-foreground">Weight</th>
+                    <th className="px-2 py-1.5" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingEntries.map(e => (
+                    <tr key={e.id} className="border-b border-border/20 hover:bg-muted/10">
+                      <td className="px-2 py-1.5 text-muted-foreground">{e.vendorName || "—"}</td>
+                      <td className="px-2 py-1.5">{e.connName}</td>
+                      <td className="px-2 py-1.5">{e.dsName}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{e.activationDate}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{e.expirationDate}</td>
+                      <td className="px-2 py-1.5 text-center">{e.preference}</td>
+                      <td className="px-2 py-1.5 text-center">{e.weight}</td>
+                      <td className="px-2 py-1.5 text-center">
+                        <button onClick={() => setPendingEntries(pendingEntries.filter(x => x.id !== e.id))}
+                          className="text-rose-400/60 hover:text-rose-400 transition-colors">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-muted/5">
+                    <td className="px-1.5 py-1.5">
+                      <select value={rowVendor} onChange={ev => { setRowVendor(ev.target.value); setRowConn(""); }}
+                        className="w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary">
+                        <option value="">Select Vendor...</option>
+                        {reVendors.map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-1.5 py-1.5">
+                      <select value={rowConn} onChange={ev => setRowConn(ev.target.value)}
+                        className="w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary">
+                        <option value="">Select Connection...</option>
+                        {reFilteredConns.map(c => (
+                          <option key={c.i_connection} value={String(c.i_connection)}>{c.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-1.5 py-1.5">
+                      <datalist id="ds-opts-re">
+                        {cachedSets.map(s => (
+                          <option key={s.i_destination_set} value={String(s.i_destination_set)}>{s.name}</option>
+                        ))}
+                      </datalist>
+                      <input list="ds-opts-re" value={rowDs} onChange={ev => setRowDs(ev.target.value)}
+                        className="w-full text-xs bg-background border border-border/60 rounded px-1.5 py-1 focus:outline-none focus:border-primary"
+                        placeholder="DS ID (e.g. 42)" data-testid="input-entry-ds-re" />
+                    </td>
+                    <td className="px-1.5 py-1.5 text-muted-foreground/60 text-center text-[10px]">now</td>
+                    <td className="px-1.5 py-1.5 text-muted-foreground/60 text-center text-[10px]">never</td>
+                    <td className="px-1.5 py-1.5">
+                      <input type="number" min="1" value={rowPref} onChange={ev => setRowPref(ev.target.value)}
+                        className="w-12 text-xs bg-background border border-border/60 rounded px-1.5 py-1 text-center focus:outline-none focus:border-primary" />
+                    </td>
+                    <td className="px-1.5 py-1.5">
+                      <input type="number" min="1" value={rowWeight} onChange={ev => setRowWeight(ev.target.value)}
+                        className="w-12 text-xs bg-background border border-border/60 rounded px-1.5 py-1 text-center focus:outline-none focus:border-primary" />
+                    </td>
+                    <td className="px-1.5 py-1.5 text-center">
+                      <button onClick={reAddRow} disabled={!rowConn || !rowDs}
+                        className="text-primary/60 hover:text-primary transition-colors disabled:opacity-30">
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* On-Net Routing */}
+      <div>
+        <SectionHeader label="On-Net Routing" />
+        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-1.5">
+            <Label>Use Connection</Label>
+            <Select value={rgOnNetConnection || "_disabled"} onValueChange={v => setRgOnNetConnection(v === "_disabled" ? "" : v)}>
+              <SelectTrigger data-testid={`select-rg-onnet-conn-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_disabled">[ Disabled ]</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Voicemail Connection</Label>
+            <Select value={rgVoicemailConn || "_disabled"} onValueChange={v => setRgVoicemailConn(v === "_disabled" ? "" : v)}>
+              <SelectTrigger data-testid={`select-rg-vm-conn-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_disabled">[ Disabled ]</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>On-Net Scope</Label>
+            <Select value={rgOnNetScope} onValueChange={setRgOnNetScope}>
+              <SelectTrigger data-testid={`select-rg-onnet-scope-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ON_NET_SCOPE_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Reply Timeout, sec</Label>
+            <Input type="number" value={rgReplyTimeout} onChange={e => setRgReplyTimeout(e.target.value)}
+              placeholder="5" data-testid={`input-rg-reply-timeout-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>1xx Timeout, sec</Label>
+            <Input type="number" value={rgTimeout1xx} onChange={e => setRgTimeout1xx(e.target.value)}
+              placeholder="10" data-testid={`input-rg-timeout1xx-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>2xx Timeout, sec</Label>
+            <Input type="number" value={rgOnNetTimeout2xx} onChange={e => setRgOnNetTimeout2xx(e.target.value)}
+              placeholder="60" data-testid={`input-rg-onnet-timeout2xx-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RoutingGroupsTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [, navigate] = useLocation();
+  const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<RoutingGroup | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RoutingGroup | null>(null);
+  // Basic
+  const [rgName, setRgName] = useState("");
+  const [rgDescription, setRgDescription] = useState("");
+  // Advanced
+  const [rgMediaRelay, setRgMediaRelay] = useState("built-in");
+  const [rgTimeout2xx, setRgTimeout2xx] = useState("300");
+  const [rgLrnEnabled, setRgLrnEnabled] = useState(false);
+  const [rgLrnRule, setRgLrnRule] = useState("");
+  // Routing Policy
+  const [rgPolicy, setRgPolicy] = useState("prefix,preference");
+  // On-Net Routing
+  const [rgOnNetConnection, setRgOnNetConnection] = useState("");
+  const [rgVoicemailConn, setRgVoicemailConn] = useState("");
+  const [rgOnNetScope, setRgOnNetScope] = useState("all_accounts");
+  const [rgReplyTimeout, setRgReplyTimeout] = useState("5");
+  const [rgTimeout1xx, setRgTimeout1xx] = useState("10");
+  const [rgOnNetTimeout2xx, setRgOnNetTimeout2xx] = useState("60");
+  // Routing entries for new group creation
+  const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([]);
+
+  const { data, isLoading } = useQuery<{ groups: RoutingGroup[] }>({
+    queryKey: ["/api/routing-cache/routing-groups"],
+  });
+  const { data: connsData } = useQuery<{ connections: Connection[] }>({
+    queryKey: ["/api/routing-cache/connections"],
+  });
+  const { data: setsData } = useQuery<{ sets: DestinationSet[] }>({
+    queryKey: ["/api/routing-cache/destination-sets"],
+  });
+  const rgCachedConns = (connsData?.connections ?? []).filter(c => !c.blocked);
+  const rgCachedSets  = setsData?.sets ?? [];
+  const groups = (data?.groups ?? []).filter(g =>
+    !search || g.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const invalidate = async () => {
+    try { await apiRequest("POST", "/api/routing-cache/sync"); } catch { /* swallow — stale cache shown */ }
+    qc.invalidateQueries({ queryKey: ["/api/routing-cache/routing-groups"] });
+    qc.invalidateQueries({ queryKey: ["/api/routing-cache/status"] });
+  };
+
+  const createMut = useMutation({
+    mutationFn: async (body: object) => (await apiRequest("POST", "/api/sippy/routing-groups", body)).json(),
+    onSuccess: async (data: any) => {
+      if (data?.success && data.iRoutingGroup && pendingEntries.length > 0) {
+        let added = 0;
+        for (const e of pendingEntries) {
+          try {
+            const r = await apiRequest("POST", `/api/sippy/routing-groups/${data.iRoutingGroup}/members`, {
+              iDestinationSet: e.iDestinationSet,
+              iConnection:     e.iConnection,
+              preference:      e.preference,
+              weight:          e.weight,
+            });
+            const j = await r.json();
+            if (j?.success) added++;
+          } catch {}
+        }
+        toast({ title: "Routing group created", description: `${added}/${pendingEntries.length} routing entries added.` });
+      } else {
+        toast({ title: "Routing group created" });
+      }
+      setCreateOpen(false); resetRgForm();
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error creating group", description: e.message, variant: "destructive" }),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: async ({ id, body }: { id: number; body: object }) => (await apiRequest("PUT", `/api/sippy/routing-groups/${id}`, body)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Routing group updated" });
+      setEditTarget(null);
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error updating group", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/sippy/routing-groups/${id}`)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Routing group deleted" });
+      setDeleteTarget(null);
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error deleting group", description: e.message, variant: "destructive" }),
+  });
+
+  const resetRgForm = () => {
+    setRgName(""); setRgDescription("");
+    setRgMediaRelay("built-in"); setRgTimeout2xx("300");
+    setRgLrnEnabled(false); setRgLrnRule("");
+    setRgPolicy("prefix,preference");
+    setRgOnNetConnection(""); setRgVoicemailConn(""); setRgOnNetScope("all_accounts");
+    setRgReplyTimeout("5"); setRgTimeout1xx("10"); setRgOnNetTimeout2xx("60");
+    setPendingEntries([]);
+  };
+
+  const openEdit = (rg: RoutingGroup) => {
+    setEditTarget(rg);
+    setRgName(rg.name);
+    setRgDescription("");
+    setRgMediaRelay(rg.media_relay ?? "built-in");
+    setRgTimeout2xx("300");
+    setRgLrnEnabled(false);
+    setRgLrnRule("");
+    // Use the existing policy value directly, falling back to the most common working value
+    const existingPolicy = rg.policy ?? "prefix,preference";
+    const knownPolicies = RG_POLICY_OPTIONS.map(o => o.value);
+    setRgPolicy(knownPolicies.includes(existingPolicy) ? existingPolicy : "prefix,preference");
+    setRgOnNetConnection(""); setRgVoicemailConn(""); setRgOnNetScope("all_accounts");
+    setRgReplyTimeout("5"); setRgTimeout1xx("10"); setRgOnNetTimeout2xx("60");
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search routing groups…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9 h-9"
+            data-testid="input-search-rg"
+          />
+        </div>
+        <Button size="sm" className="gap-1.5 h-9 shrink-0" onClick={() => { resetRgForm(); setCreateOpen(true); }}
+          data-testid="btn-create-rg">
+          <Plus className="h-4 w-4" /> New Group
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Loading from local cache…</span>
+        </div>
+      ) : groups.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <GitBranch className="h-8 w-8 opacity-30 mx-auto mb-2" />
+          <p className="text-sm">{search ? "No groups match your search" : "No routing groups yet — create one or click Sync Now"}</p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {groups.map(rg => {
+            const isExpanded = expandedId === rg.i_routing_group;
+            return (
+              <div
+                key={rg.i_routing_group}
+                data-testid={`rg-row-${rg.i_routing_group}`}
+                className="rounded-xl border border-border/50 bg-card/60 overflow-hidden"
+              >
+                <div className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
+                  <button
+                    className="flex items-center gap-4 flex-1 text-left min-w-0"
+                    onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
+                    data-testid={`btn-expand-rg-${rg.i_routing_group}`}
+                  >
+                    <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <Route className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold truncate">{rg.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">#{rg.i_routing_group}</span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <span className={`text-xs font-medium ${policyColor(rg.policy)}`}>
+                          {policyLabel(rg.policy)}
+                        </span>
+                        {rg.on_net && (
+                          <Badge variant="outline" className="h-4 text-[10px] border-cyan-500/40 text-cyan-400 px-1">On-Net</Badge>
+                        )}
+                        {rg.media_relay && (
+                          <span className="text-xs text-muted-foreground">{rg.media_relay}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right mr-2">
+                      <div className="text-sm font-semibold">{rg.members_count}</div>
+                      <div className="text-xs text-muted-foreground">members</div>
+                    </div>
+                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => navigate(`/lcr-analyser?rg=${rg.i_routing_group}`)}
+                      className="p-1.5 text-muted-foreground/50 hover:text-violet-400 rounded transition-colors"
+                      data-testid={`btn-analyse-rg-${rg.i_routing_group}`} title="Analyse in LCR">
+                      <BarChart3 className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => openEdit(rg)}
+                      className="p-1.5 text-muted-foreground/50 hover:text-foreground rounded transition-colors"
+                      data-testid={`btn-edit-rg-${rg.i_routing_group}`} title="Edit">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => setDeleteTarget(rg)}
+                      className="p-1.5 text-rose-400/50 hover:text-rose-400 rounded transition-colors"
+                      data-testid={`btn-delete-rg-${rg.i_routing_group}`} title="Delete">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    <ChevronRight
+                      onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
+                      className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200 cursor-pointer", isExpanded && "rotate-90")}
+                    />
+                  </div>
+                </div>
+                {isExpanded && (
+                  <div className="border-t border-border/40 bg-muted/10 pb-1">
+                    <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
+                      <Server className="h-3.5 w-3.5 text-muted-foreground/60" />
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Routing Entries
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/40 ml-1">live from Sippy · vendor → connection → destination set</span>
+                    </div>
+                    <div className="pt-2">
+                      <RgMembersPanel groupId={rg.i_routing_group} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add New Routing Group</DialogTitle>
+            <DialogDescription>Create a routing group on your Sippy softswitch.</DialogDescription>
+          </DialogHeader>
+          <RgForm
+            rgName={rgName} setRgName={setRgName}
+            rgDescription={rgDescription} setRgDescription={setRgDescription}
+            rgMediaRelay={rgMediaRelay} setRgMediaRelay={setRgMediaRelay}
+            rgTimeout2xx={rgTimeout2xx} setRgTimeout2xx={setRgTimeout2xx}
+            rgLrnEnabled={rgLrnEnabled} setRgLrnEnabled={setRgLrnEnabled}
+            rgLrnRule={rgLrnRule} setRgLrnRule={setRgLrnRule}
+            rgPolicy={rgPolicy} setRgPolicy={setRgPolicy}
+            rgOnNetConnection={rgOnNetConnection} setRgOnNetConnection={setRgOnNetConnection}
+            rgVoicemailConn={rgVoicemailConn} setRgVoicemailConn={setRgVoicemailConn}
+            rgOnNetScope={rgOnNetScope} setRgOnNetScope={setRgOnNetScope}
+            rgReplyTimeout={rgReplyTimeout} setRgReplyTimeout={setRgReplyTimeout}
+            rgTimeout1xx={rgTimeout1xx} setRgTimeout1xx={setRgTimeout1xx}
+            rgOnNetTimeout2xx={rgOnNetTimeout2xx} setRgOnNetTimeout2xx={setRgOnNetTimeout2xx}
+            idSuffix="create"
+            pendingEntries={pendingEntries} setPendingEntries={setPendingEntries}
+            cachedConns={rgCachedConns} cachedSets={rgCachedSets}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Discard & Close</Button>
+            <Button variant="outline" onClick={() => createMut.mutate({
+                name: rgName, policy: rgPolicy,
+                ...(rgDescription ? { description: rgDescription } : {}),
+                media_relay: rgMediaRelay,
+                ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
+                ...(rgLrnEnabled ? { lrn_enabled: 1 } : {}),
+                ...(rgLrnEnabled && rgLrnRule ? { lrn_translation_rule: rgLrnRule } : {}),
+                ...(rgOnNetConnection ? { on_net_connection: parseInt(rgOnNetConnection) } : {}),
+                ...(rgVoicemailConn ? { voicemail_connection: parseInt(rgVoicemailConn) } : {}),
+                on_net_scope: rgOnNetScope,
+                ...(rgReplyTimeout ? { reply_timeout: parseInt(rgReplyTimeout) } : {}),
+                ...(rgTimeout1xx ? { timeout_1xx: parseInt(rgTimeout1xx) } : {}),
+                ...(rgOnNetTimeout2xx ? { on_net_timeout_2xx: parseInt(rgOnNetTimeout2xx) } : {}),
+              })}
+              disabled={!rgName || !rgPolicy || createMut.isPending} data-testid="btn-confirm-save-rg">
+              {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+            </Button>
+            <Button onClick={() => createMut.mutate({
+                name: rgName, policy: rgPolicy,
+                ...(rgDescription ? { description: rgDescription } : {}),
+                media_relay: rgMediaRelay,
+                ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
+                ...(rgLrnEnabled ? { lrn_enabled: 1 } : {}),
+                ...(rgLrnEnabled && rgLrnRule ? { lrn_translation_rule: rgLrnRule } : {}),
+                ...(rgOnNetConnection ? { on_net_connection: parseInt(rgOnNetConnection) } : {}),
+                ...(rgVoicemailConn ? { voicemail_connection: parseInt(rgVoicemailConn) } : {}),
+                on_net_scope: rgOnNetScope,
+                ...(rgReplyTimeout ? { reply_timeout: parseInt(rgReplyTimeout) } : {}),
+                ...(rgTimeout1xx ? { timeout_1xx: parseInt(rgTimeout1xx) } : {}),
+                ...(rgOnNetTimeout2xx ? { on_net_timeout_2xx: parseInt(rgOnNetTimeout2xx) } : {}),
+              })}
+              disabled={!rgName || !rgPolicy || createMut.isPending} data-testid="btn-confirm-create-rg">
+              {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Close"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Routing Group</DialogTitle>
+            <DialogDescription>Update parameters for <strong>{editTarget?.name}</strong>.</DialogDescription>
+          </DialogHeader>
+          <RgForm
+            rgName={rgName} setRgName={setRgName}
+            rgDescription={rgDescription} setRgDescription={setRgDescription}
+            rgMediaRelay={rgMediaRelay} setRgMediaRelay={setRgMediaRelay}
+            rgTimeout2xx={rgTimeout2xx} setRgTimeout2xx={setRgTimeout2xx}
+            rgLrnEnabled={rgLrnEnabled} setRgLrnEnabled={setRgLrnEnabled}
+            rgLrnRule={rgLrnRule} setRgLrnRule={setRgLrnRule}
+            rgPolicy={rgPolicy} setRgPolicy={setRgPolicy}
+            rgOnNetConnection={rgOnNetConnection} setRgOnNetConnection={setRgOnNetConnection}
+            rgVoicemailConn={rgVoicemailConn} setRgVoicemailConn={setRgVoicemailConn}
+            rgOnNetScope={rgOnNetScope} setRgOnNetScope={setRgOnNetScope}
+            rgReplyTimeout={rgReplyTimeout} setRgReplyTimeout={setRgReplyTimeout}
+            rgTimeout1xx={rgTimeout1xx} setRgTimeout1xx={setRgTimeout1xx}
+            rgOnNetTimeout2xx={rgOnNetTimeout2xx} setRgOnNetTimeout2xx={setRgOnNetTimeout2xx}
+            idSuffix="edit"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button onClick={() => editTarget && updateMut.mutate({ id: editTarget.i_routing_group, body: {
+                name: rgName, policy: rgPolicy,
+                ...(rgDescription ? { description: rgDescription } : {}),
+                media_relay: rgMediaRelay,
+                ...(rgTimeout2xx ? { timeout_2xx: parseInt(rgTimeout2xx) } : {}),
+                lrn_enabled: rgLrnEnabled ? 1 : 0,
+                ...(rgLrnEnabled && rgLrnRule ? { lrn_translation_rule: rgLrnRule } : {}),
+                ...(rgOnNetConnection ? { on_net_connection: parseInt(rgOnNetConnection) } : {}),
+                ...(rgVoicemailConn ? { voicemail_connection: parseInt(rgVoicemailConn) } : {}),
+                on_net_scope: rgOnNetScope,
+                ...(rgReplyTimeout ? { reply_timeout: parseInt(rgReplyTimeout) } : {}),
+                ...(rgTimeout1xx ? { timeout_1xx: parseInt(rgTimeout1xx) } : {}),
+                ...(rgOnNetTimeout2xx ? { on_net_timeout_2xx: parseInt(rgOnNetTimeout2xx) } : {}),
+              }})}
+              disabled={!rgName || updateMut.isPending} data-testid="btn-confirm-edit-rg">
+              {updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirm */}
+      <Dialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Routing Group?</DialogTitle>
+            <DialogDescription>
+              Permanently delete <strong>{deleteTarget?.name}</strong>? This also removes all its members from Sippy.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive"
+              onClick={() => deleteTarget && deleteMut.mutate(deleteTarget.i_routing_group)}
+              disabled={deleteMut.isPending} data-testid="btn-confirm-delete-rg">
+              {deleteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Destination Sets Tab ───────────────────────────────────────────────────────
+
+const DS_CURRENCIES = ["USD", "EUR", "GBP", "AED", "SAR", "PKR", "INR", "BDT", "EGP", "TRY"];
+
+type DsFormProps = {
+  dsName: string; setDsName: (v: string) => void;
+  dsCurrency: string; setDsCurrency: (v: string) => void;
+  dsConnectFee: string; setDsConnectFee: (v: string) => void;
+  dsFreeSeconds: string; setDsFreeSeconds: (v: string) => void;
+  dsPostCallSurcharge: string; setDsPostCallSurcharge: (v: string) => void;
+  dsGracePeriod: string; setDsGracePeriod: (v: string) => void;
+  dsLocalCallingEnabled: boolean; setDsLocalCallingEnabled: (v: boolean) => void;
+  dsCliValidationRule: string; setDsCliValidationRule: (v: string) => void;
+  dsRemoteMgmtType: string; setDsRemoteMgmtType: (v: string) => void;
+  dsRemoteMgmtKey: string; setDsRemoteMgmtKey: (v: string) => void;
+  idSuffix: string;
+};
+
+function DsForm({
+  dsName, setDsName,
+  dsCurrency, setDsCurrency, dsConnectFee, setDsConnectFee,
+  dsFreeSeconds, setDsFreeSeconds, dsPostCallSurcharge, setDsPostCallSurcharge,
+  dsGracePeriod, setDsGracePeriod,
+  dsLocalCallingEnabled, setDsLocalCallingEnabled,
+  dsCliValidationRule, setDsCliValidationRule, dsRemoteMgmtType, setDsRemoteMgmtType,
+  dsRemoteMgmtKey, setDsRemoteMgmtKey, idSuffix,
+}: DsFormProps) {
+  const SectionHeader = ({ label }: { label: string }) => (
+    <div className="flex items-center gap-2 py-1 mb-2 border-b border-border/40">
+      <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5 py-2">
+      {/* Basic Parameters */}
+      <div>
+        <SectionHeader label="Basic Parameters" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Name *</Label>
+            <Input value={dsName} onChange={e => setDsName(e.target.value)}
+              placeholder="e.g. UK-Mobile" data-testid={`input-ds-name-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Currency *</Label>
+            <Select value={dsCurrency} onValueChange={setDsCurrency}>
+              <SelectTrigger data-testid={`select-ds-currency-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {DS_CURRENCIES_FULL.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Connect Fee</Label>
+            <Input type="number" step="0.0001" value={dsConnectFee} onChange={e => setDsConnectFee(e.target.value)}
+              placeholder="0.0000" data-testid={`input-ds-connect-fee-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Free Seconds</Label>
+            <Input type="number" value={dsFreeSeconds} onChange={e => setDsFreeSeconds(e.target.value)}
+              placeholder="0" data-testid={`input-ds-free-seconds-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Post Call Surcharge %</Label>
+            <Input type="number" step="0.01" value={dsPostCallSurcharge} onChange={e => setDsPostCallSurcharge(e.target.value)}
+              placeholder="0.00" data-testid={`input-ds-surcharge-${idSuffix}`} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Grace Period, sec</Label>
+            <Input type="number" value={dsGracePeriod} onChange={e => setDsGracePeriod(e.target.value)}
+              placeholder="0" data-testid={`input-ds-grace-period-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+
+      {/* Local Calling */}
+      <div>
+        <SectionHeader label="Local Calling" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id={`chk-lc-${idSuffix}`} checked={dsLocalCallingEnabled}
+              onChange={e => setDsLocalCallingEnabled(e.target.checked)}
+              className="h-4 w-4 accent-primary" data-testid={`chk-ds-local-calling-${idSuffix}`} />
+            <label htmlFor={`chk-lc-${idSuffix}`} className="text-sm font-medium cursor-pointer">Enabled</label>
+          </div>
+          <div className="space-y-1.5">
+            <Label>CLI Validation Rule</Label>
+            <Input value={dsCliValidationRule} onChange={e => setDsCliValidationRule(e.target.value)}
+              disabled={!dsLocalCallingEnabled}
+              placeholder={dsLocalCallingEnabled ? "e.g. ^44[0-9]{9}$" : "Enable local calling first"}
+              className="disabled:opacity-40"
+              data-testid={`input-ds-cli-validation-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+
+      {/* Remote Management */}
+      <div>
+        <SectionHeader label="Remote Management" />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select value={dsRemoteMgmtType} onValueChange={setDsRemoteMgmtType}>
+              <SelectTrigger data-testid={`select-ds-remote-mgmt-${idSuffix}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {REMOTE_MGMT_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Key</Label>
+            <Input value={dsRemoteMgmtKey} onChange={e => setDsRemoteMgmtKey(e.target.value)}
+              disabled={dsRemoteMgmtType === "disabled"}
+              placeholder={dsRemoteMgmtType === "disabled" ? "N/A" : "Remote management key"}
+              className="disabled:opacity-40"
+              data-testid={`input-ds-remote-key-${idSuffix}`} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DestinationSetsTab() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [, navigate] = useLocation();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<DestinationSet | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DestinationSet | null>(null);
+  const [dsName, setDsName] = useState("");
+  const [dsCurrency, setDsCurrency] = useState("USD");
+  const [dsCldTrans, setDsCldTrans] = useState("");
+  const [dsCliTrans, setDsCliTrans] = useState("");
+  const [dsDescription, setDsDescription] = useState("");
+  const [dsConnectFee, setDsConnectFee] = useState("");
+  const [dsFreeSeconds, setDsFreeSeconds] = useState("");
+  const [dsGracePeriod, setDsGracePeriod] = useState("");
+  const [dsPostCallSurcharge, setDsPostCallSurcharge] = useState("");
+  const [dsLocalCallingEnabled, setDsLocalCallingEnabled] = useState(false);
+  const [dsCliValidationRule, setDsCliValidationRule] = useState("");
+  const [dsRemoteMgmtType, setDsRemoteMgmtType] = useState("disabled");
+  const [dsRemoteMgmtKey, setDsRemoteMgmtKey] = useState("");
+
+  const { data, isLoading } = useQuery<{ sets: DestinationSet[] }>({
+    queryKey: ["/api/routing-cache/destination-sets"],
+  });
+  const sets = (data?.sets ?? []).filter(s =>
+    !search || s.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleRunLcr = (prefix: string) => {
+    navigate(`/lcr-analyser?prefix=${encodeURIComponent(prefix)}`);
+  };
+
+  const invalidate = async () => {
+    try { await apiRequest("POST", "/api/routing-cache/sync"); } catch { /* swallow */ }
+    qc.invalidateQueries({ queryKey: ["/api/routing-cache/destination-sets"] });
+    qc.invalidateQueries({ queryKey: ["/api/routing-cache/status"] });
+  };
+
+  const createMut = useMutation({
+    mutationFn: async (body: object) => (await apiRequest("POST", "/api/sippy/destination-sets", body)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Destination set created" });
+      setCreateOpen(false); setDsName(""); setDsCurrency("USD"); setDsCldTrans(""); setDsCliTrans(""); setDsDescription(""); setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod(""); setDsPostCallSurcharge(""); setDsLocalCallingEnabled(false); setDsCliValidationRule(""); setDsRemoteMgmtType("disabled"); setDsRemoteMgmtKey("");
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error creating destination set", description: e.message, variant: "destructive" }),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: async ({ id, body }: { id: number; body: object }) => (await apiRequest("PATCH", `/api/sippy/destination-sets/${id}`, body)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Destination set updated" });
+      setEditTarget(null);
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error updating destination set", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: number) => (await apiRequest("DELETE", `/api/sippy/destination-sets/${id}`)).json(),
+    onSuccess: (data: any) => {
+      const a = approvalToastOpts(data, navigate);
+      if (a) toast(a); else toast({ title: "Destination set deleted" });
+      setDeleteTarget(null);
+      setTimeout(invalidate, 1000);
+    },
+    onError: (e: any) => toast({ title: "Error deleting destination set", description: e.message, variant: "destructive" }),
+  });
+
+  const resetDsForm = () => {
+    setDsName(""); setDsCurrency("USD");
+    setDsCldTrans(""); setDsCliTrans(""); setDsDescription("");
+    setDsConnectFee(""); setDsFreeSeconds(""); setDsGracePeriod("");
+    setDsPostCallSurcharge(""); setDsLocalCallingEnabled(false);
+    setDsCliValidationRule(""); setDsRemoteMgmtType("disabled"); setDsRemoteMgmtKey("");
+  };
+
+  const openEdit = (ds: DestinationSet) => {
+    setEditTarget(ds);
+    setDsName(ds.name);
+    setDsCurrency(ds.currency ?? "USD");
+    setDsCldTrans(ds.cld_translation ?? "");
+    setDsCliTrans(ds.cli_translation ?? "");
+    setDsDescription(ds.description ?? "");
+    setDsConnectFee(ds.connect_fee != null ? String(ds.connect_fee) : "");
+    setDsFreeSeconds(ds.free_seconds != null ? String(ds.free_seconds) : "");
+    setDsGracePeriod(ds.grace_period != null ? String(ds.grace_period) : "");
+    setDsPostCallSurcharge(""); setDsLocalCallingEnabled(false);
+    setDsCliValidationRule(""); setDsRemoteMgmtType("disabled"); setDsRemoteMgmtKey("");
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search destination sets…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9 h-9"
+            data-testid="input-search-ds"
+          />
+        </div>
+        <Button size="sm" className="gap-1.5 h-9 shrink-0"
+          onClick={() => { resetDsForm(); setCreateOpen(true); }}
+          data-testid="btn-create-ds">
+          <Plus className="h-4 w-4" /> New Dest Set
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Loading from local cache…</span>
+        </div>
+      ) : sets.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <Layers className="h-8 w-8 opacity-30 mx-auto mb-2" />
+          <p className="text-sm">{search ? "No sets match your search" : "No destination sets yet — create one or Sync Now"}</p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {sets.map(ds => {
+            const isExpanded = expandedId === ds.i_destination_set;
+            return (
+              <div
+                key={ds.i_destination_set}
+                data-testid={`ds-row-${ds.i_destination_set}`}
+                className="rounded-xl border border-border/50 bg-card/60 overflow-hidden"
+              >
+                <div className="flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors">
+                  <button
+                    className="flex items-center gap-4 flex-1 text-left min-w-0"
+                    onClick={() => setExpandedId(isExpanded ? null : ds.i_destination_set)}
+                    data-testid={`btn-expand-ds-${ds.i_destination_set}`}
+                  >
+                    <div className="h-9 w-9 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
+                      <Layers className="h-4 w-4 text-violet-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold truncate">{ds.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">#{ds.i_destination_set}</span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                        {ds.cld_translation && (
+                          <span className="text-xs text-muted-foreground font-mono">
+                            CLD: <span className="text-cyan-400">{ds.cld_translation}</span>
+                          </span>
+                        )}
+                        {ds.cli_translation && (
+                          <span className="text-xs text-muted-foreground font-mono">
+                            CLI: <span className="text-amber-400">{ds.cli_translation}</span>
+                          </span>
+                        )}
+                        {!ds.cld_translation && !ds.cli_translation && (
+                          <span className="text-xs text-muted-foreground/40">no translation rules</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right mr-2">
+                      <div className="text-sm font-semibold">{ds.route_count}</div>
+                      <div className="text-xs text-muted-foreground">routes</div>
+                    </div>
+                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => openEdit(ds)}
+                      className="p-1.5 text-muted-foreground/50 hover:text-foreground rounded transition-colors"
+                      data-testid={`btn-edit-ds-${ds.i_destination_set}`} title="Edit">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button onClick={() => setDeleteTarget(ds)}
+                      className="p-1.5 text-rose-400/50 hover:text-rose-400 rounded transition-colors"
+                      data-testid={`btn-delete-ds-${ds.i_destination_set}`} title="Delete">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    <ChevronRight
+                      onClick={() => setExpandedId(isExpanded ? null : ds.i_destination_set)}
+                      className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200 cursor-pointer", isExpanded && "rotate-90")}
+                    />
+                  </div>
+                </div>
+                {isExpanded && (
+                  <div className="border-t border-border/40 bg-muted/10 pb-1">
+                    <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
+                      <Network className="h-3.5 w-3.5 text-muted-foreground/60" />
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Prefix Routes
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/40 ml-1">click Run LCR to analyse a prefix</span>
+                    </div>
+                    <div className="pt-2">
+                      <DsRoutesPanel dsId={ds.i_destination_set} onRunLcr={handleRunLcr} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add New Destination Set</DialogTitle>
+            <DialogDescription>Create a destination set (prefix/rate group) on Sippy.</DialogDescription>
+          </DialogHeader>
+          <DsForm
+            dsName={dsName} setDsName={setDsName}
+            dsCurrency={dsCurrency} setDsCurrency={setDsCurrency}
+            dsConnectFee={dsConnectFee} setDsConnectFee={setDsConnectFee}
+            dsFreeSeconds={dsFreeSeconds} setDsFreeSeconds={setDsFreeSeconds}
+            dsPostCallSurcharge={dsPostCallSurcharge} setDsPostCallSurcharge={setDsPostCallSurcharge}
+            dsGracePeriod={dsGracePeriod} setDsGracePeriod={setDsGracePeriod}
+            dsLocalCallingEnabled={dsLocalCallingEnabled} setDsLocalCallingEnabled={setDsLocalCallingEnabled}
+            dsCliValidationRule={dsCliValidationRule} setDsCliValidationRule={setDsCliValidationRule}
+            dsRemoteMgmtType={dsRemoteMgmtType} setDsRemoteMgmtType={setDsRemoteMgmtType}
+            dsRemoteMgmtKey={dsRemoteMgmtKey} setDsRemoteMgmtKey={setDsRemoteMgmtKey}
+            idSuffix="create"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>Discard & Close</Button>
+            <Button onClick={() => createMut.mutate({
+                name: dsName, currency: dsCurrency,
+                ...(dsDescription ? { description: dsDescription } : {}),
+                ...(dsConnectFee ? { connect_fee: parseFloat(dsConnectFee) } : {}),
+                ...(dsFreeSeconds ? { free_seconds: parseInt(dsFreeSeconds) } : {}),
+                ...(dsPostCallSurcharge ? { post_call_surcharge: parseFloat(dsPostCallSurcharge) } : {}),
+                ...(dsGracePeriod ? { grace_period: parseInt(dsGracePeriod) } : {}),
+                ...(dsCldTrans ? { cld_translation: dsCldTrans } : {}),
+                ...(dsCliTrans ? { cli_translation: dsCliTrans } : {}),
+                local_calling_enabled: dsLocalCallingEnabled ? 1 : 0,
+                ...(dsLocalCallingEnabled && dsCliValidationRule ? { cli_validation_rule: dsCliValidationRule } : {}),
+                remote_mgmt_type: dsRemoteMgmtType,
+                ...(dsRemoteMgmtType !== "disabled" && dsRemoteMgmtKey ? { remote_mgmt_key: dsRemoteMgmtKey } : {}),
+              })}
+              disabled={!dsName || !dsCurrency || createMut.isPending} data-testid="btn-confirm-create-ds">
+              {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editTarget} onOpenChange={o => !o && setEditTarget(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Destination Set</DialogTitle>
+            <DialogDescription>Update parameters for <strong>{editTarget?.name}</strong>.</DialogDescription>
+          </DialogHeader>
+          <DsForm
+            dsName={dsName} setDsName={setDsName}
+            dsCurrency={dsCurrency} setDsCurrency={setDsCurrency}
+            dsConnectFee={dsConnectFee} setDsConnectFee={setDsConnectFee}
+            dsFreeSeconds={dsFreeSeconds} setDsFreeSeconds={setDsFreeSeconds}
+            dsPostCallSurcharge={dsPostCallSurcharge} setDsPostCallSurcharge={setDsPostCallSurcharge}
+            dsGracePeriod={dsGracePeriod} setDsGracePeriod={setDsGracePeriod}
+            dsLocalCallingEnabled={dsLocalCallingEnabled} setDsLocalCallingEnabled={setDsLocalCallingEnabled}
+            dsCliValidationRule={dsCliValidationRule} setDsCliValidationRule={setDsCliValidationRule}
+            dsRemoteMgmtType={dsRemoteMgmtType} setDsRemoteMgmtType={setDsRemoteMgmtType}
+            dsRemoteMgmtKey={dsRemoteMgmtKey} setDsRemoteMgmtKey={setDsRemoteMgmtKey}
+            idSuffix="edit"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button onClick={() => editTarget && updateMut.mutate({
+                id: editTarget.i_destination_set,
+                body: {
+                  name: dsName, currency: dsCurrency,
+                  ...(dsDescription ? { description: dsDescription } : {}),
+                  ...(dsConnectFee ? { connect_fee: parseFloat(dsConnectFee) } : {}),
+                  ...(dsFreeSeconds ? { free_seconds: parseInt(dsFreeSeconds) } : {}),
+                  ...(dsPostCallSurcharge ? { post_call_surcharge: parseFloat(dsPostCallSurcharge) } : {}),
+                  ...(dsGracePeriod ? { grace_period: parseInt(dsGracePeriod) } : {}),
+                  ...(dsCldTrans ? { cld_translation: dsCldTrans } : {}),
+                  ...(dsCliTrans ? { cli_translation: dsCliTrans } : {}),
+                  local_calling_enabled: dsLocalCallingEnabled ? 1 : 0,
+                  ...(dsLocalCallingEnabled && dsCliValidationRule ? { cli_validation_rule: dsCliValidationRule } : {}),
+                  remote_mgmt_type: dsRemoteMgmtType,
+                  ...(dsRemoteMgmtType !== "disabled" && dsRemoteMgmtKey ? { remote_mgmt_key: dsRemoteMgmtKey } : {}),
+                }
+              })}
+              disabled={!dsName || updateMut.isPending} data-testid="btn-confirm-edit-ds">
+              {updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirm */}
+      <Dialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Destination Set?</DialogTitle>
+            <DialogDescription>
+              Permanently delete <strong>{deleteTarget?.name}</strong> and all its routes from Sippy?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive"
+              onClick={() => deleteTarget && deleteMut.mutate(deleteTarget.i_destination_set)}
+              disabled={deleteMut.isPending} data-testid="btn-confirm-delete-ds">
+              {deleteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Coverage Map View ──────────────────────────────────────────────────────────
+
+function CoverageMapView() {
+  const [openGap, setOpenGap] = useState<'unused' | 'orphan' | 'single' | null>(null);
+
+  const { data, isLoading, isFetching, refetch, error } = useQuery<CoverageMatrix>({
+    queryKey: ["/api/coverage/matrix"],
+    staleTime: 5 * 60_000,
+    refetchInterval: false,
+  });
+
+  const g = data?.gaps;
+  const totalGaps = (g?.unusedConnections.length ?? 0) + (g?.orphanDSets.length ?? 0) + (g?.singleCoveredDSets.length ?? 0);
+
+  // Build matrix: rows = connections, cols = DS — O(C × DS)
+  const matrixConns = data?.connections.filter(c => !c.blocked) ?? [];
+  const matrixDSets = data?.destinationSets ?? [];
+
+  // For a cell: is conn X linked to DS Y?
+  const linked = (iConn: number, iDS: number) =>
+    data?.connections.find(c => c.iConnection === iConn)?.coveredDSets.some(d => d.iDS === iDS) ?? false;
+
+  if (isLoading) return (
+    <div className="flex flex-col items-center justify-center py-20 gap-2 text-muted-foreground">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      <p className="text-sm">Building coverage map — fetching live routing group members…</p>
+      <p className="text-[10px]">This makes one API call per routing group. Please wait.</p>
+    </div>
+  );
+
+  if (error || !data) return (
+    <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+      <AlertCircle className="h-8 w-8 text-destructive/60" />
+      <p className="text-sm font-medium">Failed to build coverage map</p>
+      <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{data.connections.length} connections</span>
+          <span>·</span>
+          <span>{data.destinationSets.length} destination sets</span>
+          <span>·</span>
+          <span>{data.rgCount} routing groups</span>
+          {data.failedRGs > 0 && (
+            <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-500/30">
+              {data.failedRGs} RGs skipped
+            </Badge>
+          )}
+          <span className="text-muted-foreground/40">({data.buildTimeMs}ms)</span>
+        </div>
+        <Button
+          size="sm" variant="outline" className="h-7 gap-1.5 text-xs"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          data-testid="btn-coverage-refresh"
+        >
+          <RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Gap Summary Cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <button
+          onClick={() => setOpenGap(openGap === 'unused' ? null : 'unused')}
+          data-testid="card-gap-unused"
+          className={cn(
+            "text-left p-4 rounded-xl border transition-colors space-y-1.5",
+            g!.unusedConnections.length > 0
+              ? "bg-red-500/10 border-red-500/30 hover:bg-red-500/15"
+              : "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/15"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Unused Connections</span>
+            <ShieldAlert className={cn("h-3.5 w-3.5", g!.unusedConnections.length > 0 ? "text-red-400" : "text-emerald-400")} />
+          </div>
+          <p className={cn("text-2xl font-bold tabular-nums", g!.unusedConnections.length > 0 ? "text-red-400" : "text-emerald-400")}>
+            {g!.unusedConnections.length}
+          </p>
+          <p className="text-[10px] text-muted-foreground">connections not in any routing group</p>
+        </button>
+
+        <button
+          onClick={() => setOpenGap(openGap === 'orphan' ? null : 'orphan')}
+          data-testid="card-gap-orphan"
+          className={cn(
+            "text-left p-4 rounded-xl border transition-colors space-y-1.5",
+            g!.orphanDSets.length > 0
+              ? "bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/15"
+              : "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/15"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Orphan Dest Sets</span>
+            <XCircle className={cn("h-3.5 w-3.5", g!.orphanDSets.length > 0 ? "text-amber-400" : "text-emerald-400")} />
+          </div>
+          <p className={cn("text-2xl font-bold tabular-nums", g!.orphanDSets.length > 0 ? "text-amber-400" : "text-emerald-400")}>
+            {g!.orphanDSets.length}
+          </p>
+          <p className="text-[10px] text-muted-foreground">destination sets with no connections</p>
+        </button>
+
+        <button
+          onClick={() => setOpenGap(openGap === 'single' ? null : 'single')}
+          data-testid="card-gap-single"
+          className={cn(
+            "text-left p-4 rounded-xl border transition-colors space-y-1.5",
+            g!.singleCoveredDSets.length > 0
+              ? "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/15"
+              : "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/15"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Redundancy Gaps</span>
+            <Shield className={cn("h-3.5 w-3.5", g!.singleCoveredDSets.length > 0 ? "text-blue-400" : "text-emerald-400")} />
+          </div>
+          <p className={cn("text-2xl font-bold tabular-nums", g!.singleCoveredDSets.length > 0 ? "text-blue-400" : "text-emerald-400")}>
+            {g!.singleCoveredDSets.length}
+          </p>
+          <p className="text-[10px] text-muted-foreground">dest sets with only 1 connection</p>
+        </button>
+      </div>
+
+      {/* Gap Detail Panel (collapsible) */}
+      {openGap === 'unused' && g!.unusedConnections.length > 0 && (
+        <div className="border border-red-500/30 rounded-xl overflow-hidden">
+          <div className="bg-red-500/10 px-4 py-2 flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-red-400" />
+            <span className="text-sm font-semibold text-red-400">Unused Connections</span>
+            <span className="text-xs text-muted-foreground ml-1">— not assigned to any routing group member</span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {g!.unusedConnections.map(c => (
+              <div key={c.iConnection} className="flex items-center gap-3 px-4 py-2.5" data-testid={`gap-unused-${c.iConnection}`}>
+                <div className={cn("h-2 w-2 rounded-full shrink-0", c.blocked ? "bg-rose-500" : "bg-slate-500")} />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium">{c.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono ml-1.5">#{c.iConnection}</span>
+                  {c.host && <span className="text-xs text-muted-foreground/60 font-mono ml-2">{c.host}</span>}
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0">{c.vendorName ?? '—'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {openGap === 'orphan' && g!.orphanDSets.length > 0 && (
+        <div className="border border-amber-500/30 rounded-xl overflow-hidden">
+          <div className="bg-amber-500/10 px-4 py-2 flex items-center gap-2">
+            <XCircle className="h-4 w-4 text-amber-400" />
+            <span className="text-sm font-semibold text-amber-400">Orphan Destination Sets</span>
+            <span className="text-xs text-muted-foreground ml-1">— no connection routes to these sets</span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {g!.orphanDSets.map(ds => (
+              <div key={ds.iDS} className="flex items-center gap-3 px-4 py-2.5" data-testid={`gap-orphan-${ds.iDS}`}>
+                <Layers className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium">{ds.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono ml-1.5">#{ds.iDS}</span>
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0">{ds.routeCount} routes</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {openGap === 'single' && g!.singleCoveredDSets.length > 0 && (
+        <div className="border border-blue-500/30 rounded-xl overflow-hidden">
+          <div className="bg-blue-500/10 px-4 py-2 flex items-center gap-2">
+            <Shield className="h-4 w-4 text-blue-400" />
+            <span className="text-sm font-semibold text-blue-400">Redundancy Gaps</span>
+            <span className="text-xs text-muted-foreground ml-1">— single connection creates SPOF risk</span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {g!.singleCoveredDSets.map(ds => (
+              <div key={ds.iDS} className="flex items-center gap-3 px-4 py-2.5" data-testid={`gap-single-${ds.iDS}`}>
+                <Layers className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium">{ds.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono ml-1.5">#{ds.iDS}</span>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs text-blue-400 font-medium">{ds.connectedConnections[0]?.connName}</p>
+                  <p className="text-[10px] text-muted-foreground">{ds.connectedConnections[0]?.vendorName}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* All-clear banner */}
+      {totalGaps === 0 && (
+        <div className="flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-2.5 text-sm text-emerald-400">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>No coverage gaps detected — all connections are assigned and all destination sets have redundant coverage.</span>
+        </div>
+      )}
+
+      {/* Coverage Matrix */}
+      {matrixConns.length > 0 && matrixDSets.length > 0 && (
+        <div className="border border-border/40 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 bg-muted/30 border-b border-border/30 flex items-center gap-2">
+            <Grid3X3 className="h-3.5 w-3.5 text-muted-foreground/60" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Connection × Destination Set Matrix
+            </span>
+            <span className="text-[10px] text-muted-foreground/50 ml-1">
+              ● = linked via routing group · blocked connections hidden
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse" data-testid="table-coverage-matrix">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 bg-muted/40 border-b border-r border-border/30 px-3 py-2 text-left text-[10px] font-semibold text-muted-foreground min-w-[180px]">
+                    Connection / Vendor
+                  </th>
+                  {matrixDSets.map(ds => (
+                    <th
+                      key={ds.iDS}
+                      className="border-b border-r border-border/20 px-2 py-2 text-center min-w-[80px] max-w-[100px]"
+                      title={`${ds.name} · ${ds.routeCount} routes`}
+                    >
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[9px] font-semibold text-muted-foreground truncate max-w-[70px]" style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)', height: '60px' }}>
+                          {ds.name}
+                        </span>
+                        <span className="text-[8px] text-muted-foreground/50">{ds.routeCount}r</span>
+                      </div>
+                    </th>
+                  ))}
+                  <th className="border-b border-border/30 px-2 py-2 text-center text-[10px] font-semibold text-muted-foreground min-w-[60px]">
+                    Coverage
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {matrixConns.map((conn, rowIdx) => {
+                  const coverageCount = matrixDSets.filter(ds => linked(conn.iConnection, ds.iDS)).length;
+                  return (
+                    <tr
+                      key={conn.iConnection}
+                      className={cn("hover:bg-muted/20 transition-colors", rowIdx % 2 === 0 ? "bg-background" : "bg-muted/10")}
+                      data-testid={`matrix-row-${conn.iConnection}`}
+                    >
+                      <td className="sticky left-0 border-b border-r border-border/20 px-3 py-2 min-w-[180px]"
+                        style={{ background: 'var(--background)' }}>
+                        <div>
+                          <p className="font-medium truncate max-w-[160px]">{conn.name}</p>
+                          <p className="text-[10px] text-muted-foreground truncate max-w-[160px]">{conn.vendorName ?? '—'}</p>
+                        </div>
+                      </td>
+                      {matrixDSets.map(ds => {
+                        const isLinked = linked(conn.iConnection, ds.iDS);
+                        const ref = conn.coveredDSets.find(d => d.iDS === ds.iDS);
+                        return (
+                          <td
+                            key={ds.iDS}
+                            className="border-b border-r border-border/15 text-center py-2 px-1"
+                            title={isLinked ? `via ${ref?.rgName ?? 'RG'} · pref ${ref?.preference ?? '—'}` : 'Not linked'}
+                            data-testid={`matrix-cell-${conn.iConnection}-${ds.iDS}`}
+                          >
+                            {isLinked ? (
+                              <div className="flex items-center justify-center">
+                                <div className="h-3.5 w-3.5 rounded-full bg-emerald-500/80 flex items-center justify-center text-[8px] font-bold text-white" title={`Pref: ${ref?.preference ?? '—'}`}>
+                                  ✓
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="h-3.5 w-3.5 rounded-sm bg-muted/30 mx-auto" />
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="border-b border-border/20 text-center py-2 px-2">
+                        <span className={cn("text-xs font-bold tabular-nums",
+                          coverageCount === 0 ? "text-red-400"
+                          : coverageCount === matrixDSets.length ? "text-emerald-400" : "text-amber-400"
+                        )}>
+                          {coverageCount}/{matrixDSets.length}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Per-DS coverage summary row */}
+          <div className="border-t border-border/30 bg-muted/20 flex items-center gap-0 overflow-x-auto">
+            <div className="sticky left-0 bg-muted/40 px-3 py-1.5 text-[10px] font-semibold text-muted-foreground min-w-[180px] shrink-0">
+              Connections per DS
+            </div>
+            {matrixDSets.map(ds => {
+              const cnt = ds.connectedConnections.filter(c => {
+                const conn = data.connections.find(x => x.iConnection === c.iConnection);
+                return !conn?.blocked;
+              }).length;
+              return (
+                <div key={ds.iDS} className="min-w-[80px] text-center py-1.5 border-l border-border/20 text-[10px] font-bold tabular-nums"
+                  style={{ color: cnt === 0 ? '#f87171' : cnt === 1 ? '#fbbf24' : '#34d399' }}>
+                  {cnt}
+                </div>
+              );
+            })}
+            <div className="min-w-[60px]" />
+          </div>
+        </div>
+      )}
+
+      {/* No data */}
+      {data.connections.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+          <Network className="h-8 w-8 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground">No connections in cache — run a routing cache sync first</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Connections Tab ────────────────────────────────────────────────────────────
+
+type SippyVendorItem = { iVendor: number; name: string };
+
+function ConnectionsTab({ highlightConnId }: { highlightConnId?: number }) {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [viewMode, setViewMode] = useState<'list' | 'coverage'>('list');
+  const [search, setSearch] = useState("");
+  const [showBlocked, setShowBlocked] = useState(true);
+  const [pulseId, setPulseId] = useState<number | null>(null);
+
+  // Deep-link: auto-scroll + 3s highlight when highlightConnId is present
+  useEffect(() => {
+    if (!highlightConnId) return;
+    setViewMode('list');
+    const tryScroll = (attempts = 0) => {
+      const el = document.querySelector(`[data-testid="conn-row-${highlightConnId}"]`) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setPulseId(highlightConnId);
+        const t = setTimeout(() => setPulseId(null), 3000);
+        return () => clearTimeout(t);
+      } else if (attempts < 10) {
+        setTimeout(() => tryScroll(attempts + 1), 200);
+      }
+    };
+    tryScroll();
+  }, [highlightConnId]);
+
+  // ── Add Vendor dialog state ──
+  const [vendorOpen, setVendorOpen] = useState(false);
+  const [vName,     setVName]     = useState("");
+  const [vLogin,    setVLogin]    = useState("");
+  const [vPass,     setVPass]     = useState("");
+  const [vCurrency, setVCurrency] = useState("USD");
+
+  // ── Add Connection dialog state ──
+  const [connOpen,       setConnOpen]       = useState(false);
+  const [connVendorId,   setConnVendorId]   = useState<number | null>(null);
+  const [connVendorName, setConnVendorName] = useState("");
+  const [cName,          setCName]          = useState("");
+  const [cProto,         setCProto]         = useState("SIP");
+  const [cDest,          setCDest]          = useState("");
+  const [cUser,          setCUser]          = useState("");
+  const [cPass,          setCPass]          = useState("");
+  const [cCapacity,      setCCapacity]      = useState("");
+  const [cEnforceCap,    setCEnforceCap]    = useState(false);
+  const [cMaxCps,        setCMaxCps]        = useState("");
+  const [cBlocked,       setCBlocked]       = useState(false);
+  const [cCld,           setCCld]           = useState("");
+  const [cCli,           setCCli]           = useState("");
+  const [cProxy,         setCProxy]         = useState("");
+  const [cMediaRelay,    setCMediaRelay]    = useState("1");
+
+  const { data, isLoading } = useQuery<{ connections: Connection[] }>({
+    queryKey: ["/api/routing-cache/connections"],
+  });
+
+  // Vendor list for connection dialog dropdown (only loaded when needed)
+  const { data: vendorsData } = useQuery<{ vendors: SippyVendorItem[] }>({
+    queryKey: ["/api/sippy/vendors"],
+    enabled: connOpen && connVendorId === null,
+    select: (d: any) => ({
+      vendors: (d.vendors ?? []).map((v: any) => ({ iVendor: v.iVendor ?? v.i_vendor, name: v.name }))
+    }),
+  });
+
+  const afterCreate = async () => {
+    try { await apiRequest("POST", "/api/routing-cache/sync"); } catch { /* best-effort */ }
+    queryClient.invalidateQueries({ queryKey: ["/api/routing-cache/connections"] });
+  };
+
+  const addVendorMut = useMutation({
+    mutationFn: (body: object) => apiRequest("POST", "/api/sippy/vendors", body),
+    onSuccess: async (res: any) => {
+      const d = await res.json().catch(() => ({}));
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error ?? d.message }); return; }
+      const createdName = vName;
+      const createdId   = d.iVendor as number | undefined;
+      setVendorOpen(false); setVName(""); setVLogin(""); setVPass(""); setVCurrency("USD");
+      queryClient.invalidateQueries({ queryKey: ["/api/sippy/vendors"] });
+      afterCreate();
+      // Immediately open Add Connection dialog pre-selected on the new vendor
+      if (createdId) {
+        setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass("");
+        setCCapacity(""); setCEnforceCap(false); setCMaxCps(""); setCBlocked(false);
+        setCCld(""); setCCli(""); setCProxy(""); setCMediaRelay("1");
+        setConnVendorId(createdId);
+        setConnVendorName(createdName);
+        setConnOpen(true);
+        toast({ title: `Vendor "${createdName}" created`, description: "Now add at least one connection to it." });
+      } else {
+        toast({ title: "Vendor created", description: `${createdName} added to Sippy. Use "Add Connection" to add connections to it.` });
+      }
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const addConnMut = useMutation({
+    mutationFn: ({ vendorId, body }: { vendorId: number; body: object }) =>
+      apiRequest("POST", `/api/sippy/vendors/${vendorId}/connections`, body),
+    onSuccess: async (res: any) => {
+      const d = await res.json().catch(() => ({}));
+      if (d.success === false) { toast({ variant: "destructive", title: "Failed", description: d.error ?? d.message }); return; }
+      toast({ title: "Connection created", description: `${cName} added to Sippy.` });
+      setConnOpen(false);
+      setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass("");
+      setCCapacity(""); setCEnforceCap(false); setCMaxCps(""); setCBlocked(false);
+      setCCld(""); setCCli(""); setCProxy(""); setCMediaRelay("1");
+      await afterCreate();
+    },
+    onError: (e: any) => toast({ variant: "destructive", title: "Error", description: e.message }),
+  });
+
+  const openAddConn = (vendorId: number, vendorName: string) => {
+    setConnVendorId(vendorId); setConnVendorName(vendorName);
+    setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass("");
+    setCCapacity(""); setCEnforceCap(false); setCMaxCps(""); setCBlocked(false);
+    setCCld(""); setCCli(""); setCProxy(""); setCMediaRelay("1");
+    setConnOpen(true);
+  };
+
+  const connections = (data?.connections ?? []).filter(c => {
+    if (!showBlocked && c.blocked) return false;
+    return !search || c.name.toLowerCase().includes(search.toLowerCase()) || (c.vendor_name ?? "").toLowerCase().includes(search.toLowerCase());
+  });
+
+  // Group by vendor
+  const byVendor = connections.reduce<Record<string, Connection[]>>((acc, c) => {
+    const key = c.vendor_name ?? "Unknown";
+    (acc[key] ??= []).push(c);
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-3">
+      {/* Toolbar row */}
+      <div className="flex gap-2 items-center flex-wrap">
+        {/* View mode toggle */}
+        <div className="flex items-center gap-1 bg-muted/40 border border-border/40 rounded-lg p-1 shrink-0">
+          <button
+            onClick={() => setViewMode('list')}
+            data-testid="btn-view-list"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors",
+              viewMode === 'list'
+                ? "bg-background text-foreground shadow-sm border border-border/60"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <List className="h-3.5 w-3.5" />
+            List
+          </button>
+          <button
+            onClick={() => setViewMode('coverage')}
+            data-testid="btn-view-coverage"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors",
+              viewMode === 'coverage'
+                ? "bg-background text-foreground shadow-sm border border-border/60"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Grid3X3 className="h-3.5 w-3.5" />
+            Coverage Map
+          </button>
+        </div>
+
+        {viewMode === 'list' && (
+          <>
+            <div className="relative flex-1 min-w-[160px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search connections or vendors…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-9 h-9"
+                data-testid="input-search-conn"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant={showBlocked ? "outline" : "default"}
+              onClick={() => setShowBlocked(o => !o)}
+              className="gap-1.5 h-9 text-xs shrink-0"
+              data-testid="btn-toggle-blocked"
+            >
+              <Filter className="h-3.5 w-3.5" />
+              {showBlocked ? "Hide Blocked" : "Show Blocked"}
+            </Button>
+          </>
+        )}
+
+        <div className="flex gap-2 ml-auto shrink-0">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => { setConnVendorId(null); setConnVendorName(""); setCName(""); setCProto("SIP"); setCDest(""); setCUser(""); setCPass(""); setCCapacity(""); setCEnforceCap(false); setCMaxCps(""); setCBlocked(false); setCCld(""); setCCli(""); setCProxy(""); setCMediaRelay("1"); setConnOpen(true); }}
+            className="gap-1.5 h-9 text-xs"
+            data-testid="btn-add-connection"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Connection
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => { setVName(""); setVLogin(""); setVPass(""); setVCurrency("USD"); setVendorOpen(true); }}
+            className="gap-1.5 h-9 text-xs"
+            data-testid="btn-add-vendor"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Vendor
+          </Button>
+        </div>
+      </div>
+
+      {/* Coverage Map view */}
+      {viewMode === 'coverage' && <CoverageMapView />}
+
+      {/* List view */}
+      {viewMode === 'list' && (isLoading ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Loading from local cache…</span>
+        </div>
+      ) : Object.keys(byVendor).length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <Network className="h-8 w-8 opacity-30 mx-auto mb-2" />
+          <p className="text-sm">{search ? "No connections match your search" : "No connections cached yet — use Add Vendor to get started."}</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {Object.entries(byVendor).map(([vendor, conns]) => {
+            const vendorId = conns[0]?.i_vendor;
+            return (
+              <div key={vendor} className="space-y-1.5">
+                <div className="flex items-center gap-2 px-1">
+                  <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{vendor}</span>
+                  <span className="text-xs text-muted-foreground/50">({conns.length})</span>
+                  {vendorId != null && (
+                    <button
+                      data-testid={`btn-add-conn-vendor-${vendorId}`}
+                      onClick={() => openAddConn(vendorId, vendor)}
+                      className="ml-auto flex items-center gap-1 text-[10px] font-medium text-primary/60 hover:text-primary transition-colors px-1.5 py-0.5 rounded border border-border/40 hover:border-primary/40"
+                      title={`Add connection to ${vendor}`}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add Connection
+                    </button>
+                  )}
+                </div>
+                {conns.map(conn => (
+                  <div
+                    key={conn.i_connection}
+                    data-testid={`conn-row-${conn.i_connection}`}
+                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all duration-300 ${
+                      pulseId === conn.i_connection
+                        ? "border-primary/60 bg-primary/10 ring-2 ring-primary/40"
+                        : conn.blocked
+                        ? "border-rose-500/30 bg-rose-500/5"
+                        : "border-border/50 bg-card/60 hover:bg-card"
+                    }`}
+                  >
+                    <div className={`h-2 w-2 rounded-full shrink-0 ${conn.blocked ? "bg-rose-500" : "bg-emerald-500"}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">{conn.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">#{conn.i_connection}</span>
+                        {conn.blocked && (
+                          <Badge variant="destructive" className="h-4 text-[10px] px-1">Blocked</Badge>
+                        )}
+                      </div>
+                      {conn.host && (
+                        <span className="text-xs text-muted-foreground font-mono">{conn.host}</span>
+                      )}
+                    </div>
+                    {conn.protocol && (
+                      <span className="text-xs text-muted-foreground/60 font-mono shrink-0">{conn.protocol}</span>
+                    )}
+                    <div className="flex items-center gap-1 shrink-0 ml-auto">
+                      <button
+                        data-testid={`btn-billing-conn-${conn.i_connection}`}
+                        onClick={() => navigate(`/billing?connection=${conn.i_connection}`)}
+                        className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400/70 hover:text-emerald-400 transition-colors px-1.5 py-0.5 rounded"
+                        title="View Billing"
+                      >
+                        <DollarSign className="h-3 w-3" />
+                      </button>
+                      <button
+                        data-testid={`btn-fraud-conn-${conn.i_connection}`}
+                        onClick={() => navigate(`/fraud?connection=${conn.i_connection}`)}
+                        className="flex items-center gap-1 text-[10px] font-semibold text-amber-400/70 hover:text-amber-400 transition-colors px-1.5 py-0.5 rounded"
+                        title="Fraud Check"
+                      >
+                        <AlertTriangle className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+
+      {/* ── Add Vendor Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={vendorOpen} onOpenChange={setVendorOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add New Vendor</DialogTitle>
+            <DialogDescription>Creates the vendor on your Sippy softswitch.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40 pb-1">Basic Parameters</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1">
+                <Label htmlFor="v-name">Vendor Name <span className="text-destructive">*</span></Label>
+                <Input id="v-name" placeholder="e.g. BICS-PR-PR" value={vName} onChange={e => setVName(e.target.value)} data-testid="input-vendor-name" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="v-login">Web Login <span className="text-destructive">*</span></Label>
+                <Input id="v-login" placeholder="login" value={vLogin} onChange={e => setVLogin(e.target.value)} data-testid="input-vendor-login" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="v-pass">Web Password <span className="text-destructive">*</span></Label>
+                <Input id="v-pass" type="password" placeholder="password" value={vPass} onChange={e => setVPass(e.target.value)} data-testid="input-vendor-password" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="v-currency">Base Currency</Label>
+                <Select value={vCurrency} onValueChange={setVCurrency}>
+                  <SelectTrigger id="v-currency" data-testid="select-vendor-currency"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["USD","EUR","GBP","AED","CAD","AUD","JPY","CHF"].map(c => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVendorOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!vName || !vLogin || !vPass || addVendorMut.isPending}
+              data-testid="btn-confirm-add-vendor"
+              onClick={() => addVendorMut.mutate({ name: vName, webLogin: vLogin, webPassword: vPass, iTimeZone: 1, baseCurrency: vCurrency })}
+            >
+              {addVendorMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Close"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Add Connection Dialog ─────────────────────────────────────────── */}
+      <Dialog open={connOpen} onOpenChange={setConnOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add New Connection{connVendorName ? ` — ${connVendorName}` : ""}</DialogTitle>
+            <DialogDescription>Creates the vendor connection on your Sippy softswitch.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+
+            {/* Vendor selector — only shown when not pre-selected from a group row */}
+            {connVendorId === null && (
+              <div className="space-y-1">
+                <Label htmlFor="c-vendor">Vendor <span className="text-destructive">*</span></Label>
+                <Select value={connVendorId !== null ? String(connVendorId) : ""} onValueChange={v => { setConnVendorId(parseInt(v)); setConnVendorName(vendorsData?.vendors.find(x => x.iVendor === parseInt(v))?.name ?? ""); }}>
+                  <SelectTrigger id="c-vendor" data-testid="select-conn-vendor"><SelectValue placeholder="Select vendor…" /></SelectTrigger>
+                  <SelectContent>
+                    {(vendorsData?.vendors ?? []).map(v => (
+                      <SelectItem key={v.iVendor} value={String(v.iVendor)}>{v.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40 pb-1">Basic Parameters</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2 space-y-1">
+                <Label htmlFor="c-name">Connection Name <span className="text-destructive">*</span></Label>
+                <Input id="c-name" placeholder="e.g. BICS-BD-PR-PR" value={cName} onChange={e => setCName(e.target.value)} data-testid="input-conn-name" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-proto">Protocol</Label>
+                <Select value={cProto} onValueChange={setCProto}>
+                  <SelectTrigger id="c-proto" data-testid="select-conn-proto"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SIP">SIP</SelectItem>
+                    <SelectItem value="H323">H323</SelectItem>
+                    <SelectItem value="Zap">Zap</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3 space-y-1">
+                <Label htmlFor="c-dest">Destination (IP or SIP:host) <span className="text-destructive">*</span></Label>
+                <Input id="c-dest" placeholder="e.g. 149.20.187.181 or SIP:192.168.1.1" value={cDest} onChange={e => setCDest(e.target.value)} data-testid="input-conn-dest" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-user">Username</Label>
+                <Input id="c-user" value={cUser} onChange={e => setCUser(e.target.value)} data-testid="input-conn-user" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-cpass">Password</Label>
+                <Input id="c-cpass" type="password" value={cPass} onChange={e => setCPass(e.target.value)} data-testid="input-conn-cpass" />
+              </div>
+            </div>
+
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40 pb-1 mt-2">Advanced Parameters</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="c-maxcps">Max CPS</Label>
+                <Input id="c-maxcps" placeholder="Unlimited" value={cMaxCps} onChange={e => setCMaxCps(e.target.value)} data-testid="input-conn-maxcps" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-cap">Capacity</Label>
+                <Input id="c-cap" placeholder="e.g. 30" value={cCapacity} onChange={e => setCCapacity(e.target.value)} data-testid="input-conn-capacity" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-relay">Use Media Relay</Label>
+                <Select value={cMediaRelay} onValueChange={setCMediaRelay}>
+                  <SelectTrigger id="c-relay" data-testid="select-conn-relay"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Always</SelectItem>
+                    <SelectItem value="0">Never</SelectItem>
+                    <SelectItem value="2">If No Direct RTP</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-proxy">Outbound Proxy</Label>
+                <Input id="c-proxy" placeholder="optional" value={cProxy} onChange={e => setCProxy(e.target.value)} data-testid="input-conn-proxy" />
+              </div>
+              <div className="flex items-center gap-3 col-span-2 pt-5">
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input type="checkbox" checked={cEnforceCap} onChange={e => setCEnforceCap(e.target.checked)} data-testid="chk-enforce-cap" className="rounded" />
+                  Enforce Capacity
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input type="checkbox" checked={cBlocked} onChange={e => setCBlocked(e.target.checked)} data-testid="chk-conn-blocked" className="rounded" />
+                  Blocked
+                </label>
+              </div>
+            </div>
+
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40 pb-1 mt-2">Number Translation</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="c-cld">CLD Translation Rule</Label>
+                <Input id="c-cld" placeholder="e.g. s/^1/108011/" value={cCld} onChange={e => setCCld(e.target.value)} data-testid="input-conn-cld" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="c-cli">CLI Translation Rule</Label>
+                <Input id="c-cli" placeholder="optional" value={cCli} onChange={e => setCCli(e.target.value)} data-testid="input-conn-cli" />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConnOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!cName || !cDest || connVendorId === null || addConnMut.isPending}
+              data-testid="btn-confirm-add-connection"
+              onClick={() => {
+                if (connVendorId === null) return;
+                const body: Record<string, string | number | boolean> = {
+                  name: cName,
+                  destination: cDest,
+                  ...(cUser         ? { connUsername: cUser }             : {}),
+                  ...(cPass         ? { connPassword: cPass }             : {}),
+                  ...(cCapacity     ? { capacity: parseInt(cCapacity) }   : {}),
+                  ...(cMaxCps       ? { maxCps: parseInt(cMaxCps) }       : {}),
+                  ...(cCld          ? { translationRule: cCld }           : {}),
+                  ...(cCli          ? { cliTranslationRule: cCli }        : {}),
+                  ...(cProxy        ? { outboundProxy: cProxy }           : {}),
+                  enforceCapacity: cEnforceCap,
+                  blocked: cBlocked,
+                  iMediaRelay: parseInt(cMediaRelay),
+                };
+                addConnMut.mutate({ vendorId: connVendorId, body });
+              }}
+            >
+              {addConnMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Close"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────────
+
+type TabId = "routing-groups" | "destination-sets" | "vendors" | "connections" | "qbr" | "on-net" | "policy-sim" | "impact-sim";
+
+const VALID_TABS = new Set<TabId>(["routing-groups","destination-sets","vendors","connections","qbr","on-net","policy-sim","impact-sim"]);
+
+const TABS: { id: TabId; label: string; icon: typeof Route; countKey?: keyof CacheMeta }[] = [
+  { id: "routing-groups",  label: "Routing Groups",      icon: GitBranch,  countKey: "rg_count"   },
+  { id: "destination-sets",label: "Destination Sets",    icon: Layers,     countKey: "ds_count"   },
+  { id: "vendors",         label: "Vendors & Connections",icon: Building2                         },
+  { id: "connections",     label: "Connections",          icon: Wifi,       countKey: "conn_count" },
+  { id: "qbr",             label: "QBR Dashboard",        icon: BarChart3                         },
+  { id: "on-net",          label: "On-Net Viewer",        icon: Eye                               },
+  { id: "policy-sim",      label: "Policy Simulator",     icon: Settings2                         },
+  { id: "impact-sim",      label: "Impact Simulator",     icon: Activity                          },
+];
+
+// ── QbrTab ─────────────────────────────────────────────────────────────────────
+
+function qbrStatusBg(status: QbrVendor['status']) {
+  return {
+    excellent: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    good:      'bg-blue-500/10 text-blue-400 border-blue-500/30',
+    degraded:  'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    critical:  'bg-red-500/10 text-red-400 border-red-500/30',
+  }[status];
+}
+function qbrStatusText(status: QbrVendor['status']) {
+  return {
+    excellent: 'text-emerald-400',
+    good:      'text-blue-400',
+    degraded:  'text-amber-400',
+    critical:  'text-red-400',
+  }[status];
+}
+function qbrBar(score: number) {
+  if (score >= 80) return 'bg-emerald-500';
+  if (score >= 60) return 'bg-blue-500';
+  if (score >= 40) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+function asrBar(asr: number) {
+  if (asr >= 70) return 'bg-emerald-500';
+  if (asr >= 50) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+function asrText(asr: number) {
+  if (asr >= 70) return 'text-emerald-400';
+  if (asr >= 50) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+const QBR_WINDOWS = [
+  { h: 1,   label: '1h'  },
+  { h: 4,   label: '4h'  },
+  { h: 12,  label: '12h' },
+  { h: 24,  label: '24h' },
+  { h: 72,  label: '3d'  },
+  { h: 168, label: '7d'  },
+];
+
+function QbrTab() {
+  const [, navigate] = useLocation();
+  const [hours, setHours] = useState(24);
+
+  const { data, isLoading, refetch, isFetching } = useQuery<QbrData>({
+    queryKey: [`/api/qbr/metrics?hours=${hours}`],
+    refetchInterval: 60_000,
+  });
+
+  const s = data?.summary;
+
+  return (
+    <div className="space-y-4">
+      {/* ── Toolbar ──────────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-1 bg-muted/40 border border-border/40 rounded-lg p-1">
+          {QBR_WINDOWS.map(w => (
+            <button
+              key={w.h}
+              onClick={() => setHours(w.h)}
+              data-testid={`btn-qbr-window-${w.h}`}
+              className={cn(
+                "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                hours === w.h
+                  ? "bg-background text-foreground shadow-sm border border-border/60"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {data?.meta.updatedAt && (
+            <span>Cache {relTime(data.meta.updatedAt)}</span>
+          )}
+          <Button
+            size="sm" variant="outline"
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => refetch()}
+            data-testid="btn-qbr-refresh"
+            disabled={isFetching}
+          >
+            <RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Loading ───────────────────────────────────────────────────────────── */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Analysing CDR cache…</span>
+        </div>
+      )}
+
+      {!isLoading && data && (
+        <>
+          {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* ASR */}
+            <button onClick={() => navigate('/noc')} className="text-left bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-primary/40 hover:bg-muted/50 transition-colors cursor-pointer" data-testid="card-qbr-asr">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Network ASR</span>
+                <Activity className="h-3.5 w-3.5 text-muted-foreground/50" />
+              </div>
+              <p className={cn("text-2xl font-bold tabular-nums", asrText(s!.asr))}>
+                {s!.asr}%
+              </p>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className={cn("h-full rounded-full", asrBar(s!.asr))} style={{ width: `${Math.min(s!.asr, 100)}%` }} />
+              </div>
+              <p className="text-[10px] text-muted-foreground">{s!.answeredCalls.toLocaleString()} / {s!.totalCalls.toLocaleString()} answered</p>
+            </button>
+
+            {/* ACD */}
+            <button onClick={() => navigate('/analytics')} className="text-left bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-primary/40 hover:bg-muted/50 transition-colors cursor-pointer" data-testid="card-qbr-acd">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Avg ACD</span>
+                <Clock className="h-3.5 w-3.5 text-muted-foreground/50" />
+              </div>
+              <p className="text-2xl font-bold tabular-nums text-foreground">
+                {s!.acd > 0 ? `${s!.acd}s` : '—'}
+              </p>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(s!.acd / 120 * 100, 100)}%` }} />
+              </div>
+              <p className="text-[10px] text-muted-foreground">average call duration (answered)</p>
+            </button>
+
+            {/* PDD */}
+            <button onClick={() => navigate('/analytics')} className="text-left bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-primary/40 hover:bg-muted/50 transition-colors cursor-pointer" data-testid="card-qbr-pdd">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Avg PDD</span>
+                <Timer className="h-3.5 w-3.5 text-muted-foreground/50" />
+              </div>
+              <p className={cn("text-2xl font-bold tabular-nums",
+                s!.pdd === 0 ? "text-muted-foreground"
+                : s!.pdd <= 2000 ? "text-emerald-400"
+                : s!.pdd <= 3500 ? "text-amber-400" : "text-red-400"
+              )}>
+                {s!.pdd > 0 ? `${(s!.pdd / 1000).toFixed(2)}s` : '—'}
+              </p>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full",
+                    s!.pdd <= 2000 ? "bg-emerald-500" : s!.pdd <= 3500 ? "bg-amber-500" : "bg-red-500"
+                  )}
+                  style={{ width: `${Math.max(0, 100 - (s!.pdd / 4000 * 100))}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">post-dial delay (lower is better)</p>
+            </button>
+
+            {/* Routes status */}
+            <button onClick={() => navigate('/routing-manager?tab=connections')} className="text-left bg-muted/30 border border-border/40 rounded-xl p-4 space-y-2 hover:border-primary/40 hover:bg-muted/50 transition-colors cursor-pointer" data-testid="card-qbr-routes">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Routes</span>
+                <Zap className="h-3.5 w-3.5 text-muted-foreground/50" />
+              </div>
+              <p className="text-2xl font-bold tabular-nums text-foreground">
+                {s!.activeRoutes}
+                {s!.degradedRoutes > 0 && (
+                  <span className="text-sm font-normal text-red-400 ml-1.5">
+                    {s!.degradedRoutes} alert{s!.degradedRoutes > 1 ? 's' : ''}
+                  </span>
+                )}
+              </p>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full", s!.degradedRoutes === 0 ? "bg-emerald-500" : "bg-amber-500")}
+                  style={{ width: s!.activeRoutes > 0 ? `${Math.round((s!.activeRoutes - s!.degradedRoutes) / s!.activeRoutes * 100)}%` : '0%' }}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground">{s!.totalCalls.toLocaleString()} calls in window</p>
+            </button>
+          </div>
+
+          {/* ── Alert banner ──────────────────────────────────────────────────── */}
+          {s!.degradedRoutes > 0 && (
+            <div className="flex items-center gap-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-2.5 text-sm text-amber-400" data-testid="banner-qbr-alert">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>
+                <strong>{s!.degradedRoutes}</strong> route{s!.degradedRoutes > 1 ? 's are' : ' is'} degraded or critical — check quality metrics below and consider route adjustments
+              </span>
+            </div>
+          )}
+
+          {/* ── Empty state ──────────────────────────────────────────────────── */}
+          {data.vendors.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+              <div className="bg-muted/40 p-5 rounded-2xl border border-border/40">
+                <BarChart3 className="h-10 w-10 text-muted-foreground/40" />
+              </div>
+              <p className="text-sm font-medium">No CDR data in this window</p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                No calls were recorded in the last {hours}h window. Expand the time window or wait for the CDR cache to populate.
+              </p>
+            </div>
+          ) : (
+            /* ── Route quality table ─────────────────────────────────────────── */
+            <div className="border border-border/40 rounded-xl overflow-hidden">
+              {/* Column headers */}
+              <div className="hidden md:grid text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 px-4 py-2.5 gap-3 items-center"
+                style={{ gridTemplateColumns: '28px 1fr 70px 90px 130px 72px 80px 120px 90px' }}>
+                <span>#</span>
+                <span>Vendor / Connection</span>
+                <span>Proto</span>
+                <span className="text-right">Calls</span>
+                <span>ASR</span>
+                <span className="text-right">ACD</span>
+                <span className="text-right">PDD</span>
+                <span>QBR Score</span>
+                <span className="text-center">Status</span>
+              </div>
+
+              {/* Rows */}
+              <div className="divide-y divide-border/30">
+                {data.vendors.map((v, i) => (
+                  <div
+                    key={v.vendor}
+                    data-testid={`row-qbr-${i}`}
+                    className="hidden md:grid px-4 py-3 gap-3 items-center hover:bg-muted/20 transition-colors cursor-pointer"
+                    style={{ gridTemplateColumns: '28px 1fr 70px 90px 130px 72px 80px 120px 90px' }}
+                    onClick={() => navigate(`/lcr-analyser?vendor=${encodeURIComponent(v.vendor)}`)}
+                  >
+                    {/* Rank */}
+                    <span className="text-xs text-muted-foreground tabular-nums font-mono">{i + 1}</span>
+
+                    {/* Vendor + connection */}
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate" data-testid={`text-qbr-vendor-${i}`}>{v.vendor}</p>
+                      {v.connectionName && v.connectionName !== v.vendor && (
+                        <p className="text-[10px] text-muted-foreground truncate">{v.connectionName}</p>
+                      )}
+                      {v.host && (
+                        <p className="text-[10px] text-muted-foreground/60 truncate font-mono">{v.host}</p>
+                      )}
+                    </div>
+
+                    {/* Protocol */}
+                    <span className="text-xs text-muted-foreground uppercase">{v.protocol ?? '—'}</span>
+
+                    {/* Calls */}
+                    <div className="text-right">
+                      <p className="text-xs tabular-nums font-medium">{v.totalCalls.toLocaleString()}</p>
+                      <p className="text-[10px] text-muted-foreground">{v.answeredCalls.toLocaleString()} ans</p>
+                    </div>
+
+                    {/* ASR bar */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className={cn("font-bold tabular-nums", asrText(v.asr))}>{v.asr}%</span>
+                        <span className="text-muted-foreground/60">{v.answeredCalls}/{v.totalCalls}</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className={cn("h-full rounded-full", asrBar(v.asr))} style={{ width: `${Math.min(v.asr, 100)}%` }} />
+                      </div>
+                    </div>
+
+                    {/* ACD */}
+                    <div className="text-right">
+                      <span className="text-xs tabular-nums">{v.acd > 0 ? `${v.acd}s` : '—'}</span>
+                    </div>
+
+                    {/* PDD */}
+                    <div className="text-right">
+                      <span className={cn("text-xs tabular-nums",
+                        v.pdd === 0 ? "text-muted-foreground"
+                        : v.pdd <= 2000 ? "text-emerald-400"
+                        : v.pdd <= 3500 ? "text-amber-400" : "text-red-400"
+                      )}>
+                        {v.pdd > 0 ? `${v.pdd}ms` : '—'}
+                      </span>
+                    </div>
+
+                    {/* QBR Score bar */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className={cn("font-bold tabular-nums", qbrStatusText(v.status))}>{v.qbrScore}</span>
+                        <span className="text-muted-foreground/60">/100</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className={cn("h-full rounded-full", qbrBar(v.qbrScore))} style={{ width: `${v.qbrScore}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Status badge */}
+                    <div className="flex justify-center">
+                      <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5 capitalize", qbrStatusBg(v.status))}>
+                        {v.status}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Mobile card view */}
+                {data.vendors.map((v, i) => (
+                  <div
+                    key={`m-${v.vendor}`}
+                    className="md:hidden px-4 py-3 space-y-2 cursor-pointer hover:bg-muted/20 transition-colors"
+                    data-testid={`card-qbr-mobile-${i}`}
+                    onClick={() => navigate(`/lcr-analyser?vendor=${encodeURIComponent(v.vendor)}`)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="text-xs text-muted-foreground mr-1.5">#{i + 1}</span>
+                        <span className="text-sm font-medium">{v.vendor}</span>
+                        {v.host && <p className="text-[10px] text-muted-foreground/60 font-mono mt-0.5">{v.host}</p>}
+                      </div>
+                      <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5 capitalize shrink-0", qbrStatusBg(v.status))}>
+                        {v.status}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div>
+                        <p className={cn("text-xs font-bold", asrText(v.asr))}>{v.asr}%</p>
+                        <p className="text-[10px] text-muted-foreground">ASR</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold">{v.acd > 0 ? `${v.acd}s` : '—'}</p>
+                        <p className="text-[10px] text-muted-foreground">ACD</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold">{v.pdd > 0 ? `${v.pdd}ms` : '—'}</p>
+                        <p className="text-[10px] text-muted-foreground">PDD</p>
+                      </div>
+                      <div>
+                        <p className={cn("text-xs font-bold", qbrStatusText(v.status))}>{v.qbrScore}</p>
+                        <p className="text-[10px] text-muted-foreground">QBR</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Table footer */}
+              <div className="bg-muted/20 px-4 py-2 border-t border-border/30 flex items-center justify-between flex-wrap gap-2">
+                <span className="text-[10px] text-muted-foreground">
+                  {data.meta.cdrsAnalyzed.toLocaleString()} CDRs analysed · last {hours}h window
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  Score = 40% ASR + 30% ACD + 30% PDD
+                </span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── On-Net Topology SVG ────────────────────────────────────────────────────────
+
+function OnNetTopologyDiagram({ groups }: { groups: RoutingGroup[] }) {
+  const W = 580, H = 320;
+  const cx = W / 2, cy = H / 2;
+
+  const policyStroke = (policy: string | null) => {
+    if (!policy) return '#64748b';
+    if (policy.includes('least_cost')) return '#f59e0b';
+    if (policy.includes('weight') || policy.includes('random')) return '#8b5cf6';
+    return '#22d3ee';
+  };
+
+  const displayed = groups.slice(0, 10);
+  const radius = displayed.length <= 1 ? 0 : Math.min(130, Math.max(80, displayed.length * 20));
+
+  const nodes = displayed.map((g, i) => {
+    const angle = displayed.length === 1 ? 0 : (i / displayed.length) * 2 * Math.PI - Math.PI / 2;
+    return {
+      ...g,
+      x: displayed.length === 1 ? cx : cx + radius * Math.cos(angle),
+      y: displayed.length === 1 ? cy : cy + radius * Math.sin(angle),
+      color: policyStroke(g.policy),
+    };
+  });
+
+  return (
+    <div className="rounded-xl border border-cyan-500/20 bg-card/60 overflow-hidden">
+      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+        <div className="flex items-center gap-2">
+          <Network className="h-4 w-4 text-cyan-400" />
+          <span className="text-sm font-semibold">On-Net Topology Map</span>
+        </div>
+        <span className="text-xs text-muted-foreground">{groups.length} group{groups.length !== 1 ? 's' : ''}{groups.length > 10 ? ' (showing 10)' : ''}</span>
+      </div>
+      <div className="px-4 pb-3">
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} className="overflow-visible">
+          {/* Hub background pulse */}
+          <circle cx={cx} cy={cy} r={44} fill="rgba(6,182,212,0.04)" stroke="rgba(6,182,212,0.15)" strokeWidth={1} strokeDasharray="3 3">
+            <animate attributeName="r" values="44;50;44" dur="3s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="1;0.4;1" dur="3s" repeatCount="indefinite" />
+          </circle>
+
+          {/* Edges from hub to each group */}
+          {nodes.map(n => (
+            <line
+              key={`edge-${n.i_routing_group}`}
+              x1={cx} y1={cy} x2={n.x} y2={n.y}
+              stroke={n.color}
+              strokeWidth={1.5}
+              strokeOpacity={0.3}
+              strokeDasharray="5 4"
+            />
+          ))}
+
+          {/* Central hub */}
+          <circle cx={cx} cy={cy} r={36} fill="rgba(6,182,212,0.08)" stroke="rgba(6,182,212,0.5)" strokeWidth={1.5} />
+          <text x={cx} y={cy - 5} textAnchor="middle" fill="#22d3ee" fontSize={11} fontWeight="700" fontFamily="monospace">ON-NET</text>
+          <text x={cx} y={cy + 9} textAnchor="middle" fill="#64748b" fontSize={9} fontFamily="monospace">MESH</text>
+
+          {/* Routing group nodes */}
+          {nodes.map(n => (
+            <g key={n.i_routing_group} data-testid={`topology-node-${n.i_routing_group}`}>
+              <circle cx={n.x} cy={n.y} r={28} fill={`${n.color}18`} stroke={`${n.color}`} strokeWidth={1.5} strokeOpacity={0.6} />
+              <text x={n.x} y={n.y - 6} textAnchor="middle" fill={n.color} fontSize={10} fontWeight="700" fontFamily="monospace">
+                #{n.i_routing_group}
+              </text>
+              <text x={n.x} y={n.y + 6} textAnchor="middle" fill="#94a3b8" fontSize={9} fontFamily="monospace">
+                {n.members_count}m
+              </text>
+              <text x={n.x} y={n.y + 46} textAnchor="middle" fill="#e2e8f0" fontSize={9} fontWeight="600">
+                {n.name.length > 15 ? n.name.slice(0, 14) + '…' : n.name}
+              </text>
+              <text x={n.x} y={n.y + 58} textAnchor="middle" fill="#64748b" fontSize={8}>
+                {policyLabel(n.policy)}
+              </text>
+            </g>
+          ))}
+        </svg>
+
+        {/* Legend */}
+        <div className="flex items-center gap-4 justify-center mt-1 flex-wrap">
+          {[
+            { color: '#22d3ee', label: 'Priority / Prefix' },
+            { color: '#f59e0b', label: 'Least Cost (LCR)' },
+            { color: '#8b5cf6', label: 'Weighted / Random' },
+          ].map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1.5">
+              <div className="h-2 w-2 rounded-full" style={{ background: color }} />
+              <span className="text-[10px] text-muted-foreground">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── On-Net Routing Viewer ──────────────────────────────────────────────────────
+
+function OnNetTab() {
+  const [search, setSearch]     = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [view, setView]         = useState<'topology' | 'list'>('topology');
+
+  const { data, isLoading } = useQuery<{ groups: RoutingGroup[] }>({
+    queryKey: ["/api/routing-cache/routing-groups"],
+  });
+  const allGroups   = data?.groups ?? [];
+  const onNetGroups = allGroups.filter(g => g.on_net);
+  const totalMembers = onNetGroups.reduce((s, g) => s + g.members_count, 0);
+  const onNetRatio   = allGroups.length > 0 ? Math.round(onNetGroups.length / allGroups.length * 100) : 0;
+
+  const filtered = onNetGroups.filter(g =>
+    !search || g.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Policy distribution
+  const policyDist = onNetGroups.reduce<Record<string, number>>((acc, g) => {
+    const label = policyLabel(g.policy);
+    acc[label] = (acc[label] || 0) + 1;
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/8 px-4 py-3 text-center">
+          <p className="text-2xl font-bold text-cyan-400">{onNetGroups.length}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">On-Net Groups</p>
+        </div>
+        <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 text-center">
+          <p className="text-2xl font-bold">{totalMembers}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Total Members</p>
+        </div>
+        <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 text-center">
+          <p className="text-2xl font-bold">{allGroups.length - onNetGroups.length}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Off-Net Groups</p>
+        </div>
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-4 py-3 text-center">
+          <p className="text-2xl font-bold text-emerald-400">{onNetRatio}%</p>
+          <p className="text-xs text-muted-foreground mt-0.5">On-Net Ratio</p>
+        </div>
+      </div>
+
+      {/* Policy distribution pills */}
+      {Object.keys(policyDist).length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Policies:</span>
+          {Object.entries(policyDist).map(([label, count]) => (
+            <span key={label} className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-muted/20 text-muted-foreground font-mono">
+              {label} × {count}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* View toggle */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setView('topology')}
+          data-testid="btn-view-topology"
+          className={cn("text-xs px-3 py-1.5 rounded-lg border transition-colors gap-1.5 flex items-center",
+            view === 'topology' ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400" : "border-border text-muted-foreground hover:text-foreground")}
+        >
+          <Network className="h-3 w-3" /> Topology
+        </button>
+        <button
+          onClick={() => setView('list')}
+          data-testid="btn-view-list"
+          className={cn("text-xs px-3 py-1.5 rounded-lg border transition-colors gap-1.5 flex items-center",
+            view === 'list' ? "bg-primary/10 border-primary/30 text-primary" : "border-border text-muted-foreground hover:text-foreground")}
+        >
+          <List className="h-3 w-3" /> Group List
+        </button>
+      </div>
+
+      {/* Info banner */}
+      <div className="flex items-start gap-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-sm text-cyan-300">
+        <Wifi className="h-4 w-4 mt-0.5 shrink-0 text-cyan-400" />
+        <span>On-Net routing groups route traffic between known peers without traversing the PSTN — typically for direct inter-carrier interconnects and on-net call optimisation.</span>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span className="text-sm">Loading from local cache…</span>
+        </div>
+      ) : onNetGroups.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <Wifi className="h-10 w-10 opacity-20 mx-auto mb-3" />
+          <p className="font-medium">No on-net routing groups found</p>
+          <p className="text-sm mt-1 opacity-70">Sync the routing cache to refresh data from Sippy.</p>
+        </div>
+      ) : view === 'topology' ? (
+        <OnNetTopologyDiagram groups={onNetGroups} />
+      ) : (
+        <>
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search on-net routing groups…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9 h-9"
+              data-testid="input-search-onnet"
+            />
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">No groups match your search.</div>
+          ) : (
+            <div className="space-y-1.5">
+              {filtered.map(rg => {
+                const isExpanded = expandedId === rg.i_routing_group;
+                return (
+                  <div key={rg.i_routing_group} className="rounded-xl border border-cyan-500/20 bg-card/60 overflow-hidden" data-testid={`onnet-rg-${rg.i_routing_group}`}>
+                    <button
+                      className="w-full flex items-center gap-4 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                      onClick={() => setExpandedId(isExpanded ? null : rg.i_routing_group)}
+                      data-testid={`btn-expand-onnet-${rg.i_routing_group}`}
+                    >
+                      <div className="h-9 w-9 rounded-lg bg-cyan-500/10 flex items-center justify-center shrink-0">
+                        <Wifi className="h-4 w-4 text-cyan-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold truncate">{rg.name}</span>
+                          <span className="text-xs text-muted-foreground font-mono">#{rg.i_routing_group}</span>
+                          <Badge variant="outline" className="h-4 text-[10px] border-cyan-500/40 text-cyan-400 px-1">On-Net</Badge>
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5">
+                          <span className={`text-xs font-medium ${policyColor(rg.policy)}`}>{policyLabel(rg.policy)}</span>
+                          <span className="text-xs text-muted-foreground">{rg.members_count} member{rg.members_count !== 1 ? 's' : ''}</span>
+                          {rg.media_relay && <span className="text-xs text-muted-foreground">{rg.media_relay}</span>}
+                        </div>
+                      </div>
+                      <ChevronRight className={cn("h-4 w-4 text-muted-foreground/40 transition-transform duration-200", isExpanded && "rotate-90")} />
+                    </button>
+                    {isExpanded && (
+                      <div className="border-t border-cyan-500/20 bg-muted/10 pb-1">
+                        <div className="px-4 py-2 flex items-center gap-2 border-b border-border/20">
+                          <Server className="h-3.5 w-3.5 text-muted-foreground/60" />
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">On-Net Members</span>
+                        </div>
+                        <div className="pt-2">
+                          <RgMembersPanel groupId={rg.i_routing_group} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Routing Impact Simulator ────────────────────────────────────────────────────
+
+interface SimEntry {
+  connectionName: string; vendorName: string | null; weight: number; preference: number;
+  contributionPct: number;
+  ciHealth: { healthScore: number; state: string; confidence: string; asr: number } | null;
+  aiOpsSignal: 'YES' | 'PARTIAL' | 'NONE';
+}
+interface SimScenario {
+  removedEntry: string; projectedHealthScore: number; delta: number;
+  riskDelta: 'IMPROVES' | 'WORSENS' | 'NEUTRAL';
+  trafficRedistribution: Array<{ connectionName: string; newContributionPct: number; oldContributionPct: number }>;
+}
+interface SimGroup {
+  groupId: number; groupName: string; policy: string | null;
+  baseline: { healthScore: number; riskLevel: string; entriesCount: number; activeEntriesCount: number };
+  entries: SimEntry[]; simulations: SimScenario[];
+}
+interface SimPreview { groups: SimGroup[]; computedAt: string; ciConnections: number; }
+
+function hsColor(hs: number) {
+  if (hs >= 75) return 'text-emerald-400';
+  if (hs >= 55) return 'text-blue-400';
+  if (hs >= 35) return 'text-amber-400';
+  return 'text-red-400';
+}
+function hsBg(hs: number) {
+  if (hs >= 75) return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
+  if (hs >= 55) return 'bg-blue-500/10 border-blue-500/30 text-blue-400';
+  if (hs >= 35) return 'bg-amber-500/10 border-amber-500/30 text-amber-400';
+  return 'bg-red-500/10 border-red-500/30 text-red-400';
+}
+function stateLabel(s: string) {
+  return { HEALTHY: 'Healthy', STABLE: 'Stable', DEGRADED: 'Degraded', CRITICAL: 'Critical', FAS_RISK: 'FAS Risk', UNSCORED: 'Unscored' }[s] ?? s;
+}
+function riskBadge(r: string) {
+  return { LOW: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30', MEDIUM: 'bg-amber-500/10 text-amber-400 border-amber-500/30', HIGH: 'bg-red-500/10 text-red-400 border-red-500/30', CRITICAL: 'bg-red-600/20 text-red-300 border-red-600/40' }[r] ?? 'bg-muted/30 text-muted-foreground border-border/50';
+}
+
+type SimMode = 'remove' | 'swap' | 'reorder';
+
+function computeGroupHS(entries: SimEntry[]): number {
+  const total = entries.reduce((s, e) => s + e.weight, 0) || 1;
+  return Math.round(entries.reduce((s, e) => s + (e.weight / total) * (e.ciHealth?.healthScore ?? 50), 0));
+}
+
+function SwapModePanel({ groups }: { groups: SimGroup[] }) {
+  const [groupA, setGroupA] = useState<string>('');
+  const [groupB, setGroupB] = useState<string>('');
+
+  const grpA = groups.find(g => String(g.groupId) === groupA);
+  const grpB = groups.find(g => String(g.groupId) === groupB);
+
+  const projection = useMemo(() => {
+    if (!grpA || !grpB) return null;
+    const aOrigHS  = grpA.baseline.healthScore;
+    const bOrigHS  = grpB.baseline.healthScore;
+    const aSwapped = computeGroupHS(grpB.entries);
+    const bSwapped = computeGroupHS(grpA.entries);
+    return { aOrigHS, bOrigHS, aSwapped, bSwapped, aDelta: aSwapped - aOrigHS, bDelta: bSwapped - bOrigHS };
+  }, [grpA, grpB]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-sm text-blue-300">
+        <Activity className="h-4 w-4 mt-0.5 shrink-0 text-blue-400" />
+        <span>
+          Projects the health impact of swapping two routing groups' connection sets.
+          <strong className="ml-1 text-blue-200">Read-only. No Sippy changes are made.</strong>
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        {[{ label: 'Group A', val: groupA, set: setGroupA }, { label: 'Group B', val: groupB, set: setGroupB }].map(s => (
+          <div key={s.label} className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">{s.label}</label>
+            <Select value={s.val} onValueChange={s.set}>
+              <SelectTrigger data-testid={`select-swap-${s.label.toLowerCase().replace(' ','-')}`} className="text-xs">
+                <SelectValue placeholder="Select routing group…" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map(g => (
+                  <SelectItem key={g.groupId} value={String(g.groupId)}>{g.groupName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ))}
+      </div>
+
+      {projection && grpA && grpB && (
+        <div className="rounded-xl border border-border/50 overflow-hidden">
+          <div className="px-4 py-3 bg-muted/30 border-b text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Projected Impact of Swap
+          </div>
+          <div className="divide-y divide-border/30">
+            {[
+              { name: grpA.groupName, orig: projection.aOrigHS, proj: projection.aSwapped, delta: projection.aDelta, from: grpB.groupName },
+              { name: grpB.groupName, orig: projection.bOrigHS, proj: projection.bSwapped, delta: projection.bDelta, from: grpA.groupName },
+            ].map((row, i) => (
+              <div key={i} className="flex items-center gap-4 px-4 py-3" data-testid={`swap-result-${i}`}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{row.name}</p>
+                  <p className="text-xs text-muted-foreground">receives connections from {row.from}</p>
+                </div>
+                <div className="flex items-center gap-2 text-sm font-mono">
+                  <span className={cn("font-bold", row.orig >= 70 ? 'text-emerald-400' : row.orig >= 50 ? 'text-blue-400' : row.orig >= 35 ? 'text-amber-400' : 'text-red-400')}>{row.orig}</span>
+                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className={cn("font-bold", row.proj >= 70 ? 'text-emerald-400' : row.proj >= 50 ? 'text-blue-400' : row.proj >= 35 ? 'text-amber-400' : 'text-red-400')}>{row.proj}</span>
+                  <span className={cn("text-xs px-1.5 py-0.5 rounded font-bold", row.delta > 5 ? 'text-emerald-400 bg-emerald-500/10' : row.delta < -5 ? 'text-red-400 bg-red-500/10' : 'text-muted-foreground bg-muted/30')}>
+                    {row.delta > 0 ? '+' : ''}{row.delta}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="px-4 py-2 bg-muted/20 border-t">
+            <p className="text-xs text-muted-foreground">
+              HS computed from CI health scores weighted by connection share. Confidence depends on CI data availability.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!projection && groupA && groupB && (
+        <p className="text-xs text-muted-foreground">Select two different routing groups to see the projected swap impact.</p>
+      )}
+    </div>
+  );
+}
+
+function ReorderModePanel({ groups }: { groups: SimGroup[] }) {
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [order, setOrder] = useState<string[]>([]);
+
+  const grp = groups.find(g => String(g.groupId) === selectedGroup);
+
+  const handleSelectGroup = (id: string) => {
+    setSelectedGroup(id);
+    const g = groups.find(g => String(g.groupId) === id);
+    if (g) setOrder(g.entries.map(e => e.connectionName));
+  };
+
+  const moveEntry = (from: number, to: number) => {
+    setOrder(prev => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+
+  const reorderedEntries = useMemo(() => {
+    if (!grp) return [];
+    return order.map(name => grp.entries.find(e => e.connectionName === name)).filter(Boolean) as SimEntry[];
+  }, [grp, order]);
+
+  const currentHS = grp?.baseline.healthScore ?? 0;
+  const projectedHS = useMemo(() => computeGroupHS(reorderedEntries), [reorderedEntries]);
+  const delta = projectedHS - currentHS;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 px-4 py-3 text-sm text-purple-300">
+        <Activity className="h-4 w-4 mt-0.5 shrink-0 text-purple-400" />
+        <span>
+          Reorder connections within a routing group to project the weighted health score impact.
+          <strong className="ml-1 text-purple-200">Read-only. No Sippy changes are made.</strong>
+        </span>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Routing Group</label>
+        <Select value={selectedGroup} onValueChange={handleSelectGroup}>
+          <SelectTrigger data-testid="select-reorder-group" className="text-xs">
+            <SelectValue placeholder="Select routing group…" />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.map(g => (
+              <SelectItem key={g.groupId} value={String(g.groupId)}>{g.groupName}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {grp && reorderedEntries.length > 0 && (
+        <>
+          {/* Score strip */}
+          <div className="flex items-center gap-4 rounded-xl border border-border/50 px-4 py-3 bg-muted/20">
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground mb-0.5">Current HS</p>
+              <p className={cn("text-xl font-bold font-mono tabular-nums", currentHS >= 70 ? 'text-emerald-400' : currentHS >= 50 ? 'text-blue-400' : currentHS >= 35 ? 'text-amber-400' : 'text-red-400')}>{currentHS}</p>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground mb-0.5">Projected HS</p>
+              <p className={cn("text-xl font-bold font-mono tabular-nums", projectedHS >= 70 ? 'text-emerald-400' : projectedHS >= 50 ? 'text-blue-400' : projectedHS >= 35 ? 'text-amber-400' : 'text-red-400')}>{projectedHS}</p>
+            </div>
+            <div className={cn("text-sm font-bold px-2.5 py-1 rounded-lg ml-auto", delta > 5 ? 'bg-emerald-500/10 text-emerald-400' : delta < -5 ? 'bg-red-500/10 text-red-400' : 'bg-muted/40 text-muted-foreground')}>
+              {delta > 0 ? '+' : ''}{delta}
+            </div>
+          </div>
+
+          {/* Draggable entry list */}
+          <div className="rounded-xl border border-border/50 overflow-hidden" data-testid="reorder-list">
+            <div className="px-4 py-2.5 bg-muted/30 border-b">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Connection Order — use arrows to reorder, projected HS updates instantly
+              </p>
+            </div>
+            <div className="divide-y divide-border/20">
+              {reorderedEntries.map((entry, idx) => (
+                <div key={entry.connectionName} className="flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors" data-testid={`reorder-entry-${idx}`}>
+                  <span className="text-xs font-mono text-muted-foreground w-4 text-right shrink-0">{idx + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{entry.connectionName}</p>
+                    {entry.vendorName && <p className="text-xs text-muted-foreground">{entry.vendorName}</p>}
+                  </div>
+                  <div className="flex items-center gap-1 text-xs font-mono shrink-0">
+                    <span className={cn("font-bold", (entry.ciHealth?.healthScore ?? 0) >= 70 ? 'text-emerald-400' : (entry.ciHealth?.healthScore ?? 0) >= 50 ? 'text-blue-400' : (entry.ciHealth?.healthScore ?? 0) >= 35 ? 'text-amber-400' : 'text-red-400')}>
+                      {entry.ciHealth?.healthScore ?? '—'}
+                    </span>
+                    <span className="text-muted-foreground">HS</span>
+                  </div>
+                  <div className="flex flex-col gap-0.5 shrink-0">
+                    <button
+                      onClick={() => moveEntry(idx, idx - 1)}
+                      disabled={idx === 0}
+                      data-testid={`btn-reorder-up-${idx}`}
+                      className="p-0.5 rounded hover:bg-muted/50 disabled:opacity-30 disabled:cursor-not-allowed text-muted-foreground transition-colors"
+                    >
+                      <ChevronRight className="h-3 w-3 -rotate-90" />
+                    </button>
+                    <button
+                      onClick={() => moveEntry(idx, idx + 1)}
+                      disabled={idx === reorderedEntries.length - 1}
+                      data-testid={`btn-reorder-down-${idx}`}
+                      className="p-0.5 rounded hover:bg-muted/50 disabled:opacity-30 disabled:cursor-not-allowed text-muted-foreground transition-colors"
+                    >
+                      <ChevronRight className="h-3 w-3 rotate-90" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={() => setOrder(grp.entries.map(e => e.connectionName))}
+            data-testid="btn-reorder-reset"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Reset to original order
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ImpactSimTab() {
+  const { data, isFetching, refetch, isError } = useQuery<SimPreview>({
+    queryKey: ['/api/routing-simulator/preview'],
+    enabled: false,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+  const [mode, setMode] = useState<SimMode>('remove');
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [scenExpanded, setScenExpanded] = useState<Record<string, boolean>>({});
+  const toggleGroup = (id: number) => setExpanded(p => ({ ...p, [id]: !p[id] }));
+  const toggleScen  = (key: string) => setScenExpanded(p => ({ ...p, [key]: !p[key] }));
+
+  return (
+    <div className="space-y-5">
+      {/* Header banner */}
+      <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+        <Activity className="h-4 w-4 mt-0.5 shrink-0 text-amber-400" />
+        <span>
+          Projects the health impact of removing or deprioritising each routing entry — overlaying CI quality signals and AI Ops corroboration onto your group configurations.
+          <strong className="ml-1 text-amber-200">Read-only. No Sippy changes are made.</strong>
+        </span>
+      </div>
+
+      {/* Mode selector + Run button */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-1 border" role="group">
+          {([['remove', 'Remove Analysis'], ['swap', 'Swap Groups'], ['reorder', 'Reorder LCR']] as [SimMode, string][]).map(([m, label]) => (
+            <button
+              key={m}
+              data-testid={`btn-sim-mode-${m}`}
+              onClick={() => setMode(m)}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                mode === m ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {mode === 'remove' && (
+          <Button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-run-impact-sim"
+            className="gap-2"
+            size="sm"
+          >
+            {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+            {data ? 'Re-run Analysis' : 'Run Impact Analysis'}
+          </Button>
+        )}
+        {mode !== 'remove' && !data && (
+          <Button onClick={() => { setMode('remove'); refetch(); }} size="sm" variant="outline" className="gap-2 text-xs" data-testid="button-load-for-sim">
+            <Zap className="h-3.5 w-3.5" /> Load routing data first
+          </Button>
+        )}
+        {data && mode === 'remove' && (
+          <span className="text-xs text-muted-foreground">
+            {data.groups.length} groups · {data.ciConnections} CI connections matched · computed {new Date(data.computedAt).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
+      {isError && (
+        <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-400">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Failed to compute impact analysis. Check Sippy connectivity and try again.
+        </div>
+      )}
+
+      {/* Swap Groups mode */}
+      {mode === 'swap' && data && <SwapModePanel groups={data.groups} />}
+      {mode === 'swap' && !data && !isFetching && (
+        <p className="text-sm text-muted-foreground py-4">Load routing data first using the button above.</p>
+      )}
+
+      {/* Reorder LCR mode */}
+      {mode === 'reorder' && data && <ReorderModePanel groups={data.groups} />}
+      {mode === 'reorder' && !data && !isFetching && (
+        <p className="text-sm text-muted-foreground py-4">Load routing data first using the button above.</p>
+      )}
+
+      {/* Remove Analysis mode — Results */}
+      {mode === 'remove' && data && (
+        <div className="space-y-4">
+          {data.groups.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">No routing groups found in cache.</p>
+          )}
+          {data.groups.map(grp => (
+            <div key={grp.groupId} className="rounded-xl border border-border/50 bg-card/60 overflow-hidden" data-testid={`impact-group-${grp.groupId}`}>
+              {/* Group header */}
+              <button
+                className="w-full flex items-center gap-3 px-5 py-4 hover:bg-muted/20 transition-colors text-left"
+                onClick={() => toggleGroup(grp.groupId)}
+                data-testid={`impact-group-toggle-${grp.groupId}`}
+              >
+                <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm">{grp.groupName}</span>
+                    {grp.policy && <span className="text-xs text-muted-foreground">{policyLabel(grp.policy)}</span>}
+                    <span className="text-xs text-muted-foreground">·</span>
+                    <span className="text-xs text-muted-foreground">{grp.baseline.activeEntriesCount} active of {grp.baseline.entriesCount} entries</span>
+                  </div>
+                </div>
+                {/* Baseline score */}
+                <div className={cn("flex items-center gap-1.5 rounded-lg border px-3 py-1 text-sm font-mono font-bold shrink-0", hsBg(grp.baseline.healthScore))}>
+                  <span>{grp.baseline.healthScore}</span>
+                  <span className="text-xs font-normal opacity-70">/ 100</span>
+                </div>
+                <span className={cn("text-xs rounded-md border px-2 py-0.5 font-medium shrink-0", riskBadge(grp.baseline.riskLevel))}>
+                  {grp.baseline.riskLevel} RISK
+                </span>
+                <ChevronRight className={cn("h-4 w-4 text-muted-foreground shrink-0 transition-transform", expanded[grp.groupId] && "rotate-90")} />
+              </button>
+
+              {/* Expanded content */}
+              {expanded[grp.groupId] && (
+                <div className="border-t border-border/50 divide-y divide-border/30">
+                  {/* Entry table */}
+                  <div className="px-5 py-4 space-y-3">
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Current Entries</h4>
+                    {grp.entries.length === 0 && <p className="text-xs text-muted-foreground">No active entries.</p>}
+                    <div className="rounded-lg border border-border/40 overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/30">
+                          <tr>
+                            <th className="text-left px-3 py-2 text-muted-foreground font-medium">Connection</th>
+                            <th className="text-right px-3 py-2 text-muted-foreground font-medium">Wt</th>
+                            <th className="text-right px-3 py-2 text-muted-foreground font-medium">Share</th>
+                            <th className="text-right px-3 py-2 text-muted-foreground font-medium">CI Health</th>
+                            <th className="text-center px-3 py-2 text-muted-foreground font-medium">AI Ops</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grp.entries.map((entry, idx) => (
+                            <tr key={idx} className="border-t border-border/20 hover:bg-muted/10 transition-colors" data-testid={`entry-row-${grp.groupId}-${idx}`}>
+                              <td className="px-3 py-2.5">
+                                <div className="font-medium text-foreground truncate max-w-[200px]">{entry.connectionName}</div>
+                                {entry.vendorName && <div className="text-muted-foreground text-[10px]">{entry.vendorName}</div>}
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{entry.weight}</td>
+                              <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">{entry.contributionPct}%</td>
+                              <td className="px-3 py-2.5 text-right">
+                                {entry.ciHealth ? (
+                                  <span className={cn("font-mono font-bold", hsColor(entry.ciHealth.healthScore))}>
+                                    {entry.ciHealth.healthScore} <span className="text-[10px] font-normal opacity-70">{stateLabel(entry.ciHealth.state)}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                {entry.aiOpsSignal === 'YES' ? (
+                                  <span className="inline-flex items-center gap-1 text-red-400"><AlertTriangle className="h-3 w-3" />Flagged</span>
+                                ) : entry.aiOpsSignal === 'PARTIAL' ? (
+                                  <span className="text-amber-400">Partial</span>
+                                ) : (
+                                  <span className="text-muted-foreground">None</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Simulation scenarios */}
+                  <div className="px-5 py-4 space-y-3">
+                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Removal Simulations <span className="ml-1 normal-case font-normal">(sorted by impact)</span></h4>
+                    {grp.simulations.length === 0 && <p className="text-xs text-muted-foreground">Not enough entries to simulate removal.</p>}
+                    <div className="space-y-2">
+                      {grp.simulations.map((sim, sidx) => {
+                        const scenKey = `${grp.groupId}-${sidx}`;
+                        const isImprove = sim.riskDelta === 'IMPROVES';
+                        const isWorsen  = sim.riskDelta === 'WORSENS';
+                        return (
+                          <div key={sidx} className={cn("rounded-lg border", isImprove ? 'border-emerald-500/25 bg-emerald-500/5' : isWorsen ? 'border-red-500/25 bg-red-500/5' : 'border-border/40 bg-muted/10')} data-testid={`sim-scenario-${grp.groupId}-${sidx}`}>
+                            <button
+                              className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-white/3 transition-colors rounded-lg"
+                              onClick={() => toggleScen(scenKey)}
+                              data-testid={`sim-scenario-toggle-${grp.groupId}-${sidx}`}
+                            >
+                              {isImprove ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" /> : isWorsen ? <AlertCircle className="h-3.5 w-3.5 text-red-400 shrink-0" /> : <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                              <span className="text-xs flex-1 min-w-0 truncate">
+                                Remove <span className="font-semibold text-foreground">{sim.removedEntry}</span>
+                              </span>
+                              <span className="text-xs font-mono text-muted-foreground shrink-0">{grp.baseline.healthScore} <ArrowRight className="inline h-2.5 w-2.5" /> <span className={cn(isImprove ? 'text-emerald-400' : isWorsen ? 'text-red-400' : 'text-foreground')}>{sim.projectedHealthScore}</span></span>
+                              <span className={cn("text-xs font-mono font-bold px-2 py-0.5 rounded shrink-0", isImprove ? 'text-emerald-400' : isWorsen ? 'text-red-400' : 'text-muted-foreground')}>
+                                {sim.delta > 0 ? '+' : ''}{sim.delta}
+                              </span>
+                              <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform", scenExpanded[scenKey] && 'rotate-90')} />
+                            </button>
+                            {scenExpanded[scenKey] && sim.trafficRedistribution.length > 0 && (
+                              <div className="px-4 pb-3">
+                                <p className="text-[10px] text-muted-foreground mb-1.5">Traffic redistribution if removed:</p>
+                                <div className="space-y-1">
+                                  {sim.trafficRedistribution.map((r, ri) => (
+                                    <div key={ri} className="flex items-center gap-2 text-xs" data-testid={`redistribution-${grp.groupId}-${sidx}-${ri}`}>
+                                      <span className="flex-1 min-w-0 truncate text-muted-foreground">{r.connectionName}</span>
+                                      <span className="font-mono text-muted-foreground">{r.oldContributionPct}%</span>
+                                      <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                                      <span className={cn("font-mono font-semibold", r.newContributionPct > r.oldContributionPct ? 'text-amber-400' : 'text-foreground')}>{r.newContributionPct}%</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Routing Policy Simulator ───────────────────────────────────────────────────
+
+function PolicySimTab() {
+  const [cld, setCld]           = useState("");
+  const [cli, setCli]           = useState("");
+  const [selectedRgId, setSelectedRgId] = useState<string>("");
+  const [simResult, setSimResult]       = useState<{ rg: RoutingGroup; members: RgMember[] } | null>(null);
+  const [simLoading, setSimLoading]     = useState(false);
+
+  const { data: rgData } = useQuery<{ groups: RoutingGroup[] }>({
+    queryKey: ["/api/routing-cache/routing-groups"],
+  });
+  const groups = rgData?.groups ?? [];
+
+  async function runSim() {
+    const rgId = Number(selectedRgId);
+    if (!cld.trim() || !rgId) return;
+    setSimLoading(true);
+    setSimResult(null);
+    try {
+      const res = await fetch(`/api/routing-cache/routing-groups/${rgId}/detail`);
+      const detail: RgDetail = await res.json();
+      const rg = groups.find(g => g.i_routing_group === rgId);
+      if (rg && detail.ok) {
+        setSimResult({ rg, members: detail.members });
+      } else {
+        setSimResult(null);
+      }
+    } catch { /* ignore */ } finally { setSimLoading(false); }
+  }
+
+  // Simulate routing decision based on policy
+  function simulateWinner(members: RgMember[], policy: string | null): RgMember | null {
+    const active = members.filter(m => !m.blocked);
+    if (active.length === 0) return null;
+    const p = policy ?? "";
+    if (p.includes("least_cost")) {
+      // Would need rate card data — show note instead
+      return null;
+    }
+    if (p.includes("weight") || p.includes("random")) {
+      // Weighted random — just show distribution
+      return null;
+    }
+    // Priority / prefix,preference — lowest preference number wins
+    const sorted = [...active].sort((a, b) => (a.preference ?? 99) - (b.preference ?? 99));
+    return sorted[0] ?? null;
+  }
+
+  const winner = simResult ? simulateWinner(simResult.members, simResult.rg.policy) : null;
+  const isLcr  = simResult?.rg.policy?.includes("least_cost");
+  const isWeighted = simResult?.rg.policy?.includes("weight") || simResult?.rg.policy?.includes("random");
+  const activeMems = (simResult?.members ?? []).filter(m => !m.blocked);
+  const sortedMems = [...(simResult?.members ?? [])].sort((a, b) => (a.preference ?? 99) - (b.preference ?? 99));
+
+  return (
+    <div className="space-y-5">
+      {/* Explainer */}
+      <div className="flex items-start gap-3 rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-3 text-sm text-violet-300">
+        <Settings2 className="h-4 w-4 mt-0.5 shrink-0 text-violet-400" />
+        <span>Simulates which connection a routing group would select for a given destination, based on its configured routing policy (priority, LCR, weighted). Uses cached routing data — no live calls are made.</span>
+      </div>
+
+      {/* Input form */}
+      <div className="rounded-xl border border-border/50 bg-card/60 p-5 space-y-4">
+        <h3 className="text-sm font-semibold flex items-center gap-2"><Settings2 className="h-4 w-4 text-violet-400" />Simulation Parameters</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground font-medium">CLI (Caller ID)</label>
+            <Input
+              value={cli}
+              onChange={e => setCli(e.target.value)}
+              placeholder="e.g. 14155551234"
+              data-testid="input-sim-cli"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground font-medium">CLD (Destination) *</label>
+            <Input
+              value={cld}
+              onChange={e => setCld(e.target.value)}
+              placeholder="e.g. 447911123456"
+              data-testid="input-sim-cld"
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground font-medium">Routing Group *</label>
+          <select
+            className="w-full h-9 rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            value={selectedRgId}
+            onChange={e => { setSelectedRgId(e.target.value); setSimResult(null); }}
+            data-testid="select-sim-rg"
+          >
+            <option value="">— Select routing group —</option>
+            {groups.map(g => (
+              <option key={g.i_routing_group} value={g.i_routing_group}>
+                {g.name} ({policyLabel(g.policy)} · {g.members_count} members)
+              </option>
+            ))}
+          </select>
+        </div>
+        <Button
+          onClick={runSim}
+          disabled={!cld.trim() || !selectedRgId || simLoading}
+          data-testid="button-run-sim"
+          className="w-full sm:w-auto"
+        >
+          {simLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Zap className="h-4 w-4 mr-2" />}
+          Simulate Route
+        </Button>
+      </div>
+
+      {/* Results */}
+      {simResult && (
+        <div className="space-y-4">
+          {/* Policy banner */}
+          <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/40 px-4 py-3">
+            <GitBranch className="h-4 w-4 text-muted-foreground" />
+            <div className="flex-1 min-w-0">
+              <span className="text-sm font-semibold">{simResult.rg.name}</span>
+              <span className="text-sm text-muted-foreground ml-2">— routing {cld}</span>
+            </div>
+            <Badge variant="outline" className={`text-xs ${policyColor(simResult.rg.policy)}`}>
+              {policyLabel(simResult.rg.policy)}
+            </Badge>
+          </div>
+
+          {/* Winner card */}
+          {winner && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/8 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                <span className="text-sm font-semibold text-emerald-300">Predicted Winner — Preference {winner.preference}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div><span className="text-muted-foreground">Connection</span><div className="font-medium mt-0.5">{winner.connectionName ?? `#${winner.iConnection}`}</div></div>
+                <div><span className="text-muted-foreground">Vendor</span><div className="font-medium mt-0.5">{winner.vendorName ?? "—"}</div></div>
+                <div><span className="text-muted-foreground">Destination Set</span><div className="font-medium mt-0.5 text-violet-400">{winner.destSetName ?? "—"}</div></div>
+                <div><span className="text-muted-foreground">Host</span><div className="font-mono text-[10px] mt-0.5">{winner.host ?? "—"}</div></div>
+                <div><span className="text-muted-foreground">Routes in DS</span><div className="font-medium mt-0.5">{winner.destSetRouteCount ?? "—"}</div></div>
+              </div>
+            </div>
+          )}
+
+          {/* LCR / weighted notice */}
+          {isLcr && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-3 text-sm text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>This routing group uses <strong>Least Cost Routing</strong>. The actual winner depends on rate card data at call time. The cascade below shows all candidates in preference order.</span>
+            </div>
+          )}
+          {isWeighted && !isLcr && (
+            <div className="flex items-start gap-2 rounded-xl border border-blue-500/20 bg-blue-500/8 px-4 py-3 text-sm text-blue-300">
+              <Activity className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>This routing group uses <strong>Weighted Routing</strong>. Traffic is distributed probabilistically. All active members below are valid candidates.</span>
+            </div>
+          )}
+
+          {/* Cascade waterfall */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Call Cascade — {activeMems.length} active / {simResult.members.length} total members
+            </p>
+            <div className="space-y-1.5">
+              {sortedMems.map((m, idx) => {
+                const isWinner = !m.blocked && winner && m.iConnection === winner.iConnection && m.preference === winner.preference;
+                return (
+                  <div
+                    key={idx}
+                    className={cn(
+                      "flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm transition-colors",
+                      m.blocked          && "opacity-40 border-border/30 bg-muted/10",
+                      isWinner           && "border-emerald-500/40 bg-emerald-500/10",
+                      !m.blocked && !isWinner && "border-border/40 bg-card/40"
+                    )}
+                    data-testid={`sim-member-${idx}`}
+                  >
+                    <div className={cn(
+                      "h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                      isWinner     ? "bg-emerald-500/20 text-emerald-400"    :
+                      m.blocked    ? "bg-muted/30 text-muted-foreground/40"  :
+                                     "bg-muted/20 text-muted-foreground/60"
+                    )}>
+                      {m.blocked ? "✕" : (idx + 1)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium">{m.connectionName ?? `Connection #${m.iConnection}`}</span>
+                      {m.vendorName && <span className="text-xs text-muted-foreground ml-2">{m.vendorName}</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground shrink-0">Pref {m.preference ?? "—"}</div>
+                    {m.destSetName && (
+                      <div className="text-xs text-violet-400 font-medium shrink-0 hidden sm:block">{m.destSetName}</div>
+                    )}
+                    {isWinner && <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />}
+                    {m.blocked && <Badge variant="destructive" className="h-4 text-[9px] px-1.5 shrink-0">Blocked</Badge>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlaceholderTab({ title, description }: { title: string; description: string; icon?: typeof Construction }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
+      <div className="bg-muted/40 p-5 rounded-2xl border border-border/40">
+        <Construction className="h-10 w-10 text-muted-foreground/50" />
+      </div>
+      <div>
+        <p className="text-base font-semibold">{title}</p>
+        <p className="text-sm text-muted-foreground mt-1 max-w-sm">{description}</p>
+      </div>
+      <Badge variant="outline" className="text-xs text-amber-400 border-amber-500/30 bg-amber-500/10">Coming Soon</Badge>
+    </div>
+  );
+}
+
+export default function RoutingManagerPage() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const rawSearch = useSearch();
+
+  const tabFromUrl = (new URLSearchParams(rawSearch ?? "")).get("tab") as TabId | null;
+  const [activeTab, setActiveTab] = useState<TabId>(
+    tabFromUrl && VALID_TABS.has(tabFromUrl) ? tabFromUrl : "routing-groups"
+  );
+
+  // Sync tab when URL changes (sidebar link clicked)
+  useEffect(() => {
+    const t = (new URLSearchParams(rawSearch ?? "")).get("tab") as TabId | null;
+    if (t && VALID_TABS.has(t)) setActiveTab(t);
+  }, [rawSearch]);
+
+  const { data: meta, isLoading: metaLoading } = useQuery<CacheMeta>({
+    queryKey: ["/api/routing-cache/status"],
+    refetchInterval: 30_000,
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/routing-cache/sync"),
+    onSuccess: async (res: any) => {
+      const data = await res.json().catch(() => ({}));
+      await qc.invalidateQueries({ queryKey: ["/api/routing-cache"] });
+      toast({ title: "Sync complete", description: data.message ?? "Routing cache refreshed from Sippy." });
+    },
+    onError: (e: any) => {
+      toast({ title: "Sync failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Database className="h-6 w-6 text-primary" />
+          Routing Cache Manager
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Local snapshot of Sippy routing data — zero switch load for routing queries.
+          Auto-synced every 15 minutes.
+        </p>
+      </div>
+
+      {/* Status banner */}
+      <CacheStatusBanner
+        meta={meta}
+        onSync={() => syncMutation.mutate()}
+        syncing={syncMutation.isPending}
+      />
+
+      {/* How it works */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { icon: RefreshCw,  label: "Auto-sync",    desc: "Every 15 min",              color: "text-cyan-400"    },
+          { icon: Database,   label: "Local DB",      desc: "No switch query on reads",  color: "text-emerald-400" },
+          { icon: ChevronRight,label: "Switch load",  desc: "Only on scheduled sync",    color: "text-amber-400"   },
+        ].map(({ icon: Icon, label, desc, color }) => (
+          <div key={label} className="flex items-start gap-3 p-3 rounded-xl border border-border/40 bg-card/40">
+            <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${color}`} />
+            <div>
+              <p className="text-xs font-semibold">{label}</p>
+              <p className="text-xs text-muted-foreground">{desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-muted/40 rounded-xl p-1 w-fit">
+        {TABS.map(t => {
+          const count = t.countKey ? Number(meta?.[t.countKey] ?? 0) : 0;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              data-testid={`tab-${t.id}`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === t.id
+                  ? "bg-card text-foreground shadow-sm border border-border/50"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <t.icon className="h-4 w-4" />
+              {t.label}
+              {count > 0 && (
+                <span className={`text-xs rounded-full px-1.5 py-0.5 font-mono ${
+                  activeTab === t.id ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                }`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Tab content */}
+      {activeTab === "routing-groups"   && <RoutingGroupsTab />}
+      {activeTab === "destination-sets" && <DestinationSetsTab />}
+      {activeTab === "vendors"          && <VendorHubTab />}
+      {activeTab === "connections"      && <ConnectionsTab highlightConnId={
+        parseInt((new URLSearchParams(rawSearch ?? "")).get("iConnection") ?? "", 10) || undefined
+      } />}
+      {activeTab === "qbr"       && <QbrTab />}
+      {activeTab === "on-net"    && <OnNetTab />}
+      {activeTab === "policy-sim" && <PolicySimTab />}
+      {activeTab === "impact-sim" && <ImpactSimTab />}
+    </div>
+  );
+}

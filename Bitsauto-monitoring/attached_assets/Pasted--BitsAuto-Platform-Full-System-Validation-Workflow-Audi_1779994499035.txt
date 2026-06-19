@@ -1,0 +1,524 @@
+# BitsAuto Platform — Full System Validation & Workflow Audit Plan
+
+## Objective
+
+Perform a complete enterprise-grade validation of:
+
+* all implemented modules,
+* portal routing,
+* workflow orchestration,
+* telecom finance governance,
+* reconciliation flows,
+* DMR generation,
+* invoice lifecycle,
+* RBAC,
+* portal isolation,
+* notification governance,
+* AI assurance,
+* and navigation orchestration.
+
+This is not only a UI test.
+This is:
+
+1. Functional validation
+2. Workflow validation
+3. Governance validation
+4. Data lineage validation
+5. Operational continuity validation
+6. Portal isolation validation
+7. Finance assurance validation
+
+---
+
+# PHASE 1 — CORE PLATFORM VALIDATION
+
+## 1. Authentication & Session Layer
+
+### Validate
+
+* Login
+* Logout
+* Session persistence
+* Role resolution
+* Portal workspace persistence
+* Session expiry
+* MFA flow (if enabled)
+* IP restriction logic
+* Device trust logic
+
+### Expected
+
+* No redirect loops
+* Portal preserved after refresh
+* Session restored correctly
+* Role-based route restrictions enforced
+
+---
+
+## 2. Navigation Governance
+
+### Validate
+
+* Top navigation domains
+* Portal switcher
+* Portal-specific sections
+* Contextual sidebar
+* Navigation Governance Console
+* Drag/reorder persistence
+* Favorites strip
+* Command palette
+
+### Critical checks
+
+| Check                           | Expected |
+| ------------------------------- | -------- |
+| Portal switch changes dashboard | YES      |
+| Sidebar changes per section     | YES      |
+| Sidebar changes per portal      | YES      |
+| KAM portal visible              | YES      |
+| Finance portal isolated         | YES      |
+| NOC portal isolated             | YES      |
+| No duplicate menu items         | YES      |
+| Sidebar no longer primary nav   | YES      |
+
+---
+
+# PHASE 2 — TELECOM OPERATIONS VALIDATION
+
+## 3. Live Operations
+
+### Validate
+
+* Live calls websocket
+* Call state transitions
+* SIP enrichment
+* Mera integration
+* Real-time counters
+* Alerts generation
+* Traffic telemetry
+
+### Expected
+
+* No websocket memory leaks
+* Call states consistent
+* Live counters accurate
+* ASR/ACD update correctly
+
+---
+
+## 4. BitsEye2 Engine
+
+### Validate adapters
+
+| Adapter | Validate               |
+| ------- | ---------------------- |
+| noc     | telemetry widgets      |
+| finance | revenue widgets        |
+| kam     | account health widgets |
+| client  | simplified analytics   |
+
+### Expected
+
+* Same engine renders differently per portal
+* Terminology changes correctly
+* Scope restrictions enforced
+* Widget isolation works
+
+---
+
+# PHASE 3 — DMR & REVENUE ASSURANCE
+
+## 5. DMR Generation
+
+### Validate
+
+* Daily GMT window logic
+* Full-day aggregation
+* Append-only versions
+* Recalculation lineage
+* Sippy account mapping
+* Client name normalization
+* Vendor mapping
+* Status progression
+
+### Critical checks
+
+| Check                      | Expected |
+| -------------------------- | -------- |
+| Uses GMT 00:00 → 23:59     | YES      |
+| No partial day             | YES      |
+| Recalc creates new version | YES      |
+| No overwrite               | YES      |
+| Account names from Sippy   | YES      |
+| Missing CDR detection      | YES      |
+| AI assurance reads DMR     | YES      |
+
+---
+
+## 6. Client Identity Layer
+
+### Validate
+
+* Canonical client mapping
+* Invoice identity consistency
+* Reconciliation identity consistency
+* Portal identity consistency
+* Dispute identity consistency
+
+### Expected
+
+* One client appears once globally
+* No duplicate identities
+* No tariff-name invoice generation
+* Everything resolved via identity map
+
+---
+
+## 7. Reconciliation Systems
+
+### Validate
+
+#### Carrier reconciliation
+
+* Vendor variance
+* Buy-side economics
+* Drift severity
+* Recalc lineage
+
+#### Client reconciliation
+
+* Client invoice import
+* DMR comparison
+* Invoice comparison
+* Dispute escalation
+
+### Expected
+
+* Sippy account names resolve automatically
+* Drift classifications correct
+* Finance queue updates correctly
+
+---
+
+# PHASE 4 — BILLING GOVERNANCE
+
+## 8. Invoice Engine
+
+### Validate
+
+* Draft generation
+* Snapshot binding
+* Template resolution
+* PDF generation
+* Branding profile resolution
+* Difference engine
+* Invoice queue
+* Approval flow
+* Dispatch flow
+
+### Critical checks
+
+| Check                          | Expected |
+| ------------------------------ | -------- |
+| Invoice from client identity   | YES      |
+| Not tariff name                | YES      |
+| Snapshot attached              | YES      |
+| DMR verified before generation | YES      |
+| Approval required before send  | YES      |
+| Audit log written              | YES      |
+
+---
+
+## 9. Credit Notes & Adjustment Ledger
+
+### Validate
+
+* Approval lifecycle
+* Partial apply
+* Void handling
+* Ledger creation
+* Balance updates
+
+### Expected
+
+* Ledger immutable
+* Credits reflected in finance cockpit
+* Audit preserved
+
+---
+
+## 10. Collections & Credit Control
+
+### Validate
+
+* Threshold engine
+* Grace periods
+* Auto warnings
+* Collections events
+* Risk state transitions
+
+### Expected
+
+* No duplicate events
+* Escalations work correctly
+* Alerts appear in finance cockpit
+
+---
+
+# PHASE 5 — AI ASSURANCE
+
+## 11. AI Revenue Assurance
+
+### Validate detectors
+
+| Detector          | Validate            |
+| ----------------- | ------------------- |
+| margin collapse   | DMR trend           |
+| ASR drop          | traffic degradation |
+| revenue drop      | invoice delta       |
+| recon drift       | unresolved variance |
+| credit clustering | abnormal credits    |
+
+### Expected
+
+* Alerts deduplicate correctly
+* Evidence JSON stored
+* No auto-finance actions
+* Human approval preserved
+
+---
+
+# PHASE 6 — DISPUTE GOVERNANCE
+
+## 12. Dispute Workflow
+
+### Validate
+
+* Open dispute
+* Timeline append-only
+* SLA computation
+* Assignment
+* Status transitions
+* Evidence linking
+* Defense package generation
+
+### Expected
+
+* Invalid transitions blocked
+* SLA breach visible
+* Defense package complete
+
+---
+
+## 13. Commercial Notifications
+
+### Validate
+
+* Draft creation
+* Policy matching
+* SMTP dispatch
+* Open tracking
+* Acknowledgement tracking
+* Portal visibility
+
+### Expected
+
+* No auto-send without approval
+* Tracking pixels working
+* Acknowledgements logged
+
+---
+
+# PHASE 7 — PORTAL VALIDATION
+
+## 14. KAM Portal
+
+### Validate
+
+* Account Health dashboard
+* Traffic intelligence
+* Commercial notices
+* Client-scoped reports
+* Finance read-only visibility
+
+### Expected
+
+* No engineering telemetry leakage
+* Commercial terminology active
+* Assigned-account scope enforced
+
+---
+
+## 15. NOC Portal
+
+### Validate
+
+* Realtime telemetry
+* Incidents
+* Route intelligence
+* Security visibility
+* Dense layouts
+
+### Expected
+
+* Separate dashboard from finance
+* Separate theme from KAM
+* Realtime widgets active
+
+---
+
+## 16. Finance Portal
+
+### Validate
+
+* Finance cockpit
+* Billing readiness
+* DMR queue
+* Collections queue
+* AI assurance queue
+
+### Expected
+
+* Unified finance workspace
+* No telecom engineering clutter
+
+---
+
+## 17. Partner Portal
+
+### Validate
+
+* Portal auth
+* Invoice access
+* Dispute tracking
+* Reconciliation summaries
+* Credit note visibility
+
+### Expected
+
+* Client isolation enforced
+* No vendor/internal exposure
+
+---
+
+# PHASE 8 — SECURITY VALIDATION
+
+## 18. RBAC Matrix
+
+### Validate
+
+* Route-level permissions
+* Action-level permissions
+* Button visibility
+* API enforcement
+* Portal access enforcement
+
+### Expected
+
+* No unauthorized actions
+* API protected even if UI bypassed
+
+---
+
+## 19. Audit & Governance
+
+### Validate
+
+* Audit logs
+* Immutable finance lineage
+* Notification audit
+* Adjustment lineage
+* DMR lineage
+
+### Expected
+
+* Full traceability preserved
+
+---
+
+# PHASE 9 — PERFORMANCE & STABILITY
+
+## 20. Operational Stress Tests
+
+### Validate
+
+* Live websocket scaling
+* DMR generation load
+* Invoice batch generation
+* AI assurance scan performance
+* Portal switching performance
+* Dashboard rendering speed
+
+### Expected
+
+* No memory leaks
+* No websocket collapse
+* No DB deadlocks
+
+---
+
+# CURRENT HIGH-RISK GAPS IDENTIFIED
+
+## Critical
+
+* Portal switcher still cosmetic in places
+* KAM portal missing from workspace registry
+* Some dashboards reused across portals
+* Sidebar logic still too dominant
+* Finance cockpit not fully isolated
+* Client identity normalization incomplete
+
+---
+
+# RECOMMENDED NEXT IMPLEMENTATION ORDER
+
+## Priority 1
+
+Portal isolation completion
+
+* unique dashboard per portal
+* portal-specific routing
+* contextual sidebars only
+
+---
+
+## Priority 2
+
+Client Identity Layer
+
+* canonical client mapping
+* unify finance identity
+
+---
+
+## Priority 3
+
+Finance Billing Orchestration Engine
+
+* automated DMR
+* billing readiness
+* draft invoices
+* approval pipeline
+
+---
+
+## Priority 4
+
+NOC Incident Command Center
+
+* incident lifecycle
+* route degradation workflows
+
+---
+
+# SUCCESS CRITERIA
+
+The platform is considered enterprise-ready only when:
+
+* every portal has isolated workflows,
+* every finance calculation resolves through canonical identity,
+* DMR becomes immutable operational truth,
+* invoice generation depends on verified DMR,
+* AI assurance remains advisory-only,
+* navigation becomes workspace-driven rather than sidebar-driven,
+* and all workflows become traceable end-to-end.

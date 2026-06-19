@@ -1,0 +1,261 @@
+Yes — this is now the correct moment to implement the stabilization phase, but NOT as Sprint 3 feature code first.
+
+Implement:
+
+the formal architecture/governance foundation first
+
+because your platform has now crossed the threshold where:
+
+routing intelligence
+approvals
+simulation
+policy failover
+portals
+automation
+governance
+
+all depend on:
+
+consistent operational architecture
+
+Your observations are exactly correct, especially these:
+
+navigation should be generated from the ownership matrix
+
+and:
+
+Organization Management must exist independently of onboarding flow
+
+Those two principles alone prevent most long-term enterprise platform drift.
+
+FINAL RECOMMENDATION
+YES — IMPLEMENT THE STABILIZATION PROGRAM NOW
+
+But implement it in:
+
+two stages
+STAGE 1 — Architecture Specification Layer
+
+(NO production feature changes yet)
+
+Create:
+
+one authoritative enterprise architecture document
+
+This becomes:
+
+the platform constitution
+
+Everything later derives from it:
+
+navigation
+permissions
+routing governance
+automation
+portals
+approvals
+REQUIRED SECTIONS
+1. Canonical Navigation Ownership Matrix
+
+Every page:
+
+exactly ONE primary domain
+optional ONE secondary context
+
+Example:
+
+Page	Primary	Secondary
+Vendor RCA	Intelligence	Operations
+Route Tester	Operations	Troubleshooting
+Revenue Heatmap	Analytics	Finance
+Traffic Steering	Intelligence	Operations
+Organization Management	Company	—
+
+This becomes:
+
+source of truth
+
+Navigation is generated FROM this.
+
+NOT manually duplicated later.
+
+2. COMPANY Lifecycle Governance Model
+
+Formally define:
+
+Company List
+    ↓
+Organization Management
+    ↓
+Onboarding Wizard
+    ↓
+Create Account Wizard
+    ↓
+Operational Activation
+
+And explicitly state:
+
+Organization Management is an authoritative governance entity,
+not merely a wizard step.
+
+That statement matters operationally.
+
+3. Role Governance Matrix
+
+Correct separation:
+
+Role	Responsibility
+Destination Manager	routing decision authority
+Routing Admin	execution authority
+NOC	operational monitoring
+
+MOST IMPORTANT RULE:
+
+approver ≠ executor
+
+This should become:
+
+hard platform governance policy
+
+because:
+
+auditability depends on separation of authority
+
+Very important.
+
+4. Automation Governance Levels
+
+Formalize:
+
+Level	Description
+L1	Advisory only
+L2	Policy-Governed Failover
+L3	Semi-Autonomous Optimisation
+L4	Closed-Loop Autonomous Routing
+
+BitsAuto enters:
+
+L2 only
+
+under strict constraints.
+
+And explicitly define:
+
+Simulation validation is mandatory before auto-failover execution.
+
+That must become:
+
+formal policy
+
+not implementation detail.
+
+5. Intelligence vs Operations Boundary
+
+Your clarification is correct.
+
+OPERATIONS
+
+=
+execution systems
+
+INTELLIGENCE
+
+=
+decision systems
+
+And yes:
+
+Route Tester belongs to Operations
+
+because:
+
+it executes tests
+touches production routes
+validates operational behavior
+
+even though it outputs analytics.
+
+That should be explicitly documented.
+
+6. Policy-Governed Failover Governance
+
+Formalize:
+
+whitelisted vendors only
+bounded traffic shift
+rollback mandatory
+duration limits
+notification rules
+simulation dependency
+audit lifecycle
+
+This becomes:
+
+enterprise-safe automation framework
+7. Closed-Loop Readiness Model
+
+Document future telemetry:
+
+recommendation issued
+approval latency
+operator override
+execution outcome
+rollback occurrence
+trust calibration
+
+This prevents future:
+
+AI black-box evolution
+
+and keeps the platform:
+
+explainability-first
+STAGE 2 — IMPLEMENTATION REFACTOR
+
+(only after Stage 1 finalized)
+
+THEN:
+
+nav cleanup
+duplicate removal
+permission alignment
+approval workflow
+failover policies
+simulation governance
+portal visibility
+
+can safely proceed.
+
+MOST IMPORTANT THING YOU SAID
+
+This is absolutely correct:
+
+If a developer cannot answer “where does this belong?”
+from the document,
+the document is incomplete.
+
+That is exactly the right standard.
+
+Because once:
+
+70+ features
+multiple portals
+automation
+routing governance
+
+exist simultaneously,
+
+undocumented architecture becomes operational debt
+
+very quickly.
+
+FINAL ANSWER
+YES — implement now
+
+BUT:
+
+implement the architecture specification first
+
+THEN implement Sprint 3.
+
+That sequencing is now essential.

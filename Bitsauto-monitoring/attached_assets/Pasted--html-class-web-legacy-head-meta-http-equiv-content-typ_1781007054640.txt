@@ -1,0 +1,2030 @@
+
+
+<html class="web-legacy">
+<head>
+<meta http-equiv="content-type" content="text/html">
+<meta name="menu-title" content="SIPPY">
+
+
+
+<link rel="stylesheet" type="text/css" href="/js/extjs/resources/css/ext-all.css">
+<script type="text/javascript" src="/js/extjs/ext-all.js"></script>
+
+<script language=javascript type=text/javascript>
+    // reference local blank image
+    Ext.BLANK_IMAGE_URL = '/js/extjs/resources/images/default/s.gif';
+</script>
+
+
+<script src="/web_ng/js/vendor-bundle.js" type="text/javascript"></script>
+<script type="text/javascript" src="/js/utils.js"></script>
+
+<link rel="stylesheet" href="/web_ng/css/roboto.css">
+<link href="styles.css" type="text/css" rel="stylesheet">
+<link rel="stylesheet" href="/web_ng/css/styles.css">
+<title>SIPPY - Profit & Loss Report</title>
+
+
+
+<script>
+    var web_ng_config = JSON.parse('[]')
+</script>
+
+
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="/static/js/menumaker.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.local.js"></script>
+<link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
+<link rel="stylesheet" href="/static/css/font-OpenSans.css">
+<link rel="stylesheet" href="/static/css/menumaker.css">
+
+<link rel="stylesheet" href="/web_ng/css/navigation_menu.css">
+
+</head>
+<body>
+
+
+
+
+    <script>
+
+    function hide_ssl_certificate_warning() {
+        Ext.Ajax.request({
+            url: 'system_parameters_ui.php',
+            params: {
+                action: 'hide_ssl_certificate_warning'
+            }
+        });
+        var d = document.getElementById('warning_ssl_certificate');
+        d.style.display = 'none';
+    }
+
+</script>
+
+<div id="warning_ssl_certificate" class="security_vulnerability">
+    <div style="position: relative; top: 0; right: 0; float: right; padding: 0 0 0 20px;">
+        <span onClick="hide_ssl_certificate_warning();"><i class="hide_button fas fa-times"></i><span class="hide_button mdi mdi-close-thick"></span></span>
+    </div>
+   Warning: A SSL certificate has not been added. Please <a href="https://support.sippysoft.com/solution/articles/78262-generating-and-installing-ssl-certificate">upload your own</a> SSL certificate
+   or create a SSL certificate <a href="https://support.sippysoft.com/support/solutions/articles/3000117551-ssl-certificates-for-web-in-sippy-2021-and-above">using LetsEncrypt</a>.
+</div>
+
+    
+<div id="warning_setup_firewall" class="security_vulnerability">
+   Warning: For your security please review your <a href="firewall_rules.php">Firewall Rules</a>
+   and create rules to allow or deny access to your SoftSwitch. For some
+   suggestions visit our support documentation <a href="https://support.sippysoft.com/solution/articles/3000058057--security-management">here</a>.
+</div>
+
+            <div id="cssmenu">
+            <ul>
+
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                    <ul>
+
+    
+                        <li class="has-sub"><a>My Customers</a>
+                            <ul>
+
+                                        <li><a href="accounts.php">Accounts</a></li>
+        
+                                        <li><a href="subcustomers.php">Customers</a></li>
+        
+                                        <li><a href="account_classes.php">Account Classes</a></li>
+        
+                                        <li><a href="access.php">Permissions</a></li>
+        
+                                        <li><a href="account_lookup.php">Account Lookup</a></li>
+        
+                            </ul>
+                        </li>
+    
+    
+                        <li class="has-sub"><a>
+                                                Tariffs &amp;
+                                                Currencies</a>
+                            <ul>
+                                    <li><a href="tariffs.php">Tariffs</a></li>
+                                    <li><a href="service_plans.php">Service Plans</a></li>
+                                <li><a href="xrates.php">Exchange Rates</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Payments</a>
+                            <ul>
+                                    <li><a href="payment_processors.php">Payment Processors</a></li>
+    
+    
+                                    <li><a href="payments_history_root.php">Payments History</a></li>
+    
+                                    <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                                </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Invoicing</a>
+                            <ul>
+                                <li><a href="invoices.php">Invoices</a></li>
+                                <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                                <li><a href="images.php">Images</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                    <ul>
+                            <li class="has-sub"><a>My Vendors</a>
+                            <ul>
+                                <li><a href="vendors.php">Vendors</a></li>
+                                <li><a href="registrations.php">Registrations</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a>Routing</a>
+                            <ul>
+                                <li><a href="destination_sets.php">Destination Sets</a></li>
+                                <li><a href="routing_groups.php">Routing Groups</a></li>
+                                    <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                            </ul>
+                        </li>
+    
+                            <li class="has-sub"><a>DID Numbers</a>
+                            <ul>
+                                <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                                <li><a href="dids.php">DID Pool</a></li>
+                            </ul>
+                        </li>
+    
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                    <ul>
+
+                        <li><a href="web_users.php">Users</a></li>
+
+                        <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                        <li><a href="destinations.php">Destinations</a></li>
+                        <li class="has-sub"><a href="sip_features.php">SIP Features</a>
+                            <ul>
+                                <li><a href="system_parameters_sip.php">SIP, Media, LRN, HEP</a></li>
+                                <li><a href="connection_sip_tls.php?systemConnection=1">System Vendor Connection SIP TLS Options</a></li>
+                                <li><a href="incoming_sip_tls_connections.php">Incoming SIP TLS Connections</a></li>
+                                                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="ssl_management.php">SSL Management</a>
+                            <ul>
+                                <li><a href="ssl_certificates.php">SSL Certificates</a></li>
+                                <li><a href="ca_lists.php">CA Lists</a></li>
+                                <li><a href="csrs.php">CSR Generator</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="system_parameters.php">System Parameters</a>
+                            <ul>
+                                <li><a href="system_parameters_data.php">Backup, Data Retention</a></li>
+                                <li><a href="system_parameters_ui.php">Web Interface, Security</a></li>
+                                <li><a href="system_parameters_billing.php">Billing, SMTP Server</a></li>
+                                <li><a href="firewall_rules.php">IP Firewall</a></li>
+                                <li><a href="network_services.php">Network Services</a></li>
+                                <li><a href="system_parameters_cdrs.php">CDRs Options</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="external_services.php">External Services</a></li>
+                        <li class="has-sub"><a href="javascript:void(0)">Result Code Translations</a>
+                            <ul>
+                                <li><a href="rcts_int.php">Internal</a></li>
+                                <li><a href="rcts_ext.php">External</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="show_graphs.php">Monitoring</a></li>
+
+                        <li><a href="activecalls.php">Active Calls</a></li>
+
+                        <li><a href="system_information.php">System Information</a></li>
+
+                        <li class="has-sub"><a href="tools.php">Tools</a>
+                            <ul>
+                                <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                                <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                                <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                                <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                                <li><a href="looking_glass.php">Looking Glass</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                    <ul class="wide">
+
+                        <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                        <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                        <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                        <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                        <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                        <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                        <li><a href="vendors_did_cdrs.php">Vendor DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                    </ul>
+                </li>
+
+                <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                    ssp-root
+                                                </a>
+                    <ul class="wide">
+                        <li><a class="bold">Accounts balance: <span class="nav-menu__accounts-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__accounts-balance-reload"></i></a></li>
+                        <li><a class="bold">Customers balance: <span class="nav-menu__customers-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__customers-balance-reload"></i></a></li>
+                        <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                        <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </li>
+
+<script>
+    function menu_search(event) {
+        var len = event.target.value.length;
+
+        var e = document.getElementById("menu-search");
+
+        var ul = document.getElementById('menu-search-results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+
+        if (len == 0) {
+            document.getElementById("menu-search-icon").classList.remove('fa-times-circle');
+            document.getElementById("menu-search-icon").classList.add('fas-search');
+            document.getElementById("menu-search-icon").removeEventListener('click', menu_search);
+            return;
+        } else if (len < 3) {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+            return;
+        } else {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+
+            ul = document.createElement("ul");
+            ul.setAttribute('id', 'menu-search-results');
+            ul.classList.add("wide");
+
+            var m, i;
+            try {
+                m = document.getElementById("cssmenu").getElementsByTagName('li');
+                for (i = 0; i < m.length; i++) {
+                    if (m[i].classList.contains("has-sub")) {
+                        continue;
+                    };
+
+                    var n, j;
+                    n = m[i].getElementsByTagName('a');
+                    for (j = 0; j < n.length; j++) {
+                        if (!n[j].hasAttribute('href')) {
+                            continue;
+                        }
+                        var re = new RegExp(event.target.value, 'i');
+                        if (n[j].innerText.match(re)) {
+                            ul.appendChild(m[i].cloneNode(true));
+                        }
+                    }
+                }
+            } finally {
+                if (ul.childNodes.length > 0) {
+                    e.appendChild(ul);
+                }
+            }
+        }
+    }
+
+    $(document).ready(function() {
+        var e = document.getElementById('menu-search-pattern');
+        e.addEventListener('input', menu_search);
+    });
+</script>
+
+
+                <li id="menu-search" class="has-sub align-right">
+                    <a>
+                        <input id="menu-search-pattern" type="text" name="menu-search-pattern">
+                        <i id="menu-search-icon" class="fas fa-search"></i>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+
+    <div style="width: auto; height: 2px; background: #ff9900;"></div>
+    <div id="main">
+                
+
+
+<script language=javascript type=text/javascript>
+
+Ext.onReady(function() {
+
+    var updateReportButton = new Ext.Button({
+        renderTo: 'update_report',
+        minWidth: 110,
+        text: 'Update Report',
+        handler: function() {
+            if (Ext.get('full_report')) {
+                Ext.get('full_report').set({value: '0'});
+            };
+            Ext.get('action').set({value: ''});
+            Ext.getDom('mainform').submit();
+        }
+    });
+
+    var downloadReportButton = new Ext.Button({
+        renderTo: 'download_report',
+        minWidth: 110,
+        text: 'Download',
+        handler: function() {
+            if (!Ext.get('full_report')) {
+                Ext.get('action').set({value: 'csv'});
+                Ext.getDom('mainform').submit();
+            } else {
+                Ext.get('action').set({value: 'check_hit_limit'});
+                Ext.get('full_report').set({value: '0'});
+                var viewport = Ext.getCmp('window_viewport') || new Ext.Viewport({
+                    id: 'window_viewport',
+                    layout: 'fit',
+                });
+                var mask = new Ext.LoadMask(
+                    viewport.getEl(),
+                    {msg: 'Prefetching data...'}
+                  );
+                mask.show();
+                Ext.Ajax.request({
+                    url: window.location.pathname,
+                    form: Ext.getDom('mainform'),
+                    scope: downloadReportButton,
+                    success: function(response) {
+                        mask.hide();
+                        r = Ext.util.JSON.decode(response.responseText);
+                        if (!r.report_is_truncated) {
+                            Ext.get('action').set({value: 'csv'});
+                            Ext.getDom('mainform').submit();
+                        } else {
+                            this.fireEvent('show-download-warning');
+                        }
+                    },
+                    failure: function(response) {
+                        mask.hide();
+                        if (response.isTimeout) {
+                            this.fireEvent('show-download-warning');
+                        }
+                    },
+                });
+            }
+        }
+    });
+
+    downloadReportButton.on('show-download-warning', function() {
+        msg = 'You are going to download a truncated report. Only <b>-1<\/b> records have been processed. Consider using a narrower time range to reduce the number of results. To get a full press <b> Get Full Report <\/b> button.',
+
+        Ext.Msg.show({
+            title: 'Warning',
+            icon: Ext.MessageBox.WARNING,
+            msg: msg,
+            width: 500,
+            closable: false,
+            fn : function(btn) {
+                     if (btn === 'yes') {
+                        Ext.get('action').set({value: 'csv'});
+                        Ext.get('full_report').set({value: '0'});
+                        Ext.getDom('mainform').submit();
+                     } else if (btn == 'no') {
+                        Ext.get('action').set({value: 'csv'});
+                        Ext.get('full_report').set({value: '1'});
+                        Ext.getDom('mainform').submit();
+                     }
+                 },
+            buttons: {yes: 'Continue',
+                      no: 'Get Full Report',
+                      cancel: 'Cancel'}
+        });
+    });
+
+    var sendReportButton = new Ext.Button({
+        renderTo: 'send_report',
+        minWidth: 110,
+        text: 'Send By E-Mail',
+        handler: function() {show_send_by_email(); }
+    });
+
+    var sendEMailForm = new Ext.form.FormPanel({
+        id: 'sendEMailForm',
+        baseCls: 'x-plain',
+        labelWidth: 92,
+        defaultType: 'textfield',
+        url: 'webjob_wrapper.php',
+        waitMsgTarget: 'sendEMailWindow',
+
+        items: [{
+            fieldLabel: 'Send To',
+            name: 'email_mailto',
+            allowBlank: false,
+            regex: /^\+*[A-z0-9][\w.+-]*@(([A-z0-9][\w\-\.]*\.[A-z0-9]{2,6})|(localhost))$/,
+            value: '',
+            anchor: '100%'
+        },{
+            fieldLabel: 'Subject',
+            name: 'email_subject',
+            allowBlank: false,
+            value: 'Profit & Loss Report from \$\{DATE_FROM} to \$\{DATE_TO}',
+            anchor: '100%'
+        }, {
+            fieldLabel: 'Zip the Report',
+            xtype: 'checkbox',
+            name: 'email_zip',
+            checked: true
+        }, {
+            xtype: 'textarea',
+            hideLabel: true,
+            name: 'email_message',
+            value: 'Please see attached file.',
+            anchor: '100% -90'
+        }]
+    });
+    
+
+    var sendEMailWindow = new Ext.Window({
+        id: 'sendEMailWindow',
+        title: 'Send by E-Mail',
+        width: 500,
+        height:300,
+        minWidth: 300,
+        minHeight: 200,
+        layout: 'fit',
+        plain: true,
+        bodyStyle: 'padding: 5px;',
+        buttonAlign: 'center',
+        items: sendEMailForm,
+        closeAction: 'hide',
+        modal: true,
+
+        buttons: [{
+            text: 'Send',
+            handler: function() {
+                        var params = new Object;
+
+                        var mainform = document.getElementById('mainform');
+                        for (var i = 0; i < mainform.elements.length; i++) {
+                            params[mainform.elements[i].name] = mainform.elements[i].value;
+                        }
+
+                        params['wrapped_file_name'] = window.location.pathname.split('/').pop();
+
+                        params['action'] = 'send_by_email';
+
+                        var f = sendEMailForm.getForm();
+                        f.submit({ success: function(form, action) {
+                                        sendEMailWindow.hide();
+                                 },
+                                   failure: function(form, action) {
+                                        var fn = function() { sendEMailWindow.hide(); };
+                                        if (typeof action.failureType == 'string') {
+                                            if (action.failureType == Ext.form.Action.CLIENT_INVALID) {
+                                                msg = "Please fill in \'Send To\' and \'Subject\' fields.";
+                                                fn = Ext.emptyFn;
+                                            } else {
+                                                msg = 'Unable to send the request.';
+                                                msg += ' Error code: ' + action.failureType;
+                                            }
+                                        } else {
+                                            msg = action.result.error_message;
+                                        }
+                                        Ext.Msg.show({
+                                                title: 'Error!!!',
+                                                closable: false,
+                                                icon: Ext.MessageBox.ERROR,
+                                                buttons: Ext.MessageBox.OK,
+                                                msg: msg,
+                                                fn: fn
+                                        });
+                                 },
+                                   params: params,
+                                   waitMsg: 'Please wait...'
+                        });
+                     }
+        },{
+            text: 'Cancel',
+            handler: function() { sendEMailWindow.hide(); }
+        }]
+    });
+
+});
+
+function show_send_by_email() {
+    var w = Ext.getCmp('sendEMailWindow');
+    w.show();
+    w.center();
+}
+
+</script>
+
+
+
+
+<script type="text/javascript" src="/js/selectbox.js"></script>
+
+<script language="javascript">
+
+var conns = Array();
+
+conns.push([0, 0, 'All']);
+conns.push([2, 0, 'All']);
+conns.push([2, 4, 'CallnTalk-ERI-PR-PR']);
+conns.push([2, 2, 'CallnTalk-PR-PR']);
+conns.push([2, 5, 'YOU']);
+conns.push([2, 6, 'test123']);
+conns.push([1, 0, 'All']);
+conns.push([1, 1, 'System Connection']);
+conns.push([3, 0, 'All']);
+conns.push([3, 3, 'TALK-Pakistan']);
+conns.push([13, 0, 'All']);
+conns.push([13, 10, 'asterisk(PTCL)']);
+conns.push([12, 0, 'All']);
+conns.push([12, 9, 'internal-(Astrix-to-sb7)']);
+conns.push([12, 11, 'internal-(HK)']);
+conns.push([5, 0, 'All']);
+conns.push([5, 7, 'internal-sky-telecom']);
+conns.push([11, 0, 'All']);
+conns.push([11, 8, 'Test']);
+
+
+function setConnectionsList(id) {
+    var form=document.forms['mainform'];
+
+    removeAllOptions(form.i_connection);
+    for (i = 0; i < conns.length; i++) {
+        if (conns[i][0] == id) {
+            addOption(form.i_connection, conns[i][2], conns[i][1]);
+        }
+    }
+}
+
+function gotopage(n) {
+    form = document.getElementById("navform");
+    form.n.value = n;
+    form.submit();
+}
+
+function init_filter_fields(val) {
+    var form = document.getElementById("mainform");
+    var btPattern = Ext.getCmp('bt_pattern');
+    if (val == '0_1') {
+        form.bt_clause.disabled = false;
+        btPattern.enable();
+    } else {
+        form.bt_clause.disabled = true;
+        btPattern.disable();
+    }
+}
+</script>
+
+<script type="text/javascript">
+// create namespace
+Ext.namespace('sspExt');
+
+Ext.onReady(function() {
+    var startDate = new Ext.ssp.form.DateField({
+        applyTo: 'startDate',
+        format: 'd-m-Y H:i:s',
+        value: '1 hour ago'
+    });
+
+    var endDate = new Ext.ssp.form.DateField({
+        applyTo: 'endDate',
+        format: 'd-m-Y H:i:s',
+        value: 'now'
+    });
+
+    var store_bt = new Ext.data.SimpleStore({
+        fields: ['batch_tag'],
+        data: []
+    });
+
+    var batchPattern = new Ext.form.ComboBox({
+        id: 'bt_pattern',
+        applyTo: 'bt_pattern',
+        store: store_bt,
+        displayField: 'batch_tag',
+        typeAhead: true,
+        mode: 'local',
+        selectOnFocus: true,
+        triggerAction: 'all',
+        width: 176,
+        cls: 'dp3',
+        emptyClass: 'dp3',
+        fieldClass: 'dp3',
+        focusClass: 'dp3',
+        value: ''
+    });
+
+    var ds = new Ext.data.Store({
+        url: 'profit_loss_report.php',
+        baseParams: {action: 'get_filter_caller_list'},
+        reader: new Ext.data.XmlReader({
+                        totalRecords: "total",
+                        record: "row",
+                        id: "id"},
+                [{name: 'id'}, {name: 'value'}])
+    });
+    var resultTpl = new Ext.XTemplate(
+        '<tpl for="."><div class="callerSearch-item">',
+            '{value}',
+        '</div></tpl>'
+    );
+    ds.add([ new Ext.data.Record({ id: '0_0', value: 'Any' }) ]);
+
+    var caller = new Ext.form.ComboBox({
+        applyTo: '_caller',
+        id: 'caller',
+        forceSelection: true,
+        store: ds,
+        displayField: 'value',
+        valueField: 'id',
+        hiddenName: 'caller',
+        width: 175,
+        listWidth: 250,
+        tpl: resultTpl,
+        itemSelector: 'div.callerSearch-item',
+        minChars: 0,
+        pageSize: 20,
+        queryDelay: 1000,
+        typeAhead: true,
+        cls: 'dp3',
+        emptyClass: 'vi2',
+        fieldClass: 'vi2',
+        focusClass: 'vi2',
+        listeners:{
+            change: function(combo, newVal, oldVal) {
+                        init_filter_fields(newVal)
+                   }
+        }
+    });
+
+    caller.store.on('load', function(st){
+        var rec = st.getById('0_2');
+        if (rec) st.remove(rec);
+        st.each(function(r){
+            if (r.get('id').charAt(0) === '2'){
+                st.remove(r);
+            }
+        });
+    });
+
+    caller.setValue('0_0');
+
+    init_filter_fields('0_0');
+});
+
+
+
+</script>
+
+<form action="profit_loss_report.php" method="GET" id="mainform">
+<table cellpadding="5" cellspacing="0" width="100%"> 
+<tr>
+    <td class="Headline" width="100%">
+        Profit &amp; Loss Report    </td>
+</tr> 
+</table>
+
+<div class="formcol">
+
+  <div class="grouptitle">
+      Filter  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="groupdata">
+
+    <div class="dataname" style="padding-top: 1px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">CLI</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="cli_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" name="cli_pattern" value="" class="sel2">
+    </div>
+
+    <div class="dataname">
+        Start Date/Time    </div>
+    <div class="dataval">
+        <input type="text" id="startDate" name="startDate" class="dp2">
+    </div>
+
+    <div class="dataname">
+        Caller    </div>
+    <div class="dataval">
+        <input type="text" class="vi2" id="_caller" >
+    </div>
+
+    <div class="dataname" style="padding-top: 0px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">Batch Tag</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="bt_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" id="bt_pattern" name="bt_pattern" class="dp2">
+    </div>
+
+    <div class="dataname">
+        Currency    </div>
+    <div class="dataval">
+        <select name="cdr_currency" class="sel2">
+                            <option value="USD" selected>US Dollar (USD)</option>
+                    </select>           
+    </div>
+
+  </div>
+
+  <div class="groupdata">
+
+    <div class="dataname" style="padding-top: 1px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">CLD</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="cld_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" name="cld_pattern" value="" class="sel2">
+    </div>
+
+    <div class="dataname">
+        End Date/Time    </div>
+    <div class="dataval">
+        <input type="text" id="endDate" name="endDate" class="dp2">
+    </div>
+
+    <div class="dataname">
+        Vendor    </div>
+    <div class="dataval">
+        <select name="i_vendor" class="sel2" onChange="setConnectionsList(this.value)">
+            <option value="0" selected>All</option>
+                            <option value="2" >Callntalk</option>
+                            <option value="1" >System Vendor</option>
+                            <option value="3" >TALK</option>
+                            <option value="10" >Test</option>
+                            <option value="4" >YOU</option>
+                            <option value="13" >asterisk(SKY)</option>
+                            <option value="12" >internal</option>
+                            <option value="5" >internal-sky</option>
+                            <option value="11" >test_noc</option>
+                    </select>
+    </div>
+
+    <div class="dataname">
+        Connection    </div>
+    <div class="dataval">
+        <select name="i_connection" class="sel2">
+                            <option value="0" selected>All</option>
+                    </select>
+    </div>
+
+  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="genrep">
+    <div id="update_report"></div>
+    <div id="download_report"></div>
+    <div id="send_report"></div>
+    <input type="hidden" name="from_form" value="1">
+    <input type="hidden" id="action" name="action" value="">
+  </div>
+
+</div>
+
+</form>
+
+<form id="navform" method="GET" action="profit_loss_report.php">
+        <input type="hidden" name="n" value="0">
+        <input type="hidden" name="action" value="">
+        <input type="hidden" name="startDate" value="1 hour ago">
+        <input type="hidden" name="endDate" value="now">
+        <input type="hidden" name="expStartDate" value="2026-06-09 10:29:50">
+        <input type="hidden" name="expEndDate" value="2026-06-09 11:29:50">
+        <input type="hidden" name="cli_clause" value="0">
+        <input type="hidden" name="cli_pattern" value="">
+        <input type="hidden" name="cld_clause" value="0">
+        <input type="hidden" name="cld_pattern" value="">
+        <input type="hidden" name="caller" value="0_0">
+        <input type="hidden" name="cdr_currency" value="USD">
+        <input type="hidden" name="i_vendor" value="0">
+        <input type="hidden" name="i_connection" value="0">
+</form>
+
+<div style="width: 100%;">
+
+<table width=100% border=0>
+<tr><td>
+<center><strong>Profit &amp; Loss Report</strong><br></center>
+</td></tr>
+</table>
+
+
+<table class="grouptitle" width="100%">
+    <tr>
+				<td width="50">
+	    		</td>
+		<td width="50">
+	    		</td>
+		<td align="center">Page 1 of 33, total 1605 rows</td>
+			<td width="50" align="right">
+	    		  <a href="#" onClick="javascript:gotopage(1);"><img src="images/next.gif" border="0" HEIGHT="13" WIDTH="13" alt="Next Page"></a>
+	    		</td>
+		<td width="50" align="right">
+	    		  <a href="#" onClick="javascript:gotopage(32);"><img src="images/last.gif" border="0" HEIGHT="13" WIDTH="13" alt="Last Page"></a>
+	    		</td>
+		    </tr>
+</table>
+
+<div class="separator"></div>
+
+<TABLE width="100%" cellpadding=0 cellspacing=0>
+      <TR bgcolor="#DDDDDD">
+        <TD align=center class=borderall><b>Caller</b></TD>
+        <TD align=center noWrap class=borderallbutleft><b>Vendor/Connection</b></TD>
+        <TD align=center noWrap class=borderallbutleft><b>CLI</b></TD>
+        <TD align=center noWrap class=borderallbutleft><b>CLD</b></TD>
+        <TD align=center noWrap class=borderallbutleft><b>Country, Description</b></TD>
+        <TD align=center width="160" class=borderallbutleft><b>Setup Time</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Selling Duration, mm:ss</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Selling Billed Duration, mm:ss</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Buying Duration, mm:ss</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Buying Billed Duration, mm:ss</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Revenue, USD</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Cost, USD</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Margin, USD</b></TD>
+      </TR>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_1' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+17789263097</td>
+            <td nowrap align="left" class="borderbottomright">12917847363</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:29:33</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:17</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0492</td>
+            <td nowrap align="right" class="borderbottomright">-0.0025</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_2' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+17789263097</td>
+            <td nowrap align="left" class="borderbottomright">12917847363</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:29:33</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0434</td>
+            <td nowrap align="right" class="borderbottomright">0.0033</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_3' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">923774159323</td>
+            <td nowrap align="left" class="borderbottomright">1923260049653</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN, Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:29:24</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">0.0133</td>
+            <td nowrap align="right" class="borderbottomright">0.0003</td>
+            <td nowrap align="right" class="borderbottomright">0.0131</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_4' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+17789398620</td>
+            <td nowrap align="left" class="borderbottomright">12917846913</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:29:16</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0434</td>
+            <td nowrap align="right" class="borderbottomright">0.0033</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_5' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+17789398620</td>
+            <td nowrap align="left" class="borderbottomright">12917846913</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:29:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0463</td>
+            <td nowrap align="right" class="borderbottomright">0.0004</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_6' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">92372375928</td>
+            <td nowrap align="left" class="borderbottomright">1923291852044</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN, Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:29:16</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">0.0133</td>
+            <td nowrap align="right" class="borderbottomright">0.0003</td>
+            <td nowrap align="right" class="borderbottomright">0.0131</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_7' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+15145678324</td>
+            <td nowrap align="left" class="borderbottomright">12917128743</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:59</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0463</td>
+            <td nowrap align="right" class="borderbottomright">0.0004</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_8' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+15145678324</td>
+            <td nowrap align="left" class="borderbottomright">12917128743</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:59</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:17</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0492</td>
+            <td nowrap align="right" class="borderbottomright">-0.0025</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_9' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+15196861716</td>
+            <td nowrap align="left" class="borderbottomright">12917128749</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:42</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0434</td>
+            <td nowrap align="right" class="borderbottomright">0.0033</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_10' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+15196861716</td>
+            <td nowrap align="left" class="borderbottomright">12917128749</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:41</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:17</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0492</td>
+            <td nowrap align="right" class="borderbottomright">-0.0025</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_11' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+16477625911</td>
+            <td nowrap align="left" class="borderbottomright">12917841389</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:25</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0434</td>
+            <td nowrap align="right" class="borderbottomright">0.0033</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_12' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+16477625911</td>
+            <td nowrap align="left" class="borderbottomright">12917841389</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:24</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">0.0467</td>
+            <td nowrap align="right" class="borderbottomright">0.0463</td>
+            <td nowrap align="right" class="borderbottomright">0.0004</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_13' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">923748209194</td>
+            <td nowrap align="left" class="borderbottomright">1923010064500</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN, Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:08</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">0.0133</td>
+            <td nowrap align="right" class="borderbottomright">0.0003</td>
+            <td nowrap align="right" class="borderbottomright">0.0131</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_14' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=1">Acct.&nbsp;PUSHTOTALK</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">923748209194</td>
+            <td nowrap align="left" class="borderbottomright">1923010064500</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN, Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:08</td>
+            <td nowrap align="right" class="borderbottomright">00:41</td>
+            <td nowrap align="right" class="borderbottomright">00:41</td>
+            <td nowrap align="right" class="borderbottomright">00:41</td>
+            <td nowrap align="right" class="borderbottomright">00:41</td>
+            <td nowrap align="right" class="borderbottomright">0.0239</td>
+            <td nowrap align="right" class="borderbottomright">0.0007</td>
+            <td nowrap align="right" class="borderbottomright">0.0232</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_15' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=1">Acct.&nbsp;PUSHTOTALK</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">923757841667</td>
+            <td nowrap align="left" class="borderbottomright">1923247747715</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN, Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:00</td>
+            <td nowrap align="right" class="borderbottomright">00:12</td>
+            <td nowrap align="right" class="borderbottomright">00:12</td>
+            <td nowrap align="right" class="borderbottomright">00:12</td>
+            <td nowrap align="right" class="borderbottomright">00:12</td>
+            <td nowrap align="right" class="borderbottomright">0.0070</td>
+            <td nowrap align="right" class="borderbottomright">0.0002</td>
+            <td nowrap align="right" class="borderbottomright">0.0068</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_16' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">923757841667</td>
+            <td nowrap align="left" class="borderbottomright">1923247747715</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN, Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:28:00</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:16</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">00:15</td>
+            <td nowrap align="right" class="borderbottomright">0.0133</td>
+            <td nowrap align="right" class="borderbottomright">0.0003</td>
+            <td nowrap align="right" class="borderbottomright">0.0131</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_17' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+17057179212</td>
+            <td nowrap align="left" class="borderbottomright">12917847896</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:50</td>
+            <td nowrap align="right" class="borderbottomright">00:32</td>
+            <td nowrap align="right" class="borderbottomright">00:32</td>
+            <td nowrap align="right" class="borderbottomright">00:32</td>
+            <td nowrap align="right" class="borderbottomright">00:32</td>
+            <td nowrap align="right" class="borderbottomright">0.0933</td>
+            <td nowrap align="right" class="borderbottomright">0.0925</td>
+            <td nowrap align="right" class="borderbottomright">0.0008</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_18' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+17057179212</td>
+            <td nowrap align="left" class="borderbottomright">12917847896</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:50</td>
+            <td nowrap align="right" class="borderbottomright">00:31</td>
+            <td nowrap align="right" class="borderbottomright">00:31</td>
+            <td nowrap align="right" class="borderbottomright">00:31</td>
+            <td nowrap align="right" class="borderbottomright">00:31</td>
+            <td nowrap align="right" class="borderbottomright">0.0904</td>
+            <td nowrap align="right" class="borderbottomright">0.0896</td>
+            <td nowrap align="right" class="borderbottomright">0.0008</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_19' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=59">Acct.&nbsp;internal-bd</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=2&i_vendor=2&action=edit">CallnTalk-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+252238358526</td>
+            <td nowrap align="left" class="borderbottomright">18801806379821</td>
+            <td nowrap align="center" class="borderbottomright">BANGLADESH, Dhaka Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:48</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_20' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+16472240005</td>
+            <td nowrap align="left" class="borderbottomright">12917120637</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:47</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_21' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+15198030059</td>
+            <td nowrap align="left" class="borderbottomright">12917845708</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:47</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_22' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+14166021518</td>
+            <td nowrap align="left" class="borderbottomright">12917023766</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:46</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_23' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+14169387018</td>
+            <td nowrap align="left" class="borderbottomright">12917847483</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:46</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_24' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+14166021518</td>
+            <td nowrap align="left" class="borderbottomright">12917023766</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:46</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:02</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0058</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_25' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+14388744755</td>
+            <td nowrap align="left" class="borderbottomright">12917849697</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:45</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_26' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=59">Acct.&nbsp;internal-bd</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=2&i_vendor=2&action=edit">CallnTalk-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+2913425019675</td>
+            <td nowrap align="left" class="borderbottomright">18801966552915</td>
+            <td nowrap align="center" class="borderbottomright">BANGLADESH, Dhaka Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:44</td>
+            <td nowrap align="right" class="borderbottomright">00:04</td>
+            <td nowrap align="right" class="borderbottomright">00:04</td>
+            <td nowrap align="right" class="borderbottomright">00:04</td>
+            <td nowrap align="right" class="borderbottomright">00:04</td>
+            <td nowrap align="right" class="borderbottomright">0.0005</td>
+            <td nowrap align="right" class="borderbottomright">0.0005</td>
+            <td nowrap align="right" class="borderbottomright">0.0001</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_27' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=13&action=edit">asterisk(SKY)</a>
+                                /
+                                <a href="connections.php?i_connection=10&i_vendor=13&action=edit">asterisk(PTCL)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+14032351485</td>
+            <td nowrap align="left" class="borderbottomright">12917845606</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:44</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:02</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0058</td>
+            <td nowrap align="right" class="borderbottomright">-0.0029</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_28' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=315">Acct.&nbsp;asterisk</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=12&action=edit">internal</a>
+                                /
+                                <a href="connections.php?i_connection=9&i_vendor=12&action=edit">internal-(Astrix-to-sb7)</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+14032351485</td>
+            <td nowrap align="left" class="borderbottomright">12917845606</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:44</td>
+            <td nowrap align="right" class="borderbottomright">00:02</td>
+            <td nowrap align="right" class="borderbottomright">00:02</td>
+            <td nowrap align="right" class="borderbottomright">00:02</td>
+            <td nowrap align="right" class="borderbottomright">00:02</td>
+            <td nowrap align="right" class="borderbottomright">0.0058</td>
+            <td nowrap align="right" class="borderbottomright">0.0058</td>
+            <td nowrap align="right" class="borderbottomright">0.0001</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_29' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=59">Acct.&nbsp;internal-bd</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=2&i_vendor=2&action=edit">CallnTalk-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+977670414429</td>
+            <td nowrap align="left" class="borderbottomright">18801787391636</td>
+            <td nowrap align="center" class="borderbottomright">BANGLADESH, Dhaka Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:44</td>
+            <td nowrap align="right" class="borderbottomright">00:04</td>
+            <td nowrap align="right" class="borderbottomright">00:04</td>
+            <td nowrap align="right" class="borderbottomright">00:04</td>
+            <td nowrap align="right" class="borderbottomright">00:04</td>
+            <td nowrap align="right" class="borderbottomright">0.0005</td>
+            <td nowrap align="right" class="borderbottomright">0.0005</td>
+            <td nowrap align="right" class="borderbottomright">0.0001</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_30' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+17808079425</td>
+            <td nowrap align="left" class="borderbottomright">12917840383</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:43</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_31' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+12047732534</td>
+            <td nowrap align="left" class="borderbottomright">12917848861</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:43</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_32' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+18258896221</td>
+            <td nowrap align="left" class="borderbottomright">12917122923</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:42</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_33' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+14374108912</td>
+            <td nowrap align="left" class="borderbottomright">12917843176</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:42</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_34' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+12363081081</td>
+            <td nowrap align="left" class="borderbottomright">12917023351</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:41</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_35' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+16477410766</td>
+            <td nowrap align="left" class="borderbottomright">12917127638</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:40</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_36' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+17802397570</td>
+            <td nowrap align="left" class="borderbottomright">12917842303</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:39</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_37' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+14165663843</td>
+            <td nowrap align="left" class="borderbottomright">12917127384</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:39</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_38' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+15483889102</td>
+            <td nowrap align="left" class="borderbottomright">12917845555</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:39</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_39' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+12368850983</td>
+            <td nowrap align="left" class="borderbottomright">12917124580</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:37</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_40' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+18259863242</td>
+            <td nowrap align="left" class="borderbottomright">12917121723</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:36</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_41' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+12506660394</td>
+            <td nowrap align="left" class="borderbottomright">12917848213</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:36</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_42' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+19052745432</td>
+            <td nowrap align="left" class="borderbottomright">12917028088</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:36</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_43' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+249916810085</td>
+            <td nowrap align="left" class="borderbottomright">12917138106</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:35</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_44' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+17789842138</td>
+            <td nowrap align="left" class="borderbottomright">12917124248</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:34</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_45' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+14373667351</td>
+            <td nowrap align="left" class="borderbottomright">12917840604</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:34</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_46' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+16139223081</td>
+            <td nowrap align="left" class="borderbottomright">12917846165</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:34</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_47' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+12042181885</td>
+            <td nowrap align="left" class="borderbottomright">12917121144</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:33</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_48' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=59">Acct.&nbsp;internal-bd</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=2&i_vendor=2&action=edit">CallnTalk-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+8559149466906</td>
+            <td nowrap align="left" class="borderbottomright">18801993335189</td>
+            <td nowrap align="center" class="borderbottomright">BANGLADESH, Dhaka Mobile</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:33</td>
+            <td nowrap align="right" class="borderbottomright">00:12</td>
+            <td nowrap align="right" class="borderbottomright">00:12</td>
+            <td nowrap align="right" class="borderbottomright">00:12</td>
+            <td nowrap align="right" class="borderbottomright">00:12</td>
+            <td nowrap align="right" class="borderbottomright">0.0016</td>
+            <td nowrap align="right" class="borderbottomright">0.0014</td>
+            <td nowrap align="right" class="borderbottomright">0.0002</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_49' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+12892648864</td>
+            <td nowrap align="left" class="borderbottomright">12917843963</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:32</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_50' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <a href="accounts.php?action=edit&account=60">Acct.&nbsp;internal-eritrea</a>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+                                <a href="vendors.php?i_vendor=2&action=edit">Callntalk</a>
+                                /
+                                <a href="connections.php?i_connection=4&i_vendor=2&action=edit">CallnTalk-ERI-PR-PR</a>
+                          </td>
+            <td nowrap align="left" class="borderbottomright">+12047945163</td>
+            <td nowrap align="left" class="borderbottomright">12917120426</td>
+            <td nowrap align="center" class="borderbottomright">ERITREA, Proper</td>
+            <td nowrap align="right" class="borderbottomright"> 9 Jun 2026 11:27:31</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">00:01</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0029</td>
+            <td nowrap align="right" class="borderbottomright">0.0000</td>
+        </tr>
+</table>
+
+                                <div class="total">
+                    Total - Revenue,&nbsp;USD: 17.0229
+                           &nbsp;- Cost,&nbsp;USD: 10.5804
+                           &nbsp;- Margin,&nbsp;USD: 6.4425
+                </div>
+                
+<div class="separator"></div>
+
+
+<table class="grouptitle" width="100%">
+    <tr>
+				<td width="50">
+	    		</td>
+		<td width="50">
+	    		</td>
+		<td align="center">Page 1 of 33, total 1605 rows</td>
+			<td width="50" align="right">
+	    		  <a href="#" onClick="javascript:gotopage(1);"><img src="images/next.gif" border="0" HEIGHT="13" WIDTH="13" alt="Next Page"></a>
+	    		</td>
+		<td width="50" align="right">
+	    		  <a href="#" onClick="javascript:gotopage(32);"><img src="images/last.gif" border="0" HEIGHT="13" WIDTH="13" alt="Last Page"></a>
+	    		</td>
+		    </tr>
+</table>
+
+</div>
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode(" 9 Jun 2026 11:29:51 (Etc/UTC)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+<script src="/web_ng/legacy/js/apply_polyfills.js"></script>
+<script>
+  window.loadWebNgScript('navigation_menu')
+</script>
+
+
+
+</body>
+</html>
