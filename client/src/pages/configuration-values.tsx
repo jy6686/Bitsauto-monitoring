@@ -39,7 +39,7 @@ function renderValueInput(
   onChange: (v: string | null) => void,
   readOnly: boolean,
 ) {
-  const val = draft !== undefined ? draft : (row.value ?? "");
+  const val = draft !== undefined ? (draft ?? "") : (row.value ?? "");
 
   if (row.valueType === "bool") {
     const checked = val === "true";
@@ -135,7 +135,9 @@ export default function ConfigurationValuesPage() {
 
   const { data: rows = [], isLoading } = useQuery<ConfigValue[]>({
     queryKey: ["/api/configuration-values", activeTab],
-    queryFn: () => fetch(`/api/configuration-values?category=${activeTab}`, { credentials: "include" }).then(r => r.json()),
+    queryFn: () => fetch(`/api/configuration-values?category=${activeTab}`, { credentials: "include" })
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then(d => Array.isArray(d) ? d : []),
   });
 
   const dirtyIds = useMemo(() => Object.keys(drafts).map(Number), [drafts]);
