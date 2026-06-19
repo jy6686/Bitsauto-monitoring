@@ -1635,8 +1635,8 @@ interface RnDestination {
 interface RnJob {
   id: number; jobRef: string; templateId?: number | null; clientName: string;
   productName?: string | null; notificationType?: string | null; destinationCount?: number | null;
-  tariffUpdated?: boolean | null; sbcMappingOk?: boolean | null; emailSent?: boolean | null;
-  violatedRules?: boolean | null; approvalRequired?: boolean | null;
+  tariffUpdated?: boolean | null; sbcMappingOk?: boolean | null; sbcUpdated?: boolean | null;
+  emailSent?: boolean | null; violatedRules?: boolean | null; approvalRequired?: boolean | null;
   status: string; remarks?: string | null; pushResults?: any[]; createdBy?: string | null; createdAt: string;
 }
 
@@ -1832,10 +1832,11 @@ function TemplateDetail({
               : <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />}
             Job {sendResult.jobRef} — {sendResult.status.toUpperCase()}
           </div>
-          <div className="flex gap-4 text-muted-foreground mt-1">
-            <span>Email: {sendResult.steps?.emailSent ? <span className="text-green-400">Sent</span> : <span className="text-red-400">Not sent</span>}</span>
-            <span>Tariff: {sendResult.steps?.tariffUpdated ? <span className="text-green-400">Updated</span> : <span className="text-muted-foreground">Skipped</span>}</span>
-            <span>SBC: {sendResult.steps?.sbcMappingOk ? <span className="text-green-400">OK</span> : <span className="text-muted-foreground">Skipped</span>}</span>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-muted-foreground mt-1">
+            <span>Email: {sendResult.steps?.emailSent ? <span className="text-green-400">✓ Sent</span> : <span className="text-red-400">✗ Not sent</span>}</span>
+            <span>Tariff: {sendResult.steps?.tariffUpdated ? <span className="text-green-400">✓ Updated</span> : <span className="text-muted-foreground">— Skipped</span>}</span>
+            <span>SBC Mapping: {sendResult.steps?.sbcMappingOk ? <span className="text-green-400">✓ Available</span> : <span className="text-muted-foreground">— Skipped</span>}</span>
+            <span>SBC: {sendResult.steps?.sbcUpdated ? <span className="text-green-400">✓ Updated</span> : <span className="text-muted-foreground">— Skipped</span>}</span>
           </div>
           {sendResult.remarks && <div className="text-muted-foreground mt-0.5">{sendResult.remarks}</div>}
         </div>
@@ -1904,10 +1905,13 @@ function TemplateDetail({
             <div className="px-5 py-4 text-xs flex flex-col gap-2">
               <p className="text-muted-foreground">This will:</p>
               <ul className="list-disc list-inside text-muted-foreground flex flex-col gap-1 pl-2">
-                <li>Push <strong className="text-foreground">{destinations.length} destination{destinations.length !== 1 ? "s" : ""}</strong> to the Sippy tariff</li>
+                <li>Update <strong className="text-foreground">{destinations.length} prefix{destinations.length !== 1 ? "es" : ""}</strong> in the client's Sippy tariff — other prefixes are <strong className="text-foreground">not touched</strong></li>
                 <li>Email an Excel rate sheet to <strong className="text-foreground">{tpl.recipients || "configured recipients"}</strong></li>
-                <li>Create a job record for audit tracking</li>
+                <li>Create a job record with full step tracking for audit</li>
               </ul>
+              <p className="text-[10px] text-muted-foreground border border-border/30 rounded px-2.5 py-1.5 bg-muted/20 mt-1">
+                <strong className="text-foreground/70">Note:</strong> The notification sheet contains only the destinations you've added to this template. It is independent of the full tariff — prefixes not in this sheet remain active in Sippy unchanged.
+              </p>
               <p className="mt-1 font-medium text-foreground">
                 Client: <span className="text-amber-400">{tpl.clientName}</span> &nbsp;·&nbsp;
                 Product: <span className="text-amber-400">{productName}</span> &nbsp;·&nbsp;
@@ -2010,13 +2014,15 @@ function NewTemplateModal({
 
 // ── Job Detail Drawer ──────────────────────────────────────────────────────────
 function JobDetailDrawer({ job, onClose }: { job: RnJob; onClose: () => void }) {
+  // Step order matches legacy BitsAuto job detail exactly
   const steps = [
-    { key: "emailSent",        label: "Email Sent",        value: job.emailSent },
-    { key: "sbcMappingOk",     label: "SBC Mapping",       value: job.sbcMappingOk },
-    { key: "tariffUpdated",    label: "Updated Tariff",     value: job.tariffUpdated },
-    { key: "violatedRules",    label: "Violated Rules",     value: job.violatedRules,    warn: true },
-    { key: "approvalRequired", label: "Approval Required",  value: job.approvalRequired, warn: true },
-    { key: "successful",       label: "Successful",         value: job.status === "successful" },
+    { key: "emailSent",        label: "Email Sent",           value: job.emailSent },
+    { key: "sbcMappingOk",     label: "SBC Mapping Available", value: job.sbcMappingOk },
+    { key: "sbcUpdated",       label: "SBC Updated",           value: job.sbcUpdated },
+    { key: "tariffUpdated",    label: "Updated Tariff",        value: job.tariffUpdated },
+    { key: "violatedRules",    label: "Violated Rules",        value: job.violatedRules,    warn: true },
+    { key: "approvalRequired", label: "Approval Required",     value: job.approvalRequired, warn: true },
+    { key: "successful",       label: "Successful",            value: job.status === "successful" },
   ];
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">

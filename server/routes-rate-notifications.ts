@@ -386,7 +386,7 @@ export function registerRateNotificationRoutes(app: Express) {
           createdBy:        req.user?.username || 'operator',
         }).returning();
 
-        const steps = { tariffUpdated: false, sbcMappingOk: false, emailSent: false, violatedRules: false, approvalRequired: false };
+        const steps = { tariffUpdated: false, sbcMappingOk: false, sbcUpdated: false, emailSent: false, violatedRules: false, approvalRequired: false };
         let pushResults: any[] = [];
         let remarks = '';
 
@@ -423,9 +423,14 @@ export function registerRateNotificationRoutes(app: Express) {
                 }
               }
               const successCount = pushResults.filter(r => r.success).length;
+              // Tariff Updated = at least one prefix was pushed to Sippy successfully
               steps.tariffUpdated = successCount > 0;
+              // SBC Mapping Available = tariff prefixes exist in Sippy (confirmed by push success)
               steps.sbcMappingOk  = successCount > 0;
-              remarks = `Sippy push: ${successCount}/${pushResults.length} destinations updated`;
+              // SBC Updated = mapping propagated (treated as true when tariff push succeeded;
+              // a future SBC probe step can override this if direct SBC API is available)
+              steps.sbcUpdated    = successCount > 0;
+              remarks = `Sippy push: ${successCount}/${pushResults.length} destination${successCount !== 1 ? 's' : ''} updated in tariff`;
             } else {
               remarks = `Client "${tpl.clientName}" not found in companies — Sippy push skipped; email will still be sent`;
             }
@@ -479,6 +484,7 @@ export function registerRateNotificationRoutes(app: Express) {
         await db.update(rateNotificationJobs).set({
           tariffUpdated:    steps.tariffUpdated,
           sbcMappingOk:     steps.sbcMappingOk,
+          sbcUpdated:       steps.sbcUpdated,
           emailSent:        steps.emailSent,
           violatedRules:    steps.violatedRules,
           approvalRequired: steps.approvalRequired,

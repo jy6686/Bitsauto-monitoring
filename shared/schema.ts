@@ -4113,7 +4113,8 @@ export const rateNotificationJobs = pgTable("rate_notification_jobs", {
   destinationCount: integer("destination_count").default(0),
   // Step tracking (mirrors legacy Status Summary View)
   tariffUpdated:    boolean("tariff_updated").default(false),
-  sbcMappingOk:     boolean("sbc_mapping_ok").default(false),
+  sbcMappingOk:     boolean("sbc_mapping_ok").default(false),   // SBC Mapping Available
+  sbcUpdated:       boolean("sbc_updated").default(false),       // SBC Updated
   emailSent:        boolean("email_sent").default(false),
   violatedRules:    boolean("violated_rules").default(false),
   approvalRequired: boolean("approval_required").default(false),
