@@ -4176,3 +4176,25 @@ export const configurationValues = pgTable("configuration_values", {
 });
 export type ConfigurationValue       = typeof configurationValues.$inferSelect;
 export type InsertConfigurationValue = typeof configurationValues.$inferInsert;
+
+// ── Validation Rules — Layer 2 governance (actions per violation type) ─────────
+// scope: vendor | client | commercial | global
+// selected_action: ignore | reject_rate_sheet | reject_country |
+//                  reject_destination | approval_reqd | auto_adjust_effective_date
+// config_category + config_key optionally reference a configuration_values row for threshold display
+export const validationRules = pgTable("validation_rules", {
+  id:             serial("id").primaryKey(),
+  scope:          varchar("scope",           { length: 32 }).notNull(),
+  groupName:      varchar("group_name",      { length: 128 }).notNull(),
+  ruleKey:        varchar("rule_key",        { length: 128 }).notNull(),
+  description:    text("description").notNull(),
+  configCategory: varchar("config_category", { length: 32 }),
+  configKey:      varchar("config_key",      { length: 128 }),
+  selectedAction: varchar("selected_action", { length: 64 }).notNull().default("ignore"),
+  sortOrder:      integer("sort_order").default(0).notNull(),
+  isActive:       boolean("is_active").default(true).notNull(),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  updatedAt:      timestamp("updated_at").defaultNow().notNull(),
+});
+export type ValidationRule       = typeof validationRules.$inferSelect;
+export type InsertValidationRule = typeof validationRules.$inferInsert;

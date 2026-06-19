@@ -68,6 +68,7 @@ import FraudPage from "@/pages/fraud";
 import CDRsPage from "@/pages/cdrs";
 import ToolsPage from "@/pages/tools";
 import ConfigurationValuesPage from "@/pages/configuration-values";
+import ValidationRulesPage     from "@/pages/validation-rules";
 import AccountPage from "@/pages/account";
 import LoginPage from "@/pages/login";
 import TrafficMapPage from "@/pages/traffic-map";
@@ -400,6 +401,9 @@ function Router() {
       </Route>
       <Route path="/configuration-values">
         {() => <ProtectedRoute component={ConfigurationValuesPage} requiredRoles={['admin','management','support','viewer']} />}
+      </Route>
+      <Route path="/validation-rules">
+        {() => <ProtectedRoute component={ValidationRulesPage} requiredRoles={['admin','management','support','viewer']} />}
       </Route>
       <Route path="/team">
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}
