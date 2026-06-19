@@ -1,3 +1,4 @@
+- [#339 Consumer Layer scope](governance-339-consumer-scope.md) — first consumers: Bulk Client/Destination thresholds + Exceptional Pricing only; Initial Rate Approval excluded (already FALSE); frozen sprint list.
 - [AMI Bridge CallerIDNum semantics](ami-bridge-callerid-semantics.md) — callerIdNum2=CLD (destination), callerIdNum1=CLI (routing-prefix); never invert using channelA/B identification.
 - [Sippy portal CDR pagination](sippy-portal-cdr-pagination.md) — portal ignores n= offset on some pages; use scrapePortalCDRsAll (login once, dedup+diminishing-returns stop).
 - [Sippy CDR access constraints](sippy-cdr-access.md) — getAccountCDRs XML-RPC works and returns full cli/cld/cost data, but REQUIRES startDate+endDate params — omitting them returns 0 records (Sippy quirk). getCustomerCDRs returns only 1 struct (error). Mera enrichment 401.
