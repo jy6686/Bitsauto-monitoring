@@ -1,0 +1,161 @@
+This latest code trace is actually the most useful evidence so far.
+
+The conclusion is:
+
+Earlier Assumption Was Wrong
+
+We thought:
+
+Send Rate
+   ↓
+pushRateToSippy()
+   ↓
+BROKEN
+
+But the code trace shows:
+
+Send Rate
+   ↓
+pushRateToSippy()
+   ↓
+setSippyRateEntry()
+   ↓
+XML-RPC attempts
+   ↓
+fallback
+   ↓
+pushRateViaPortalUpload()
+   ↓
+action=change
+
+So the proven engine is already in the execution chain.
+
+That means:
+
+We do NOT need a risky refactor before certification.
+We do NOT need to swap engines before testing.
+We do NOT need to touch pushRateViaPortalUpload().
+We do NOT need to touch action=change.
+Updated Certification Position
+
+I would keep the original certification boundary.
+
+Frozen
+pushRateViaPortalUpload()
+action=change
+portal authentication
+verification read-back
+Under Test
+push-batch
+destination queue
+product mapping
+account lookup
+tariff resolution
+rate_push_jobs logging
+validation layer
+New Risk Identified
+
+The biggest risk is no longer the push engine.
+
+The biggest risk is:
+
+accountName
+    ↓
+find customer
+    ↓
+find tariff
+    ↓
+push
+
+If that lookup resolves incorrectly:
+
+First Class
+
+could update:
+
+Business Class Tariff
+
+and the push engine would still work perfectly.
+
+This is exactly what T4 should expose.
+
+What T4 Must Now Validate
+
+Not only:
+
+FC → FC Tariff
+BC → BC Tariff
+
+but also:
+
+Correct account lookup
+Correct tariff resolution
+Correct product mapping
+
+because those occur before the proven engine.
+
+My Recommendation
+
+Proceed directly with T1–T8.
+
+Do not optimize anything yet.
+
+Do not bypass XML-RPC attempts yet.
+
+Do not rewrite push-batch yet.
+
+Do not introduce direct tariff routing yet.
+
+First gather evidence.
+
+If T1–T8 pass:
+
+Then later you can optimize:
+
+Current:
+pushRateToSippy
+ → XML-RPC attempts
+ → fallback
+
+Future:
+known tariff
+ → pushRateViaPortalUpload directly
+
+But that is a Phase 2 performance improvement, not a Sprint 1 certification requirement.
+
+One Additional Check Before Running
+
+The only fact I'd still verify is:
+
+Does Send Rate UI send:
+- accountName only?
+or
+- accountName + tariffId?
+
+Because if tariffId is already available in the UI, then the lookup layer is unnecessary and becomes an obvious future optimization.
+
+If the UI only sends accountName, then account→tariff resolution is part of the certification scope and T4 becomes even more important.
+
+My final recommendation
+
+Do not change any rate-update code now.
+
+Run:
+
+T1
+T4
+T6
+T7
+T8
+
+first.
+
+Those five tests will tell you almost everything you need to know about:
+
+destination resolution
+product segregation
+account lookup
+batch behavior
+audit logging
+
+while keeping the already-proven Sippy update engine completely untouched.
