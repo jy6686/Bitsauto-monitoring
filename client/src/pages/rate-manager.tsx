@@ -12,6 +12,16 @@ import {
   PackageCheck, Tag, Calendar, ShieldAlert, ExternalLink, Download,
 } from "lucide-react";
 
+// ── Display helper — strips internal product/trunk prefix digit for UI display ──
+// Product trunk digits: 1=FC, 2=BC, 6=SB, 7=SC — never exposed to operators.
+// Backend Sippy API calls always use the FULL prefix; this is display-layer only.
+const PRODUCT_TRUNK_DIGITS = new Set(["1", "2", "6", "7"]);
+function displayPrefix(sippyPrefix: string | null | undefined): string {
+  if (!sippyPrefix) return "—";
+  const s = String(sippyPrefix);
+  return PRODUCT_TRUNK_DIGITS.has(s[0]) ? s.slice(1) : s;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Product {
   id: number; code: string; name: string;
@@ -333,7 +343,7 @@ function RateDetailPanel({
                 <th className="text-left py-2 px-3 border-b border-border w-8">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} data-testid="checkbox-select-all" />
                 </th>
-                {["Code", "Destination", "Sippy Prefix", "Rate (USD)", "Active From", "Active Till", "Status"].map(h => (
+                {["Code", "Destination", "Prefix", "Rate (USD)", "Active From", "Active Till", "Status"].map(h => (
                   <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground border-b border-border whitespace-nowrap">
                     {h}
                   </th>
@@ -359,7 +369,7 @@ function RateDetailPanel({
                   </td>
                   <td className="py-1.5 px-3 font-mono text-[11px]">{r.rawPrefix || "—"}</td>
                   <td className="py-1.5 px-3">{r.destName}</td>
-                  <td className="py-1.5 px-3 font-mono text-[11px] text-blue-400/80">{String(r.prefix ?? "—")}</td>
+                  <td className="py-1.5 px-3 font-mono text-[11px] text-blue-400/80">{r.rawPrefix || displayPrefix(r.prefix)}</td>
                   <td className="py-1.5 px-3 text-right font-mono tabular-nums">
                     {r.price1 != null ? Number(r.price1).toFixed(5) : "—"}
                   </td>
@@ -556,7 +566,7 @@ function ChangeClientRateModal({
               {results.map((r, i) => (
                 <div key={i} className="px-2 py-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono">{r.prefix}</span>
+                    <span className="font-mono">{displayPrefix(r.prefix)}</span>
                     <span className="flex items-center gap-1">
                       {r.success ? <Check className="w-3 h-3 text-emerald-400" /> : <X className="w-3 h-3 text-red-400" />}
                       <span className={cn("text-[10px]", r.success ? "text-emerald-400" : "text-red-400")}>
@@ -699,18 +709,10 @@ function AnalysisTab({
             <option value="">— Select product —</option>
             {products.map(p => (
               <option key={p.id} value={String(p.id)}>
-                {p.name}{p.trunkPrefix ? ` [${p.trunkPrefix}]` : ""}
+                {p.name}
               </option>
             ))}
           </select>
-          {product?.trunkPrefix && (
-            <div className="text-[10px] text-muted-foreground px-1">
-              Trunk prefix: <span className="font-mono text-blue-400">"{product.trunkPrefix}"</span>
-              {" "}· e.g. <span className="font-mono text-muted-foreground">
-                {product.trunkPrefix}92300 = PK Jazz
-              </span>
-            </div>
-          )}
         </SidebarSection>
 
         <SidebarSection title="Carrier">
@@ -1087,7 +1089,7 @@ function SendRateTab({
             <option value="">— Select product —</option>
             {products.map(p => (
               <option key={p.id} value={String(p.id)}>
-                {p.name}{p.trunkPrefix ? ` [${p.trunkPrefix}]` : ""}
+                {p.name}
               </option>
             ))}
           </select>
@@ -1330,12 +1332,8 @@ function SendRateTab({
           <div className="flex items-center justify-between gap-3 pt-1">
             {resolvedDialPrefix ? (
               <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-                <span>Sippy prefix:</span>
-                <span className="font-mono text-blue-400 font-semibold">{previewFullPrefix}</span>
-                <span className="text-foreground/40 text-[10px]">
-                  (trunk <span className="font-mono text-amber-400">{trunkPrefix || "?"}</span>
-                  {" + "}<span className="font-mono text-green-400">{resolvedDialPrefix}</span>)
-                </span>
+                <span>Prefix:</span>
+                <span className="font-mono text-blue-400 font-semibold">{resolvedDialPrefix}</span>
               </div>
             ) : (
               <div className="text-xs text-muted-foreground/50 italic">
@@ -1378,7 +1376,7 @@ function SendRateTab({
                 {pushResults.map((r, i) => (
                   <tr key={i} className="border-b border-border/20 hover:bg-muted/10">
                     <td className="py-2 px-3 font-medium">{r.accountName}</td>
-                    <td className="py-2 px-3 font-mono text-blue-400">{r.prefix}</td>
+                    <td className="py-2 px-3 font-mono text-blue-400">{displayPrefix(r.prefix)}</td>
                     <td className="py-2 px-3 font-mono">{Number(r.rate).toFixed(5)}</td>
                     <td className="py-2 px-3">
                       {r.success
@@ -1598,7 +1596,7 @@ function ProductRatesTab({ products }: { products: Product[] }) {
               <tbody>
                 {rates.map((r: any) => (
                   <tr key={r.id} className="border-b border-border/20 hover:bg-muted/10" data-testid={`row-rate-${r.id}`}>
-                    <td className="py-2 px-3 font-mono text-amber-400">{r.prefix || "—"}</td>
+                    <td className="py-2 px-3 font-mono text-amber-400">{displayPrefix(r.prefix)}</td>
                     <td className="py-2 px-3 font-mono tabular-nums">{Number(r.rate).toFixed(6)}</td>
                     <td className="py-2 px-3">{r.currency}</td>
                     <td className="py-2 px-3 tabular-nums">{r.effectiveFrom}</td>
@@ -2372,7 +2370,7 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
                 <div key={i} className={cn("text-xs flex items-center gap-2 py-1 border-b border-border/20",
                   r.success ? "text-green-400" : "text-red-400")}>
                   {r.success ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
-                  <span className="font-mono">{r.prefix}</span>
+                  <span className="font-mono">{displayPrefix(r.prefix)}</span>
                   <span className="text-muted-foreground">{r.dest}</span>
                   {!r.success && <span className="ml-auto text-[10px]">{r.message}</span>}
                 </div>
