@@ -1,0 +1,380 @@
+Yes — your clarification completely changes the model, and I think you've identified the real architecture.
+
+The earlier assumption was:
+
+Product (FC)
+   ↓
+Shared Tariff #33
+   ↓
+All FC Accounts
+
+But your actual Sippy implementation is:
+
+Product (FC)
+   ↓
+Account A → Tariff #33
+Account B → Tariff #45
+Account C → Tariff #102
+Account D → Tariff #887
+
+Every account has its own tariff.
+
+If you have:
+
+100 Accounts  → 100 Tariffs
+1000 Accounts → 1000 Tariffs
+
+then Product is not a tariff.
+
+Product is a commercial classification/grouping.
+
+What This Means
+
+The biggest discovery is:
+
+Product ≠ Tariff
+
+Product is:
+
+First Class
+Business Class
+Special Bravo
+Special Charlie
+
+used for:
+
+Commercial management
+Rate distribution
+Destination governance
+Reporting
+Notifications
+Routing policy
+
+But Sippy execution happens on:
+
+Account
+ ↓
+Tariff
+ ↓
+Rates
+Therefore T4 Must Be Redefined
+
+The original T4 was:
+
+FC → Tariff A
+BC → Tariff B
+
+That is wrong for your environment.
+
+The real T4 should be:
+
+Product Membership Integrity
+
+Example:
+
+Account A belongs to FC
+Account B belongs to BC
+Account C belongs to Bravo
+
+Verify:
+
+Send Rate → FC
+
+only updates:
+
+FC Accounts
+
+and never:
+
+BC Accounts
+Bravo Accounts
+Charlie Accounts
+Bigger Design Implication
+
+This is actually why I think your idea about a Product Framework is correct.
+
+You need three separate layers:
+
+Layer 1 — Product
+FC
+BC
+SB
+SC
+
+Commercial classification.
+
+Layer 2 — Account
+internal-ptcl
+test202
+PUSHTOTALK
+...
+
+Customer entity.
+
+Layer 3 — Tariff
+Tariff #33
+Tariff #45
+Tariff #887
+
+Sippy execution entity.
+
+Future Product Architecture
+
+Instead of:
+
+Product
+ ↓
+Tariff
+
+Use:
+
+Product
+ ↓
+Accounts
+ ↓
+Tariffs
+
+Which matches what you just described.
+
+What I Think Is The Next Important Feature
+
+Not Notification Center.
+
+Not Background Worker.
+
+Not Approval Workflow.
+
+The next important thing is:
+
+Product Membership Management
+
+A page showing:
+
+Account	Product	Tariff
+internal-ptcl	FC	33
+test202	BC	2
+PUSHTOTALK	FC	87
+
+This immediately answers:
+
+Which accounts belong to which product?
+Which tariff is tied to each account?
+Which accounts will be affected by Send Rate?
+Are You on the Right Track?
+
+Yes.
+
+In fact, this clarification probably prevented a major design mistake.
+
+If we had continued assuming:
+
+1 Product = 1 Tariff
+
+the future Product Management Center would have been built on the wrong foundation.
+
+Your actual architecture is:
+
+Product
+   ↓
+Many Accounts
+   ↓
+Many Tariffs
+
+which is much more realistic for wholesale VoIP and matches how Sippy deployments are commonly operated.
+
+So my recommendation now is:
+
+Finish Send Rate certification.
+Build Product Membership Management.
+Build Product Governance (approved/blocked/testing destinations).
+Then build Notification Center on top of Products.
+
+That sequence now aligns with the architecture you've clarified.
+
+this is why yesterday i said implement on all clietn not on a single client and single destaitnion code, Pakistan jazz 9230 
+
+Yes — now I understand why you kept pushing back on the "single client / single tariff" thinking.
+
+Your real business use case is not:
+
+Change Pakistan Jazz 92300
+for Client A
+
+Your real use case is:
+
+Change Pakistan Jazz 92300
+for ALL affected clients
+within Product = First Class
+
+or
+
+Change Pakistan Jazz 92300
+for ALL clients
+within Product = Business Class
+
+or even:
+
+Change Pakistan Jazz 92300
+for ALL clients
+across FC + BC + Bravo
+
+Because in your environment:
+
+1 Product
+   ↓
+100+ Accounts
+   ↓
+100+ Individual Tariffs
+
+Every account has its own tariff.
+
+So when Commercial says:
+
+Pakistan Jazz 92300
+Old Rate = 0.025
+New Rate = 0.027
+
+they do NOT want to update one tariff.
+
+They want to update:
+
+Tariff #33
+Tariff #45
+Tariff #87
+Tariff #112
+Tariff #245
+Tariff #511
+...
+
+for every account belonging to that product.
+
+This Changes Send Rate Philosophy
+
+The current certification thinking was:
+
+Destination
+↓
+Single Account
+↓
+Single Tariff
+↓
+Push
+
+Your actual workflow is:
+
+Destination
+↓
+Product
+↓
+All Accounts In Product
+↓
+All Related Tariffs
+↓
+Push
+Example
+Pakistan Jazz
+92300
+
+Commercial changes:
+
+0.0250
+→
+0.0270
+
+Product:
+
+First Class
+
+System should:
+
+Find all FC accounts
+↓
+Resolve each tariff
+↓
+Update 92300
+↓
+Verify
+↓
+Log results
+Why Product Membership Is Critical
+
+This is exactly why I said earlier:
+
+Product
+↓
+Accounts
+↓
+Tariffs
+
+must be explicit.
+
+Otherwise Send Rate cannot know:
+
+Who belongs to FC?
+Who belongs to BC?
+Who belongs to Bravo?
+Who belongs to Charlie?
+Revised T4
+
+T4 should not be:
+
+FC Tariff vs BC Tariff
+
+because there is no single FC tariff.
+
+T4 should be:
+
+Product Membership Integrity Test
+
+Example:
+
+Pakistan Jazz 92300
+Rate = 0.027
+Product = FC
+
+Verify:
+
+All FC accounts updated
+No BC account updated
+No Bravo account updated
+No Charlie account updated
+
+That is the real segregation test.
+
+Long-Term Design
+
+When you add:
+
+Premium Gold
+Prefix 9
+
+you should only do:
+
+Add Product
+Assign Accounts
+
+Then Send Rate automatically works because it operates on:
+
+Product
+↓
+Account Set
+↓
+Tariff Set
+
+not hardcoded product names.
+
+So yes, looking back, your earlier statement:
+
+"implement on all client not on single client and single destination"
+
+was pointing at the correct business requirement.
+
+The platform should be designed around:
+
+Destination Change
+↓
+Product Selection
+↓
+Bulk Tariff Update Across All Member Accounts
+
+not around manually updating one client's tariff at a time. That's much closer to how wholesale VoIP commercial teams actually manage rate changes.
