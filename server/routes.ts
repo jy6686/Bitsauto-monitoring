@@ -35468,12 +35468,13 @@ ${footer}
       try {
         const settings = await storage.getSettings();
         const {
-          accountNames, trunkPrefix,
+          accountNames, accounts, trunkPrefix,
           destinations,
           dialPrefix, rate,
           effectiveFrom, effectiveTill, format,
         } = req.body as {
           accountNames: string[];
+          accounts?: Array<{ username: string; iAccount?: number }>;
           trunkPrefix: string;
           destinations?: Array<{ dialPrefix: string; rate: number }>;
           dialPrefix?: string;
@@ -35514,6 +35515,31 @@ ${footer}
         };
         const switchName = (settings as any).sippyUrl ?? (settings as any).sippy_url ?? 'primary';
 
+        const iTariffByAccountName = new Map();
+        if (Array.isArray(accounts)) {
+          const credPairs = sippyXmlCredsPairs(settings);
+          for (const acc of accounts) {
+            if (!acc.iAccount) continue;
+            try {
+              let info = null;
+              for (const { username: u, password: p } of credPairs) {
+                try { info = await sippy.getAccountInfo(u, p, portalUrl, acc.iAccount); if (info) break; } catch {}
+              }
+              if (!info) continue;
+              let resolvedTariff = info.iTariff || null;
+              if (!resolvedTariff && info.iBillingPlan) {
+                try {
+                  const { plans } = await sippy.listSippyBillingPlans(credPairs[0].username, credPairs[0].password, portalUrl);
+                  const plan = (plans as any[]).find((p: any) => p.id === info.iBillingPlan);
+                  if (plan && (plan as any).iTariff) resolvedTariff = (plan as any).iTariff;
+                } catch {}
+              }
+              if (resolvedTariff) iTariffByAccountName.set(acc.username, String(resolvedTariff));
+            } catch (e: any) {
+              console.warn(`[push-batch] iTariff resolution failed for ${acc.username}: ${e.message}`);
+            }
+          }
+        }
         const results: {
           accountName: string; prefix: string; rate: number;
           success: boolean; message: string; method?: string;
@@ -35526,6 +35552,7 @@ ${footer}
               const r = await sippy.pushRateToSippy(
                 {
                   accountName,
+                  iTariff:     iTariffByAccountName.get(accountName),
                   prefix:      dest.fullPrefix,
                   ratePerMin:  dest.rate,
                   effectiveFrom: effectiveFrom || undefined,

@@ -1023,6 +1023,7 @@ function SendRateTab({
     try {
       const body = {
         accountNames: selectedClientAccounts.map(a => a.username),
+        accounts: selectedClientAccounts.map(a => ({ username: a.username, iAccount: a.iAccount })),
         trunkPrefix,
         destinations: destQueue.map(q => ({ dialPrefix: q.dialPrefix, rate: parseFloat(q.rate) })),
         effectiveFrom: effectiveDate || undefined,
