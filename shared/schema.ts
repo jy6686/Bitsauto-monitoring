@@ -4198,3 +4198,19 @@ export const validationRules = pgTable("validation_rules", {
 });
 export type ValidationRule       = typeof validationRules.$inferSelect;
 export type InsertValidationRule = typeof validationRules.$inferInsert;
+
+// ── Governance Review — formal sign-off record for config + rule stack ──────────
+// Singleton: one active row; status progresses draft → approved → locked.
+// Locked blocks further edits to configuration_values and validation_rules.
+export const governanceReviews = pgTable("governance_reviews", {
+  id:         serial("id").primaryKey(),
+  status:     varchar("status",      { length: 16 }).notNull().default("draft"), // draft|approved|locked
+  reviewedBy: varchar("reviewed_by", { length: 256 }),
+  reviewedAt: timestamp("reviewed_at"),
+  comments:   text("comments"),
+  lockedBy:   varchar("locked_by",   { length: 256 }),
+  lockedAt:   timestamp("locked_at"),
+  createdAt:  timestamp("created_at").defaultNow().notNull(),
+  updatedAt:  timestamp("updated_at").defaultNow().notNull(),
+});
+export type GovernanceReview = typeof governanceReviews.$inferSelect;

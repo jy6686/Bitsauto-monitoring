@@ -313,6 +313,7 @@ const DOMAINS: Domain[] = [
       { label: 'Configuration', desc: 'Operational parameters, thresholds and governance values', icon: SlidersHorizontal, items: [
         { href: '/configuration-values', label: 'Configuration Values', desc: 'Platform operational parameters & thresholds', icon: SlidersHorizontal },
         { href: '/validation-rules',     label: 'Validation Rules',     desc: 'Rate violation actions by scope',              icon: Shield },
+        { href: '/governance-review',    label: 'Governance Review',    desc: 'Formal sign-off for config and rules stack',   icon: ShieldCheck },
       ]},
       { label: 'System', desc: 'System configuration, workspaces, VPN and navigation', icon: Settings, items: [
         { href: '/settings',              label: 'Platform Settings',     desc: 'System configuration',           icon: Settings },

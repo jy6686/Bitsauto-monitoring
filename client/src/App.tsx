@@ -69,6 +69,7 @@ import CDRsPage from "@/pages/cdrs";
 import ToolsPage from "@/pages/tools";
 import ConfigurationValuesPage from "@/pages/configuration-values";
 import ValidationRulesPage     from "@/pages/validation-rules";
+import GovernanceReviewPage    from "@/pages/governance-review";
 import AccountPage from "@/pages/account";
 import LoginPage from "@/pages/login";
 import TrafficMapPage from "@/pages/traffic-map";
@@ -404,6 +405,9 @@ function Router() {
       </Route>
       <Route path="/validation-rules">
         {() => <ProtectedRoute component={ValidationRulesPage} requiredRoles={['admin','management','support','viewer']} />}
+      </Route>
+      <Route path="/governance-review">
+        {() => <ProtectedRoute component={GovernanceReviewPage} requiredRoles={['admin','management','support','viewer']} />}
       </Route>
       <Route path="/team">
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}

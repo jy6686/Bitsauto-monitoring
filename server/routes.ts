@@ -3,6 +3,7 @@ import type { Express } from "express";
 import { registerBhaooRoutes } from './routes-bhaoo';
 import { registerConfigurationValueRoutes } from './routes-configuration-values';
 import { registerValidationRuleRoutes }     from './routes-validation-rules';
+import { registerGovernanceReviewRoutes }   from './routes-governance-review';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
@@ -33908,6 +33909,7 @@ ${footer}
   registerBhaooRoutes(app);
   registerConfigurationValueRoutes(app);
   registerValidationRuleRoutes(app);
+  registerGovernanceReviewRoutes(app);
   registerCallGovernanceRoutes(app);
   (global as any).__bitsautoCdrCache = cdrCache; // expose CDR cache via global for call-governance (survives hot-reload)
   (global as any).__bitsautoPnlCache = pnlCache; // expose P&L CSV cache for vendor cost enrichment in call-governance
