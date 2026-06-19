@@ -4118,6 +4118,11 @@ export const rateNotificationJobs = pgTable("rate_notification_jobs", {
   emailSent:        boolean("email_sent").default(false),
   violatedRules:    boolean("violated_rules").default(false),
   approvalRequired: boolean("approval_required").default(false),
+  // Audit fields (added Sprint B)
+  sheetGenerated:         boolean("sheet_generated").default(false),
+  sheetGeneratedAt:       timestamp("sheet_generated_at"),
+  templateVersion:        varchar("template_version",         { length: 128 }), // e.g. "default:v12" — frozen at send time
+  generatedAttachmentHash: varchar("generated_attachment_hash", { length: 64 }),  // SHA-256 hex of the Excel buffer
   // Overall
   status:           varchar("status", { length: 32 }).notNull().default("pending"), // pending|in_progress|successful|failed|partial
   remarks:          text("remarks"),

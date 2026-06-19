@@ -1636,7 +1636,9 @@ interface RnJob {
   id: number; jobRef: string; templateId?: number | null; clientName: string;
   productName?: string | null; notificationType?: string | null; destinationCount?: number | null;
   tariffUpdated?: boolean | null; sbcMappingOk?: boolean | null; sbcUpdated?: boolean | null;
+  sheetGenerated?: boolean | null; sheetGeneratedAt?: string | null;
   emailSent?: boolean | null; violatedRules?: boolean | null; approvalRequired?: boolean | null;
+  templateVersion?: string | null; generatedAttachmentHash?: string | null;
   status: string; remarks?: string | null; pushResults?: any[]; createdBy?: string | null; createdAt: string;
 }
 
@@ -2014,9 +2016,10 @@ function NewTemplateModal({
 
 // ── Job Detail Drawer ──────────────────────────────────────────────────────────
 function JobDetailDrawer({ job, onClose }: { job: RnJob; onClose: () => void }) {
-  // Step order matches legacy BitsAuto job detail exactly
+  // Step order matches legacy BitsAuto job detail exactly; Sheet Generated prepended
   const steps = [
-    { key: "emailSent",        label: "Email Sent",           value: job.emailSent },
+    { key: "sheetGenerated",   label: "Sheet Generated",       value: job.sheetGenerated },
+    { key: "emailSent",        label: "Email Sent",            value: job.emailSent },
     { key: "sbcMappingOk",     label: "SBC Mapping Available", value: job.sbcMappingOk },
     { key: "sbcUpdated",       label: "SBC Updated",           value: job.sbcUpdated },
     { key: "tariffUpdated",    label: "Updated Tariff",        value: job.tariffUpdated },
@@ -2072,7 +2075,24 @@ function JobDetailDrawer({ job, onClose }: { job: RnJob; onClose: () => void }) 
               ))}
             </div>
           )}
-          <div className="text-[10px] text-muted-foreground">{fmtDate(job.createdAt)} · by {job.createdBy || "system"}</div>
+          {/* Audit footer */}
+          <div className="flex flex-col gap-1 text-[10px] text-muted-foreground border-t border-border/20 pt-2 mt-1">
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+              <span>{fmtDate(job.createdAt)} · by {job.createdBy || "system"}</span>
+              {job.templateVersion && (
+                <span><span className="opacity-60">Template ver:</span> <span className="font-mono">{job.templateVersion}</span></span>
+              )}
+            </div>
+            {job.generatedAttachmentHash && (
+              <span>
+                <span className="opacity-60">SHA-256:</span>{" "}
+                <span className="font-mono">{job.generatedAttachmentHash.slice(0, 12)}…</span>
+                {job.sheetGeneratedAt && (
+                  <span className="ml-2 opacity-60">generated {new Date(job.sheetGeneratedAt).toLocaleTimeString()}</span>
+                )}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>

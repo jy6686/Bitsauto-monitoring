@@ -8,6 +8,7 @@
  */
 
 import type { Express } from 'express';
+import { createHash }   from 'crypto';
 import { db }           from './db';
 import { eq, desc }     from 'drizzle-orm';
 import {
@@ -373,6 +374,9 @@ export function registerRateNotificationRoutes(app: Express) {
           return res.status(400).json({ error: 'Template has no destinations — add destinations before sending' });
         }
 
+        // Compute template version snapshot (frozen at send time — survives future template edits)
+        const tplVersion = `${tpl.notificationType || 'default'}:v${destinations.length}`;
+
         // Create the job record
         const ref = jobRef();
         const [job] = await db.insert(rateNotificationJobs).values({
@@ -382,15 +386,39 @@ export function registerRateNotificationRoutes(app: Express) {
           productName:      tpl.productName || `product-${tpl.productId}`,
           notificationType: tpl.notificationType,
           destinationCount: destinations.length,
+          templateVersion:  tplVersion,
           status:           'in_progress',
           createdBy:        req.user?.username || 'operator',
         }).returning();
 
-        const steps = { tariffUpdated: false, sbcMappingOk: false, sbcUpdated: false, emailSent: false, violatedRules: false, approvalRequired: false };
+        const steps = {
+          sheetGenerated: false, tariffUpdated: false, sbcMappingOk: false,
+          sbcUpdated: false, emailSent: false, violatedRules: false, approvalRequired: false,
+        };
+        let sheetGeneratedAt: Date | null = null;
+        let attachmentHash: string | null = null;
+        let excelBuf: Buffer | null = null;
         let pushResults: any[] = [];
         let remarks = '';
 
-        // ── Push rates to Sippy ─────────────────────────────────────────────
+        // ── Step 1: Generate Excel sheet (separate checkpoint before SMTP) ──
+        // Sheet generation can succeed even if SMTP later fails.
+        const now         = new Date();
+        const issueDate   = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        const dtStamp     = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+        const typeLabel   = notifTypeLabel(tpl.notificationType);
+        const productUpper = (tpl.productName || 'PRODUCT').toUpperCase();
+        const filename    = `${tpl.clientName.toUpperCase().replace(/\s+/g,'-')}-${productUpper.replace(/\s+/g,'-')}-${dtStamp}-${typeLabel}.xlsx`;
+        try {
+          excelBuf = buildExcel(destinations, tpl.notificationType);
+          attachmentHash    = createHash('sha256').update(excelBuf).digest('hex');
+          sheetGeneratedAt  = new Date();
+          steps.sheetGenerated = true;
+        } catch (genErr: any) {
+          remarks = `Sheet generation error: ${genErr.message}`;
+        }
+
+        // ── Step 2: Push rates to Sippy ─────────────────────────────────────
         try {
           const { username, password, portalUrl } = await getSippyCreds();
           if (username) {
@@ -423,12 +451,8 @@ export function registerRateNotificationRoutes(app: Express) {
                 }
               }
               const successCount = pushResults.filter(r => r.success).length;
-              // Tariff Updated = at least one prefix was pushed to Sippy successfully
               steps.tariffUpdated = successCount > 0;
-              // SBC Mapping Available = tariff prefixes exist in Sippy (confirmed by push success)
               steps.sbcMappingOk  = successCount > 0;
-              // SBC Updated = mapping propagated (treated as true when tariff push succeeded;
-              // a future SBC probe step can override this if direct SBC API is available)
               steps.sbcUpdated    = successCount > 0;
               remarks = `Sippy push: ${successCount}/${pushResults.length} destination${successCount !== 1 ? 's' : ''} updated in tariff`;
             } else {
@@ -439,22 +463,14 @@ export function registerRateNotificationRoutes(app: Express) {
           remarks = `Sippy push error: ${pushErr.message}`;
         }
 
-        // ── Send email ──────────────────────────────────────────────────────
+        // ── Step 3: Send email (uses pre-built buffer; tracked separately) ──
         try {
           const transporter = await getSmtpTransporter();
-          if (transporter && tpl.recipients) {
-            const now       = new Date();
-            const issueDate = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-            const dtStamp   = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-            const typeLabel = notifTypeLabel(tpl.notificationType);
-            const productUpper = (tpl.productName || 'PRODUCT').toUpperCase();
-            const subject   = `RATE NOTIFICATION (${typeLabel}) | ${tpl.clientName.toUpperCase()} | ${productUpper} | ${issueDate}`;
-            const filename  = `${tpl.clientName.toUpperCase().replace(/\s+/g,'-')}-${productUpper.replace(/\s+/g,'-')}-${dtStamp}-${typeLabel}.xlsx`;
-            const excelBuf  = buildExcel(destinations, tpl.notificationType);
-            const html      = buildEmailHtml(tpl.clientName, tpl.productName || 'Product', tpl.notificationType, tpl.trafficFormat, issueDate);
-            const toList    = tpl.recipients.split(',').map((e: string) => e.trim()).filter(Boolean);
-            const ccList    = tpl.ccEmails ? tpl.ccEmails.split(',').map((e: string) => e.trim()).filter(Boolean) : [];
-
+          if (transporter && tpl.recipients && excelBuf) {
+            const subject  = `RATE NOTIFICATION (${typeLabel}) | ${tpl.clientName.toUpperCase()} | ${productUpper} | ${issueDate}`;
+            const html     = buildEmailHtml(tpl.clientName, tpl.productName || 'Product', tpl.notificationType, tpl.trafficFormat, issueDate);
+            const toList   = tpl.recipients.split(',').map((e: string) => e.trim()).filter(Boolean);
+            const ccList   = tpl.ccEmails ? tpl.ccEmails.split(',').map((e: string) => e.trim()).filter(Boolean) : [];
             await transporter.sendMail({
               from:        `Ichibaan Rates <${(await getSmtpUser())}>`,
               to:          toList.join(', '),
@@ -467,6 +483,8 @@ export function registerRateNotificationRoutes(app: Express) {
             steps.emailSent = true;
           } else if (!tpl.recipients) {
             remarks += ' | No recipients configured — email skipped';
+          } else if (!excelBuf) {
+            remarks += ' | Email skipped: sheet generation failed';
           } else {
             remarks += ' | SMTP not configured — email skipped';
           }
@@ -482,18 +500,22 @@ export function registerRateNotificationRoutes(app: Express) {
           : 'failed';
 
         await db.update(rateNotificationJobs).set({
-          tariffUpdated:    steps.tariffUpdated,
-          sbcMappingOk:     steps.sbcMappingOk,
-          sbcUpdated:       steps.sbcUpdated,
-          emailSent:        steps.emailSent,
-          violatedRules:    steps.violatedRules,
-          approvalRequired: steps.approvalRequired,
-          status:           finalStatus,
-          remarks:          remarks || 'Completed',
-          pushResults:      JSON.stringify(pushResults),
+          sheetGenerated:          steps.sheetGenerated,
+          sheetGeneratedAt:        sheetGeneratedAt ?? undefined,
+          generatedAttachmentHash: attachmentHash ?? undefined,
+          tariffUpdated:           steps.tariffUpdated,
+          sbcMappingOk:            steps.sbcMappingOk,
+          sbcUpdated:              steps.sbcUpdated,
+          emailSent:               steps.emailSent,
+          violatedRules:           steps.violatedRules,
+          approvalRequired:        steps.approvalRequired,
+          status:                  finalStatus,
+          remarks:                 remarks || 'Completed',
+          pushResults:             JSON.stringify(pushResults),
         }).where(eq(rateNotificationJobs.id, job.id));
 
-        res.json({ jobId: job.id, jobRef: ref, status: finalStatus, steps, pushResults, remarks });
+        res.json({ jobId: job.id, jobRef: ref, status: finalStatus, steps, pushResults, remarks,
+          templateVersion: tplVersion, generatedAttachmentHash: attachmentHash });
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
