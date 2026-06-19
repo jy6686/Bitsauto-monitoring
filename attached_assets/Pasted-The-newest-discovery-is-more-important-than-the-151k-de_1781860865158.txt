@@ -1,0 +1,174 @@
+The newest discovery is more important than the 151k destination discussion.
+
+Based on the code snippets you pasted, the key question is no longer:
+
+"Do we have product_destination_assignments?"
+
+The key question is:
+
+Is Send Rate actually using the proven engine or the old broken engine?
+
+If the analysis is correct and:
+
+POST /api/rate-manager/push-batch
+    ↓
+sippy.pushRateToSippy()
+
+while:
+
+Change Client Rates
+    ↓
+pushRateViaPortalUpload()
+    ↓
+action=change
+
+then the entire certification plan changes.
+
+What I Would Do Before Writing Any Certification Script
+
+Do not write send-rate-certification.ts yet.
+
+First prove this fact:
+
+Trace the Actual Call Path
+
+For POST /api/rate-manager/push-batch confirm:
+
+Route
+ ↓
+Function Called
+ ↓
+Sippy Method Used
+
+with actual code.
+
+Not assumptions.
+
+Not grep output.
+
+The actual route body.
+
+Why This Matters
+
+If Send Rate still calls:
+
+pushRateToSippy()
+
+then:
+
+T1 = Fail
+T2 = Fail
+T3 = Fail
+...
+
+tells you nothing.
+
+Because you're certifying the wrong engine.
+
+You'd be testing a path that was already identified as problematic earlier.
+
+My Revised Priority
+Step 1
+
+Verify:
+
+push-batch
+
+uses which function.
+
+Scenario A
+
+If:
+
+push-batch
+    ↓
+pushRateViaPortalUpload
+
+then proceed directly to T1-T8.
+
+Scenario B
+
+If:
+
+push-batch
+    ↓
+pushRateToSippy
+
+then stop certification.
+
+Fix routing first.
+
+Because certification should target:
+
+Queue
+→ Destination Resolution
+→ Product Mapping
+→ Proven Push Engine
+
+not:
+
+Queue
+→ Destination Resolution
+→ Legacy Broken Engine
+About Product Assignments
+
+I also agree with the correction in the pasted discussion.
+
+The fact that:
+
+product_destination_assignments = 0
+
+is important for future governance.
+
+But it is not necessarily blocking Send Rate certification.
+
+Reason:
+
+The grep evidence suggests Send Rate may currently resolve destinations directly and may not use that table at all.
+
+So there are really two separate tracks:
+
+Track A (Immediate)
+
+Certify Send Rate.
+
+Requires:
+
+correct push engine
+destination resolution
+product→tariff mapping
+audit logging
+Track B (Commercial Governance)
+
+Build:
+
+product_destination_assignments
+destination approval workflow
+offerable/testing/blocked status
+Notification Center integration
+
+Those are valuable, but they shouldn't delay fixing or certifying the rate push path.
+
+My Recommendation
+
+Before any new coding:
+
+Open the full body of:
+POST /api/rate-manager/push-batch
+Confirm beyond doubt whether it calls:
+pushRateToSippy()
+
+or
+
+pushRateViaPortalUpload()
+If it is still calling pushRateToSippy(), update Send Rate to use the same proven engine as Change Client Rates.
+Then run T1-T8.
+
+Only after that should you spend time on:
+
+product assignments
+governance workflows
+notification center
+approval routing
+
+Because a certified commercial workflow is useless if the actual rate update path underneath it is still pointing at the legacy implementation.
