@@ -1,0 +1,149 @@
+Yes, the screenshots prove the issue is not fixed.
+
+Looking at your screenshots:
+
+Screenshot 1 — Rate Analysis
+Prefix shown: 8801
+Working correctly.
+No product digit visible.
+Screenshot 2 — Send Rate
+Destination Queue shows:
+Destination: Pakistan → UFONE → Pakistan MOBILE
+Prefix shown: 9233
+UI is correctly hiding the product digit.
+
+But the error message says:
+
+Cannot find iRate for prefix 19233 in tariff 36
+
+This is the smoking gun.
+
+Screenshot 3 — Push History
+
+Expanded row shows:
+
+Field	Value
+Prefix	9233
+Internal Prefix	19233
+
+So the system is still pushing/searching using 19233.
+
+What this proves
+
+The bug is not in the display layer.
+
+The bug is in the push pipeline.
+
+Current flow appears to be:
+
+Destination Catalog
+9233
+    ↓
+UI displays 9233
+    ↓
+Push Engine converts to 19233
+    ↓
+Portal Upload searches 19233
+    ↓
+Tariff 36 only contains 9233
+    ↓
+FAIL
+
+Exactly what your error shows.
+
+Why this is a problem
+
+You already tested yesterday that:
+
+9233
+
+worked successfully in Sippy.
+
+That means:
+
+Product digit 1 is a BitsAuto internal classification.
+Product digit is NOT part of the Sippy tariff prefix.
+Product digit should never be used when searching/updating tariff rates.
+
+The current implementation is mixing:
+
+Business Prefix = 9233
+Internal Product Classification = 1
+
+and generating:
+
+19233
+
+which Sippy does not have.
+
+What I would send Replit
+
+The prefix issue is NOT resolved.
+
+Evidence from today's test:
+
+UI Queue:
+9233
+
+Push Result Error:
+Cannot find iRate for prefix 19233 in tariff 36
+
+Push History:
+Prefix = 9233
+Internal Prefix = 19233
+
+This proves the push engine is still searching/updating Sippy using 19233.
+
+Our agreed architecture is:
+
+Product Prefix (1/2/6/7)
+= internal BitsAuto classification only.
+
+Sippy tariff prefixes remain:
+
+9233
+9223
+8801
+etc.
+
+Yesterday we successfully tested rate updates without the leading product digit.
+
+Required investigation:
+
+Show actual payload sent by:
+POST /api/rate-manager/push-batch
+Show exact value passed into:
+pushRateViaPortalUpload()
+Show exact value used in:
+getTariffRatesList()
+or any Sippy rate lookup.
+Run:
+SELECT
+    id,
+    full_prefix,
+    dial_prefix,
+    destination_name,
+    created_at
+FROM rate_push_jobs
+ORDER BY created_at DESC
+LIMIT 20;
+
+and provide results.
+
+Do not patch the display layer.
+
+Find where 9233 becomes 19233 in the push pipeline.
+
+Until that is fixed, Push History, Notification Templates, and Rate Sheets cannot be considered correct because the execution layer is still using the wrong prefix.
+
+Also, comparing your new Push History with the legacy Notification Jobs screen, the legacy view is still more useful for Commercial teams because it shows:
+
+Client
+Product
+Notification Type
+Module
+Status
+
+while the new Push History is still focused on technical rate changes.
+
+I would fix the prefix bug first before starting any Rate Sheet Template work. If the push engine is updating the wrong prefix, then every downstream feature (notifications, templates, audits, governance) will inherit bad data.

@@ -35590,7 +35590,7 @@ ${footer}
                 {
                   accountName,
                   iTariff:     iTariffByAccountName.get(accountName),
-                  prefix:      dest.fullPrefix,
+                  prefix:      dest.dialPrefix,   // dialPrefix only — trunkPrefix is BitsAuto-internal, not in Sippy tariff
                   ratePerMin:  dest.rate,
                   effectiveFrom: effectiveFrom || undefined,
                   effectiveTo:   effectiveTill || undefined,
@@ -35600,9 +35600,9 @@ ${footer}
                 portalUrl,
                 adminCreds,
               );
-              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, ...r });
+              results.push({ accountName, prefix: dest.dialPrefix, rate: dest.rate, ...r });
             } catch (e: any) {
-              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, success: false, message: e.message });
+              results.push({ accountName, prefix: dest.dialPrefix, rate: dest.rate, success: false, message: e.message });
             }
           }
         }
