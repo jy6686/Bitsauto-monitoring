@@ -1,0 +1,168 @@
+The comparison exposes a major gap between the legacy BitsAuto commercial workflow and the current implementation.
+
+Legacy BitsAuto (What Business Users Saw)
+
+From your screenshot:
+
+Column	Purpose
+Job ID	Commercial reference
+Client	Client name
+Creation Date	Audit
+Product	Product assigned
+Notification Type	Default / Changes Only / Full Sheet
+Module	Send Rate Notification / Rate Editor
+Destination Status	Validation result
+Status	SBC Updated / Successful
+Actions	View / Download
+
+Key observations:
+
+1. Product was business-facing
+
+Users saw:
+
+First Class - Wholesale
+Special Charlie - Retail
+Premium
+Standard
+
+Not prefixes.
+
+No user ever saw:
+
+19233
+29233
+69233
+
+Those were backend implementation details.
+
+2. Notification workflow was the primary object
+
+The legacy system focused on:
+
+Rate Sheet
+     ↓
+Notification Job
+     ↓
+Email Client
+     ↓
+Audit
+
+not
+
+Push Prefix
+     ↓
+Sippy Upload
+
+The commercial team cared about:
+
+Client
+Product
+Notification Type
+Status
+3. Download button existed
+
+Every job had:
+
+View
+Download
+
+Meaning:
+
+exact sheet sent
+audit copy
+historical proof
+Current BitsAuto
+
+Current Push History shows:
+
+Product	Full Prefix	Rate	Method
+First Class	19233	0.035	portal_csv
+
+This is NOC-facing.
+
+Good for engineers.
+
+Not good for commercial users.
+
+Biggest Problem
+
+The screen is exposing:
+
+Full Prefix = 19233
+
+which combines:
+
+1 = Product
+9233 = Destination
+
+The user should never need to understand this.
+
+Business users think:
+
+Pakistan Ufone Mobile
+9233
+
+not:
+
+19233
+What Push History Should Show
+
+Instead of:
+
+Product	Full Prefix
+First Class	19233
+
+Show:
+
+Product	Destination	Prefix
+First Class	Pakistan Ufone Mobile	9233
+
+And if needed:
+
+Internal Routing Prefix: 19233
+
+inside a drill-down dialog only.
+
+Missing Fields Compared to Legacy
+
+Current Push History is missing:
+
+Legacy	Current
+Client Name	❌
+Notification Type	❌
+Destination Name	❌
+Download Sheet	❌
+View Details	❌
+Commercial Status	❌
+Effective Date	❌
+Recommendation to Replit
+
+Send this:
+
+Push History is currently exposing backend routing data instead of business data.
+
+Product prefix (1/2/6/7) is an internal routing construct and should not be the primary display value.
+
+Operators should see:
+
+Product Name
+Destination Name
+Actual Destination Prefix (9233)
+Client Count
+Effective Date
+Status
+
+The combined routing prefix (19233) should be available only in a details view for troubleshooting.
+
+Legacy BitsAuto was client/product-centric.
+
+Current Push History is tariff/prefix-centric.
+
+We need to move the UI back toward the legacy business workflow while keeping the current backend engine.
+
+My assessment
+
+The backend rate push engine is significantly better than the legacy system.
+
+The UI is currently showing too much internal implementation detail and not enough commercial information. That's why the legacy screenshots feel more usable to operations and KAM teams than the current Push History screen.
