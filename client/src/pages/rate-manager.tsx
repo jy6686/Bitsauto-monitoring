@@ -1187,7 +1187,7 @@ function SendRateTab({
                   {destQueue.map(q => (
                     <tr key={q.qid} className="border-b border-border/20 hover:bg-muted/5">
                       <td className="py-2 px-3 text-foreground/80">{q.destLabel}</td>
-                      <td className="py-2 px-3 font-mono text-blue-400">{q.fullPrefix}</td>
+                      <td className="py-2 px-3 font-mono text-blue-400">{q.dialPrefix}</td>
                       <td className="py-2 px-3 font-mono text-green-400">{parseFloat(q.rate).toFixed(5)}</td>
                       <td className="py-2 px-3">
                         <button
@@ -1441,7 +1441,7 @@ function JobsTab() {
                 <tr key={j.id} className="border-b border-border/20 hover:bg-muted/10">
                   <td className="py-2 px-3 font-mono text-[10px] text-muted-foreground">{j.jobId}</td>
                   <td className="py-2 px-3">{j.productName ?? "—"}</td>
-                  <td className="py-2 px-3 font-mono text-amber-400">{j.fullPrefix || j.trunkPrefix || "—"}</td>
+                  <td className="py-2 px-3 font-mono text-amber-400">{j.dialPrefix || (j.fullPrefix && j.trunkPrefix ? j.fullPrefix.slice(String(j.trunkPrefix).length) : j.fullPrefix) || "—"}</td>
                   <td className="py-2 px-3 font-mono tabular-nums">
                     {j.newRate != null ? `$${Number(j.newRate).toFixed(5)}` : "—"}
                   </td>
