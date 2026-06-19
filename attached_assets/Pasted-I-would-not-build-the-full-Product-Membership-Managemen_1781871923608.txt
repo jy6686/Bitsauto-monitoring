@@ -1,0 +1,181 @@
+I would not build the full Product Membership Management UI first.
+
+I would choose a hybrid approach:
+
+Phase 1A — Seed Test Membership Data (Fast)
+
+Create a few assignments manually:
+
+Account	Product
+internal-ptcl	First Class
+PUSHTOTALK	First Class
+test202	Business Class
+test203	Business Class
+
+Just enough to prove the concept.
+
+Reason:
+
+2-4 rows
+=
+30 minutes
+
+Full Product Membership UI
+=
+Several days
+
+You don't want certification blocked by UI work.
+
+Then Run T4 Immediately
+
+Now T4 becomes meaningful:
+
+Test
+Product = First Class
+Destination = Pakistan Jazz 92300
+
+Expected:
+
+internal-ptcl updated
+PUSHTOTALK updated
+
+test202 untouched
+test203 untouched
+
+This validates the entire chain:
+
+Product
+↓
+Membership
+↓
+Accounts
+↓
+Tariffs
+↓
+Push Engine
+
+which is the real business workflow.
+
+Then Run Remaining Certification
+
+Order:
+
+T4
+T6
+T7
+T8
+T1
+T2
+T3
+T5
+
+I would keep that order.
+
+T4 is now the highest business-risk test.
+
+Then Build Membership UI
+
+After certification.
+
+Because then you'll know:
+
+Engine works
+Membership model works
+Only UI missing
+
+which is a much safer position.
+
+One Additional Point
+
+Your observation about seeding is important:
+
+Existing Accounts
+
+Need business classification.
+
+System cannot infer perfectly.
+
+For example:
+
+internal-ptcl
+
+Could belong to:
+
+FC
+BC
+Bravo
+
+Only Commercial/NOC knows.
+
+So the first bulk import should probably be:
+
+Assisted Assignment
+Account	Tariff	Suggested Product	User Confirms
+
+not fully automatic.
+
+Membership UI Views
+
+I completely agree with your three-view model.
+
+1. Product View
+First Class
+↓
+100 Accounts
+
+Most used by commercial team.
+
+2. Account View
+internal-ptcl
+↓
+Product = FC
+
+Useful for troubleshooting.
+
+3. Unassigned View
+
+This is actually the most important.
+
+Accounts not governed
+
+These are the accounts that:
+
+won't receive bulk Send Rate updates
+won't receive notifications
+won't appear in governance reporting
+
+This becomes your cleanup dashboard.
+
+My Recommended Immediate Move
+
+If this were my project:
+
+Today
+Insert 4-6 test assignments
+Tomorrow
+Run T4
+Run T6
+Run T7
+Run T8
+After Certification
+
+Build:
+
+Product Membership Management
+Then
+
+Convert Send Rate from:
+
+Manual Client Selection
+
+to:
+
+Product
+↓
+Auto-Populated Accounts
+↓
+Review
+↓
+Push
+
+I think that's the fastest path to proving the architecture without spending a week building UI before you've validated the workflow.
