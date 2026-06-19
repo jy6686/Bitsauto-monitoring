@@ -4129,6 +4129,9 @@ export const rateNotificationJobs = pgTable("rate_notification_jobs", {
   sheetGeneratedAt:       timestamp("sheet_generated_at"),
   templateVersion:        varchar("template_version",         { length: 128 }), // e.g. "default:v12" — frozen at send time
   generatedAttachmentHash: varchar("generated_attachment_hash", { length: 64 }),  // SHA-256 hex of the Excel buffer
+  // Frozen destination snapshot — serialised JSON of the destinations array at send time
+  // Used by /api/rate-notification-jobs/:id/sheet to rebuild the exact file that was emailed.
+  destinationSnapshot: text("destination_snapshot"),
   // Overall
   status:           varchar("status", { length: 32 }).notNull().default("pending"), // pending|in_progress|successful|failed|partial
   remarks:          text("remarks"),

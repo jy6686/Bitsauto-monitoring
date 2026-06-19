@@ -842,6 +842,9 @@ export async function runSafeMigrations(): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rhs_group_scored ON route_health_scores (routing_group_id, scored_at DESC)`);
 
+    // ── Rate notification job destination snapshot (migration 032) ────────────
+    await client.query(`ALTER TABLE rate_notification_jobs ADD COLUMN IF NOT EXISTS destination_snapshot TEXT`);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

@@ -499,10 +499,16 @@ export function registerRateNotificationRoutes(app: Express) {
           ? 'partial'
           : 'failed';
 
+        // Freeze destination rows as JSON at send-time so re-downloads can
+        // rebuild exactly the file that was emailed, regardless of future
+        // template destination edits.
+        const frozenSnapshot = steps.sheetGenerated ? JSON.stringify(destinations) : null;
+
         await db.update(rateNotificationJobs).set({
           sheetGenerated:          steps.sheetGenerated,
           sheetGeneratedAt:        sheetGeneratedAt ?? undefined,
           generatedAttachmentHash: attachmentHash ?? undefined,
+          destinationSnapshot:     frozenSnapshot ?? undefined,
           tariffUpdated:           steps.tariffUpdated,
           sbcMappingOk:            steps.sbcMappingOk,
           sbcUpdated:              steps.sbcUpdated,
@@ -568,6 +574,92 @@ export function registerRateNotificationRoutes(app: Express) {
           .where(eq(rateNotificationJobs.id, id))
           .returning();
         res.json(updated);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  // ── Re-download rate sheet ──────────────────────────────────────────────────
+  // Primary source: frozen destinationSnapshot saved at send time — guarantees
+  //   the regenerated file is byte-for-byte identical to the original email.
+  // Fallback (snapshot absent / legacy job): rebuild from current template
+  //   destinations and set a mismatch warning if destinationCount differs.
+
+  app.get('/api/rate-notification-jobs/:id/sheet',
+    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+
+        const [job] = await db.select().from(rateNotificationJobs).where(eq(rateNotificationJobs.id, id)).limit(1);
+        if (!job) return res.status(404).json({ error: 'Job not found' });
+        if (!job.sheetGenerated) return res.status(400).json({ error: 'No sheet was generated for this job' });
+
+        let destinations: any[];
+        let usingSnapshot = false;
+        let fallbackReason = '';
+
+        // ── Try frozen snapshot first ─────────────────────────────────────
+        if (job.destinationSnapshot) {
+          try {
+            destinations = JSON.parse(job.destinationSnapshot);
+            usingSnapshot = true;
+          } catch {
+            fallbackReason = 'snapshot_corrupt';
+          }
+        } else {
+          fallbackReason = 'snapshot_absent';
+        }
+
+        // ── Fall back to current template destinations ─────────────────────
+        if (!usingSnapshot) {
+          if (!job.templateId) return res.status(400).json({ error: 'Job has no linked template and no frozen snapshot — cannot regenerate' });
+          destinations = await db
+            .select()
+            .from(rateNotificationTemplateDestinations)
+            .where(eq(rateNotificationTemplateDestinations.templateId, job.templateId))
+            .orderBy(rateNotificationTemplateDestinations.country, rateNotificationTemplateDestinations.destinationName);
+
+          if (destinations.length === 0) {
+            return res.status(400).json({ error: 'Template has no destinations and no frozen snapshot — cannot regenerate sheet' });
+          }
+        }
+
+        const excelBuf = buildExcel(destinations!, job.notificationType || 'default');
+        const newHash  = createHash('sha256').update(excelBuf).digest('hex');
+
+        // Hash match: if we used the snapshot, the regenerated hash should
+        // always equal the stored hash (same data, same serialisation).
+        // If we fell back, compare count as the primary mismatch signal plus
+        // hash for extra confirmation.
+        const hashMatch = job.generatedAttachmentHash === newHash;
+        const countMatch = (job.destinationCount ?? destinations!.length) === destinations!.length;
+        const isMatch = usingSnapshot ? hashMatch : (hashMatch && countMatch);
+
+        const now        = new Date();
+        const dtStamp    = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+        const typeLabel  = notifTypeLabel(job.notificationType || 'default');
+        const clientSlug = job.clientName.toUpperCase().replace(/\s+/g, '-');
+        const prodSlug   = (job.productName || 'PRODUCT').toUpperCase().replace(/\s+/g, '-');
+        const filename   = `REDOWNLOAD-${clientSlug}-${prodSlug}-${dtStamp}-${typeLabel}.xlsx`;
+
+        res.setHeader('Content-Type',          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition',   `attachment; filename="${filename}"`);
+        res.setHeader('X-Sheet-Hash',          newHash);
+        res.setHeader('X-Sheet-Hash-Match',    isMatch ? 'true' : 'false');
+        res.setHeader('X-Sheet-Source',        usingSnapshot ? 'snapshot' : 'current_template');
+        res.setHeader('X-Destination-Count',   String(destinations!.length));
+        res.setHeader('X-Original-Dest-Count', String(job.destinationCount ?? destinations!.length));
+
+        if (!isMatch) {
+          const reason = !usingSnapshot
+            ? `FALLBACK_REBUILD (${fallbackReason}): destinations rebuilt from current template; count ${destinations!.length} vs original ${job.destinationCount}`
+            : 'HASH_MISMATCH: snapshot present but hash differs (data serialisation changed)';
+          res.setHeader('X-Sheet-Warning', reason);
+        }
+
+        res.send(excelBuf);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }

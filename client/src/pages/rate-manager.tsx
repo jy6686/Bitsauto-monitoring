@@ -8,7 +8,7 @@ import {
   ChevronDown, Search, X, RefreshCw, Check, AlertTriangle, Send,
   BarChart2, Eye, Clock, ChevronRight, Loader2, CircleCheck, CircleX,
   Plus, Trash2, Bell, BellRing, TrendingUp, TrendingDown, Lightbulb,
-  PackageCheck, Tag, Calendar, ShieldAlert, ExternalLink,
+  PackageCheck, Tag, Calendar, ShieldAlert, ExternalLink, Download,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -2029,6 +2029,7 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [downloading, setDownloading] = useState(false);
 
   const dismissMut = useMutation({
     mutationFn: () => apiRequest("PATCH", `/api/rate-notification-jobs/${job.id}/dismiss`),
@@ -2039,6 +2040,55 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+
+  async function handleReDownload() {
+    setDownloading(true);
+    try {
+      const resp = await fetch(`/api/rate-notification-jobs/${job.id}/sheet`, { credentials: "include" });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(body.error || `HTTP ${resp.status}`);
+      }
+      const hashMatch = resp.headers.get("X-Sheet-Hash-Match");
+      const origCount = resp.headers.get("X-Original-Dest-Count");
+      const newCount  = resp.headers.get("X-Destination-Count");
+      const blob = await resp.blob();
+      const disposition = resp.headers.get("Content-Disposition") || "";
+      const nameMatch = disposition.match(/filename="?([^"]+)"?/);
+      const filename = nameMatch ? nameMatch[1] : `rate-sheet-${job.jobRef}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      const source = resp.headers.get("X-Sheet-Source");
+      if (hashMatch === "false") {
+        const isFallback = source === "current_template";
+        toast({
+          title: isFallback ? "Fallback rebuild — destinations may differ" : "Hash mismatch warning",
+          description: isFallback
+            ? `No frozen snapshot for this job. Sheet rebuilt from current template destinations (${newCount} rows; original had ${origCount}). This file may differ from what was emailed.`
+            : `Snapshot present but hash differs. Downloaded file (${newCount} rows) may not match the original email.`,
+          variant: "destructive",
+        });
+      } else {
+        const isFrozen = source === "snapshot";
+        toast({
+          title: "Sheet downloaded",
+          description: isFrozen
+            ? "Exact copy from the frozen snapshot — matches the original emailed attachment."
+            : "Sheet rebuilt from current template destinations and hash matches.",
+        });
+      }
+    } catch (err: any) {
+      toast({ title: "Download failed", description: err.message, variant: "destructive" });
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   // Pending-rates jobs get a special onboarding banner instead of the step grid
   if (job.status === "pending_rates") {
@@ -2162,6 +2212,26 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
               </span>
             )}
           </div>
+
+          {/* Re-download action */}
+          {job.sheetGenerated && (
+            <div className="border-t border-border/20 pt-2 mt-1">
+              <button
+                onClick={handleReDownload}
+                disabled={downloading}
+                data-testid="btn-redownload-sheet"
+                className="flex items-center gap-1.5 text-xs bg-blue-700/80 hover:bg-blue-600 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors"
+              >
+                {downloading
+                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                  : <Download className="w-3 h-3" />}
+                Re-generate Sheet
+              </button>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Rebuilds the Excel from current template destinations. A warning will appear if destinations have changed since this sheet was emailed.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
