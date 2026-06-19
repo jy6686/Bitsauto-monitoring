@@ -1,0 +1,165 @@
+This version of #336 is much stronger and I would consider it ready for implementation.
+
+Final Lifecycle
+Client Created
+    ↓
+Pending Rate Job
+    ↓
+Template Linked
+    ↓
+Submitted For Approval
+    ↓
+Approved
+    ↓
+Rate Sheet Sent
+    ↓
+Activated
+    ↓
+Client Live
+
+This now closes the entire Phase-1 onboarding workflow.
+
+What I Like Most
+1. No ready_to_send
+
+Good decision.
+
+You already have:
+
+sheet_generated
+sheet_generated_at
+email_sent
+
+from #328.
+
+A separate ready_to_send status would create unnecessary operational states.
+
+2. Template Gate Before Approval
+
+This is critical.
+
+Prevent:
+
+Pending Rates
+    ↓
+Submit
+    ↓
+Approval
+
+when there is no template.
+
+Required path:
+
+Pending Rates
+    ↓
+Create/Link Template
+    ↓
+Submit For Approval
+
+This eliminates empty approvals.
+
+3. Mandatory Rejection Reason
+
+Correct.
+
+Require:
+
+rejected_by
+rejected_at
+rejection_reason
+
+No exceptions.
+
+Future audits depend on this.
+
+4. Activated By
+
+Excellent addition.
+
+Store:
+
+activated_at
+activated_by
+
+not just timestamp.
+
+Many future disputes start with:
+
+Who activated this customer?
+One Additional Improvement
+
+Before approval, show a compact summary:
+
+Client: ABC Telecom
+Product: First Class
+Template: FC Wholesale June 2026
+Destinations: 245
+Notification Type: Changes Only
+
+Then:
+
+Approve
+Reject
+
+This avoids blind approvals.
+
+Dashboard Recommendation
+
+Keep the dashboard intentionally simple:
+
+Initial Rate Operations
+
+Pending Rates        12
+Awaiting Approval     4
+Approved              3
+Activated           156
+Rejected              1
+
+Clickable counts only.
+
+No charts.
+
+No graphs.
+
+No AI summaries.
+
+No trend analytics.
+
+Freeze List During Sprint #336
+
+Do not allow scope creep into:
+
+Vendor Rate Import
+Trading Desk
+Commercial AI
+Notification Center Expansion
+Product Membership Redesign
+Rate Push Engine
+Send Rate Certification
+
+Sprint #336 should remain purely:
+
+Commercial Approval Workflow
++
+Client Activation Workflow
+Expected Completion After Sprint #336
+
+Current estimate:
+
+Initial Client Rate Lifecycle ≈ 65%
+
+After #336:
+
+Initial Client Rate Lifecycle ≈ 85%
+
+The only major gap left afterward would be:
+
+Template Pre-Fill From Job
+
+(which is Sprint B and relatively small).
+
+Recommendation
+
+✅ Proceed with Sprint #336 exactly as revised.
+
+It is focused, low-risk, does not touch the certified Sippy rate engine, and finally creates a complete onboarding → approval → activation lifecycle for new customers.

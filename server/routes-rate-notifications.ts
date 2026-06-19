@@ -16,6 +16,7 @@ import {
   rateNotificationTemplateDestinations,
   rateNotificationJobs,
   productRegistry,
+  companies,
 } from '@shared/schema';
 import * as sippy                      from './sippy';
 import { storage }                     from './storage';
@@ -515,10 +516,22 @@ export function registerRateNotificationRoutes(app: Express) {
           emailSent:               steps.emailSent,
           violatedRules:           steps.violatedRules,
           approvalRequired:        steps.approvalRequired,
-          status:                  finalStatus,
+          status:                  job.status === 'approved' ? 'activated' : finalStatus,
           remarks:                 remarks || 'Completed',
           pushResults:             JSON.stringify(pushResults),
         }).where(eq(rateNotificationJobs.id, job.id));
+
+        // ── Activation hook: first successful send on an approved job ──────────
+        if (steps.emailSent && job.status === 'approved' && job.companyId) {
+          try {
+            const actor = (req as any).user?.username || (req as any).user?.claims?.sub || 'system';
+            await db.update(companies)
+              .set({ status: 'live', activatedAt: new Date(), activatedBy: actor } as any)
+              .where(eq(companies.id, job.companyId));
+          } catch (activationErr: any) {
+            console.warn('[rate-job] Activation update failed (non-fatal):', activationErr.message);
+          }
+        }
 
         res.json({ jobId: job.id, jobRef: ref, status: finalStatus, steps, pushResults, remarks,
           templateVersion: tplVersion, generatedAttachmentHash: attachmentHash });
@@ -554,6 +567,81 @@ export function registerRateNotificationRoutes(app: Express) {
         const [job] = await db.select().from(rateNotificationJobs).where(eq(rateNotificationJobs.id, id)).limit(1);
         if (!job) return res.status(404).json({ error: 'Job not found' });
         res.json({ ...job, pushResults: job.pushResults ? JSON.parse(job.pushResults) : [] });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  // ── Approval workflow endpoints ─────────────────────────────────────────────
+
+  // 1. Submit for approval (pending_rates → awaiting_approval)
+  //    Requires a template to be linked; 400 if not.
+  app.post('/api/rate-notification-jobs/:id/submit-approval',
+    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        const [job] = await db.select().from(rateNotificationJobs).where(eq(rateNotificationJobs.id, id)).limit(1);
+        if (!job) return res.status(404).json({ error: 'Job not found' });
+        if (job.status !== 'pending_rates')
+          return res.status(400).json({ error: `Cannot submit for approval from status '${job.status}'` });
+        if (!job.templateId)
+          return res.status(400).json({ error: 'No template linked to this job. Create or link a template first.' });
+        const actor = (req as any).user?.username || (req as any).user?.claims?.sub || 'operator';
+        const [updated] = await db.update(rateNotificationJobs)
+          .set({ status: 'awaiting_approval', submittedBy: actor, submittedForApprovalAt: new Date() } as any)
+          .where(eq(rateNotificationJobs.id, id))
+          .returning();
+        res.json(updated);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  // 2. Approve (awaiting_approval → approved) — management/admin only
+  app.post('/api/rate-notification-jobs/:id/approve',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        const [job] = await db.select().from(rateNotificationJobs).where(eq(rateNotificationJobs.id, id)).limit(1);
+        if (!job) return res.status(404).json({ error: 'Job not found' });
+        if (job.status !== 'awaiting_approval')
+          return res.status(400).json({ error: `Cannot approve from status '${job.status}'` });
+        const actor = (req as any).user?.username || (req as any).user?.claims?.sub || 'manager';
+        const [updated] = await db.update(rateNotificationJobs)
+          .set({ status: 'approved', approvedBy: actor, approvedAt: new Date() } as any)
+          .where(eq(rateNotificationJobs.id, id))
+          .returning();
+        res.json(updated);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  // 3. Reject (awaiting_approval → rejected) — management/admin only
+  //    rejection_reason is mandatory.
+  app.post('/api/rate-notification-jobs/:id/reject',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const id = Number(req.params.id);
+        const { rejectionReason } = req.body as { rejectionReason?: string };
+        if (!rejectionReason || !rejectionReason.trim())
+          return res.status(400).json({ error: 'rejection_reason is required and cannot be blank' });
+        const [job] = await db.select().from(rateNotificationJobs).where(eq(rateNotificationJobs.id, id)).limit(1);
+        if (!job) return res.status(404).json({ error: 'Job not found' });
+        if (job.status !== 'awaiting_approval')
+          return res.status(400).json({ error: `Cannot reject from status '${job.status}'` });
+        const actor = (req as any).user?.username || (req as any).user?.claims?.sub || 'manager';
+        const [updated] = await db.update(rateNotificationJobs)
+          .set({ status: 'rejected', rejectedBy: actor, rejectedAt: new Date(), rejectionReason: rejectionReason.trim() } as any)
+          .where(eq(rateNotificationJobs.id, id))
+          .returning();
+        res.json(updated);
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }

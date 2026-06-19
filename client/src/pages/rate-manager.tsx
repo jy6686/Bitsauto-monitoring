@@ -3,6 +3,7 @@ import { useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import {
   ChevronDown, Search, X, RefreshCw, Check, AlertTriangle, Send,
@@ -1642,6 +1643,10 @@ interface RnJob {
   templateVersion?: string | null; generatedAttachmentHash?: string | null;
   companyId?: number | null; productId?: number | null; iAccount?: number | null;
   iTariff?: number | null; servicePlanId?: string | null;
+  // Approval workflow (Sprint A)
+  submittedForApprovalAt?: string | null; submittedBy?: string | null;
+  approvedBy?: string | null; approvedAt?: string | null;
+  rejectedBy?: string | null; rejectedAt?: string | null; rejectionReason?: string | null;
   status: string; remarks?: string | null; pushResults?: any[]; createdBy?: string | null; createdAt: string;
 }
 
@@ -1652,12 +1657,23 @@ const JOB_STATUS_COLOR: Record<string, string> = {
   successful: "text-green-400", partial: "text-amber-400",
   failed: "text-red-400", in_progress: "text-blue-400", pending: "text-muted-foreground",
   pending_rates: "text-amber-500", dismissed: "text-muted-foreground/40",
+  awaiting_approval: "text-blue-400", approved: "text-green-400",
+  activated: "text-emerald-400", rejected: "text-red-400/70",
 };
 const JOB_STATUS_LABEL: Record<string, string> = {
   pending_rates: "Pending Rates", in_progress: "In Progress",
   successful: "Successful", failed: "Failed", partial: "Partial",
   pending: "Pending", dismissed: "Dismissed",
+  awaiting_approval: "Awaiting Approval", approved: "Approved",
+  activated: "Activated", rejected: "Rejected",
 };
+
+function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) + " " +
+    d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
@@ -2029,15 +2045,31 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
 }) {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [downloading, setDownloading] = useState(false);
+  const { isManagement } = useAuth();
+  const [downloading, setDownloading]   = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [showReject, setShowReject]     = useState(false);
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["/api/rate-notification-jobs"] });
 
   const dismissMut = useMutation({
     mutationFn: () => apiRequest("PATCH", `/api/rate-notification-jobs/${job.id}/dismiss`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/rate-notification-jobs"] });
-      toast({ title: "Job dismissed" });
-      onClose();
-    },
+    onSuccess: () => { invalidate(); toast({ title: "Job dismissed" }); onClose(); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const submitMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/rate-notification-jobs/${job.id}/submit-approval`),
+    onSuccess: () => { invalidate(); toast({ title: "Submitted for approval" }); onClose(); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const approveMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/rate-notification-jobs/${job.id}/approve`),
+    onSuccess: () => { invalidate(); toast({ title: "Job approved" }); onClose(); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const rejectMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/rate-notification-jobs/${job.id}/reject`, { rejectionReason: rejectReason }),
+    onSuccess: () => { invalidate(); toast({ title: "Job rejected" }); onClose(); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
@@ -2045,84 +2077,140 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
     setDownloading(true);
     try {
       const resp = await fetch(`/api/rate-notification-jobs/${job.id}/sheet`, { credentials: "include" });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(body.error || `HTTP ${resp.status}`);
-      }
+      if (!resp.ok) { const body = await resp.json().catch(() => ({ error: "Unknown error" })); throw new Error(body.error || `HTTP ${resp.status}`); }
       const hashMatch = resp.headers.get("X-Sheet-Hash-Match");
       const origCount = resp.headers.get("X-Original-Dest-Count");
       const newCount  = resp.headers.get("X-Destination-Count");
       const blob = await resp.blob();
-      const disposition = resp.headers.get("Content-Disposition") || "";
-      const nameMatch = disposition.match(/filename="?([^"]+)"?/);
+      const nameMatch = (resp.headers.get("Content-Disposition") || "").match(/filename="?([^"]+)"?/);
       const filename = nameMatch ? nameMatch[1] : `rate-sheet-${job.jobRef}.xlsx`;
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const a = document.createElement("a"); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
       const source = resp.headers.get("X-Sheet-Source");
       if (hashMatch === "false") {
         const isFallback = source === "current_template";
-        toast({
-          title: isFallback ? "Fallback rebuild — destinations may differ" : "Hash mismatch warning",
-          description: isFallback
-            ? `No frozen snapshot for this job. Sheet rebuilt from current template destinations (${newCount} rows; original had ${origCount}). This file may differ from what was emailed.`
-            : `Snapshot present but hash differs. Downloaded file (${newCount} rows) may not match the original email.`,
-          variant: "destructive",
-        });
+        toast({ title: isFallback ? "Fallback rebuild — destinations may differ" : "Hash mismatch warning",
+          description: isFallback ? `Sheet rebuilt from current template (${newCount} rows; original had ${origCount}).` : `Hash differs. Downloaded file (${newCount} rows) may not match the original email.`,
+          variant: "destructive" });
       } else {
-        const isFrozen = source === "snapshot";
-        toast({
-          title: "Sheet downloaded",
-          description: isFrozen
-            ? "Exact copy from the frozen snapshot — matches the original emailed attachment."
-            : "Sheet rebuilt from current template destinations and hash matches.",
-        });
+        toast({ title: "Sheet downloaded", description: source === "snapshot" ? "Exact copy from the frozen snapshot." : "Sheet rebuilt and hash matches." });
       }
-    } catch (err: any) {
-      toast({ title: "Download failed", description: err.message, variant: "destructive" });
-    } finally {
-      setDownloading(false);
-    }
+    } catch (err: any) { toast({ title: "Download failed", description: err.message, variant: "destructive" }); }
+    finally { setDownloading(false); }
   }
 
-  // Pending-rates jobs get a special onboarding banner instead of the step grid
+  // ── Shared header ────────────────────────────────────────────────────────────
+  const statusColor = JOB_STATUS_COLOR[job.status] ?? "text-muted-foreground";
+  const header = (
+    <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+      <span className="flex items-center gap-2 text-sm font-semibold">
+        <span className={cn("w-2 h-2 rounded-full inline-block",
+          job.status === "pending_rates" ? "bg-amber-500" :
+          job.status === "awaiting_approval" ? "bg-blue-400" :
+          job.status === "approved" ? "bg-green-400" :
+          job.status === "activated" ? "bg-emerald-400" :
+          job.status === "rejected" ? "bg-red-400/70" : "bg-muted-foreground/40")} />
+        <span className="font-mono">{job.jobRef}</span>
+        <span className={cn("text-xs font-normal", statusColor)}>{JOB_STATUS_LABEL[job.status] ?? job.status}</span>
+      </span>
+      <button onClick={onClose} className="text-muted-foreground hover:text-foreground" data-testid="btn-close-job-drawer"><X className="w-4 h-4" /></button>
+    </div>
+  );
+
+  // ── Lifecycle stepper (shown for all jobs with at least awaiting_approval) ────
+  const LIFECYCLE = [
+    { key: "pending_rates",    label: "Pending Rates",    ts: job.createdAt,                by: job.createdBy },
+    { key: "awaiting_approval",label: "Awaiting Approval",ts: job.submittedForApprovalAt,   by: job.submittedBy },
+    { key: "approved",         label: "Approved",         ts: job.approvedAt,               by: job.approvedBy },
+    { key: "activated",        label: "Activated",        ts: job.sheetGeneratedAt,         by: "system" },
+  ];
+  const LIFECYCLE_ORDER = ["pending_rates","awaiting_approval","approved","activated"];
+  const currentStepIdx = job.status === "rejected"
+    ? LIFECYCLE_ORDER.indexOf("awaiting_approval")
+    : LIFECYCLE_ORDER.indexOf(job.status);
+  const showLifecycleStepper = ["awaiting_approval","approved","activated","rejected"].includes(job.status);
+
+  const lifecycleStepper = showLifecycleStepper ? (
+    <div className="flex items-center gap-0 mt-1 mb-2">
+      {LIFECYCLE.map((step, i) => {
+        const done = i < currentStepIdx || (i === currentStepIdx && job.status !== "rejected");
+        const active = i === currentStepIdx;
+        const rejected = job.status === "rejected" && i === currentStepIdx;
+        return (
+          <div key={step.key} className="flex items-center flex-1 min-w-0">
+            <div className="flex flex-col items-center min-w-0">
+              <div className={cn("w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0",
+                rejected ? "bg-red-400/20 text-red-400 ring-1 ring-red-400/40" :
+                done     ? "bg-green-500/20 text-green-400 ring-1 ring-green-500/40" :
+                active   ? "bg-blue-500/20 text-blue-400 ring-1 ring-blue-400/40" :
+                           "bg-muted/30 text-muted-foreground/40 ring-1 ring-border/30")}>
+                {rejected ? "✗" : done ? "✓" : i + 1}
+              </div>
+              <div className={cn("text-[9px] text-center mt-0.5 leading-tight max-w-[60px]",
+                done ? "text-green-400/70" : active ? "text-blue-400/70" : "text-muted-foreground/30")}>
+                {step.label}
+              </div>
+              {done && step.ts && (
+                <div className="text-[8px] text-muted-foreground/50 text-center max-w-[60px] leading-tight">
+                  {fmtDateTime(step.ts)}
+                  {step.by && <div>{step.by}</div>}
+                </div>
+              )}
+            </div>
+            {i < LIFECYCLE.length - 1 && (
+              <div className={cn("h-px flex-1 mx-1 flex-shrink", done ? "bg-green-500/30" : "bg-border/20")} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  ) : null;
+
+  // ── Shared meta row ───────────────────────────────────────────────────────────
+  const metaRow = (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+      <span><span className="text-muted-foreground">Client:</span> <strong>{job.clientName}</strong></span>
+      <span><span className="text-muted-foreground">Product:</span> <strong>{job.productName || "—"}</strong></span>
+      {job.iAccount && <span><span className="text-muted-foreground">i_account:</span> <span className="font-mono">{job.iAccount}</span></span>}
+      {job.iTariff  && <span><span className="text-muted-foreground">i_tariff:</span>  <span className="font-mono">{job.iTariff}</span></span>}
+    </div>
+  );
+
+  // ── BRANCH: pending_rates ─────────────────────────────────────────────────────
   if (job.status === "pending_rates") {
     return (
       <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">
         <div className="bg-background border border-border rounded-lg w-full max-w-lg shadow-xl">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-            <span className="flex items-center gap-2 text-sm font-semibold">
-              <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
-              <span className="font-mono">{job.jobRef}</span>
-            </span>
-            <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
-          </div>
+          {header}
           <div className="px-4 py-4 flex flex-col gap-3">
-            <div className="flex flex-wrap gap-4 text-xs">
-              <span><span className="text-muted-foreground">Client:</span> <strong>{job.clientName}</strong></span>
-              <span><span className="text-muted-foreground">Product:</span> <strong>{job.productName || "—"}</strong></span>
-              {job.iAccount && <span><span className="text-muted-foreground">i_account:</span> <span className="font-mono">{job.iAccount}</span></span>}
-              {job.iTariff  && <span><span className="text-muted-foreground">i_tariff:</span>  <span className="font-mono">{job.iTariff}</span></span>}
-            </div>
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
-              <p className="font-medium mb-1">No rate notification template exists yet for this client.</p>
-              <p className="text-xs text-amber-400/70">Create a template to begin sending rate sheets. Once created, this job will be linked to it automatically.</p>
-            </div>
+            {metaRow}
+            {job.templateId ? (
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-4 py-3 text-sm text-blue-300">
+                <p className="font-medium mb-1">Template linked — ready to submit for approval.</p>
+                <p className="text-xs text-blue-400/70">A manager will review and approve before the rate sheet is sent to the client.</p>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
+                <p className="font-medium mb-1">No rate notification template linked yet.</p>
+                <p className="text-xs text-amber-400/70">Create a template first, then submit for approval.</p>
+              </div>
+            )}
             <div className="flex gap-2 mt-1">
-              <button
-                onClick={() => { onClose(); onNavigateToTemplates?.(job.clientName, job.productId ?? undefined); }}
-                className="flex-1 text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 rounded transition-colors font-medium"
-                data-testid="btn-create-template-from-job">
-                Create Template
-              </button>
-              <button
-                onClick={() => dismissMut.mutate()}
-                disabled={dismissMut.isPending}
+              {job.templateId ? (
+                <button onClick={() => submitMut.mutate()} disabled={submitMut.isPending}
+                  className="flex-1 text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-3 py-2 rounded transition-colors font-medium"
+                  data-testid="btn-submit-approval">
+                  {submitMut.isPending ? "Submitting…" : "Submit for Approval"}
+                </button>
+              ) : (
+                <button onClick={() => { onClose(); onNavigateToTemplates?.(job.clientName, job.productId ?? undefined); }}
+                  className="flex-1 text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 rounded transition-colors font-medium"
+                  data-testid="btn-create-template-from-job">
+                  Create Template
+                </button>
+              )}
+              <button onClick={() => dismissMut.mutate()} disabled={dismissMut.isPending}
                 className="text-xs border border-border/50 text-muted-foreground hover:text-foreground px-3 py-2 rounded transition-colors"
                 data-testid="btn-dismiss-pending-job">
                 Dismiss
@@ -2135,7 +2223,101 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
     );
   }
 
-  // Step order matches legacy BitsAuto job detail exactly; Sheet Generated prepended
+  // ── BRANCH: awaiting_approval ─────────────────────────────────────────────────
+  if (job.status === "awaiting_approval") {
+    return (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="bg-background border border-border rounded-lg w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+          {header}
+          <div className="px-4 py-4 flex flex-col gap-3">
+            {lifecycleStepper}
+            {/* Manager summary card */}
+            <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-3 text-xs flex flex-col gap-1.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Approval Summary</div>
+              <div className="flex flex-wrap gap-x-6 gap-y-1">
+                <span><span className="text-muted-foreground">Client:</span> <strong>{job.clientName}</strong></span>
+                <span><span className="text-muted-foreground">Product:</span> <strong>{job.productName || "—"}</strong></span>
+                <span><span className="text-muted-foreground">Destinations:</span> <strong>{job.destinationCount ?? 0}</strong></span>
+                <span><span className="text-muted-foreground">Type:</span> <strong>{NOTIF_TYPE_LABEL[job.notificationType ?? ""] ?? job.notificationType ?? "—"}</strong></span>
+                {job.iAccount && <span><span className="text-muted-foreground">i_account:</span> <span className="font-mono">{job.iAccount}</span></span>}
+                {job.iTariff  && <span><span className="text-muted-foreground">i_tariff:</span>  <span className="font-mono">{job.iTariff}</span></span>}
+              </div>
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                Submitted {fmtDateTime(job.submittedForApprovalAt)} by <strong>{job.submittedBy || "—"}</strong>
+              </div>
+            </div>
+            {isManagement ? (
+              <>
+                {!showReject ? (
+                  <div className="flex gap-2">
+                    <button onClick={() => approveMut.mutate()} disabled={approveMut.isPending}
+                      className="flex-1 text-xs bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white px-3 py-2 rounded transition-colors font-medium"
+                      data-testid="btn-approve-job">
+                      {approveMut.isPending ? "Approving…" : "✓ Approve"}
+                    </button>
+                    <button onClick={() => setShowReject(true)}
+                      className="flex-1 text-xs border border-red-400/30 text-red-400 hover:bg-red-400/10 px-3 py-2 rounded transition-colors"
+                      data-testid="btn-show-reject">
+                      ✗ Reject
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)}
+                      placeholder="Rejection reason (required)…" rows={3}
+                      className="text-xs w-full bg-background border border-red-400/30 rounded px-3 py-2 text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-1 focus:ring-red-400/40"
+                      data-testid="input-rejection-reason" />
+                    <div className="flex gap-2">
+                      <button onClick={() => rejectMut.mutate()} disabled={rejectMut.isPending || !rejectReason.trim()}
+                        className="flex-1 text-xs bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white px-3 py-2 rounded transition-colors font-medium"
+                        data-testid="btn-confirm-reject">
+                        {rejectMut.isPending ? "Rejecting…" : "Confirm Rejection"}
+                      </button>
+                      <button onClick={() => { setShowReject(false); setRejectReason(""); }}
+                        className="text-xs border border-border/50 text-muted-foreground hover:text-foreground px-3 py-2 rounded transition-colors">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-xs text-muted-foreground text-center py-2 border border-border/20 rounded bg-muted/10">
+                Waiting for manager approval
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── BRANCH: rejected ──────────────────────────────────────────────────────────
+  if (job.status === "rejected") {
+    return (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">
+        <div className="bg-background border border-border rounded-lg w-full max-w-lg shadow-xl">
+          {header}
+          <div className="px-4 py-4 flex flex-col gap-3">
+            {lifecycleStepper}
+            {metaRow}
+            <div className="rounded-lg border border-red-400/30 bg-red-400/5 px-4 py-3 text-sm">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Rejection Reason</p>
+              <p className="text-red-300 text-xs">{job.rejectionReason || "—"}</p>
+              <p className="text-[10px] text-muted-foreground mt-2">
+                Rejected {fmtDateTime(job.rejectedAt)} by <strong>{job.rejectedBy || "—"}</strong>
+              </p>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              To resubmit, create a new template or update the existing one and submit a new job.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── BRANCH: normal (approved / activated / successful / failed / partial) ─────
   const steps = [
     { key: "sheetGenerated",   label: "Sheet Generated",       value: job.sheetGenerated },
     { key: "emailSent",        label: "Email Sent",            value: job.emailSent },
@@ -2144,22 +2326,25 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
     { key: "tariffUpdated",    label: "Updated Tariff",        value: job.tariffUpdated },
     { key: "violatedRules",    label: "Violated Rules",        value: job.violatedRules,    warn: true },
     { key: "approvalRequired", label: "Approval Required",     value: job.approvalRequired, warn: true },
-    { key: "successful",       label: "Successful",            value: job.status === "successful" },
+    { key: "successful",       label: "Successful",            value: job.status === "successful" || job.status === "activated" },
   ];
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-background border border-border rounded-lg w-full max-w-lg shadow-xl">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-          <span className="text-sm font-semibold font-mono">{job.jobRef}</span>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
-        </div>
+      <div className="bg-background border border-border rounded-lg w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+        {header}
         <div className="px-4 py-3 flex flex-col gap-3">
+          {lifecycleStepper}
           <div className="flex flex-wrap gap-4 text-xs">
             <span><span className="text-muted-foreground">Client:</span> <strong>{job.clientName}</strong></span>
             <span><span className="text-muted-foreground">Product:</span> <strong>{job.productName || "—"}</strong></span>
-            <span><span className="text-muted-foreground">Type:</span> <strong>{NOTIF_TYPE_LABEL[job.notificationType ?? ""] ?? job.notificationType}</strong></span>
+            <span><span className="text-muted-foreground">Type:</span> <strong>{NOTIF_TYPE_LABEL[job.notificationType ?? ""] ?? job.notificationType ?? "—"}</strong></span>
             <span><span className="text-muted-foreground">Destinations:</span> <strong>{job.destinationCount ?? 0}</strong></span>
           </div>
+          {job.status === "approved" && (
+            <div className="rounded-lg border border-green-500/30 bg-green-500/5 px-3 py-2 text-xs text-green-300">
+              Approved by <strong>{job.approvedBy}</strong> on {fmtDateTime(job.approvedAt)} — ready to send.
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-2">
             {steps.map(s => (
               <div key={s.key} className={cn(
@@ -2194,7 +2379,6 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
               ))}
             </div>
           )}
-          {/* Audit footer */}
           <div className="flex flex-col gap-1 text-[10px] text-muted-foreground border-t border-border/20 pt-2 mt-1">
             <div className="flex flex-wrap gap-x-4 gap-y-0.5">
               <span>{fmtDate(job.createdAt)} · by {job.createdBy || "system"}</span>
@@ -2212,24 +2396,13 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
               </span>
             )}
           </div>
-
-          {/* Re-download action */}
           {job.sheetGenerated && (
             <div className="border-t border-border/20 pt-2 mt-1">
-              <button
-                onClick={handleReDownload}
-                disabled={downloading}
-                data-testid="btn-redownload-sheet"
-                className="flex items-center gap-1.5 text-xs bg-blue-700/80 hover:bg-blue-600 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors"
-              >
-                {downloading
-                  ? <Loader2 className="w-3 h-3 animate-spin" />
-                  : <Download className="w-3 h-3" />}
+              <button onClick={handleReDownload} disabled={downloading} data-testid="btn-redownload-sheet"
+                className="flex items-center gap-1.5 text-xs bg-blue-700/80 hover:bg-blue-600 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors">
+                {downloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
                 Re-generate Sheet
               </button>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Rebuilds the Excel from current template destinations. A warning will appear if destinations have changed since this sheet was emailed.
-              </p>
             </div>
           )}
         </div>
@@ -2284,8 +2457,39 @@ function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
     );
   }
 
+  // ── Lifecycle counts for card strip ──────────────────────────────────────────
+  const opsCards: { status: string; label: string; color: string; bg: string; border: string }[] = [
+    { status: "pending_rates",    label: "Pending Rates",    color: "text-amber-400",      bg: "bg-amber-500/5",   border: "border-amber-500/25" },
+    { status: "awaiting_approval",label: "Awaiting Approval",color: "text-blue-400",       bg: "bg-blue-500/5",    border: "border-blue-400/25"  },
+    { status: "approved",         label: "Approved",         color: "text-green-400",      bg: "bg-green-500/5",   border: "border-green-500/25" },
+    { status: "activated",        label: "Activated",        color: "text-emerald-400",    bg: "bg-emerald-500/5", border: "border-emerald-500/25"},
+    { status: "rejected",         label: "Rejected",         color: "text-red-400/70",     bg: "bg-red-400/5",     border: "border-red-400/20"   },
+  ];
+
   return (
     <div className="flex-1 overflow-auto">
+      {/* Initial Rate Operations card strip */}
+      {subTab === "jobs" && (
+        <div className="flex gap-2 px-4 pt-3 pb-1 flex-wrap">
+          {opsCards.map(card => {
+            const count = jobs.filter(j => j.status === card.status).length;
+            const isActive = statusFilter === card.status;
+            return (
+              <button key={card.status}
+                onClick={() => setStatusFilter(isActive ? "" : card.status)}
+                data-testid={`card-ops-${card.status}`}
+                className={cn(
+                  "flex flex-col items-start px-3 py-2 rounded border text-left transition-all min-w-[90px] flex-1",
+                  card.bg, card.border,
+                  isActive ? "ring-1 ring-offset-0 opacity-100 " + card.color.replace("text-", "ring-") : "opacity-70 hover:opacity-100",
+                )}>
+                <span className={cn("text-xl font-bold tabular-nums leading-none", card.color)}>{count}</span>
+                <span className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{card.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {/* Sub-tab bar */}
       <div className="flex items-center border-b border-border/40 px-4 gap-1">
         {(["templates", "jobs"] as const).map(tab => (
@@ -2390,40 +2594,40 @@ function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
 
         {/* ── Jobs list ── */}
         {subTab === "jobs" && (() => {
-          const pendingRatesCount = jobs.filter(j => j.status === "pending_rates").length;
           return (
             <>
               {/* Filter chips */}
-              <div className="flex items-center gap-2 mb-3">
-                {(["", "pending_rates"] as const).map(f => (
-                  <button key={f || "all"} onClick={() => setStatusFilter(f)} data-testid={`btn-filter-${f || "all"}`}
-                    className={cn(
-                      "text-[11px] px-2.5 py-1 rounded-full border transition-colors",
-                      statusFilter === f
-                        ? "border-amber-500 bg-amber-500/10 text-amber-400"
-                        : "border-border/40 text-muted-foreground hover:border-border",
-                    )}>
-                    {f === "" ? `All (${jobs.length})` : (
-                      <span className="flex items-center gap-1">
-                        Awaiting Setup
-                        {pendingRatesCount > 0 && (
-                          <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-amber-500 text-black text-[8px] font-bold">
-                            {pendingRatesCount}
-                          </span>
-                        )}
-                      </span>
-                    )}
-                  </button>
-                ))}
-                {statusFilter && statusFilter !== "pending_rates" && (
-                  <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                    Filter: {statusFilter}
-                    <button onClick={() => setStatusFilter("")} data-testid="btn-clear-job-filter"
-                      className="ml-0.5 hover:text-white transition-colors">
-                      <X className="w-2.5 h-2.5" />
+              <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                <button onClick={() => setStatusFilter("")} data-testid="btn-filter-all"
+                  className={cn("text-[11px] px-2.5 py-1 rounded-full border transition-colors",
+                    statusFilter === "" ? "border-amber-500 bg-amber-500/10 text-amber-400" : "border-border/40 text-muted-foreground hover:border-border")}>
+                  All ({jobs.length})
+                </button>
+                {[
+                  { status: "pending_rates",    label: "Pending Rates" },
+                  { status: "awaiting_approval",label: "Awaiting Approval" },
+                  { status: "approved",         label: "Approved" },
+                  { status: "activated",        label: "Activated" },
+                  { status: "rejected",         label: "Rejected" },
+                ].map(({ status, label }) => {
+                  const cnt = jobs.filter(j => j.status === status).length;
+                  if (cnt === 0 && statusFilter !== status) return null;
+                  return (
+                    <button key={status} onClick={() => setStatusFilter(statusFilter === status ? "" : status)}
+                      data-testid={`btn-filter-${status}`}
+                      className={cn("text-[11px] px-2.5 py-1 rounded-full border transition-colors flex items-center gap-1",
+                        statusFilter === status
+                          ? "border-amber-500 bg-amber-500/10 text-amber-400"
+                          : "border-border/40 text-muted-foreground hover:border-border")}>
+                      {label}
+                      {cnt > 0 && (
+                        <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-muted/60 text-[8px] font-bold text-muted-foreground">
+                          {cnt}
+                        </span>
+                      )}
                     </button>
-                  </span>
-                )}
+                  );
+                })}
               </div>
               {jobsLoading ? (
                 <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground">

@@ -1,0 +1,247 @@
+#336 is the correct next sprint and is much better scoped than most of the larger commercial proposals we've discussed.
+
+Overall Assessment
+
+✅ Approve Sprint #336
+
+It closes the onboarding lifecycle without touching:
+
+Rate Push Engine
+Portal Upload Engine
+Product Registry
+Customer Product Assignments
+Send Rate Certification
+
+All of those remain frozen.
+
+One Change I Would Make
+
+Current proposed lifecycle:
+
+pending_rates
+↓
+awaiting_approval
+↓
+approved
+↓
+ready_to_send
+↓
+activated
+
+I would simplify to:
+
+pending_rates
+↓
+awaiting_approval
+↓
+approved
+↓
+activated
+
+Reason:
+
+ready_to_send has no real business meaning if sending happens immediately after approval.
+
+You already have:
+
+sheet_generated
+email_sent
+
+from #328.
+
+Those audit flags tell you whether the send occurred.
+
+Having:
+
+approved
+ready_to_send
+activated
+
+often creates stuck jobs later.
+
+Unless you plan:
+
+Approved today
+Send tomorrow
+
+I would skip ready_to_send for Sprint A.
+
+Approval Controls
+
+I would require:
+
+Submit for Approval
+
+Only if:
+
+Template Linked
+
+Otherwise:
+
+"No template linked to this job."
+
+and disable submission.
+
+Approve
+
+Manager should see:
+
+Client
+Product
+Template
+Destination Count
+Notification Type
+
+before approving.
+
+No blind approval.
+
+Reject
+
+Require:
+
+rejection_reason
+
+Mandatory.
+
+Not optional.
+
+Otherwise six months later nobody remembers why it was rejected.
+
+Activation Rule
+
+I strongly support:
+
+Successful Send
+    ↓
+companies.status = live
+
+but add:
+
+activated_at
+activated_by
+
+as well.
+
+Not only:
+
+activated_at
+
+You will eventually want to know who activated the client.
+
+Job Audit Additions
+
+Since you're already touching approval:
+
+Add:
+
+submitted_for_approval_at
+submitted_by
+
+approved_by
+approved_at
+
+rejected_by
+rejected_at
+rejection_reason
+
+Exactly as proposed.
+
+These are operationally valuable.
+
+Dashboard Card
+
+Good idea.
+
+Keep it simple:
+
+Initial Rate Operations
+
+Pending Rates
+Awaiting Approval
+Approved
+Activated
+Rejected
+
+Counts only.
+
+No graphs.
+
+No AI.
+
+No trend lines.
+
+No charts.
+
+Lifecycle Stepper
+
+Very good addition.
+
+Suggested display:
+
+✓ Pending Rates
+  19-Jun 11:22
+  Junaid
+
+✓ Awaiting Approval
+  19-Jun 11:45
+  Ahmed
+
+✓ Approved
+  19-Jun 12:01
+  Manager
+
+✓ Activated
+  19-Jun 12:04
+  System
+
+This will become one of the most useful audit views in the platform.
+
+What Must Remain Out Of Scope
+
+Do not allow Sprint #336 to expand into:
+
+Vendor Rate Import
+Voice Trading Desk
+Margin Engine
+Notification Center Redesign
+Multi-Level Approval Chains
+AI Approval Suggestions
+Scheduled Sends
+Email Tracking
+
+Those belong to later phases.
+
+Expected Result After Sprint #336
+
+Current:
+
+Client Created
+↓
+Pending Rate Job
+↓
+???
+
+After Sprint A:
+
+Client Created
+↓
+Pending Rate Job
+↓
+Template Linked
+↓
+Submitted
+↓
+Approved
+↓
+Sent
+↓
+Activated
+↓
+Client Live
+
+That closes the largest workflow gap in the commercial onboarding process.
+
+Recommendation
+
+Proceed with Sprint #336, but consider removing ready_to_send unless you already know you need delayed/manual sending after approval. Everything else in the specification is aligned with the Phase 1 goal and moves the Initial Client Rate Lifecycle toward completion.

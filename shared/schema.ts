@@ -1421,6 +1421,9 @@ export const companies = pgTable("companies", {
   sippyIAccount:       integer("sippy_i_account"),
   sippyITariff:        integer("sippy_i_tariff"),
   wizardDraft:         text("wizard_draft"),
+  // Activation tracking (Sprint A) — set when first rate sheet is sent
+  activatedAt:         timestamp("activated_at"),
+  activatedBy:         varchar("activated_by",         { length: 255 }),
 });
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = typeof companies.$inferInsert;
@@ -4132,8 +4135,18 @@ export const rateNotificationJobs = pgTable("rate_notification_jobs", {
   // Frozen destination snapshot — serialised JSON of the destinations array at send time
   // Used by /api/rate-notification-jobs/:id/sheet to rebuild the exact file that was emailed.
   destinationSnapshot: text("destination_snapshot"),
+  // Approval workflow (Sprint A)
+  submittedForApprovalAt: timestamp("submitted_for_approval_at"),
+  submittedBy:            varchar("submitted_by",     { length: 128 }),
+  approvedBy:             varchar("approved_by",      { length: 128 }),
+  approvedAt:             timestamp("approved_at"),
+  rejectedBy:             varchar("rejected_by",      { length: 128 }),
+  rejectedAt:             timestamp("rejected_at"),
+  rejectionReason:        text("rejection_reason"),
   // Overall
-  status:           varchar("status", { length: 32 }).notNull().default("pending"), // pending|in_progress|successful|failed|partial
+  // pending_rates|awaiting_approval|approved|activated|rejected|dismissed
+  // |in_progress|successful|failed|partial|pending
+  status:           varchar("status", { length: 32 }).notNull().default("pending"),
   remarks:          text("remarks"),
   pushResults:      text("push_results"),   // JSON stringified per-account push results
   createdBy:        varchar("created_by",   { length: 128 }),
