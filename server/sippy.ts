@@ -8963,10 +8963,11 @@ async function pushRateViaPortalUpload(
     };
     if (activationDateStr) addParams.activation_date = activationDateStr;
     if (expirationDateStr) addParams.expiration_date = expirationDateStr;
-    const addUrl = `${base}/c1/rates_tariff.php?${new URLSearchParams(addParams).toString()}`;
+    const addFormBody = new URLSearchParams(addParams).toString();
+    const addUrl = `${base}/c1/rates_tariff.php`;
     try {
-      const addResp     = await rawRequest('GET', addUrl, null, {
-        Referer: `${base}/c1/rates_tariff.php?action=new&i_tariff=${iTariff}`,
+      const addResp     = await rawRequest('POST', addUrl, addFormBody, {
+        Referer: `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`,
       }, cookies);
       const addBody     = addResp.body;
       const isLoginPage = addBody.includes('value="Login"') || addBody.includes("value='Login'");

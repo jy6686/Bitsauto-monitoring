@@ -1,0 +1,146 @@
+This is the most important finding so far.
+
+Confirmed from your output
+
+resolveSippyPrefix() is dead code in this push path.
+
+The evidence:
+
+resolveSippyPrefix()
+  ↓
+Only definition found
+No call sites found
+
+And the actual execution chain is:
+
+push-batch
+  ↓
+pushRateToSippy(opts.prefix)
+  ↓
+setSippyRateEntry(entry.prefix)
+  ↓
+pushRateViaPortalUpload(prefix)
+  ↓
+Sippy
+
+Every function is passing:
+
+prefix: opts.prefix
+
+unchanged.
+
+No transformation.
+
+No stripping.
+
+No normalization.
+
+Therefore if /api/rate-manager/push-batch sends:
+
+19233
+
+then Sippy receives:
+
+19233
+
+unchanged.
+
+What this means
+
+The remaining issue is no longer:
+
+9233 vs 19233
+
+The remaining issue is:
+
+Can action=add actually create 19233?
+
+because:
+
+You already proved 19233 is not present in the tariff.
+Verification was therefore correctly failing.
+You reverted the verification bypass.
+You changed action=add from GET to POST.
+
+Now the only meaningful test is a live one.
+
+Before certification
+
+I would run exactly this sequence:
+
+1. Restart / deploy
+
+Make sure the POST version is active.
+
+2. Push Ufone again
+Product: First Class
+Destination: Pakistan Mobile Ufone
+Prefix expected: 19233
+3. Watch logs
+
+You want to capture:
+
+[Sippy] pushRateViaPortalUpload: action=add → HTTP ...
+
+especially:
+
+HTTP status
+body length
+login=true/false
+err=true/false
+4. Immediately open Sippy tariff
+
+Search:
+
+19233
+Decision matrix
+If 19233 appears
+
+Then:
+
+POST fix worked
+action=add works
+R2 certified
+If 19233 still does not appear
+
+Then:
+
+action=add POST still not creating records
+
+and the next investigation is:
+
+What exact form fields does
+/c1/rates_tariff.php?action=new
+expect?
+
+because at that point the issue is inside the Sippy HTML form workflow, not the BitsAuto prefix logic.
+
+Separate issue: Mobilink/Jazz
+
+Your database already showed:
+
+Pakistan Mobile Jazz 9230
+Pakistan Mobile Jazz 9232
+Pakistan Mobile Ufone 9233
+Pakistan Mobile Telenor 9234
+Pakistan Mobile SCO 9235
+
+but the UI shows:
+
+PAK Mobile MOBLIN
+
+and cannot resolve a network.
+
+That is a separate destination catalog hierarchy problem and should be handled after the Ufone push path is working.
+
+Current status
+Component	Status
+Prefix generation	✅ Fixed
+Full prefix reaching Sippy	✅ Confirmed
+Verification bypass	✅ Reverted
+action=add GET→POST	✅ Implemented
+19233 created in tariff	❓ Not yet proven
+Ufone end-to-end push	⏳ Pending test
+Mobilink/Jazz hierarchy	❌ Separate issue
+
+At this stage, don't make more code changes. Run the Ufone test with the POST patch and capture the action=add log line plus the tariff result. That will tell us exactly where the remaining failure is.
