@@ -8960,6 +8960,10 @@ async function pushRateViaPortalUpload(
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
       const addActivation = effectiveFrom ? normDate(effectiveFrom) : null;
       const addExpiration = effectiveTill  ? normDate(effectiveTill)  : null;
+      // Set Action=U on every existing data row — required for Sippy REPLACE-mode safety
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i] && rows[i].length > 0) rows[i][0] = 'U';
+      }
       rows.push(['A', null, prefix, '', 1, 1, rate, rate, 0, 1, addActivation, addExpiration]);
       const newWs = XLSX.utils.aoa_to_sheet(rows);
       const newWb = XLSX.utils.book_new();
