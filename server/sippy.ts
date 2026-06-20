@@ -8949,7 +8949,41 @@ async function pushRateViaPortalUpload(
   }
 
   if (!targetIRate) {
-    return { success: false, message: `Cannot find iRate for prefix ${prefix} in tariff ${iTariff} — rate entry may not exist yet` };
+    // Destination not in tariff — create it with action=add
+    console.log(`[Sippy] pushRateViaPortalUpload: prefix ${prefix} not in tariff ${iTariff} — attempting action=add`);
+    const addParams: Record<string, string> = {
+      action:         'add',
+      i_tariff:       String(iTariff),
+      prefix,
+      interval_1:     String(interval1 || 1),
+      interval_n:     String(intervalN || 1),
+      price_1:        String(rate),
+      price_n:        String(rate),
+      save_and_close: 'Save & Close',
+    };
+    if (activationDateStr) addParams.activation_date = activationDateStr;
+    if (expirationDateStr) addParams.expiration_date = expirationDateStr;
+    const addUrl = `${base}/c1/rates_tariff.php?${new URLSearchParams(addParams).toString()}`;
+    try {
+      const addResp     = await rawRequest('GET', addUrl, null, {
+        Referer: `${base}/c1/rates_tariff.php?action=new&i_tariff=${iTariff}`,
+      }, cookies);
+      const addBody     = addResp.body;
+      const isLoginPage = addBody.includes('value="Login"') || addBody.includes("value='Login'");
+      const hasError    = /class=["']err[^"']*["']/i.test(addBody.slice(0, 8000));
+      console.log(`[Sippy] pushRateViaPortalUpload: action=add → HTTP ${addResp.statusCode} ${addBody.length}B login=${isLoginPage} err=${hasError}`);
+      if (isLoginPage) return { success: false, message: 'Rate add: session rejected (login page returned)' };
+      if (hasError) {
+        const errM = addBody.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
+        return { success: false, message: `Rate add error: ${errM ? errM[1].trim() : 'Sippy returned error on action=add'}` };
+      }
+      if (addResp.statusCode === 200 && addBody.length > 5000) {
+        return { success: true, message: `Destination created: prefix ${prefix} added to tariff ${iTariff} at ${rate} (action=add)` };
+      }
+      return { success: false, message: `Rate add: unexpected response (HTTP ${addResp.statusCode}, ${addBody.length}B)` };
+    } catch (addErr: any) {
+      return { success: false, message: `Rate add exception: ${addErr.message}` };
+    }
   }
 
   // ── Step 4: apply effectiveFrom/Till overrides ────────────────────────────

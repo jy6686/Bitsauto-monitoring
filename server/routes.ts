@@ -3245,7 +3245,24 @@ export async function registerRoutes(
         await storage.updateClientProfile(profileId, { switchSyncStatus: statusMap as any });
       }
 
-      const allOk = Object.values(results).every(r => r.success);
+      const allOk       = Object.values(results).every(r => r.success);
+      const successCount = Object.values(results).filter(r => r.success).length;
+      try {
+        await db.insert(ratePushJobs).values({
+          jobId:         `push-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          productName:   accountName,
+          format:        format || 'full',
+          rateType:      'portal-push',
+          totalClients:  targetSwitches.length,
+          pushedClients: successCount,
+          failedClients: targetSwitches.length - successCount,
+          status:        allOk ? 'completed' : successCount > 0 ? 'partial' : 'failed',
+          notes:         Object.entries(results).map(([k, r]) => `${k}:${r.success ? 'ok' : r.message}`).join(' | '),
+          createdBy:     req.user?.username || 'operator',
+          dialPrefix:    prefix,
+          newRate:       String(ratePerMin),
+        }).catch((e) => { console.error('[rate_push_jobs] push-rate insert failed:', e?.message || e); });
+      } catch (e) { console.error('[rate_push_jobs] push-rate outer catch:', e?.message || e); }
       res.json({ success: allOk, results, switchCount: targetSwitches.length });
     } catch (err: any) {
       console.error('[push-rate]', err);
