@@ -329,8 +329,8 @@ export function registerRateManagerRoutes(app: Express) {
             status:        successCount === accountNames.length ? 'completed' : successCount > 0 ? 'partial' : 'failed',
             notes:         results.map(r => `${r.accountName}:${r.success ? 'ok' : r.message}`).join(' | '),
             createdBy:     req.user?.username || 'operator',
-          }).catch(() => { /* rate_push_jobs insert is best-effort */ });
-        } catch { /* non-fatal */ }
+          }).catch((e: any) => { console.error('[rate_push_jobs] product-rates insert failed:', e?.message || e); });
+        } catch (e: any) { console.error('[rate_push_jobs] product-rates outer catch:', e?.message || e); }
 
         res.json({
           prefix:       fullPrefix,

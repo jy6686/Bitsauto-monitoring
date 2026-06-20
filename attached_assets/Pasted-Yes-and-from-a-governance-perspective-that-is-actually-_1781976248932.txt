@@ -1,0 +1,370 @@
+Yes, and from a governance perspective that is actually a good idea before wiring the Destination Catalogue into commercial modules.
+
+Current Situation
+
+If all 150k destinations are currently:
+
+commercialStatus = approved
+
+then the approval workflow is meaningless because:
+
+Destination Catalogue
+        ↓
+150,000 Approved
+        ↓
+Rate Manager
+Send Rate
+Product Pricing
+
+Everything is available whether you want it or not.
+
+Recommended Reset Strategy
+Option 1 — Bulk Reset (Recommended)
+
+Set all destinations to:
+
+commercialStatus = pending
+
+Then approve only what you actually sell.
+
+Workflow:
+
+Destination Import
+        ↓
+Pending
+        ↓
+Commercial Review
+        ↓
+Approved
+        ↓
+Visible in Platform
+
+This gives you a true approval process.
+
+Example
+
+Today:
+
+Pakistan Mobile Ufone
+Pakistan Mobile Jazz
+USA Inmarsat
+Iridium
+Satellite
+Premium Services
+
+All visible.
+
+After reset:
+
+Pakistan Mobile Ufone      Pending
+Pakistan Mobile Jazz       Pending
+USA Inmarsat               Pending
+Iridium                    Pending
+Satellite                  Pending
+
+Then approve only:
+
+Pakistan Mobile Ufone
+Pakistan Mobile Jazz
+Bangladesh Mobile
+UK Mobile
+
+Only those become available.
+
+Better Approach
+
+Use 3 states:
+
+pending
+approved
+blocked
+
+Meaning:
+
+Status	Meaning
+Pending	Not reviewed yet
+Approved	Commercially available
+Blocked	Never offer
+
+Example:
+
+USA Inmarsat      Blocked
+Iridium           Blocked
+Satellite         Blocked
+
+Pakistan Ufone    Approved
+Pakistan Jazz     Approved
+
+New Import        Pending
+Before Doing This
+
+I would first run a report:
+
+SELECT commercial_status, count(*)
+FROM global_destinations
+GROUP BY commercial_status;
+
+This tells you whether:
+
+150,000 Approved
+
+or
+
+120,000 Approved
+20,000 Pending
+10,000 Blocked
+
+exists today.
+
+My Recommendation
+
+For the architecture you've defined:
+
+Destination Catalogue
+        ↓
+Approved Destinations
+        ↓
+Product
+        ↓
+Client
+        ↓
+Send Rate
+
+I would:
+
+Keep the 150k destinations.
+Bulk change them to Pending.
+Approve destinations hierarchically.
+Wire Rate Manager, Send Rate, Product Pricing, and future Rate Sheets to show Approved only.
+
+That gives you controlled commercial exposure and prevents accidentally offering expensive or unwanted destinations.
+
+pending status would be  considered as blocked to send traffic 
+
+I would not make Pending mean "blocked to send traffic" in the routing sense.
+
+There are actually three different concepts that should remain separate:
+
+Status	Commercial Use	Send Rate	Routing Traffic
+Approved	✅ Yes	✅ Yes	Depends on client tariff
+Pending	❌ No	❌ No	Existing traffic unaffected
+Blocked	❌ No	❌ No	Can be explicitly prevented
+Why?
+
+Imagine today:
+
+Pakistan Ufone Mobile
+Status = Approved
+
+100 clients already have rates and live traffic.
+
+Tomorrow you decide to review destinations and accidentally bulk change everything to:
+
+Status = Pending
+
+You do not want:
+
+Live Traffic Stops
+
+That would be a major operational outage.
+
+Better Interpretation
+Approved
+Visible in:
+✓ Send Rate
+✓ Product Rates
+✓ Customer Pricing
+✓ Rate Sheets
+Pending
+Hidden from:
+✗ Send Rate
+✗ Product Pricing
+✗ New Customer Offers
+
+Existing client tariffs remain untouched
+Existing traffic continues
+Blocked
+Hidden from commercial modules
+Flagged as restricted
+
+Optional future rule:
+Prevent new pushes
+Prevent new offers
+Commercial Workflow
+Import Destination
+        ↓
+Pending
+        ↓
+Commercial Review
+     ↙       ↘
+Approved    Blocked
+
+Only Approved destinations become available for new commercial activity.
+
+For Your Platform
+
+I would define:
+
+Approved
+= Commercially Available
+
+Pending
+= Not Yet Reviewed
+
+Blocked
+= Explicitly Forbidden
+
+And then enforce:
+
+Destination Catalogue
+        ↓
+Approved Only
+        ↓
+Send Rate
+        ↓
+Rate Manager
+        ↓
+Product Pricing
+        ↓
+Rate Sheets
+
+This gives you control over what can be offered to customers without risking disruption to any traffic or tariffs that already exist in Sippy.
+
+what we are start implementing now? 
+
+Based on everything we've discussed, I would not start Product Variants, Client Tariff Profiles, Notifications, or Rate Sheets yet.
+
+The next implementation should be:
+
+Phase 1 — Destination Catalogue Reset & Governance
+Goal
+
+Make the Destination Catalogue the commercial source of truth.
+
+Tasks
+1. Bulk Move Destinations to Pending
+Current:
+150,000 destinations
+Mostly Approved
+
+Target:
+150,000 destinations
+Pending
+2. Build Approval Workflow
+Pending
+   ↓
+Approve
+   ↓
+Approved
+Pending
+   ↓
+Reject
+   ↓
+Blocked
+3. Approved-Only Enforcement
+
+Wire:
+
+Send Rate
+Rate Manager
+Product Rates
+Voice Trading Desk
+
+to show:
+
+commercialStatus = approved
+
+only.
+
+Phase 2 — Destination Catalogue Enrichment
+
+Using your uploaded destination sheet as the baseline.
+
+Add backend fields:
+
+billing_increment_initial
+billing_increment_following
+minimum_duration
+billing_increment_start_date
+is_high_cost
+
+Import from the sheet.
+
+This becomes the platform's commercial master data.
+
+Phase 3 — Complete Send Rate
+
+This is the biggest operational gap today.
+
+Current:
+
+Existing destination in tariff
+   ↓
+Update works
+
+Missing:
+
+Destination not in tariff
+   ↓
+Create destination
+   ↓
+Apply rate
+   ↓
+Push to Sippy
+
+This must be completed before anything else.
+
+Phase 4 — Push Verification
+
+After every push:
+
+BitsAuto
+   ↓
+Push
+   ↓
+Read Sippy
+   ↓
+Verify
+
+Store:
+
+Old Rate
+New Rate
+Verified
+Timestamp
+
+Then Push History becomes trustworthy.
+
+What I would NOT start yet
+
+❌ Product Variant Architecture (FC-W, SB-R, etc.)
+
+❌ Client Tariff Profile
+
+❌ Rate Sheet Engine
+
+❌ Notification Engine
+
+❌ Delta Sheet Logic (N/NC/I/D)
+
+❌ PDF/Excel generation
+
+Because all of those depend on having a clean and governed Destination Catalogue first.
+
+If I were managing the project today
+
+Sprint starting now:
+
+Destination Catalogue Governance Sprint
+
+1. Reset → Pending
+2. Approval Workflow
+3. Approved-only filtering
+4. Import billing increments
+5. High-cost protection
+6. Complete Send Rate Create+Update logic
+7. Push verification
+
+Once that is stable, then move to Product Variants and Client Tariff Profiles.
+
+That gives you the biggest business value with the least risk of more rework.

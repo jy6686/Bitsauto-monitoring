@@ -35640,7 +35640,7 @@ ${footer}
             destinationName:    (destList.length === 1 ? (destList[0] as any).destinationName ?? null : destList.map(d => (d as any).destinationName ?? d.dialPrefix).join(', ').substring(0, 255)) || null,
             notificationType:   (req.body as any).notificationType ?? null,
           });
-        } catch { /* non-critical */ }
+        } catch (e: any) { console.error('[rate_push_jobs] push-batch insert failed:', e?.message || e); }
 
         res.json({ results, ok, total });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -35721,7 +35721,7 @@ ${footer}
             createdBy:    (req as any).user?.claims?.sub ?? 'system',
             notes:        `Pending: changing ${prefixes.length} rate(s) for ${accountName} to ${rate}`,
           });
-        } catch { /* non-critical */ }
+        } catch (e: any) { console.error('[rate_push_jobs] change-client-rates pending insert failed:', e?.message || e); }
 
         // ── Push loop ─────────────────────────────────────────────────────────────
         const results: { prefix: string; success: boolean; message: string; method?: string; detail?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }[] = [];
@@ -35786,7 +35786,7 @@ ${footer}
             completedAt:        new Date(),
             notes:              `${accountName}: ${prefixes.length} prefix(es), newRate=${rate}, method=${methods.join(',') || 'n/a'}, ok=${ok}/${prefixes.length}`,
           }).where(eq(ratePushJobs.jobId, jobId));
-        } catch { /* non-critical */ }
+        } catch (e: any) { console.error('[rate_push_jobs] change-client-rates update failed:', e?.message || e); }
 
         console.log(`[RateManager] Push complete — ok=${ok}/${prefixes.length} method=${methods.join(',')} verificationResult=${firstR?.verificationResult ?? 'n/a'}`);
         res.json({ results, ok, total: prefixes.length, methods });
