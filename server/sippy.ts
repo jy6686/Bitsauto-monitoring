@@ -8949,43 +8949,59 @@ async function pushRateViaPortalUpload(
   }
 
   if (!targetIRate) {
-    // Destination not in tariff — create it with action=add
-    console.log(`[Sippy] pushRateViaPortalUpload: prefix ${prefix} not in tariff ${iTariff} — attempting action=add`);
-    const addParams: Record<string, string> = {
-      action:         'add',
-      i_tariff:       String(iTariff),
-      prefix,
-      interval_1:     String(interval1 || 1),
-      interval_n:     String(intervalN || 1),
-      price_1:        String(rate),
-      price_n:        String(rate),
-      save_and_close: 'Save & Close',
-    };
-    if (activationDateStr) addParams.activation_date = activationDateStr;
-    if (expirationDateStr) addParams.expiration_date = expirationDateStr;
-    const addFormBody = new URLSearchParams(addParams).toString();
-    const addUrl = `${base}/c1/rates_tariff.php`;
+    // Send Rate — new destination: download full tariff XLSX, append action=A row, re-upload.
+    // U existing rows + A new row in one upload — required so Sippy does not wipe the tariff.
+    console.log(`[Sippy] pushRateViaPortalUpload: prefix ${prefix} not in tariff ${iTariff} — building full-tariff XLSX with action=A`);
     try {
-      const addResp     = await rawRequest('POST', addUrl, addFormBody, {
-        Referer: `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`,
+      const existingBuf = await downloadTariffXlsxFromPortal(base, iTariff, cookies);
+      if (!existingBuf) {
+        return { success: false, message: `Rate add: could not download existing tariff XLSX — manual add required in Sippy portal` };
+      }
+      const wb  = XLSX.read(existingBuf, { type: 'buffer' });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      const addActivation = effectiveFrom ? normDate(effectiveFrom) : null;
+      const addExpiration = effectiveTill  ? normDate(effectiveTill)  : null;
+      rows.push(['A', null, prefix, '', 1, 1, rate, rate, 0, 1, addActivation, addExpiration]);
+      const newWs = XLSX.utils.aoa_to_sheet(rows);
+      const newWb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(newWb, newWs, 'Sheet1');
+      const fullXlsx: Buffer = XLSX.write(newWb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+      const probe = await probePortalRatesPage(base, iTariff, adminCreds);
+      console.log(`[Sippy] pushRateViaPortalUpload: probe ok=${probe.ok} formFound=${probe.formFound} fileField=${probe.fileField} formAction=${probe.formAction}`);
+      if (!probe.ok || !probe.formFound) {
+        return { success: false, message: `Rate add: upload form not found (${probe.error ?? 'formFound=false'}) — grant rate-edit access to the Rate Admin account` };
+      }
+      const boundary = `----FormBoundary${Date.now().toString(36)}`;
+      const parts: Buffer[] = [
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="i_tariff"\r\n\r\n${iTariff}\r\n`),
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${probe.fileField}"; filename="rates.xlsx"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`),
+        fullXlsx,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ];
+      const formBody   = Buffer.concat(parts);
+      const uploadUrl  = probe.formAction || `${base}/c1/rates_tariff.php`;
+      const uploadResp = await rawRequestBuf(uploadUrl, formBody, {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Referer':      `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`,
       }, cookies);
-      const addBody     = addResp.body;
-      const isLoginPage = addBody.includes('value="Login"') || addBody.includes("value='Login'");
-      const hasError    = /class=["']err[^"']*["']/i.test(addBody.slice(0, 8000));
-      console.log(`[Sippy] pushRateViaPortalUpload: action=add → HTTP ${addResp.statusCode} ${addBody.length}B login=${isLoginPage} err=${hasError}`);
-      if (isLoginPage) return { success: false, message: 'Rate add: session rejected (login page returned)' };
+      const isLoginPage = uploadResp.body.includes('value="Login"') || uploadResp.body.includes("value='Login'");
+      const hasError    = /class=["']err[^"']*["']/i.test(uploadResp.body.slice(0, 8000));
+      console.log(`[Sippy] pushRateViaPortalUpload: full XLSX action=A → HTTP ${uploadResp.statusCode} ${uploadResp.body.length}B login=${isLoginPage} err=${hasError}`);
+      if (isLoginPage) return { success: false, message: 'Rate add (full XLSX): session rejected — login page returned' };
       if (hasError) {
-        const errM = addBody.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
-        return { success: false, message: `Rate add error: ${errM ? errM[1].trim() : 'Sippy returned error on action=add'}` };
+        const errM = uploadResp.body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
+        return { success: false, message: `Rate add error: ${errM ? errM[1].trim() : 'Sippy returned error on full XLSX action=A'}` };
       }
-      if (addResp.statusCode === 200 && addBody.length > 5000) {
-        return { success: true, message: `Destination created: prefix ${prefix} added to tariff ${iTariff} at ${rate} (action=add)` };
+      if (uploadResp.statusCode === 200 && uploadResp.body.length > 5000) {
+        return { success: true, message: `Destination queued: prefix ${prefix} appended to tariff ${iTariff} at ${rate} (full XLSX action=A via ${probe.fileField})` };
       }
-      return { success: false, message: `Rate add: unexpected response (HTTP ${addResp.statusCode}, ${addBody.length}B)` };
+      return { success: false, message: `Rate add: unexpected response (HTTP ${uploadResp.statusCode}, ${uploadResp.body.length}B)` };
     } catch (addErr: any) {
-      return { success: false, message: `Rate add exception: ${addErr.message}` };
+      return { success: false, message: `Rate add exception: ${(addErr as any).message}` };
     }
   }
+
 
   // ── Step 4: apply effectiveFrom/Till overrides ────────────────────────────
   if (effectiveFrom) activationDateStr = normDate(effectiveFrom);
