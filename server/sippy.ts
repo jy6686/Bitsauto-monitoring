@@ -8949,13 +8949,11 @@ async function pushRateViaPortalUpload(
   }
 
   if (!targetIRate) {
-    // Send Rate — new destination: download full tariff XLSX, append action=A row, re-upload.
-    // U existing rows + A new row in one upload — required so Sippy does not wipe the tariff.
     console.log(`[Sippy] pushRateViaPortalUpload: prefix ${prefix} not in tariff ${iTariff} — building full-tariff XLSX with action=A`);
     try {
       const existingBuf = await downloadTariffXlsxFromPortal(base, iTariff, cookies);
       if (!existingBuf) {
-        return { success: false, message: `Rate add: could not download existing tariff XLSX — manual add required in Sippy portal` };
+        return { success: false, message: `Rate add: could not download existing tariff XLSX — manual add required` };
       }
       const wb  = XLSX.read(existingBuf, { type: 'buffer' });
       const ws  = wb.Sheets[wb.SheetNames[0]];
@@ -8967,20 +8965,29 @@ async function pushRateViaPortalUpload(
       const newWb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(newWb, newWs, 'Sheet1');
       const fullXlsx: Buffer = XLSX.write(newWb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-      const probe = await probePortalRatesPage(base, iTariff, adminCreds);
-      console.log(`[Sippy] pushRateViaPortalUpload: probe ok=${probe.ok} formFound=${probe.formFound} fileField=${probe.fileField} formAction=${probe.formAction}`);
-      if (!probe.ok || !probe.formFound) {
-        return { success: false, message: `Rate add: upload form not found (${probe.error ?? 'formFound=false'}) — grant rate-edit access to the Rate Admin account` };
+      let fileField = 'rate_file';
+      let uploadUrl = `${base}/c1/rates_tariff.php`;
+      try {
+        const pageResp = await rawRequest('GET', `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`, null, {}, cookies);
+        const formM = pageResp.body.match(/<form[^>]+enctype=["']multipart\/form-data["'][^>]*>/i);
+        if (formM) {
+          const aM = formM[0].match(/action=["']([^"']+)["']/i);
+          if (aM) uploadUrl = new URL(aM[1], `${base}/c1/`).toString();
+          const fin = pageResp.body.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
+          if (fin) { const nM = fin[0].match(/name=["']([^"']+)["']/i); if (nM) fileField = nM[1]; }
+        }
+        console.log(`[Sippy] pushRateViaPortalUpload: form → fileField=${fileField} uploadUrl=${uploadUrl} found=${!!formM}`);
+      } catch (fe: any) {
+        console.log(`[Sippy] pushRateViaPortalUpload: form detection failed (${fe?.message}) — using defaults`);
       }
       const boundary = `----FormBoundary${Date.now().toString(36)}`;
       const parts: Buffer[] = [
         Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="i_tariff"\r\n\r\n${iTariff}\r\n`),
-        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${probe.fileField}"; filename="rates.xlsx"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`),
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${fileField}"; filename="rates.xlsx"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`),
         fullXlsx,
         Buffer.from(`\r\n--${boundary}--\r\n`),
       ];
       const formBody   = Buffer.concat(parts);
-      const uploadUrl  = probe.formAction || `${base}/c1/rates_tariff.php`;
       const uploadResp = await rawRequestBuf(uploadUrl, formBody, {
         'Content-Type': `multipart/form-data; boundary=${boundary}`,
         'Referer':      `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`,
@@ -8994,13 +9001,14 @@ async function pushRateViaPortalUpload(
         return { success: false, message: `Rate add error: ${errM ? errM[1].trim() : 'Sippy returned error on full XLSX action=A'}` };
       }
       if (uploadResp.statusCode === 200 && uploadResp.body.length > 5000) {
-        return { success: true, message: `Destination queued: prefix ${prefix} appended to tariff ${iTariff} at ${rate} (full XLSX action=A via ${probe.fileField})` };
+        return { success: true, message: `Destination queued: prefix ${prefix} appended to tariff ${iTariff} at ${rate} (full XLSX action=A via ${fileField})` };
       }
       return { success: false, message: `Rate add: unexpected response (HTTP ${uploadResp.statusCode}, ${uploadResp.body.length}B)` };
     } catch (addErr: any) {
       return { success: false, message: `Rate add exception: ${(addErr as any).message}` };
     }
   }
+
 
 
   // ── Step 4: apply effectiveFrom/Till overrides ────────────────────────────
