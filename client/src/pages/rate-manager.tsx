@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import {
   ChevronDown, Search, X, RefreshCw, Check, AlertTriangle, Send,
   BarChart2, Eye, Clock, ChevronRight, Loader2, CircleCheck, CircleX,
-  Plus, Trash2, Bell, BellRing, TrendingUp, TrendingDown, Lightbulb,
+  Plus, Trash2, Bell, Building2, BellRing, TrendingUp, TrendingDown, Lightbulb,
   PackageCheck, Tag, Calendar, ShieldAlert, ExternalLink, Download,
 } from "lucide-react";
 
@@ -306,15 +306,39 @@ function RateDetailPanel({
       </div>
 
       {isLoading ? (
-        <div className="flex-1 flex items-center justify-center gap-2 text-muted-foreground text-xs">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          {infoLoading ? "Looking up account tariff…" : `Loading rates…`}
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
+          <div className="grid grid-cols-2 gap-2 w-full max-w-[280px]">
+            {([
+              { label: "Account",  sub: "Found",   done: true,         active: false },
+              { label: "Product",  sub: "Loaded",  done: !infoLoading, active: infoLoading },
+              { label: "Rates",    sub: "Loading", done: false,        active: !infoLoading },
+              { label: "Analysis", sub: "Pending", done: false,        active: false },
+            ] as const).map((s) => (
+              <div key={s.label} className={cn(
+                "flex items-center gap-2 px-2.5 py-2 rounded-lg border text-[11px] transition-all",
+                s.done    ? "bg-green-500/8 border-green-500/20 text-green-400"
+                : s.active ? "bg-blue-500/8 border-blue-500/20 text-blue-400"
+                : "bg-muted/10 border-border/20 text-muted-foreground/40"
+              )}>
+                {s.done    ? <Check className="w-3 h-3 shrink-0" />
+                 : s.active ? <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                 : <div className="w-3 h-3 shrink-0 rounded-full border border-current opacity-30" />}
+                <div>
+                  <div className="font-medium text-[10px] leading-tight">{s.label}</div>
+                  <div className="text-[9px] opacity-60 leading-tight">{s.sub}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="text-[10px] text-muted-foreground/40">
+            {infoLoading ? "Analyzing account…" : "Loading rate sheet…"}
+          </div>
         </div>
       ) : !iTariff ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground text-xs text-center p-4">
           <div>
             <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-amber-400" />
-            No tariff linked to this account on Sippy.
+            No rates configured for this account.
           </div>
         </div>
       ) : (
@@ -339,7 +363,7 @@ function RateDetailPanel({
                 <th className="text-left py-2 px-3 border-b border-border w-8">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} data-testid="checkbox-select-all" />
                 </th>
-                {["Code", "Destination", "Prefix", "Rate (USD)", "Active From", "Active Till", "Status"].map(h => (
+                {["#", "Client", "KAM", "Module", "Product", "Dests", "Status", "Created", ""].map(h => (
                   <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground border-b border-border whitespace-nowrap">
                     {h}
                   </th>
@@ -1067,16 +1091,9 @@ function SendRateTab({
     <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left Sidebar */}
       <div className="w-64 flex-shrink-0 border-r border-border/60 overflow-y-auto bg-muted/5 p-3 space-y-3">
-        <SidebarSection title="Send Rate">
+        <SidebarSection title="Status">
           <div className="space-y-1">
-            <div className="text-[10px] text-muted-foreground px-1">Status</div>
-            <select
-              value={status}
-              onChange={e => setStatus(e.target.value)}
-              className="w-full text-xs border border-border/60 rounded px-2 py-1 bg-background"
-            >
-              {["Active", "Inactive", "Dormant"].map(o => <option key={o}>{o}</option>)}
-            </select>
+            <ToggleButtons options={["Active", "Inactive", "Dormant"]} value={status} onChange={setStatus} />
           </div>
         </SidebarSection>
 
@@ -1152,7 +1169,7 @@ function SendRateTab({
             {selectedClients.length > 0 ? `✓ ${selectedClients.length} client${selectedClients.length > 1 ? "s" : ""}` : "· Select clients"}
           </div>
           <div className={destQueue.length > 0 ? "text-green-400/70" : "text-amber-400/80"}>
-            {destQueue.length > 0 ? `✓ ${destQueue.length} destination${destQueue.length > 1 ? "s" : ""} queued` : "· Add destinations →"}
+            {destQueue.length > 0 ? `✓ ${destQueue.length} destination${destQueue.length > 1 ? "s" : ""} queued` : "· Add at least one destination →"}
           </div>
         </div>
 
@@ -1192,7 +1209,7 @@ function SendRateTab({
                 <thead>
                   <tr className="border-b border-border/30 bg-muted/10">
                     <th className="text-left py-2 px-3 text-muted-foreground font-medium">Destination</th>
-                    <th className="text-left py-2 px-3 text-muted-foreground font-medium w-28">Sippy Prefix</th>
+                    <th className="text-left py-2 px-3 text-muted-foreground font-medium w-28">Dial Code</th>
                     <th className="text-left py-2 px-3 text-muted-foreground font-medium w-28">Rate ($/min)</th>
                     <th className="py-2 px-3 w-8" />
                   </tr>
@@ -1340,6 +1357,51 @@ function SendRateTab({
             </div>
           </div>
 
+          {/* Pre-Push Analysis */}
+          {selectedClients.length > 0 && resolvedDialPrefix && (() => {
+            const countryNode = allDests.find((d: DestNode) => String(d.id) === notifCountry);
+            const opNode = allDests.find((d: DestNode) =>
+              String(d.id) === (notifDetail || notifCategory || notifOperator)
+            );
+            const destLabel = [countryNode?.name, opNode?.name].filter(Boolean).join(' — ');
+            const clientNames = selectedClients
+              .map(id => accounts.find((a: any) => String(a.id) === id))
+              .filter(Boolean)
+              .map((a: any) => a.name || a.companyName || String(a.id));
+            return (
+              <div className="mt-2 mb-1 rounded-lg border border-blue-500/20 bg-blue-500/5 text-xs overflow-hidden">
+                <div className="px-3 py-1.5 border-b border-blue-500/15 flex items-center gap-1.5 bg-blue-500/8">
+                  <span className="text-blue-400 font-semibold text-[10px] uppercase tracking-wide">
+                    ⚡ Pre-Push Analysis
+                  </span>
+                  <span className="text-muted-foreground text-[10px]">
+                    — {selectedClients.length} client{selectedClients.length !== 1 ? "s" : ""} selected
+                  </span>
+                </div>
+                <div className="px-3 py-2 flex flex-col gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-blue-400 font-semibold">{resolvedDialPrefix}</span>
+                    {destLabel && <span className="text-foreground/70">{destLabel}</span>}
+                    {price && (
+                      <span className="ml-auto font-semibold text-green-400">${price}/min</span>
+                    )}
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-green-400 mt-0.5 shrink-0">➕</span>
+                    <div>
+                      <span className="font-medium text-foreground/80">
+                        Will be added ({clientNames.length})
+                      </span>
+                      <div className="text-muted-foreground mt-0.5 leading-relaxed">
+                        {clientNames.join(", ")}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Prefix preview + Add button */}
           <div className="flex items-center justify-between gap-3 pt-1">
             {resolvedDialPrefix ? (
@@ -1407,10 +1469,144 @@ function SendRateTab({
   );
 }
 // ── Jobs Tab ───────────────────────────────────────────────────────────────────
+function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => void; statusBg: Record<string, string> }) {
+  const [showTech, setShowTech] = useState(false);
+  const methodLabel = job.pushMethod === 'upload_token' ? 'XLSX Upload'
+    : job.pushMethod === 'portal_csv' ? 'Portal CSV'
+    : job.pushMethod ?? '—';
+  const clientDisplay = job.clientNames || (
+    job.totalClients > 0 ? `${job.pushedClients ?? 0}/${job.totalClients} client${job.totalClients > 1 ? 's' : ''}` : '—'
+  );
+  const moduleLabel = job.notificationType ? 'Notifications' : 'Send Rate';
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
+      <div className="fixed right-0 top-0 bottom-0 w-[440px] bg-background border-l border-border z-50 flex flex-col shadow-2xl animate-in slide-in-from-right duration-200">
+        {/* Drawer header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 flex-shrink-0">
+          <span className="font-semibold text-sm flex items-center gap-2">
+            <Clock className="w-4 h-4 text-muted-foreground" />
+            Job Details
+            <span className="font-mono text-[10px] text-muted-foreground/50 ml-1">#{job.jobId ?? job.id}</span>
+          </span>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Summary */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+            <div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Client</div>
+              <div className="font-medium truncate">{clientDisplay}</div>
+              {(job.failedClients ?? 0) > 0 && <div className="text-red-400 text-[10px]">{job.failedClients} failed</div>}
+            </div>
+            <div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">KAM</div>
+              <div>{job.createdBy ?? '—'}</div>
+            </div>
+            <div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Product</div>
+              <div>{job.productName ?? '—'}</div>
+            </div>
+            <div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Module</div>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">{moduleLabel}</span>
+            </div>
+            <div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Status</div>
+              <span className={cn('text-[10px] font-medium capitalize border px-1.5 py-0.5 rounded', statusBg[job.status] ?? 'text-muted-foreground')}>{job.status}</span>
+            </div>
+            <div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Created</div>
+              <div className="text-muted-foreground text-[10px]">
+                {job.createdAt ? new Date(job.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+              </div>
+            </div>
+          </div>
+
+          {/* Rate changes */}
+          {job.pushResults && job.pushResults.length > 0 && (
+            <div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-2">
+                Rate Changes ({job.pushResults.length})
+              </div>
+              <div className="border border-border/30 rounded-lg overflow-hidden">
+                <div className="max-h-60 overflow-y-auto">
+                  {job.pushResults.map((r: any, i: number) => (
+                    <div key={i} className={cn(
+                      'flex items-center gap-2 text-[10px] px-3 py-1.5 border-b border-border/10 last:border-0',
+                      r.success ? 'text-foreground' : 'text-red-400/80'
+                    )}>
+                      {r.success
+                        ? <Check className="w-3 h-3 text-green-400 shrink-0" />
+                        : <X className="w-3 h-3 text-red-400 shrink-0" />}
+                      <span className="flex-1 truncate">{r.dest || displayPrefix(r.prefix) || '—'}</span>
+                      {r.oldRate && r.newRate && (
+                        <span className="text-muted-foreground/60 shrink-0 font-mono">
+                          {Number(r.oldRate).toFixed(4)} → <span className={r.success ? 'text-green-400' : ''}>{Number(r.newRate).toFixed(4)}</span>
+                        </span>
+                      )}
+                      {!r.success && r.message && (
+                        <span className="text-red-400/60 text-[9px] shrink-0 max-w-[120px] truncate">{r.message}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Technical details — collapsed */}
+          <div className="border border-border/20 rounded-lg overflow-hidden">
+            <button
+              className="w-full flex items-center justify-between px-3 py-2 text-[10px] text-muted-foreground hover:bg-muted/20 transition-colors"
+              onClick={() => setShowTech(v => !v)}
+            >
+              <span className="uppercase tracking-wide font-medium">Technical Details</span>
+              <span className={cn('transition-transform text-[10px]', showTech ? 'rotate-180' : '')}>▾</span>
+            </button>
+            {showTech && (
+              <div className="px-3 pb-3 pt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-[10px] border-t border-border/20">
+                <div>
+                  <div className="text-[9px] text-muted-foreground uppercase mb-0.5">Job ID (internal)</div>
+                  <div className="font-mono text-muted-foreground/60">{job.jobId ?? '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-muted-foreground uppercase mb-0.5">Push Method</div>
+                  <div className="text-blue-400">{methodLabel}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-muted-foreground uppercase mb-0.5">Full Prefix</div>
+                  <div className="font-mono text-muted-foreground/60">{job.fullPrefix ?? '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-muted-foreground uppercase mb-0.5">Verification</div>
+                  <div className={job.verificationResult === 'confirmed' ? 'text-green-400' : job.verificationResult === 'mismatch' ? 'text-red-400' : 'text-muted-foreground'}>
+                    {job.verificationResult ?? '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-muted-foreground uppercase mb-0.5">Switch</div>
+                  <div className="font-mono text-muted-foreground/60 truncate">{job.switchName ?? '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] text-muted-foreground uppercase mb-0.5">Format</div>
+                  <div className="text-muted-foreground/60">{job.format ?? '—'}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function JobsTab() {
   const { data: jobs = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/rate-manager/jobs"] });
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-
+  const [drawerJob, setDrawerJob] = useState<any>(null);
   const STATUS_BG: Record<string, string> = {
     completed:  "bg-green-400/10 text-green-400 border-green-400/30",
     partial:    "bg-amber-400/10 text-amber-400 border-amber-400/30",
@@ -1418,14 +1614,13 @@ function JobsTab() {
     pending:    "bg-muted/30 text-muted-foreground border-border",
     processing: "bg-blue-400/10 text-blue-400 border-blue-400/30",
   };
-
   return (
-    <div className="flex-1 overflow-auto p-4">
+    <div className="flex-1 overflow-auto p-4 relative">
       <div className="text-sm font-semibold mb-1 flex items-center gap-2">
         <Clock className="w-4 h-4 text-muted-foreground" />
         Rate Push History
       </div>
-      <p className="text-[10px] text-muted-foreground/60 mb-3">Click a row to see technical details</p>
+      <p className="text-[10px] text-muted-foreground/60 mb-3">Click View to see job details</p>
       {isLoading ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground py-8 justify-center">
           <Loader2 className="w-4 h-4 animate-spin" /> Loading…
@@ -1435,122 +1630,65 @@ function JobsTab() {
       ) : (
         <table className="w-full text-xs border-collapse">
           <thead>
-            <tr className="border-b border-border/60 bg-muted/30 backdrop-blur">
-              {["Client(s)", "Product", "Destination", "Prefix", "Rate", "Effective", "Type", "Status", "Date"].map(h => (
+            <tr className="border-b border-border/60 bg-muted/30 backdrop-blur sticky top-0">
+              {["#", "Client", "KAM", "Module", "Product", "Dests", "Status", "Created", ""].map(h => (
                 <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {jobs.map((j: any) => {
-              const isExpanded = expandedId === j.id;
-              const verColor = j.verificationResult === 'confirmed' ? 'text-green-400'
-                : j.verificationResult === 'mismatch' ? 'text-red-400'
-                : 'text-muted-foreground';
-              const methodLabel = j.pushMethod === 'upload_token' ? 'XLSX Upload'
-                : j.pushMethod === 'portal_csv' ? 'Portal CSV'
-                : j.pushMethod ?? '—';
-              const rateDisplay = j.newRate
-                ? (isNaN(Number(j.newRate)) ? j.newRate : `$${Number(j.newRate).toFixed(5)}`)
-                : "—";
               const clientDisplay = j.clientNames || (
-                j.totalClients > 0 ? `${j.pushedClients ?? 0}/${j.totalClients} client${j.totalClients > 1 ? 's' : ''}` : "—"
+                j.totalClients > 0 ? `${j.pushedClients ?? 0}/${j.totalClients} client${j.totalClients > 1 ? 's' : ''}` : '—'
               );
-              const destDisplay = j.destinationName || "—";
-              const prefixDisplay = j.dialPrefix || displayPrefix(j.fullPrefix) || "—";
-
+              const moduleLabel = j.notificationType ? 'Notifications' : 'Send Rate';
+              const destCount = j.destinationCount ?? j.pushResults?.length ?? null;
               return (
-                <>
-                  <tr
-                    key={j.id}
-                    className="border-b border-border/20 hover:bg-muted/10 cursor-pointer"
-                    onClick={() => setExpandedId(isExpanded ? null : j.id)}
-                    data-testid={`row-job-${j.id}`}
-                  >
-                    <td className="py-2 px-3 max-w-[180px]">
-                      <div className="truncate" title={clientDisplay}>{clientDisplay}</div>
-                      {(j.failedClients ?? 0) > 0 && (
-                        <div className="text-red-400 text-[10px]">{j.failedClients} failed</div>
-                      )}
-                    </td>
-                    <td className="py-2 px-3 whitespace-nowrap">{j.productName ?? "—"}</td>
-                    <td className="py-2 px-3 max-w-[160px]">
-                      <div className="truncate text-foreground/80" title={destDisplay}>{destDisplay}</div>
-                    </td>
-                    <td className="py-2 px-3 font-mono text-amber-400 whitespace-nowrap">{prefixDisplay}</td>
-                    <td className="py-2 px-3 font-mono tabular-nums whitespace-nowrap">{rateDisplay}</td>
-                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
-                      {j.effectiveAt ? String(j.effectiveAt).slice(0, 10) : "—"}
-                    </td>
-                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap text-[10px]">
-                      {j.notificationType ?? "—"}
-                    </td>
-                    <td className="py-2 px-3">
-                      <span className={cn("text-[10px] font-medium capitalize border px-1.5 py-0.5 rounded", STATUS_BG[j.status] ?? "text-muted-foreground")}>
-                        {j.status}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">
-                      {j.completedAt ? new Date(j.completedAt).toLocaleDateString() : "—"}
-                    </td>
-                  </tr>
-                  {isExpanded && (
-                    <tr key={`${j.id}-detail`} className="bg-muted/10 border-b border-border/30">
-                      <td colSpan={9} className="px-4 py-3">
-                        <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-[11px] sm:grid-cols-4">
-                          <div>
-                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Job ID</span>
-                            <div className="font-mono text-muted-foreground/80">{j.jobId}</div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Push Method</span>
-                            <div className={j.pushMethod ? "text-blue-400" : "text-muted-foreground"}>{methodLabel}</div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Verified</span>
-                            <div className={cn("capitalize", verColor)}>{j.verificationResult ?? "—"}</div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Switch</span>
-                            <div className="font-mono text-[10px] text-muted-foreground/70 truncate">{j.switchName ?? "—"}</div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Internal Prefix</span>
-                            <div className="font-mono text-muted-foreground/60">{j.fullPrefix ?? "—"}</div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Format</span>
-                            <div className="text-muted-foreground/60">{j.format ?? "—"}</div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">By</span>
-                            <div className="text-muted-foreground/60 truncate">{j.createdBy ?? "—"}</div>
-                          </div>
-                          {j.pushResults && j.pushResults.length > 0 && (
-                            <div className="col-span-2 sm:col-span-4 mt-1">
-                              <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Per-destination results</span>
-                              <div className="mt-1 max-h-32 overflow-auto space-y-0.5">
-                                {j.pushResults.map((r: any, i: number) => (
-                                  <div key={i} className={cn("flex items-center gap-2 text-[10px] py-0.5 border-b border-border/10",
-                                    r.success ? "text-green-400" : "text-red-400")}>
-                                    {r.success ? <Check className="w-3 h-3 shrink-0" /> : <X className="w-3 h-3 shrink-0" />}
-                                    <span className="font-mono">{displayPrefix(r.prefix)}</span>
-                                    <span className="text-muted-foreground">{r.dest}</span>
-                                    {!r.success && <span className="ml-auto text-[10px]">{r.message}</span>}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
+                <tr
+                  key={j.id}
+                  className="border-b border-border/20 hover:bg-muted/10 cursor-pointer"
+                  onClick={() => setDrawerJob(j)}
+                  data-testid={`row-job-${j.id}`}
+                >
+                  <td className="py-2 px-3 font-mono text-[10px] text-muted-foreground/50 whitespace-nowrap">{j.jobId ?? j.id}</td>
+                  <td className="py-2 px-3 max-w-[160px]">
+                    <div className="truncate font-medium text-foreground" title={clientDisplay}>{clientDisplay}</div>
+                    {(j.failedClients ?? 0) > 0 && (
+                      <div className="text-red-400 text-[10px]">{j.failedClients} failed</div>
+                    )}
+                  </td>
+                  <td className="py-2 px-3 text-muted-foreground whitespace-nowrap text-[10px]">{j.createdBy ?? '—'}</td>
+                  <td className="py-2 px-3 whitespace-nowrap">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">{moduleLabel}</span>
+                  </td>
+                  <td className="py-2 px-3 whitespace-nowrap text-[11px]">{j.productName ?? '—'}</td>
+                  <td className="py-2 px-3 text-center whitespace-nowrap">
+                    <span className="font-mono tabular-nums text-[11px]">{destCount !== null ? destCount : '—'}</span>
+                  </td>
+                  <td className="py-2 px-3">
+                    <span className={cn('text-[10px] font-medium capitalize border px-1.5 py-0.5 rounded', STATUS_BG[j.status] ?? 'text-muted-foreground')}>
+                      {j.status}
+                    </span>
+                  </td>
+                  <td className="py-2 px-3 text-muted-foreground whitespace-nowrap text-[10px]">
+                    {j.completedAt ? new Date(j.completedAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '—'}
+                  </td>
+                  <td className="py-2 px-3">
+                    <button
+                      onClick={e => { e.stopPropagation(); setDrawerJob(j); }}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:border-blue-400/50 px-2 py-0.5 rounded transition-colors whitespace-nowrap"
+                    >
+                      View
+                    </button>
+                  </td>
+                </tr>
               );
             })}
           </tbody>
         </table>
+      )}
+      {drawerJob && (
+        <PushJobDrawer job={drawerJob} onClose={() => setDrawerJob(null)} statusBg={STATUS_BG} />
       )}
     </div>
   );
@@ -1631,6 +1769,32 @@ function ProductRatesTab({ products }: { products: Product[] }) {
             <Plus className="w-3 h-3" /> Add Rate
           </button>
         </div>
+        {/* Product Rates KPI Strip */}
+        {selectedProductId && rates.length > 0 && (() => {
+          const now = new Date();
+          const active    = rates.filter((r: any) => !r.effectiveTo || new Date(r.effectiveTo) >= now).length;
+          const scheduled = rates.filter((r: any) => new Date(r.effectiveFrom) > now).length;
+          const latestMs  = Math.max(...rates.map((r: any) => new Date(r.effectiveFrom).getTime()));
+          const latest    = isFinite(latestMs) ? new Date(latestMs).toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+          const tiles = [
+            { label: "Destinations",  value: String(rates.length), cls: "text-blue-400   border-blue-500/20  bg-blue-500/8"   },
+            { label: "Active",        value: String(active),        cls: "text-green-400  border-green-500/20 bg-green-500/8"  },
+            { label: "Scheduled",     value: String(scheduled),     cls: "text-amber-400  border-amber-500/20 bg-amber-500/8"  },
+            { label: "Last Effective",value: latest,                cls: "text-purple-400 border-purple-500/20 bg-purple-500/8" },
+          ];
+          return (
+            <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/20 flex-shrink-0 overflow-x-auto">
+              {tiles.map(t => (
+                <div key={t.label} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border shrink-0 ${t.cls}`}>
+                  <div>
+                    <div className="text-sm font-bold tabular-nums leading-tight">{t.value}</div>
+                    <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">{t.label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {showForm && (
           <div className="border-b border-border/30 bg-muted/5 px-4 py-3 flex flex-wrap gap-3 items-end">
@@ -2049,71 +2213,230 @@ function NewTemplateModal({
   products, onClose, onSaved,
 }: { products: Product[]; onClose: () => void; onSaved: (t: RnTemplate) => void }) {
   const { toast } = useToast();
+  const [companySearch, setCompanySearch] = useState("");
+  const [selectedCompany, setSelectedCompany] = useState<any>(null);
+  const [showDrop, setShowDrop] = useState(false);
+  const [recipientList, setRecipientList] = useState<string[]>([""]);
+  const [ccList, setCcList] = useState<string[]>([]);
   const [form, setForm] = useState({
-    clientName: "", productId: "", notificationType: "default",
-    recipients: "", ccEmails: "", trafficFormat: "",
+    clientName: "", productId: "", notificationType: "default", trafficFormat: "",
   });
+
+  const { data: allCompanies = [] } = useQuery<any[]>({
+    queryKey: ["/api/companies/all"],
+    queryFn: () => fetch("/api/companies").then(r => r.json()).then((d: any) => Array.isArray(d) ? d : (d.companies ?? [])),
+  });
+  const companies = companySearch.length >= 1
+    ? allCompanies.filter((co: any) => {
+        const name = (co.name || co.companyName || "").toLowerCase();
+        return name.includes(companySearch.toLowerCase());
+      })
+    : [];
+
+  const selectCompany = (co: any) => {
+    setSelectedCompany(co);
+    setCompanySearch(co.name || co.companyName || "");
+    setShowDrop(false);
+    setForm(p => ({ ...p, clientName: co.name || co.companyName || "" }));
+    // Auto-populate emails from company profile
+    const primary = co.email || co.primaryEmail || co.billingEmail || co.contactEmail || "";
+    const rawCc = co.ccEmails || co.cc_emails || co.ccEmail || [];
+    if (primary) setRecipientList([primary]);
+    const ccArr = Array.isArray(rawCc)
+      ? rawCc
+      : typeof rawCc === "string" && rawCc
+        ? rawCc.split(",").map((e: string) => e.trim()).filter(Boolean)
+        : [];
+    if (ccArr.length) setCcList(ccArr);
+  };
+
   const saveMut = useMutation({
     mutationFn: () => apiRequest("POST", "/api/rate-notification-templates", {
-      ...form, productId: Number(form.productId),
+      ...form,
+      productId: Number(form.productId),
+      recipients: recipientList.filter(Boolean).join(", "),
+      ccEmails: ccList.filter(Boolean).join(", "),
     }),
     onSuccess: (res: any) => { toast({ title: "Template created" }); onSaved(res); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
-  const f = (k: keyof typeof form, v: string) => setForm(p => ({ ...p, [k]: v }));
+
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setShowDrop(false); }}>
       <div className="bg-background border border-border rounded-lg w-full max-w-lg overflow-hidden shadow-xl">
+        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-          <span className="text-sm font-semibold flex items-center gap-2"><BellRing className="w-4 h-4 text-amber-400" /> New Rate Notification Template</span>
+          <span className="text-sm font-semibold flex items-center gap-2">
+            <BellRing className="w-4 h-4 text-amber-400" /> New Rate Notification Template
+          </span>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
         </div>
-        <div className="p-4 flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1 col-span-2">
-              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Client Name *</label>
-              <input data-testid="input-tpl-client" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
-                placeholder="e.g. Telstra" value={form.clientName} onChange={e => f("clientName", e.target.value)} />
+
+        <div className="p-4 flex flex-col gap-3 max-h-[68vh] overflow-y-auto">
+
+          {/* Client search */}
+          <div className="flex flex-col gap-1 relative">
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Client *</label>
+            <div className="relative">
+              <input
+                className="bg-muted border border-border rounded px-2 py-1.5 text-xs w-full pr-7 focus:outline-none focus:border-amber-500/50"
+                placeholder="Search company…"
+                value={companySearch}
+                onChange={e => {
+                  setCompanySearch(e.target.value);
+                  setShowDrop(true);
+                  setSelectedCompany(null);
+                  setForm(p => ({ ...p, clientName: e.target.value }));
+                }}
+                onFocus={() => companySearch.length >= 1 && setShowDrop(true)}
+              />
+              <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none" />
             </div>
+            {showDrop && companySearch.length >= 1 && companies.length > 0 && (
+              <div className="absolute top-full left-0 right-0 z-50 bg-background border border-border rounded-lg shadow-xl mt-1 max-h-48 overflow-y-auto">
+                {companies.slice(0, 12).map((co: any) => (
+                  <button
+                    key={co.id}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/50 flex items-center gap-2 border-b border-border/20 last:border-0 transition-colors"
+                    onClick={() => selectCompany(co)}
+                  >
+                    <Building2 className="w-3 h-3 text-muted-foreground/50 shrink-0" />
+                    <span className="font-medium flex-1">{co.name || co.companyName}</span>
+                    {(co.email || co.primaryEmail) && (
+                      <span className="text-muted-foreground/50 text-[10px] truncate max-w-[150px]">
+                        {co.email || co.primaryEmail}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+            {selectedCompany && (
+              <div className="text-[10px] text-green-400 flex items-center gap-1 mt-0.5">
+                <Check className="w-3 h-3" /> {selectedCompany.name || selectedCompany.companyName}
+                {(selectedCompany.email || selectedCompany.primaryEmail) && (
+                  <span className="text-muted-foreground/60 ml-1">· emails auto-filled</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Product + Type */}
+          <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Product *</label>
-              <select data-testid="select-tpl-product" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
-                value={form.productId} onChange={e => f("productId", e.target.value)}>
+              <select
+                data-testid="select-tpl-product"
+                className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                value={form.productId}
+                onChange={e => setForm(p => ({ ...p, productId: e.target.value }))}
+              >
                 <option value="">— Select product —</option>
                 {products.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Notification Type</label>
-              <select data-testid="select-tpl-type" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
-                value={form.notificationType} onChange={e => f("notificationType", e.target.value)}>
+              <select
+                data-testid="select-tpl-type"
+                className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                value={form.notificationType}
+                onChange={e => setForm(p => ({ ...p, notificationType: e.target.value }))}
+              >
                 <option value="default">DEFAULT — standard update</option>
                 <option value="changes_only">CHANGES — partial/delta only</option>
                 <option value="full_sheet">FULL — complete A–Z sheet</option>
               </select>
             </div>
-            <div className="flex flex-col gap-1 col-span-2">
-              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Recipients (comma-separated emails)</label>
-              <input data-testid="input-tpl-recipients" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
-                placeholder="john@carrier.com, noc@carrier.com" value={form.recipients} onChange={e => f("recipients", e.target.value)} />
+          </div>
+
+          {/* Recipients */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Recipients *</label>
+              <button
+                onClick={() => setRecipientList(l => [...l, ""])}
+                className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-0.5 transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Add Recipient
+              </button>
             </div>
-            <div className="flex flex-col gap-1 col-span-2">
-              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">CC Emails (optional)</label>
-              <input data-testid="input-tpl-cc" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
-                placeholder="manager@carrier.com" value={form.ccEmails} onChange={e => f("ccEmails", e.target.value)} />
+            {recipientList.map((email, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <input
+                  className="bg-muted border border-border rounded px-2 py-1.5 text-xs flex-1 focus:outline-none focus:border-amber-500/50"
+                  placeholder="email@company.com"
+                  value={email}
+                  onChange={e => setRecipientList(l => l.map((x, idx) => idx === i ? e.target.value : x))}
+                />
+                {recipientList.length > 1 && (
+                  <button
+                    onClick={() => setRecipientList(l => l.filter((_, idx) => idx !== i))}
+                    className="text-muted-foreground/40 hover:text-red-400 transition-colors p-0.5"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* CC */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">CC (optional)</label>
+              <button
+                onClick={() => setCcList(l => [...l, ""])}
+                className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-0.5 transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Add CC
+              </button>
             </div>
-            <div className="flex flex-col gap-1 col-span-2">
-              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Traffic Format (optional)</label>
-              <input data-testid="input-tpl-format" className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
-                placeholder="e.g. E.164 with 9230XXXXXXX" value={form.trafficFormat} onChange={e => f("trafficFormat", e.target.value)} />
-            </div>
+            {ccList.length === 0 ? (
+              <div className="text-[10px] text-muted-foreground/40 italic py-0.5">None — click Add CC to add</div>
+            ) : (
+              ccList.map((email, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <input
+                    className="bg-muted border border-border rounded px-2 py-1.5 text-xs flex-1 focus:outline-none focus:border-blue-500/50"
+                    placeholder="cc@company.com"
+                    value={email}
+                    onChange={e => setCcList(l => l.map((x, idx) => idx === i ? e.target.value : x))}
+                  />
+                  <button
+                    onClick={() => setCcList(l => l.filter((_, idx) => idx !== i))}
+                    className="text-muted-foreground/40 hover:text-red-400 transition-colors p-0.5"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Traffic format */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Traffic Format (optional)</label>
+            <input
+              data-testid="input-tpl-format"
+              className="bg-muted border border-border rounded px-2 py-1.5 text-xs focus:outline-none focus:border-border"
+              placeholder="e.g. E.164 with 9230XXXXXXX"
+              value={form.trafficFormat}
+              onChange={e => setForm(p => ({ ...p, trafficFormat: e.target.value }))}
+            />
           </div>
         </div>
+
+        {/* Footer */}
         <div className="flex gap-2 px-4 py-3 border-t border-border/50">
-          <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !form.clientName || !form.productId}
+          <button
+            onClick={() => saveMut.mutate()}
+            disabled={saveMut.isPending || !form.clientName || !form.productId || !recipientList.some(Boolean)}
             data-testid="btn-save-template"
-            className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors">
-            {saveMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Create Template
+            className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors"
+          >
+            {saveMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+            Create Template
           </button>
           <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5">Cancel</button>
         </div>
@@ -2933,6 +3256,11 @@ export default function RateManagerPage() {
 
   const isLoading = prodLoading || acctLoading;
 
+  const { data: kpiStats } = useQuery<any>({
+    queryKey: ["/api/rate-manager/kpi"],
+    queryFn: () => fetch("/api/rate-manager/kpi").then(r => r.ok ? r.json() : null).catch(() => null),
+    staleTime: 60_000,
+  });
   const TABS = [
     { key: "analysis"      as const, label: "Rate Analysis"   },
     { key: "send"          as const, label: "Send Rate"        },
@@ -2978,7 +3306,7 @@ export default function RateManagerPage() {
           {activeProductId && accountsData && accountsData.accounts.length === 0 && !acctLoading && (
             <span className={`text-[10px] flex items-center gap-1 ${(accountsData as any).syncing ? 'text-blue-400' : 'text-amber-400'}`}>
               {(accountsData as any).syncing
-                ? <><Loader2 className="w-3 h-3 animate-spin" />Syncing tariff data from Sippy…</>
+                ? <><Loader2 className="w-3 h-3 animate-spin" />Syncing rate data…</>
                 : <><AlertTriangle className="w-3 h-3" />No clients assigned to this product</>
               }
             </span>
@@ -2993,6 +3321,50 @@ export default function RateManagerPage() {
         </div>
       </div>
 
+      {/* KPI Strip */}
+      <div className="flex-shrink-0 border-b border-border/20 bg-muted/3 px-5 py-2 flex items-center gap-3 overflow-x-auto">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-500/8 shrink-0">
+          <div>
+            <div className="text-base font-bold tabular-nums leading-tight text-blue-400">{products.length || "—"}</div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Products</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-500/20 bg-green-500/8 shrink-0">
+          <div>
+            <div className="text-base font-bold tabular-nums leading-tight text-green-400">
+              {kpiStats?.totalClients != null ? kpiStats.totalClients : accounts.length > 0 ? accounts.length : "—"}
+            </div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Active Clients</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-purple-500/20 bg-purple-500/8 shrink-0">
+          <div>
+            <div className="text-base font-bold tabular-nums leading-tight text-purple-400">
+              {kpiStats?.totalDestinations != null
+                ? Number(kpiStats.totalDestinations).toLocaleString()
+                : allDests.length > 0 ? allDests.length.toLocaleString() : "—"}
+            </div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Destinations</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-500/20 bg-amber-500/8 shrink-0">
+          <div>
+            <div className="text-base font-bold tabular-nums leading-tight text-amber-400">
+              {kpiStats?.todayPushes != null ? kpiStats.todayPushes : "—"}
+            </div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Today&apos;s Pushes</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-500/20 bg-green-500/8 shrink-0">
+          <div>
+            <div className="text-base font-bold tabular-nums leading-tight text-green-400">
+              {kpiStats?.successRate != null ? kpiStats.successRate + "%" : "—"}
+            </div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Success Rate</div>
+            <div className="text-[9px] text-muted-foreground/50 leading-tight">30 days</div>
+          </div>
+        </div>
+      </div>
       {/* Tab content */}
       {activeTab === "analysis"      && <AnalysisTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
       {activeTab === "send"          && <SendRateTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}

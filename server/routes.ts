@@ -9884,11 +9884,19 @@ export async function registerRoutes(
         return res.json({ accounts: [], productName: product?.name ?? null, syncing: true });
       }
 
+      // Filter to only clients assigned to this product
+      const assignments = await db.select({ iAccount: customerProductAssignments.iAccount })
+        .from(customerProductAssignments)
+        .where(and(
+          eq(customerProductAssignments.productId, productId),
+          eq(customerProductAssignments.status, 'active')
+        ));
+      const assignedIds = new Set(assignments.map((a: any) => a.iAccount));
       const accounts = Array.from(cache.entries()).map(([iAccountStr, name]) => {
         const iAccount = parseInt(iAccountStr, 10);
         const tariffName = _tariffProductCache.labels.get(iAccount) ?? null;
         return { iAccount, username: name, tariffName, balance: null };
-      }).filter(a => a.iAccount > 0);
+      }).filter(a => a.iAccount > 0 && assignedIds.has(a.iAccount));
 
       return res.json({
         accounts,

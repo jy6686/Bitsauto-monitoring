@@ -20,8 +20,8 @@
 
 import type { Express } from 'express';
 import { db } from './db';
-import { eq, desc, and, gte } from 'drizzle-orm';
-import { productRates, rateNotifications, companies, customerProductAssignments, productRegistry, ratePushJobs } from '@shared/schema';
+import { eq, desc, and, gte, sql } from 'drizzle-orm';
+import { productRates, rateNotifications, companies, customerProductAssignments, productRegistry, ratePushJobs, globalDestinations } from '@shared/schema';
 import { reconcilePerRow } from './services/sippy/sippy-reconciliation.service';
 import { storage } from './storage';
 import * as sippy from './sippy';
@@ -593,4 +593,46 @@ export function registerRateManagerRoutes(app: Express) {
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+  // ── KPI Strip ──────────────────────────────────────────────────────────────
+  // GET /api/rate-manager/kpi
+  app.get('/api/rate-manager/kpi',
+    (req: any, res: any, next: any) => requireRole(['admin','management','support'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const now          = new Date();
+        const todayStart   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const ago30        = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        // Clients
+        const allCompanies  = await storage.getCompanies();
+        const totalClients  = allCompanies.length;
+
+        // Destinations
+        let totalDestinations = 0;
+        try {
+          const dRows = await db.select({ n: sql<number>`count(*)::int` }).from(globalDestinations);
+          totalDestinations = Number(dRows[0]?.n ?? 0);
+        } catch { /* table may not exist yet */ }
+
+        // Today pushes
+        const tRows      = await db.select({ n: sql<number>`count(*)::int` })
+          .from(ratePushJobs).where(gte(ratePushJobs.createdAt, todayStart));
+        const todayPushes = Number(tRows[0]?.n ?? 0);
+
+        // 30-day success rate
+        const rRows = await db.select({
+          status: ratePushJobs.status,
+          n:      sql<number>`count(*)::int`,
+        }).from(ratePushJobs).where(gte(ratePushJobs.createdAt, ago30)).groupBy(ratePushJobs.status);
+        const total30   = rRows.reduce((s, r) => s + Number(r.n), 0);
+        const success30 = rRows.filter(r => r.status === 'completed').reduce((s, r) => s + Number(r.n), 0);
+        const successRate = total30 > 0 ? Math.round((success30 / total30) * 100) : null;
+
+        res.json({ totalClients, totalDestinations, todayPushes, successRate });
+      } catch (e: any) {
+        res.status(500).json({ error: e.message });
+      }
+    }
+  );
+
 }
