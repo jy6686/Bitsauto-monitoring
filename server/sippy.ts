@@ -6401,6 +6401,7 @@ function normSippyDate(raw?: string | Date): string {
 export async function pushRateToSippy(opts: {
   accountName: string;
   iTariff?: string;
+  iAccount?: string;
   prefix: string;
   ratePerMin: number;
   effectiveFrom?: string | Date;
@@ -6417,8 +6418,29 @@ export async function pushRateToSippy(opts: {
   // If iTariff was passed directly from the UI, skip the expensive customer lookup
   let customer: { i_account: string; i_tariff: string } | null = null;
   if (opts.iTariff) {
-    customer = { i_account: '', i_tariff: opts.iTariff };
+    customer = { i_account: opts.iAccount ?? '', i_tariff: opts.iTariff };
     console.log(`[Sippy] pushRate using provided iTariff=${opts.iTariff} for "${opts.accountName}"`);
+  } else if (opts.iAccount) {
+    // Direct lookup by Sippy i_account — avoids name-mismatch in findSippyCustomer
+    try {
+      const body = xmlRpcCall('customer.getAccount', { i_account: Number(opts.iAccount) });
+      const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
+      if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+        const structs = extractAllTags(resp.body, 'struct');
+        if (structs.length > 0) {
+          const m = extractStructMembers(structs[0]);
+          const i_tariff = m['i_tariff'] || m['tariff_id'] || '';
+          if (i_tariff) {
+            customer = { i_account: opts.iAccount, i_tariff };
+            console.log(`[Sippy] pushRate: customer.getAccount(${opts.iAccount}) → i_tariff=${i_tariff}`);
+          }
+        }
+      }
+    } catch (e: any) { console.log(`[Sippy] customer.getAccount failed: ${e.message}`); }
+    if (!customer) {
+      customer = await findSippyCustomer(apiUrl, credentials.username, credentials.password, opts.accountName);
+      console.log(`[Sippy] pushRate fallback name lookup for "${opts.accountName}":`, customer);
+    }
   } else {
     customer = await findSippyCustomer(apiUrl, credentials.username, credentials.password, opts.accountName);
     console.log(`[Sippy] pushRate customer lookup for "${opts.accountName}":`, customer);

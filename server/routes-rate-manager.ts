@@ -282,6 +282,12 @@ export function registerRateManagerRoutes(app: Express) {
           accountNames = iAccounts
             .map(ia => allCompanies.find(c => c.sippyIAccount === ia)?.name)
             .filter((n): n is string => Boolean(n));
+          // Also build iAccount→sippyIAccount map for direct tariff lookup
+          const accountIAccountMap: Record<string, string> = {};
+          for (const ia of iAccounts) {
+            const c = allCompanies.find(co => co.sippyIAccount === ia);
+            if (c?.name) accountIAccountMap[c.name] = String(ia);
+          }
         }
 
         if (accountNames.length === 0) {
@@ -298,6 +304,7 @@ export function registerRateManagerRoutes(app: Express) {
             const r = await sippy.pushRateToSippy(
               {
                 accountName,
+                iAccount:    accountIAccountMap[accountName],
                 prefix:      dialPrefix,   // PLATFORM RULE: dialPrefix only — trunkPrefix is BitsAuto-internal, Sippy never receives fullPrefix
                 ratePerMin,
                 effectiveFrom: rateRow.effectiveFrom ? new Date(rateRow.effectiveFrom) : undefined,
