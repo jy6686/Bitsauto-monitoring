@@ -9820,9 +9820,10 @@ export async function registerRoutes(
         return { assigned: 0, defaulted: 0, errors: 0 };
       }
 
-      // Step 3: for each client, read iBillingPlan from Sippy and resolve tariff name
+      // Step 3: for each client, read iBillingPlan from Sippy and resolve tariff ID + name
       // Chain: client → iBillingPlan (service plan) → iTariff → tariffName
-      const newLabels = new Map<number, string>();
+      const accountTariffMap = new Map<number, number>(); // iAccount → iTariff
+      const newLabels = new Map<number, string>();        // iAccount → tariffName (display)
       let assigned = 0, errors = 0;
       const accountIds = Array.from(cache.keys());
       const BATCH = 4;
@@ -9833,16 +9834,14 @@ export async function registerRoutes(
           if (!iAccount) return;
           try {
             const info = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
-
-            // Resolve tariff: try direct iTariff first, then via service plan (iBillingPlan)
             let iTariff = info?.iTariff ?? 0;
             if (!iTariff && info?.iBillingPlan) {
               iTariff = planToTariff.get(info.iBillingPlan) ?? 0;
             }
-
             if (iTariff) {
               const tariffName = tariffNames.get(iTariff) ?? `Tariff #${iTariff}`;
               newLabels.set(iAccount, tariffName);
+              accountTariffMap.set(iAccount, iTariff);
             }
             assigned++;
           } catch (e: any) {
@@ -9859,7 +9858,78 @@ export async function registerRoutes(
       if (newLabels.size > 0) {
         console.log(`[tariff-sync] resolved: ${Array.from(newLabels.entries()).map(([id, n]) => `${id}→"${n}"`).join(', ')}`);
       }
-      return { assigned, defaulted: 0, errors };
+
+      // ── Step 4: detect product class from tariff rate prefix structure ────
+      // Products define trunk prefixes: FC=1, BC=2, SB=6, SC=7
+      // A tariff's product class is determined by the leading digit of its rates.
+      const commercialProducts = await db.select({
+        id: productRegistry.id,
+        code: productRegistry.code,
+        trunkPrefix: productRegistry.trunkPrefix,
+      }).from(productRegistry).where(eq(productRegistry.status, 'commercial'));
+
+      const prefixToProductId = new Map<string, number>(); // "1"→1(FC), "2"→2(BC), etc.
+      let fcProductId = 1;
+      for (const p of commercialProducts) {
+        if (p.trunkPrefix) prefixToProductId.set(String(p.trunkPrefix), p.id);
+        if (p.code === 'FC') fcProductId = p.id;
+      }
+
+      // Sample first 30 rates per unique tariff to detect which product classes are present
+      const uniqueTariffIds = new Set<number>(accountTariffMap.values());
+      const tariffDetectedProducts = new Map<number, Set<number>>(); // iTariff → Set<productId>
+
+      for (const iTariff of uniqueTariffIds) {
+        const detected = new Set<number>();
+        try {
+          const rates = await sippy.getTariffRatesListFull(username, password, iTariff, undefined, 30);
+          for (const rate of rates) {
+            const prefix = String(rate.prefix ?? '');
+            const leadDigit = prefix.charAt(0);
+            const pid = prefixToProductId.get(leadDigit);
+            if (pid) detected.add(pid);
+          }
+          console.log(`[tariff-sync] Tariff #${iTariff} "${tariffNames.get(iTariff)}": detected productIds=[${[...detected].join(',')}] from ${rates.length} rates`);
+        } catch (e: any) {
+          console.warn(`[tariff-sync] Tariff #${iTariff} rate-sample failed: ${e.message.slice(0, 60)}`);
+        }
+        tariffDetectedProducts.set(iTariff, detected.size > 0 ? detected : new Set([fcProductId]));
+      }
+
+      // ── Step 5: rebuild customer_product_assignments ──────────────────────
+      // Clear all auto-assigned rows (createdBy='tariff-sync'), keep admin rows
+      await db.delete(customerProductAssignments)
+        .where(eq(customerProductAssignments.createdBy, 'tariff-sync'));
+
+      // Fetch all remaining admin-assigned (iAccount, productId) pairs to avoid duplicates
+      const manualRows = await db.select({
+        iAccount: customerProductAssignments.iAccount,
+        productId: customerProductAssignments.productId,
+      }).from(customerProductAssignments);
+      const manualSet = new Set(manualRows.map(r => `${r.iAccount}:${r.productId}`));
+
+      let dbAssigned = 0, defaulted = 0;
+      for (const [iAccount, iTariff] of accountTariffMap.entries()) {
+        const productIds = tariffDetectedProducts.get(iTariff) ?? new Set([fcProductId]);
+        for (const productId of productIds) {
+          if (manualSet.has(`${iAccount}:${productId}`)) continue; // keep manual
+          try {
+            await db.insert(customerProductAssignments).values({
+              iAccount,
+              productId,
+              customerName: cache.get(String(iAccount)) ?? null,
+              status: 'active',
+              createdBy: 'tariff-sync',
+            });
+            dbAssigned++;
+            if (productIds.size === 1 && productId === fcProductId) defaulted++;
+          } catch (e: any) {
+            console.warn(`[tariff-sync] DB insert ${iAccount}→${productId}: ${e.message.slice(0, 60)}`);
+          }
+        }
+      }
+      console.log(`[tariff-sync] product assignments: ${dbAssigned} auto-assigned (${defaulted} defaulted to FC), ${manualRows.length} manual kept`);
+      return { assigned, defaulted, errors };
     } catch (e: any) {
       console.warn('[tariff-sync] rebuild failed:', e.message);
       return { assigned: 0, defaulted: 0, errors: 0 };
@@ -9891,7 +9961,7 @@ export async function registerRoutes(
           eq(customerProductAssignments.productId, productId),
           eq(customerProductAssignments.status, 'active')
         ));
-      const assignedIds = new Set(assignments.map((a: any) => a.iAccount));
+      const assignedIds = new Set(assignments.map((a: any) => Number(a.iAccount)));
       console.log(`[accounts-by-product] productId=${productId} cache.size=${cache.size} assignedIds.size=${assignedIds.size} sample=${JSON.stringify([...assignedIds].slice(0,3))}`);
       const accounts = Array.from(cache.entries()).map(([iAccountStr, name]) => {
         const iAccount = parseInt(iAccountStr, 10);
