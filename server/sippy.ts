@@ -8974,65 +8974,44 @@ async function pushRateViaPortalUpload(
     console.log(`[Sippy] pushRateViaPortalUpload: prefix ${prefix} not in tariff ${iTariff} — building full-tariff XLSX with action=A`);
     console.log(`[Sippy] ACTION=A: iTariff=${iTariff} prefix=${prefix} rate=${rate}`);
     try {
-      const existingBuf = await downloadTariffXlsxFromPortal(base, iTariff, cookies);
-      if (!existingBuf) {
-        return { success: false, message: `Rate add: could not download existing tariff XLSX — manual add required` };
+      const addFormResp = await rawRequest('GET', `${base}/c1/rates_tariff.php?action=&n=0&i_tariff=${iTariff}&i_rate=`, null, {}, cookies);
+      const iRateM = addFormResp.body.match(/name=["']?i_rate["']?[^>]*value=["'](\d+)["']/i)
+                  || addFormResp.body.match(/[?&]i_rate=(\d+)/i)
+                  || addFormResp.body.match(/i_rate.*?(\d{2,})/i);
+      const newIRate = iRateM ? parseInt(iRateM[1], 10) : 0;
+      console.log(`[Sippy] action=add form: newIRate=${newIRate} body=${addFormResp.body.length}B`);
+      if (!newIRate) {
+        return { success: false, message: `Rate add: could not extract new i_rate from Sippy add form` };
       }
-      const wb  = XLSX.read(existingBuf, { type: 'buffer' });
-      const ws  = wb.Sheets[wb.SheetNames[0]];
-      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-      console.log(`[Sippy] Downloaded XLSX: ${rows.length} rows. col2 sample: ${rows.slice(1,5).map((r:any)=>r[2]).join('|')}. col0 sample: ${rows.slice(1,3).map((r:any)=>r[0]).join('|')}`);
-      const addActivation = effectiveFrom ? normDate(effectiveFrom) : null;
-      const addExpiration = effectiveTill  ? normDate(effectiveTill)  : null;
-      // Set Action=U on every existing data row — required for Sippy REPLACE-mode safety
-      for (let i = 1; i < rows.length; i++) {
-        if (rows[i] && rows[i].length > 0) rows[i][0] = 'U';
-      }
-      rows.push(['A', null, prefix, '', 1, 1, rate, rate, 0, 1, addActivation, addExpiration]);
-      console.log(`[Sippy] XLSX after patch: ${rows.length} rows. Last: ${JSON.stringify(rows[rows.length-1])}. First data col0=${rows[1]?.[0]}`);
-      const newWs = XLSX.utils.aoa_to_sheet(rows);
-      const newWb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(newWb, newWs, 'Sheet1');
-      const fullXlsx: Buffer = XLSX.write(newWb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
-      let fileField = 'rate_file';
-      let uploadUrl = `${base}/c1/rates_tariff.php`;
-      try {
-        const pageResp = await rawRequest('GET', `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`, null, {}, cookies);
-        const formM = pageResp.body.match(/<form[^>]+enctype=["']multipart\/form-data["'][^>]*>/i);
-        if (formM) {
-          const aM = formM[0].match(/action=["']([^"']+)["']/i);
-          if (aM) uploadUrl = new URL(aM[1], `${base}/c1/`).toString();
-          const fin = pageResp.body.match(/<input[^>]+type=["']?file["']?[^>]*>/i);
-          if (fin) { const nM = fin[0].match(/name=["']([^"']+)["']/i); if (nM) fileField = nM[1]; }
-        }
-        console.log(`[Sippy] pushRateViaPortalUpload: form → fileField=${fileField} uploadUrl=${uploadUrl} found=${!!formM}`);
-      } catch (fe: any) {
-        console.log(`[Sippy] pushRateViaPortalUpload: form detection failed (${fe?.message}) — using defaults`);
-      }
-      const boundary = `----FormBoundary${Date.now().toString(36)}`;
-      const parts: Buffer[] = [
-        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="i_tariff"\r\n\r\n${iTariff}\r\n`),
-        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${fileField}"; filename="rates.xlsx"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`),
-        fullXlsx,
-        Buffer.from(`\r\n--${boundary}--\r\n`),
-      ];
-      const formBody   = Buffer.concat(parts);
-      const uploadResp = await rawRequestBuf(uploadUrl, formBody, {
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Referer':      `${base}/c1/rates_tariff.php?i_tariff=${iTariff}`,
-      }, cookies);
-      const isLoginPage = uploadResp.body.includes('value="Login"') || uploadResp.body.includes("value='Login'");
-      const hasError    = /class=["']err[^"']*["']/i.test(uploadResp.body.slice(0, 8000));
-      console.log(`[Sippy] pushRateViaPortalUpload: full XLSX action=A → HTTP ${uploadResp.statusCode} ${uploadResp.body.length}B login=${isLoginPage} err=${hasError}`);
-      if (isLoginPage) return { success: false, message: 'Rate add (full XLSX): session rejected — login page returned' };
+      const addParams: Record<string, string> = {
+        action:              'change',
+        i_tariff:            String(iTariff),
+        i_rate:              String(newIRate),
+        prefix,
+        interval_1:          '1',
+        interval_n:          '1',
+        price_1:             String(rate),
+        price_n:             String(rate),
+        grace_period_enable: '1',
+        expiration_date:     'never',
+        save_and_close:      'Save & Close',
+      };
+      if (effectiveFrom) addParams.activation_date = normDate(effectiveFrom);
+      const addQs   = new URLSearchParams(addParams).toString();
+      const addResp = await rawRequest('GET', `${base}/c1/rates_tariff.php?${addQs}`, null,
+        { Referer: `${base}/c1/rates_tariff.php?action=&n=0&i_tariff=${iTariff}&i_rate=` }, cookies);
+      const isLogin  = addResp.body.includes('value="Login"') || addResp.body.includes("value='Login'");
+      const hasError = /class=["']err[^"']*["']/i.test(addResp.body.slice(0, 8000));
+      console.log(`[Sippy] action=add->change: HTTP ${addResp.statusCode} ${addResp.body.length}B login=${isLogin} err=${hasError}`);
+      if (isLogin)    return { success: false, message: 'Rate add: session expired' };
       if (hasError) {
-        const errM = uploadResp.body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
-        return { success: false, message: `Rate add error: ${errM ? errM[1].trim() : 'Sippy returned error on full XLSX action=A'}` };
+        const errM = addResp.body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
+        return { success: false, message: `Rate add error: ${errM ? errM[1].trim() : 'Sippy error on action=add'}` };
       }
-      if (uploadResp.statusCode === 200 && uploadResp.body.length > 5000) {
-        return { success: true, message: `Destination queued: prefix ${prefix} appended to tariff ${iTariff} at ${rate} (full XLSX action=A via ${fileField})` };
+      if (addResp.statusCode === 200 && addResp.body.length > 5000) {
+        return { success: true, message: `New destination: prefix ${prefix} added to tariff ${iTariff} at ${rate} (iRate=${newIRate})` };
       }
-      return { success: false, message: `Rate add: unexpected response (HTTP ${uploadResp.statusCode}, ${uploadResp.body.length}B)` };
+      return { success: false, message: `Rate add: unexpected response HTTP ${addResp.statusCode} ${addResp.body.length}B` };
     } catch (addErr: any) {
       return { success: false, message: `Rate add exception: ${(addErr as any).message}` };
     }
