@@ -8950,6 +8950,7 @@ async function pushRateViaPortalUpload(
 
   if (!targetIRate) {
     console.log(`[Sippy] pushRateViaPortalUpload: prefix ${prefix} not in tariff ${iTariff} — building full-tariff XLSX with action=A`);
+    console.log(`[Sippy] ACTION=A: iTariff=${iTariff} prefix=${prefix} rate=${rate}`);
     try {
       const existingBuf = await downloadTariffXlsxFromPortal(base, iTariff, cookies);
       if (!existingBuf) {
@@ -8958,6 +8959,7 @@ async function pushRateViaPortalUpload(
       const wb  = XLSX.read(existingBuf, { type: 'buffer' });
       const ws  = wb.Sheets[wb.SheetNames[0]];
       const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      console.log(`[Sippy] Downloaded XLSX: ${rows.length} rows. col2 sample: ${rows.slice(1,5).map((r:any)=>r[2]).join('|')}. col0 sample: ${rows.slice(1,3).map((r:any)=>r[0]).join('|')}`);
       const addActivation = effectiveFrom ? normDate(effectiveFrom) : null;
       const addExpiration = effectiveTill  ? normDate(effectiveTill)  : null;
       // Set Action=U on every existing data row — required for Sippy REPLACE-mode safety
@@ -8965,6 +8967,7 @@ async function pushRateViaPortalUpload(
         if (rows[i] && rows[i].length > 0) rows[i][0] = 'U';
       }
       rows.push(['A', null, prefix, '', 1, 1, rate, rate, 0, 1, addActivation, addExpiration]);
+      console.log(`[Sippy] XLSX after patch: ${rows.length} rows. Last: ${JSON.stringify(rows[rows.length-1])}. First data col0=${rows[1]?.[0]}`);
       const newWs = XLSX.utils.aoa_to_sheet(rows);
       const newWb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(newWb, newWs, 'Sheet1');
