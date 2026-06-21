@@ -9892,6 +9892,7 @@ export async function registerRoutes(
           eq(customerProductAssignments.status, 'active')
         ));
       const assignedIds = new Set(assignments.map((a: any) => a.iAccount));
+      console.log(`[accounts-by-product] productId=${productId} cache.size=${cache.size} assignedIds.size=${assignedIds.size} sample=${JSON.stringify([...assignedIds].slice(0,3))}`);
       const accounts = Array.from(cache.entries()).map(([iAccountStr, name]) => {
         const iAccount = parseInt(iAccountStr, 10);
         const tariffName = _tariffProductCache.labels.get(iAccount) ?? null;

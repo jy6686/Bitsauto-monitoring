@@ -517,8 +517,8 @@ export function registerRateManagerRoutes(app: Express) {
       }> = [];
 
       for (const prod of products) {
-        const prodRates   = rates.filter(r => r.productId === prod.id);
-        const customers   = assignments.filter(a => a.productId === prod.id);
+        const prodRates   = rates.filter(r => Number(r.productId) === Number(prod.id));
+        const customers   = assignments.filter(a => Number(a.productId) === Number(prod.id));
         const avgRate     = prodRates.length > 0
           ? prodRates.reduce((s, r) => s + Number(r.rate), 0) / prodRates.length
           : null;

@@ -743,7 +743,7 @@ function AnalysisTab({
 
         <SidebarSection title="Carrier">
           <MultiSelect
-            options={accounts.map(a => ({ value: String(a.iAccount), label: a.username }))}
+            options={accounts.map(a => ({ value: String(a.iAccount), label: a.username || `Account ${a.iAccount}` }))}
             value={selectedCarriers}
             onChange={setSelectedCarriers}
             placeholder="All carriers"
@@ -1126,7 +1126,7 @@ function SendRateTab({
 
         <SidebarSection title="Clients">
           <MultiSelect
-            options={accounts.map(a => ({ value: String(a.iAccount), label: a.username }))}
+            options={accounts.map(a => ({ value: String(a.iAccount), label: a.username || `Account ${a.iAccount}` }))}
             value={selectedClients}
             onChange={setSelectedClients}
             placeholder="Select clients"
@@ -3303,7 +3303,7 @@ export default function RateManagerPage() {
               )}
             </span>
           )}
-          {activeProductId && accountsData && accountsData.accounts.length === 0 && !acctLoading && (
+          {(activeTab === "analysis" || activeTab === "send") && activeProductId && accountsData && accountsData.accounts.length === 0 && !acctLoading && (
             <span className={`text-[10px] flex items-center gap-1 ${(accountsData as any).syncing ? 'text-blue-400' : 'text-amber-400'}`}>
               {(accountsData as any).syncing
                 ? <><Loader2 className="w-3 h-3 animate-spin" />Syncing rate data…</>
@@ -3350,18 +3350,9 @@ export default function RateManagerPage() {
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-500/20 bg-amber-500/8 shrink-0">
           <div>
             <div className="text-base font-bold tabular-nums leading-tight text-amber-400">
-              {kpiStats?.todayPushes != null ? kpiStats.todayPushes : "—"}
+              {allDests.filter((d: DestNode) => d.level === 1).length || "—"}
             </div>
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Today&apos;s Pushes</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-500/20 bg-green-500/8 shrink-0">
-          <div>
-            <div className="text-base font-bold tabular-nums leading-tight text-green-400">
-              {kpiStats?.successRate != null ? kpiStats.successRate + "%" : "—"}
-            </div>
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Success Rate</div>
-            <div className="text-[9px] text-muted-foreground/50 leading-tight">30 days</div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Countries</div>
           </div>
         </div>
       </div>
