@@ -286,15 +286,10 @@ function RateDetailPanel({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-muted/20 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-gradient-to-r from-muted/30 to-muted/10 flex-shrink-0">
         <div className="flex items-center gap-2">
           <Eye className="w-3.5 h-3.5 text-primary" />
           <span className="text-sm font-semibold">{account.username}</span>
-          {iTariff && (
-            <span className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">
-              Tariff #{iTariff}
-            </span>
-          )}
           {trunkPrefix && (
             <span className="text-[10px] text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded font-mono">
               Prefix: {trunkPrefix}xxxxx
@@ -313,7 +308,7 @@ function RateDetailPanel({
       {isLoading ? (
         <div className="flex-1 flex items-center justify-center gap-2 text-muted-foreground text-xs">
           <Loader2 className="w-4 h-4 animate-spin" />
-          {infoLoading ? "Looking up account tariff…" : `Loading rates for Tariff #${iTariff}…`}
+          {infoLoading ? "Looking up account tariff…" : `Loading rates…`}
         </div>
       ) : !iTariff ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground text-xs text-center p-4">
@@ -331,7 +326,7 @@ function RateDetailPanel({
             <button
               onClick={() => setChangeModalOpen(true)}
               disabled={selectedRateKeys.size === 0}
-              className="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded px-3 py-1.5 font-medium"
+              className="text-xs bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 disabled:from-muted/30 disabled:to-muted/30 disabled:text-muted-foreground text-white rounded-lg px-4 py-1.5 font-medium shadow-sm transition-all"
               data-testid="btn-change-client-rates"
             >
               Change Client Rates
@@ -339,7 +334,7 @@ function RateDetailPanel({
           </div>
           <div className="flex-1 overflow-auto">
           <table className="w-full text-xs border-collapse">
-            <thead className="sticky top-0 bg-muted/30 backdrop-blur z-10">
+            <thead className="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border/50 z-10">
               <tr>
                 <th className="text-left py-2 px-3 border-b border-border w-8">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} data-testid="checkbox-select-all" />
@@ -356,7 +351,7 @@ function RateDetailPanel({
                 <tr
                   key={r.iRate ?? i}
                   className={cn(
-                    "border-b border-border/30 hover:bg-muted/20 transition-colors",
+                    "border-b border-border/20 hover:bg-blue-500/5 transition-colors group",
                     r.forbidden ? "opacity-60" : "",
                   )}
                 >
@@ -382,9 +377,9 @@ function RateDetailPanel({
                   </td>
                   <td className="py-1.5 px-3">
                     {r.forbidden ? (
-                      <span className="text-red-400 text-[10px]">Blocked</span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded-full px-2 py-0.5">● Blocked</span>
                     ) : (
-                      <span className="text-green-400 text-[10px]">Active</span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-500/10 text-green-400 border border-green-500/20 rounded-full px-2 py-0.5">● Active</span>
                     )}
                   </td>
                 </tr>
@@ -392,7 +387,7 @@ function RateDetailPanel({
               {rates.length === 0 && (
                 <tr>
                   <td colSpan={8} className="text-center py-10 text-muted-foreground">
-                    No rates found with prefix <span className="font-mono text-blue-400">"{trunkPrefix}*"</span> in Tariff #{iTariff}
+                    No rates found with prefix <span className="font-mono text-blue-400">"{trunkPrefix}*"</span>
                   </td>
                 </tr>
               )}
@@ -400,7 +395,7 @@ function RateDetailPanel({
           </table>
           <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border/30">
             {rates.length} rate{rates.length !== 1 ? "s" : ""} shown
-            {trunkPrefix ? ` matching prefix "${trunkPrefix}*"` : ""} · Tariff #{iTariff}
+            {trunkPrefix ? ` matching prefix "${trunkPrefix}*"` : ""}
           </div>
           </div>
         </div>
@@ -676,7 +671,7 @@ function AnalysisTab({
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left Sidebar */}
-      <div className="w-56 flex-shrink-0 border-r border-border/60 overflow-y-auto bg-muted/5 p-3 space-y-3">
+      <div className="w-64 flex-shrink-0 border-r border-border/60 overflow-y-auto bg-muted/5 p-3 space-y-3">
         <div className="flex rounded overflow-hidden border border-border/60">
           {(["Client", "Vendor"] as const).map(m => (
             <button
@@ -696,29 +691,35 @@ function AnalysisTab({
         </div>
 
         <SidebarSection title="Product">
-          <select
-            value={selectedProduct}
-            onChange={e => {
-              setSelectedProduct(e.target.value);
-              setApplied(false);
-              setDetailAccount(null);
-              onProductChange?.(e.target.value);
-            }}
-            className="w-full text-xs border border-border/60 rounded px-2 py-1 bg-background text-foreground"
-            data-testid="select-product"
-          >
-            <option value="">— Select product —</option>
+          <div className="grid grid-cols-2 gap-1.5 mt-0.5">
             {products.map(p => (
-              <option key={p.id} value={String(p.id)}>
-                {p.segment ? `${p.name} - ${p.segment}` : p.name}
-              </option>
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => { setSelectedProduct(String(p.id)); setApplied(false); setDetailAccount(null); onProductChange?.(String(p.id)); }}
+                className={cn(
+                  "relative text-left px-2.5 py-2 rounded-lg border transition-all",
+                  selectedProduct === String(p.id)
+                    ? "bg-blue-500/10 border-blue-500/50 text-blue-400 shadow-sm"
+                    : "bg-background border-border/40 text-muted-foreground hover:border-blue-400/40 hover:text-foreground"
+                )}
+              >
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color || "#6366f1" }} />
+                  <span className="text-[10px] font-medium leading-tight truncate">{p.name}</span>
+                </div>
+                {p.segment && <div className="text-[9px] text-muted-foreground/60 pl-3.5 truncate">{p.segment}</div>}
+                {selectedProduct === String(p.id) && (
+                  <span className="absolute top-1 right-1 text-blue-400 text-[8px]">✓</span>
+                )}
+              </button>
             ))}
-          </select>
+          </div>
         </SidebarSection>
 
         <SidebarSection title="Carrier">
           <MultiSelect
-            options={accounts.map(a => ({ value: String(a.iAccount), label: a.tariffName ? `${a.username} (${a.tariffName})` : a.username }))}
+            options={accounts.map(a => ({ value: String(a.iAccount), label: a.username }))}
             value={selectedCarriers}
             onChange={setSelectedCarriers}
             placeholder="All carriers"
@@ -810,7 +811,7 @@ function AnalysisTab({
         <div className="flex gap-2 pt-1">
           <button
             onClick={handleReset}
-            className="flex-1 py-1.5 text-xs border border-border/60 rounded hover:bg-muted/40 text-muted-foreground"
+            className="flex-1 py-1.5 text-xs border border-border/50 rounded-lg hover:bg-red-500/5 hover:border-red-500/30 hover:text-red-400 text-muted-foreground transition-all"
             data-testid="btn-reset-analysis"
           >
             Reset
@@ -818,7 +819,7 @@ function AnalysisTab({
           <button
             onClick={handleApply}
             disabled={!selectedProduct || selectedCarriers.length === 0}
-            className="flex-1 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded font-semibold"
+            className="flex-1 py-1.5 text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-30 text-white rounded-lg font-semibold shadow-sm transition-all"
             data-testid="btn-apply-analysis"
           >
             Apply
@@ -866,7 +867,7 @@ function AnalysisTab({
                 </div>
               ) : (
                 <table className="w-full text-xs border-collapse">
-                  <thead className="sticky top-0 bg-muted/30 backdrop-blur z-10">
+                  <thead className="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border/50 z-10">
                     <tr>
                       {["Carrier Name", "Country", "Total Dest.", "Block Dest.", "Total Codes", "Actions"].map(h => (
                         <th key={h} className="text-left py-2 px-4 font-medium text-muted-foreground border-b border-border whitespace-nowrap">
@@ -879,7 +880,7 @@ function AnalysisTab({
                     {appliedCarriers.map(acct => (
                       <tr
                         key={acct.iAccount}
-                        className="border-b border-border/30 hover:bg-muted/20 transition-colors"
+                        className="border-b border-border/20 hover:bg-blue-500/5 transition-colors group"
                         data-testid={`carrier-row-${acct.iAccount}`}
                       >
                         <td className="py-2.5 px-4 font-medium">{acct.username}</td>
@@ -1065,7 +1066,7 @@ function SendRateTab({
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* Left Sidebar */}
-      <div className="w-56 flex-shrink-0 border-r border-border/60 overflow-y-auto bg-muted/5 p-3 space-y-3">
+      <div className="w-64 flex-shrink-0 border-r border-border/60 overflow-y-auto bg-muted/5 p-3 space-y-3">
         <SidebarSection title="Send Rate">
           <div className="space-y-1">
             <div className="text-[10px] text-muted-foreground px-1">Status</div>
@@ -1080,28 +1081,35 @@ function SendRateTab({
         </SidebarSection>
 
         <SidebarSection title="Product">
-          <select
-            value={selectedProduct}
-            onChange={e => {
-              setSelectedProduct(e.target.value);
-              setSelectedClients([]);
-              onProductChange?.(e.target.value);
-            }}
-            className="w-full text-xs border border-border/60 rounded px-2 py-1 bg-background"
-            data-testid="send-select-product"
-          >
-            <option value="">— Select product —</option>
+          <div className="grid grid-cols-2 gap-1.5 mt-0.5">
             {products.map(p => (
-              <option key={p.id} value={String(p.id)}>
-                {p.segment ? `${p.name} - ${p.segment}` : p.name}
-              </option>
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => { setSelectedProduct(String(p.id)); setSelectedClients([]); onProductChange?.(String(p.id)); }}
+                className={cn(
+                  "relative text-left px-2.5 py-2 rounded-lg border transition-all",
+                  selectedProduct === String(p.id)
+                    ? "bg-green-500/10 border-green-500/50 text-green-400 shadow-sm"
+                    : "bg-background border-border/40 text-muted-foreground hover:border-green-400/40 hover:text-foreground"
+                )}
+              >
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color || "#6366f1" }} />
+                  <span className="text-[10px] font-medium leading-tight truncate">{p.name}</span>
+                </div>
+                {p.segment && <div className="text-[9px] text-muted-foreground/60 pl-3.5 truncate">{p.segment}</div>}
+                {selectedProduct === String(p.id) && (
+                  <span className="absolute top-1 right-1 text-green-400 text-[8px]">✓</span>
+                )}
+              </button>
             ))}
-          </select>
+          </div>
         </SidebarSection>
 
         <SidebarSection title="Clients">
           <MultiSelect
-            options={accounts.map(a => ({ value: String(a.iAccount), label: a.tariffName ? `${a.username} (${a.tariffName})` : a.username }))}
+            options={accounts.map(a => ({ value: String(a.iAccount), label: a.username }))}
             value={selectedClients}
             onChange={setSelectedClients}
             placeholder="Select clients"
@@ -1119,7 +1127,7 @@ function SendRateTab({
         <div className="flex gap-2 pt-1">
           <button
             onClick={handleReset}
-            className="flex-1 py-1.5 text-xs border border-border/60 rounded hover:bg-muted/40 text-muted-foreground"
+            className="flex-1 py-1.5 text-xs border border-border/50 rounded-lg hover:bg-red-500/5 hover:border-red-500/30 hover:text-red-400 text-muted-foreground transition-all"
             data-testid="btn-reset-send"
           >
             Reset
@@ -1127,7 +1135,7 @@ function SendRateTab({
           <button
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="flex-1 py-1.5 text-xs bg-green-600 hover:bg-green-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded font-semibold flex items-center justify-center gap-1"
+            className="flex-1 py-1.5 text-xs bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-30 text-white rounded-lg font-semibold flex items-center justify-center gap-1 shadow-sm transition-all"
             data-testid="btn-submit-send"
           >
             {pushing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
@@ -1427,7 +1435,7 @@ function JobsTab() {
       ) : (
         <table className="w-full text-xs border-collapse">
           <thead>
-            <tr className="border-b border-border/50 bg-muted/20">
+            <tr className="border-b border-border/60 bg-muted/30 backdrop-blur">
               {["Client(s)", "Product", "Destination", "Prefix", "Rate", "Effective", "Type", "Status", "Date"].map(h => (
                 <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
@@ -1509,10 +1517,6 @@ function JobsTab() {
                           <div>
                             <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Internal Prefix</span>
                             <div className="font-mono text-muted-foreground/60">{j.fullPrefix ?? "—"}</div>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Tariff ID</span>
-                            <div className="font-mono text-muted-foreground/60">{j.iTariff ?? "—"}</div>
                           </div>
                           <div>
                             <span className="text-muted-foreground uppercase tracking-wide text-[9px]">Format</span>
@@ -1940,7 +1944,7 @@ function TemplateDetail({
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-muted-foreground mt-1">
             <span>Email: {sendResult.steps?.emailSent ? <span className="text-green-400">✓ Sent</span> : <span className="text-red-400">✗ Not sent</span>}</span>
-            <span>Tariff: {sendResult.steps?.tariffUpdated ? <span className="text-green-400">✓ Updated</span> : <span className="text-muted-foreground">— Skipped</span>}</span>
+            <span>Sippy rates: {sendResult.steps?.tariffUpdated ? <span className="text-green-400">✓ Updated</span> : <span className="text-muted-foreground">— Skipped</span>}</span>
             <span>SBC Mapping: {sendResult.steps?.sbcMappingOk ? <span className="text-green-400">✓ Available</span> : <span className="text-muted-foreground">— Skipped</span>}</span>
             <span>SBC: {sendResult.steps?.sbcUpdated ? <span className="text-green-400">✓ Updated</span> : <span className="text-muted-foreground">— Skipped</span>}</span>
           </div>
@@ -1960,7 +1964,7 @@ function TemplateDetail({
       ) : (
         <table className="w-full text-xs border-collapse">
           <thead>
-            <tr className="border-b border-border/50 bg-muted/20">
+            <tr className="border-b border-border/60 bg-muted/30 backdrop-blur">
               {["#", "Country", "Carrier", "Destination", "Prefix", "Rate (USD/min)", "Base Rate", "Effective", ""].map(h => (
                 <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
@@ -2251,8 +2255,6 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
       <span><span className="text-muted-foreground">Client:</span> <strong>{job.clientName}</strong></span>
       <span><span className="text-muted-foreground">Product:</span> <strong>{job.productName || "—"}</strong></span>
-      {job.iAccount && <span><span className="text-muted-foreground">i_account:</span> <span className="font-mono">{job.iAccount}</span></span>}
-      {job.iTariff  && <span><span className="text-muted-foreground">i_tariff:</span>  <span className="font-mono">{job.iTariff}</span></span>}
     </div>
   );
 
@@ -2318,8 +2320,6 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
                 <span><span className="text-muted-foreground">Product:</span> <strong>{job.productName || "—"}</strong></span>
                 <span><span className="text-muted-foreground">Destinations:</span> <strong>{job.destinationCount ?? 0}</strong></span>
                 <span><span className="text-muted-foreground">Type:</span> <strong>{NOTIF_TYPE_LABEL[job.notificationType ?? ""] ?? job.notificationType ?? "—"}</strong></span>
-                {job.iAccount && <span><span className="text-muted-foreground">i_account:</span> <span className="font-mono">{job.iAccount}</span></span>}
-                {job.iTariff  && <span><span className="text-muted-foreground">i_tariff:</span>  <span className="font-mono">{job.iTariff}</span></span>}
               </div>
               <div className="mt-1 text-[10px] text-muted-foreground">
                 Submitted {fmtDateTime(job.submittedForApprovalAt)} by <strong>{job.submittedBy || "—"}</strong>
@@ -2402,7 +2402,7 @@ function JobDetailDrawer({ job, onClose, onNavigateToTemplates }: {
     { key: "emailSent",        label: "Email Sent",            value: job.emailSent },
     { key: "sbcMappingOk",     label: "SBC Mapping Available", value: job.sbcMappingOk },
     { key: "sbcUpdated",       label: "SBC Updated",           value: job.sbcUpdated },
-    { key: "tariffUpdated",    label: "Updated Tariff",        value: job.tariffUpdated },
+    { key: "tariffUpdated",    label: "Rates Updated in Sippy",        value: job.tariffUpdated },
     { key: "violatedRules",    label: "Violated Rules",        value: job.violatedRules,    warn: true },
     { key: "approvalRequired", label: "Approval Required",     value: job.approvalRequired, warn: true },
     { key: "successful",       label: "Successful",            value: job.status === "successful" || job.status === "activated" },
@@ -2626,7 +2626,7 @@ function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
           ) : (
             <table className="w-full text-xs border-collapse">
               <thead>
-                <tr className="border-b border-border/50 bg-muted/20">
+                <tr className="border-b border-border/60 bg-muted/30 backdrop-blur">
                   {["Client", "Product", "Type", "Recipients", "Status", "Created", ""].map(h => (
                     <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                   ))}
@@ -2721,8 +2721,8 @@ function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
               ) : (
                 <table className="w-full text-xs border-collapse">
                   <thead>
-                    <tr className="border-b border-border/50 bg-muted/20">
-                      {["Job Ref", "Client", "Product", "Type", "Dests", "Email", "Tariff", "Status", "Created"].map(h => (
+                    <tr className="border-b border-border/60 bg-muted/30 backdrop-blur">
+                      {["Job Ref", "Client", "Product", "Type", "Dests", "Email", "Sippy", "Status", "Created"].map(h => (
                         <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -2736,7 +2736,7 @@ function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
                         onClick={() => setSelectedJob(j)}>
                         <td className="py-2 px-3 font-mono text-muted-foreground">{j.jobRef}</td>
                         <td className="py-2 px-3 font-medium">{j.clientName}</td>
-                        <td className="py-2 px-3 text-amber-400">{j.productName || "—"}</td>
+                        <td className="py-2 px-3"><span className="inline-flex items-center gap-1 text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2 py-0.5">{j.productName || "—"}</span></td>
                         <td className="py-2 px-3 text-muted-foreground">{j.status === "pending_rates" ? "—" : (NOTIF_TYPE_LABEL[j.notificationType ?? ""] ?? j.notificationType ?? "—")}</td>
                         <td className="py-2 px-3 tabular-nums">{j.destinationCount ?? 0}</td>
                         <td className="py-2 px-3">
@@ -2753,7 +2753,7 @@ function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
                               ? <CircleCheck className="w-3.5 h-3.5 text-green-400" />
                               : <CircleX className="w-3.5 h-3.5 text-muted-foreground/40" />}
                         </td>
-                        <td className={cn("py-2 px-3 font-medium", JOB_STATUS_COLOR[j.status] ?? "text-muted-foreground")}>
+                        <td className="py-2 px-3">
                           {JOB_STATUS_LABEL[j.status] ?? j.status}
                         </td>
                         <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{fmtDate(j.createdAt)}</td>
