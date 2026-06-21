@@ -305,7 +305,7 @@ export function registerRateManagerRoutes(app: Express) {
               {
                 accountName,
                 iAccount:    accountIAccountMap[accountName],
-                prefix:      dialPrefix,   // PLATFORM RULE: dialPrefix only — trunkPrefix is BitsAuto-internal, Sippy never receives fullPrefix
+                prefix:      fullPrefix,   // fullPrefix = trunkPrefix + dialPrefix — Sippy tariffs store full prefixes (e.g. 29233 for Business Class)
                 ratePerMin,
                 effectiveFrom: rateRow.effectiveFrom ? new Date(rateRow.effectiveFrom) : undefined,
                 effectiveTo:   rateRow.effectiveTo   ? new Date(rateRow.effectiveTo)   : undefined,
