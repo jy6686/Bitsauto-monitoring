@@ -35595,6 +35595,31 @@ ${footer}
 
   // ── Rate Manager ──────────────────────────────────────────────────────────
 
+
+  // GET /api/rate-manager/kpi — dashboard KPI stats
+  app.get('/api/rate-manager/kpi', async (_req, res) => {
+    try {
+      const [destStats, clientCount, prodCount] = await Promise.all([
+        db.execute(sql`
+          SELECT
+            COUNT(*) FILTER (WHERE level = 1) AS total_nodes,
+            COUNT(DISTINCT country_code) FILTER (WHERE level = 1 AND country_code IS NOT NULL) AS distinct_countries,
+            COUNT(*) FILTER (WHERE level = 2) AS total_destinations
+          FROM global_destinations
+        `),
+        db.execute(sql`SELECT COUNT(DISTINCT i_account) FROM customer_product_assignments WHERE status = 'active'`),
+        db.execute(sql`SELECT COUNT(*) FROM product_registry WHERE status = 'commercial'`),
+      ]);
+      const s = (destStats as any).rows[0];
+      res.json({
+        totalCountries:    Number(s.distinct_countries),
+        totalDestinations: Number(s.total_destinations),
+        totalClients:      Number((clientCount as any).rows[0].count),
+        totalProducts:     Number((prodCount as any).rows[0].count),
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/rate-manager/products — active products with trunk prefix
   app.get('/api/rate-manager/products', async (_req, res) => {
     try {

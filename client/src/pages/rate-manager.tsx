@@ -3350,7 +3350,7 @@ export default function RateManagerPage() {
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-500/20 bg-amber-500/8 shrink-0">
           <div>
             <div className="text-base font-bold tabular-nums leading-tight text-amber-400">
-              {allDests.filter((d: DestNode) => d.level === 1).length || "—"}
+              {kpiStats?.totalCountries != null ? kpiStats.totalCountries : allDests.filter((d: DestNode) => d.level === 1).length || "—"}
             </div>
             <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Countries</div>
           </div>

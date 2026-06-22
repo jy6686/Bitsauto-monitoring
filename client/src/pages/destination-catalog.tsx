@@ -615,11 +615,45 @@ function BillingSettingsPanel({ destId }: { destId: number }) {
       connect: parseFloat(r.connect_fee as any || "0").toFixed(6),
     }
   }));
+  const { data: products = [] } = useQuery<ProductPrefix[]>({ queryKey: ["/api/product-prefixes"] });
+  const [addingRate, setAddingRate] = useState(false);
+  const [addForm, setAddForm] = useState({ product_prefix: '', sell_rate: '', buy_rate: '', billing: '60/1', grace: '0', free: '0', connect: '0.000000' });
+  const createMut = useMutation({
+    mutationFn: () => {
+      const parts = addForm.billing.split('/');
+      const i1 = parseInt(parts[0]) || 1;
+      const iN = parseInt(parts[1]) || 1;
+      return apiRequest("POST", "/api/destination-catalog/product-rates", {
+        destination_id: destId,
+        product_prefix: addForm.product_prefix,
+        sell_rate: parseFloat(addForm.sell_rate) || null,
+        buy_rate: parseFloat(addForm.buy_rate) || null,
+        interval_1: i1, interval_n: iN,
+        grace_period: parseInt(addForm.grace) || 0,
+        free_seconds: parseInt(addForm.free) || 0,
+        connect_fee: parseFloat(addForm.connect) || 0,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [`/api/destination-catalog/product-rates/by-destination/${destId}`] });
+      setAddingRate(false);
+      setAddForm({ product_prefix: '', sell_rate: '', buy_rate: '', billing: '60/1', grace: '0', free: '0', connect: '0.000000' });
+      toast({ title: "Rate added" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
   if (isLoading) return <div className="text-xs text-muted-foreground py-2">Loading billing settings…</div>;
   return (
     <div>
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Billing Settings</div>
-      {rates.length === 0 ? (
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Billing Settings</div>
+        {!addingRate && (
+          <Button size="sm" variant="outline" className="h-6 px-2 text-xs gap-1" onClick={() => setAddingRate(true)}>
+            <Plus className="w-3 h-3" />Add Rate
+          </Button>
+        )}
+      </div>
+      {rates.length === 0 && !addingRate ? (
         <div className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-3 py-2 flex items-center gap-2">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
           No product rates configured — destination cannot be approved without billing settings.
@@ -675,6 +709,49 @@ function BillingSettingsPanel({ destId }: { destId: number }) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {/* Add Rate inline form */}
+      {addingRate && (
+        <div className="mt-2 border border-primary/30 rounded-lg bg-primary/5 p-3 space-y-2">
+          <div className="text-xs font-medium text-foreground">Add Product Rate</div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground">Product</div>
+              <Select value={addForm.product_prefix} onValueChange={v => setAddForm(f => ({...f, product_prefix: v}))}>
+                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select…" /></SelectTrigger>
+                <SelectContent>
+                  {products.map(p => <SelectItem key={p.prefix} value={p.prefix}>{p.product_code} — {p.product_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground">Sell Rate (USD)</div>
+              <Input type="number" step="0.000001" min="0" value={addForm.sell_rate} onChange={e => setAddForm(f => ({...f, sell_rate: e.target.value}))} className="h-7 text-xs font-mono" placeholder="0.02650" />
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground">Billing (init/inc)</div>
+              <Input value={addForm.billing} onChange={e => setAddForm(f => ({...f, billing: e.target.value}))} className="h-7 text-xs font-mono" placeholder="60/1" />
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground">Grace (s)</div>
+              <Input type="number" min="0" value={addForm.grace} onChange={e => setAddForm(f => ({...f, grace: e.target.value}))} className="h-7 text-xs" />
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground">Free Sec</div>
+              <Input type="number" min="0" value={addForm.free} onChange={e => setAddForm(f => ({...f, free: e.target.value}))} className="h-7 text-xs" />
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground">Connect Fee</div>
+              <Input type="number" step="0.000001" min="0" value={addForm.connect} onChange={e => setAddForm(f => ({...f, connect: e.target.value}))} className="h-7 text-xs font-mono" />
+            </div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button size="sm" className="h-7 text-xs gap-1" onClick={() => createMut.mutate()} disabled={createMut.isPending || !addForm.product_prefix}>
+              {createMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}Save Rate
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setAddingRate(false)}>Cancel</Button>
+          </div>
         </div>
       )}
     </div>
