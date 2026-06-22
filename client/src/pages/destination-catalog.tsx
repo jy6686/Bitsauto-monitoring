@@ -315,6 +315,11 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
   const hasRates = destRates.length > 0;
   const hasBilling = destRates.length > 0 && destRates.every((r: DestRateBilling) => r.interval_1 > 0 && r.interval_n > 0);
   const readiness = hasName && hasRates && hasBilling ? "ready" : hasName && hasRates ? "review" : "incomplete";
+  const approvalBlockers: string[] = [
+    ...(!hasName    ? ["✗ Destination name required"] : []),
+    ...(!hasRates   ? ["✗ At least one product rate required"] : []),
+    ...(!hasBilling ? ["✗ Billing increment must not be 0/0 on all rates"] : []),
+  ];
 
   const approveMut = useMutation({
     mutationFn: () => apiRequest("POST", `/api/product-registry/destinations/${node.id}/approve`, {}),
@@ -448,18 +453,21 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
             <div className="flex gap-2 flex-wrap">
               {node.commercialStatus !== "approved" && (
                 <>
-                  <Button size="sm" className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white h-8"
+                  <Button size="sm" className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white h-8 disabled:opacity-40"
                     onClick={() => approveMut.mutate()}
-                    disabled={approveMut.isPending || !hasName || !hasRates || !hasBilling}
-                    title={!hasName ? "Name required" : !hasRates ? "Product rates required" : !hasBilling ? "Fix billing (0/0 invalid)" : undefined}
+                    disabled={approveMut.isPending || approvalBlockers.length > 0}
                     data-testid="btn-approve-dest">
                     <Check className="w-3.5 h-3.5" />Approve
                   </Button>
-                  {(!hasRates || !hasBilling) && (
-                    <span className="text-xs text-amber-400 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" />
-                      {!hasRates ? "Add product rates to enable approval" : "Fix 0/0 billing to enable approval"}
-                    </span>
+                  {approvalBlockers.length > 0 && (
+                    <div className="w-full mt-1 rounded border border-amber-500/20 bg-amber-500/5 px-3 py-2 space-y-1">
+                      <div className="text-[10px] font-semibold text-amber-400 uppercase tracking-wide">Cannot approve — fix the following:</div>
+                      {approvalBlockers.map(b => (
+                        <div key={b} className="text-xs text-amber-300 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3 h-3 shrink-0 text-amber-400" />{b}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </>
               )}
@@ -477,7 +485,7 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
               )}
               {node.commercialStatus !== "archived" && (
                 <Button size="sm" variant="outline" className="gap-1.5 h-8 border-zinc-500/30 text-zinc-400 hover:bg-zinc-500/10"
-                  onClick={() => pendingMut.mutate && apiRequest("POST", `/api/product-registry/destinations/${node.id}/set-status`, { status: "archived" }).then(() => { qc.invalidateQueries({ queryKey: ["/api/product-registry/destinations"] }); toast({ title: "Archived" }); })}
+                  onClick={() => apiRequest("POST", `/api/product-registry/destinations/${node.id}/set-status`, { status: "archived" }).then(() => { qc.invalidateQueries({ queryKey: ["/api/product-registry/destinations"] }); toast({ title: "Archived" }); })}
                   data-testid="btn-archive-dest">
                   <Layers className="w-3.5 h-3.5" />Archive
                 </Button>
@@ -586,9 +594,9 @@ function BillingSettingsPanel({ destId }: { destId: number }) {
   const { data: rates = [], isLoading } = useQuery<DestRateBilling[]>({
     queryKey: [`/api/destination-catalog/product-rates/by-destination/${destId}`],
   });
-  const [editRow, setEditRow] = useState<Record<number, { billing: string; grace: string; free: string; connect: string }>>({});
+  const [editRow, setEditRow] = useState<Record<number, { billing: string; grace: string; free: string; connect: string; activation: string; expiration: string }>>({});
   const saveMut = useMutation({
-    mutationFn: ({ id, billing, grace, free, connect }: any) => {
+    mutationFn: ({ id, billing, grace, free, connect, activation, expiration }: any) => {
       const parts = String(billing).split("/");
       const i1 = parseInt(parts[0]) || 1;
       const iN = parseInt(parts[1]) || 1;
@@ -597,6 +605,8 @@ function BillingSettingsPanel({ destId }: { destId: number }) {
         grace_period: parseInt(grace) || 0,
         free_seconds: parseInt(free) || 0,
         connect_fee: parseFloat(connect) || 0,
+        activation_date: activation || null,
+        expiration_date: expiration || null,
       });
     },
     onSuccess: (_: any, vars: any) => {
@@ -610,6 +620,8 @@ function BillingSettingsPanel({ destId }: { destId: number }) {
     ...prev,
     [r.id]: {
       billing: `${r.interval_1}/${r.interval_n}`,
+      activation: (r as any).activation_date ? String((r as any).activation_date).slice(0,10) : '',
+      expiration: (r as any).expiration_date ? String((r as any).expiration_date).slice(0,10) : '',
       grace: String(r.grace_period),
       free: String(r.free_seconds),
       connect: parseFloat(r.connect_fee as any || "0").toFixed(6),
@@ -682,10 +694,28 @@ function BillingSettingsPanel({ destId }: { destId: number }) {
                     </td>
                     {isEditing ? (
                       <>
-                        <td className="py-1.5 px-3"><Input value={ev.billing} onChange={e => setEditRow(p => ({...p, [r.id]: {...p[r.id], billing: e.target.value}}))} className="h-6 w-16 text-xs font-mono" placeholder="60/1" /></td>
+                        <td className="py-1.5 px-3">
+                          <div className="flex items-center gap-1">
+                            <div className="flex gap-0.5">
+                              {['60/60','60/1','1/1'].map(p => (
+                                <button key={p} onClick={() => setEditRow(pr => ({...pr, [r.id]: {...pr[r.id], billing: p}}))}
+                                  className={cn("text-[9px] px-1 py-0.5 rounded border transition-colors", ev.billing === p ? "bg-primary/20 border-primary/40 text-primary" : "border-border/40 text-muted-foreground hover:border-primary/30")}>
+                                  {p}
+                                </button>
+                              ))}
+                            </div>
+                            <Input value={ev.billing} onChange={e => setEditRow(p => ({...p, [r.id]: {...p[r.id], billing: e.target.value}}))} className="h-6 w-16 text-xs font-mono" placeholder="60/1" />
+                          </div>
+                        </td>
                         <td className="py-1.5 px-3"><Input type="number" min="0" value={ev.grace} onChange={e => setEditRow(p => ({...p, [r.id]: {...p[r.id], grace: e.target.value}}))} className="h-6 w-14 text-xs" /></td>
                         <td className="py-1.5 px-3"><Input type="number" min="0" value={ev.free} onChange={e => setEditRow(p => ({...p, [r.id]: {...p[r.id], free: e.target.value}}))} className="h-6 w-14 text-xs" /></td>
                         <td className="py-1.5 px-3"><Input type="number" step="0.000001" min="0" value={ev.connect} onChange={e => setEditRow(p => ({...p, [r.id]: {...p[r.id], connect: e.target.value}}))} className="h-6 w-20 text-xs" /></td>
+                        <td className="py-1.5 px-3">
+                          <div className="flex flex-col gap-1">
+                            <Input type="date" value={ev.activation || ''} onChange={e => setEditRow(p => ({...p, [r.id]: {...p[r.id], activation: e.target.value}}))} className="h-6 w-28 text-xs" title="Activation date" />
+                            <Input type="date" value={ev.expiration || ''} onChange={e => setEditRow(p => ({...p, [r.id]: {...p[r.id], expiration: e.target.value}}))} className="h-6 w-28 text-xs" title="Expiration date" />
+                          </div>
+                        </td>
                         <td className="py-1.5 px-3">
                           <div className="flex gap-1">
                             <Button size="sm" className="h-6 px-2 text-xs" onClick={() => saveMut.mutate({ id: r.id, ...ev })} disabled={saveMut.isPending}>Save</Button>
@@ -915,7 +945,7 @@ function ApprovalsTab({ flatNodes }: { flatNodes: Dest[] }) {
 function MarketIntelTab({ flatNodes }: { flatNodes: Dest[] }) {
   const [search, setSearch] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
-  const { data: productRates = [] } = useQuery({ queryKey: ["/api/destination-catalog/product-rates"] });
+  const { data: productRates = [] } = useQuery<any[]>({ queryKey: ["/api/destination-catalog/product-rates"] });
   const rateByDest = useMemo(() => { const m = new Map(); for (const r of productRates) { if (r.approval_status !== "approved") continue; const key = r.dest_name_live ?? r.destination_name ?? ""; if (!key) continue; const buy = r.buy_rate ? parseFloat(r.buy_rate) : null; const sell = r.sell_rate ? parseFloat(r.sell_rate) : null; if (!m.has(key)) { m.set(key, { buy, sell }); } else { const ex = m.get(key); if (buy !== null && (ex.buy === null || buy < ex.buy)) ex.buy = buy; if (sell !== null && (ex.sell === null || sell < ex.sell)) ex.sell = sell; } } return m; }, [productRates]);
   const approved = flatNodes.filter(n => n.commercialStatus === "approved");
   const filtered = approved.filter(n => {
@@ -1560,11 +1590,11 @@ function GdsRatesTab() {
     destMap.get(key)!.rates.set(r.product_prefix, r);
   }
 
-  const filteredDests = [...destMap.entries()]
+  const filteredDests = Array.from(destMap.entries())
     .filter(([name]) => !search || name.toLowerCase().includes(search.toLowerCase()))
     .filter(([, d]) => {
       if (filterStatus === "all") return true;
-      return [...d.rates.values()].some(r => r.approval_status === filterStatus);
+      return Array.from(d.rates.values()).some(r => r.approval_status === filterStatus);
     })
     .sort(([a], [b]) => a.localeCompare(b));
 
@@ -1861,7 +1891,7 @@ function GdsRatesTab() {
                     );
                   })}
                   <td className="py-2 px-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {[...dest.rates.values()].map(r => (
+                    {Array.from(dest.rates.values()).map(r => (
                       <button key={r.id} onClick={() => deleteMut.mutate(r.id)}
                         className="text-muted-foreground hover:text-rose-400 transition-colors block"
                         title={`Delete ${r.product_code} rate`} data-testid={`btn-delete-rate-${r.id}`}>

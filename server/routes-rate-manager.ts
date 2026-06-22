@@ -25,6 +25,7 @@ import { productRates, rateNotifications, companies, customerProductAssignments,
 import { reconcilePerRow } from './services/sippy/sippy-reconciliation.service';
 import { storage } from './storage';
 import * as sippy from './sippy';
+import * as XLSX from 'xlsx';
 
 // ── T006: CDR pool provider (injected from routes.ts after cdrCache is warm) ──
 // Used by pricing-intelligence to compute avg vendor cost from live CDR data.
@@ -278,7 +279,7 @@ export function registerRateManagerRoutes(app: Express) {
           if (iAccounts.length === 0) {
             return res.status(400).json({ error: 'No active customer assignments for this product — provide accountNames or assign customers first' });
           }
-          const allCompanies = await storage.listCompanies();
+          const allCompanies = await storage.getCompanies();
           accountNames = iAccounts
             .map(ia => allCompanies.find(c => c.sippyIAccount === ia)?.name)
             .filter((n): n is string => Boolean(n));
@@ -355,7 +356,7 @@ export function registerRateManagerRoutes(app: Express) {
   app.get('/api/rate-notifications/accounts-on-tariff/:tariffId', async (req: any, res) => {
     try {
       const tariffId = req.params.tariffId;
-      const allCompanies = await storage.listCompanies();
+      const allCompanies = await storage.getCompanies();
       const affected = allCompanies
         .filter(c => c.sippyITariff && String(c.sippyITariff) === tariffId)
         .map(c => ({ iAccount: c.sippyIAccount, name: c.name, tariff: c.sippyITariff }));
@@ -391,7 +392,7 @@ export function registerRateManagerRoutes(app: Express) {
       let affectedAccounts: number[] = [];
       let affectedCount = 0;
       if (tariffId) {
-        const allCompanies = await storage.listCompanies();
+        const allCompanies = await storage.getCompanies();
         const matched = allCompanies.filter(c => c.sippyITariff && String(c.sippyITariff) === tariffId);
         affectedAccounts = matched.map(c => c.sippyIAccount).filter((x): x is number => x !== null && x !== undefined);
         affectedCount = affectedAccounts.length;
@@ -634,5 +635,83 @@ export function registerRateManagerRoutes(app: Express) {
       }
     }
   );
+
+  // ── GET /api/rate-manager/export — Download rate sheet as XLSX ──────────────
+  app.get('/api/rate-manager/export', async (req: any, res) => {
+    try {
+      const { productId, country, format = 'xlsx', type = 'full' } = req.query;
+      // Build query
+      let conditions = '';
+      const params: any[] = [];
+      if (productId) { params.push(productId); conditions += ` AND dpr.product_prefix IN (SELECT trunk_prefix::text FROM product_registry WHERE id = $${params.length})`; }
+      if (country)   { params.push(`${country}%`); conditions += ` AND gd.dial_prefix LIKE $${params.length}`; }
+
+      const rows = await db.execute(sql.raw(`
+        SELECT
+          gd.name        AS destination,
+          gd.dial_prefix AS prefix,
+          gd.country_code,
+          pr.name        AS product,
+          pr.code        AS product_code,
+          dpr.sell_rate,
+          dpr.buy_rate,
+          dpr.interval_1,
+          dpr.interval_n,
+          dpr.connect_fee,
+          dpr.grace_period,
+          dpr.free_seconds,
+          dpr.approval_status,
+          dpr.updated_at
+        FROM destination_product_rates dpr
+        JOIN global_destinations gd ON gd.id = dpr.destination_id
+        JOIN product_registry pr ON pr.trunk_prefix::text = dpr.product_prefix
+        WHERE 1=1 ${conditions}
+        ORDER BY gd.name, pr.name
+      `));
+
+      const data = (rows as any).rows ?? [];
+      const sheetData = [
+        ['Destination', 'Prefix', 'Country', 'Product', 'Sell Rate', 'Buy Rate', 'Billing (s)', 'Connect Fee', 'Grace', 'Free Sec', 'Status', 'Updated'],
+        ...data.map((r: any) => [
+          r.destination,
+          r.prefix,
+          r.country_code,
+          r.product,
+          r.sell_rate ? Number(r.sell_rate) : '',
+          r.buy_rate  ? Number(r.buy_rate)  : '',
+          r.interval_1 && r.interval_n ? `${r.interval_1}/${r.interval_n}` : '',
+          r.connect_fee ? Number(r.connect_fee) : '',
+          r.grace_period ?? 0,
+          r.free_seconds ?? 0,
+          r.approval_status ?? '',
+          r.updated_at ? new Date(r.updated_at).toLocaleDateString('en-GB') : '',
+        ]),
+      ];
+
+      const prodLabel = productId ? `_product${productId}` : '';
+      const dateLabel = new Date().toISOString().slice(0, 10);
+      const filename  = `BitsAuto_RateSheet${prodLabel}_${dateLabel}`;
+
+      if (format === 'csv') {
+        const csv = sheetData.map(row => row.map((c: any) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+        return res.send(csv);
+      }
+
+      // XLSX
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+      ws['!cols'] = [20,12,8,18,12,12,12,12,8,8,14,12].map(w => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws, 'Rates');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}.xlsx"`);
+      res.send(buf);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
 
 }

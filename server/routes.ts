@@ -34901,6 +34901,50 @@ ${footer}
   });
 
   // POST /api/destination-catalog/product-rates/:id/approve
+  // PATCH /api/destination-catalog/product-rates/:id — update billing settings
+  app.patch('/api/destination-catalog/product-rates/:id', async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { interval_1, interval_n, grace_period, free_seconds, connect_fee, activation_date, expiration_date } = req.body;
+      const updates: Record<string, any> = { updated_at: new Date() };
+      if (interval_1   != null) updates.interval_1   = interval_1;
+      if (interval_n   != null) updates.interval_n   = interval_n;
+      if (grace_period != null) updates.grace_period = grace_period;
+      if (free_seconds != null) updates.free_seconds = free_seconds;
+      if (connect_fee  != null) updates.connect_fee  = connect_fee;
+      if (activation_date !== undefined) updates.activation_date = activation_date;
+      if (expiration_date !== undefined) updates.expiration_date = expiration_date;
+      await db.execute(sql`
+        UPDATE destination_product_rates SET
+          interval_1       = COALESCE(${updates.interval_1 ?? null}, interval_1),
+          interval_n       = COALESCE(${updates.interval_n ?? null}, interval_n),
+          grace_period     = COALESCE(${updates.grace_period ?? null}, grace_period),
+          free_seconds     = COALESCE(${updates.free_seconds ?? null}, free_seconds),
+          connect_fee      = COALESCE(${updates.connect_fee ?? null}::numeric, connect_fee),
+          activation_date  = ${updates.activation_date ?? null},
+          expiration_date  = ${updates.expiration_date ?? null},
+          updated_at       = NOW()
+        WHERE id = ${id}
+      `);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/destination-catalog/product-rates/by-destination/:destId
+  app.get('/api/destination-catalog/product-rates/by-destination/:destId', async (req: any, res: any) => {
+    try {
+      const destId = parseInt(req.params.destId);
+      const rows = await db.execute(sql`
+        SELECT dpr.*, pr.name AS product_name, pr.code AS product_code
+        FROM destination_product_rates dpr
+        LEFT JOIN product_registry pr ON pr.trunk_prefix::text = dpr.product_prefix
+        WHERE dpr.destination_id = ${destId}
+        ORDER BY dpr.product_prefix
+      `);
+      res.json((rows as any).rows ?? []);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.post('/api/destination-catalog/product-rates/:id/approve', async (req: any, res: any) => {
     try {
       const id = parseInt(req.params.id);

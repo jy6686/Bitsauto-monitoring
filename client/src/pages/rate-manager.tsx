@@ -1524,8 +1524,35 @@ function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => vo
                 {job.createdAt ? new Date(job.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
               </div>
             </div>
+            <div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Destinations</div>
+              <div className="font-medium">{job.destinationCount ?? job.pushResults?.length ?? '—'}</div>
+            </div>
+            <div>
+              <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Effective</div>
+              <div className="text-muted-foreground text-[10px]">
+                {job.effectiveAt ? new Date(job.effectiveAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+              </div>
+            </div>
           </div>
 
+          {/* Download */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => { const u = `/api/rate-manager/export?format=xlsx${job.productId ? `&productId=${job.productId}` : ''}`; window.open(u,'_blank'); }}
+              className="flex items-center gap-1.5 text-xs bg-green-500/10 hover:bg-green-500/20 text-green-400 px-3 py-1.5 rounded border border-green-500/20 transition-colors"
+            >
+              <Download className="w-3 h-3" /> Download Rate Sheet
+            </button>
+            {job.status === 'failed' || job.status === 'partial' ? (
+              <button
+                onClick={() => apiRequest('POST', `/api/rate-manager/jobs/${job.id}/retry`).then(() => onClose())}
+                className="flex items-center gap-1.5 text-xs bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded border border-blue-500/20 transition-colors"
+              >
+                Re-send
+              </button>
+            ) : null}
+          </div>
           {/* Rate changes */}
           {job.pushResults && job.pushResults.length > 0 && (
             <div>
@@ -1761,13 +1788,29 @@ function ProductRatesTab({ products }: { products: Product[] }) {
             Product Rate Repository
             {selectedProductId && <span className="text-muted-foreground">— {products.find(p => String(p.id) === selectedProductId)?.name}</span>}
           </div>
-          <button
-            onClick={() => setShowForm(v => !v)}
-            data-testid="btn-add-rate"
-            className="flex items-center gap-1 text-xs bg-primary/10 hover:bg-primary/20 text-primary px-2.5 py-1 rounded transition-colors"
-          >
-            <Plus className="w-3 h-3" /> Add Rate
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { const u = `/api/rate-manager/export?format=xlsx${selectedProductId ? `&productId=${selectedProductId}` : ''}`; window.open(u,'_blank'); }}
+              className="flex items-center gap-1 text-xs bg-green-500/10 hover:bg-green-500/20 text-green-400 px-2.5 py-1 rounded transition-colors"
+              title="Download rate sheet as Excel"
+            >
+              <Download className="w-3 h-3" /> Full Sheet
+            </button>
+            <button
+              onClick={() => { const u = `/api/rate-manager/export?format=csv${selectedProductId ? `&productId=${selectedProductId}` : ''}`; window.open(u,'_blank'); }}
+              className="flex items-center gap-1 text-xs bg-green-500/10 hover:bg-green-500/20 text-green-400 px-2.5 py-1 rounded transition-colors"
+              title="Download as CSV"
+            >
+              <Download className="w-3 h-3" /> CSV
+            </button>
+            <button
+              onClick={() => setShowForm(v => !v)}
+              data-testid="btn-add-rate"
+              className="flex items-center gap-1 text-xs bg-primary/10 hover:bg-primary/20 text-primary px-2.5 py-1 rounded transition-colors"
+            >
+              <Plus className="w-3 h-3" /> Add Rate
+            </button>
+          </div>
         </div>
         {/* Product Rates KPI Strip */}
         {selectedProductId && rates.length > 0 && (() => {
