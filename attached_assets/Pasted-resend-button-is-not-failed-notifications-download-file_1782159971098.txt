@@ -1,0 +1,146 @@
+resend button is not failed notifications
+download file name is still wrong notifcation page 
+no edit button in notification also when click job page crashed 
+The screenshots show 4 separate bugs, and they confirm Sprint A is not fully complete yet.
+1. Re-send Button Exists, But Only For Send Rate Jobs ✅
+Your latest screenshot shows:
+New retry jobs created:
+job-1782159132515
+job-1782159074691
+Module = Send Rate
+Status = Pending
+KAM = operator
+That means:
+✅ /api/rate-manager/jobs/:id/retry is working
+However:
+Notification jobs still don't show Re-send consistently because the UI appears to be checking:
+module === 'Send Rate'
+instead of:
+status === 'failed'
+Required fix:
+Show Re-send whenever:
+status === 'failed' || status === 'partial'
+regardless of module.
+2. Download Filename Is Wrong ❌
+Screenshot shows:
+RateSheet_AllProducts_2026-06-22.xlsx
+But you're downloading from:
+Notification Job
+Business Class
+Client = internal-ptcl
+Expected filename:
+RateNotification_BusinessClass_internal-ptcl_2026-06-22.xlsx
+or
+BusinessClass_internal-ptcl.xlsx
+Current code is still calling the generic export endpoint.
+Required fix:
+Notification export should use:
+client
+product
+job id
+template type
+when building filename.
+3. Notification Template List Has No Edit Button ❌
+Screenshot confirms:
+Notifications → Templates
+shows:
+PUSHTOTALK
+First Class
+DEFAULT
+Active
+but only delete icon exists.
+Missing:
+✏ Edit
+👁 Preview
+📧 Test
+📋 Duplicate
+At minimum:
+Edit Template
+must be added.
+4. Clicking Notification Job Crashes Entire Page ❌ (Highest Priority)
+The most serious issue is:
+TypeError:
+Cannot read properties of undefined
+(reading 'toUpperCase')
+This is a frontend bug.
+Likely code:
+templateType.toUpperCase()
+or
+notificationType.toUpperCase()
+when value is null.
+Should be:
+(notificationType || '').toUpperCase()
+or
+notificationType?.toUpperCase() ?? ''
+This is why opening certain notification jobs crashes the entire Rate Manager page.
+Current Sprint A Status
+Item    Status
+Notification Template Create    ✅
+Template Types    ✅
+Subject    ✅
+Body    ✅
+Schedule    ✅
+Test Email    ✅
+Retry API    ✅
+Download Export    ✅
+Notification Job View    ❌ Crash
+Template Edit    ❌ Missing
+Notification Re-send    ⚠ Partial
+Notification Filename    ❌ Wrong
+KAM Name Resolution    ❌ Still numeric on old jobs
+Destination Count    ❌ Still "-"
+What I Would Fix Next
+Priority order:
+Notification Job crash (toUpperCase)
+Template Edit button/page
+Notification Re-send visibility
+Correct notification export filename
+KAM name resolution
+Destination count population
+The crash is blocking normal usage and should be fixed before starting Sprint C (Master Templates / Contact Directory / Client Override Rules).
+RATE NOTIFICATION (FULL) _ TELSTRA _ FIRST CLASS _ June 18, 2026.eml
+File
+BusinessClass_internal-ptcl.xlsx wrong
+attached is the email for you refence 
+correct name as per the attached email
+Based on the screenshots alone, I cannot see the actual email template or attachment filename that was sent to the client.
+You mentioned:
+"attached is the email for your reference"
+but I only received screenshots of the Rate Manager UI, not the email content or the downloaded XLSX filename from the email.
+Please upload either:
+The notification email screenshot, or
+The actual email (.eml/.msg), or
+A screenshot showing the attachment name in the email.
+Then I can tell you exactly what the filename should be.
+For example, if the email attachment currently follows a naming convention like:
+Rate_Update_FirstClass_20260622.xlsx
+or
+PUSHTOTALK_FirstClass_Rates.xlsx
+then the Download button should generate the exact same filename rather than:
+RateSheet_AllProducts_2026-06-22.xlsx
+Upload the email screenshot and I'll identify the correct filename pattern and provide the exact fix specification for the developers.
+PUSHTOTALK_FirstClass_Rates.xlsx correct
+Then the filename is incorrect and should be changed.
+Current (wrong):
+BusinessClass_internal-ptcl.xlsx
+Expected (matching email attachment naming convention):
+PUSHTOTALK_FirstClass_Rates.xlsx
+Developer note:
+Issue:
+The exported/downloaded filename is being generated as:
+BusinessClass_internal-ptcl.xlsx
+However, according to the notification email and existing customer-facing convention, the attachment filename must be:
+PUSHTOTALK_FirstClass_Rates.xlsx
+Required Change:
+Update the XLSX export/download logic to use the same naming convention as the email attachment generation.
+Format:
+PUSHTOTALK_<ProductName>_Rates.xlsx
+Examples:
+PUSHTOTALK_FirstClass_Rates.xlsx
+PUSHTOTALK_BusinessClass_Rates.xlsx
+PUSHTOTALK_SpecialBravo_Rates.xlsx
+PUSHTOTALK_SpecialCharlie_Rates.xlsx
+Do not use destination names, internal route names, or vendor identifiers (e.g. internal-ptcl) in the exported filename.
+The filename should be product-based and customer-facing.
+If this file belongs to the First Class product, the correct filename is:
+PUSHTOTALK_FirstClass_Rates.xlsx

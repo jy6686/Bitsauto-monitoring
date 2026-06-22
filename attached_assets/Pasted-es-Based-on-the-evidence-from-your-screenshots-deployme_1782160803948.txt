@@ -1,0 +1,173 @@
+es. Based on the evidence from your screenshots, deployment logs, code verification, and the fixes already applied, I would update Task #339 and reduce it to only the items that are still genuinely incomplete.
+
+#339 – Sprint A (Revised Scope)
+
+Remove from Sprint A (Already Complete)
+Notification Templates
+Subject field
+Body template editor
+Template Type cards
+Schedule options
+Test Email functionality
+Edit Template functionality
+Notification template crash fix
+Rate Sheet Export
+Export API
+Download buttons
+Filename convention
+XLSX generation
+Approval Validation
+Approval blocker checklist
+Billing validation
+Name validation
+Product rate validation
+Retry API
+POST /api/rate-manager/jobs//retry endpoint exists and builds successfully
+Remaining Sprint A Work
+A1. Notification Job Re-Send Validation
+Current Status
+
+Retry endpoint exists.
+
+Gap
+
+Notification jobs may not display the Re-send button because the returned status value may not match:
+
+failed
+partial
+
+Need to verify actual API payload and normalize status handling.
+
+Done Looks Like
+
+Failed notification jobs display Re-send button consistently.
+Clicking Re-send creates a new notification job and refreshes history.
+
+A2. KAM Name Resolution
+Current Status
+
+Historical jobs display numeric IDs:
+
+53966848
+
+Gap
+
+created_by stores legacy identifier instead of display name.
+
+Required Fix
+
+Resolve:
+
+created_by → User Display Name
+
+either:
+
+in SQL query
+via join
+via lookup layer
+Done Looks Like
+
+Push History displays:
+
+Junaid
+Nadeem
+Saif
+
+instead of numeric IDs.
+
+A3. Notification Destination Counts
+Current Status
+
+Push History shows:
+
+Dests = —
+
+for notification jobs.
+
+Gap
+
+destinationCount and pushResults are not populated for notification-type jobs.
+
+Required Fix
+
+Populate:
+
+destinationCount
+destinationName list
+pushResults summary
+
+for notification jobs.
+
+Done Looks Like
+
+Push History displays actual destination totals.
+
+Example:
+
+Dests = 24
+
+instead of:
+
+Dests = —
+
+A4. Billing Settings UI – Start/Expiry Dates
+Current Status
+
+Database columns already exist:
+
+activationDate
+expirationDate
+Gap
+
+Fields are not exposed in Billing Settings edit UI.
+
+Required Fix
+
+Add:
+
+Start Date picker
+Expiry Date picker
+
+to Billing Settings Panel.
+
+Persist through existing update endpoint.
+
+Done Looks Like
+
+Users can set and save activation and expiry dates for each product rate.
+
+A5. Billing Preset Buttons
+Current Status
+
+Billing intervals work.
+
+Gap
+
+Quick presets missing.
+
+Required Fix
+
+Add buttons:
+
+60/60
+60/1
+1/1
+
+to Billing Settings Panel.
+
+Done Looks Like
+
+One click populates interval values.
+
+Sprint A Exit Criteria
+
+All of the following must pass:
+
+Notification jobs display Re-send button correctly
+Re-send creates new job successfully
+Historical KAM IDs resolve to names
+Notification jobs display destination counts
+Start/Expiry Date fields editable
+Billing preset buttons operational
+
+After those five items are complete, I would formally close Sprint A and move directly to Sprint C – Notification Management Center (Global Templates, Contact Directory, Client Override Rules, and Notification Governance).

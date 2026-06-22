@@ -1539,7 +1539,16 @@ function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => vo
           {/* Download */}
           <div className="flex gap-2">
             <button
-              onClick={() => { const u = `/api/rate-manager/export?format=xlsx${job.productId ? `&productId=${job.productId}` : ''}`; window.open(u,'_blank'); }}
+              onClick={async () => {
+                const u = `/api/rate-manager/export?format=xlsx${job.productId ? `&productId=${job.productId}` : ''}`;
+                const resp = await fetch(u, { credentials: 'include' });
+                const blob = await resp.blob();
+                const clientPart = (job.clientNames || '').split(',')[0].trim().replace(/\s+/g,'').toUpperCase() || 'CLIENT';
+                const prodPart = (job.productName || 'Product').replace(/\s+/g,'');
+                const dateLabel = new Date().toISOString().slice(0,10).replace(/-/g,'');
+                const fname = `${clientPart}_${prodPart}_Rates.xlsx`;
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname; a.click();
+              }}
               className="flex items-center gap-1.5 text-xs bg-green-500/10 hover:bg-green-500/20 text-green-400 px-3 py-1.5 rounded border border-green-500/20 transition-colors"
             >
               <Download className="w-3 h-3" /> Download Rate Sheet
@@ -2132,7 +2141,7 @@ function TemplateDetail({
               : NOTIF_TYPE_LABEL[tpl.notificationType] === "CHANGES" ? "border-amber-400/40 text-amber-400"
               : "border-border/50 text-muted-foreground"
           )}>
-            {NOTIF_TYPE_LABEL[tpl.notificationType] ?? tpl.notificationType.toUpperCase()}
+            {NOTIF_TYPE_LABEL[tpl.notificationType] ?? (tpl.notificationType ?? '').toUpperCase()}
           </span>
           <button onClick={() => setShowAddDest(true)} data-testid="btn-add-destination"
             className="flex items-center gap-1 text-xs bg-muted hover:bg-muted/80 border border-border/50 px-2.5 py-1 rounded transition-colors">
@@ -3110,7 +3119,7 @@ function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
               </thead>
               <tbody>
                 {templates.map((t) => {
-                  const typeLabel = NOTIF_TYPE_LABEL[t.notificationType] ?? t.notificationType.toUpperCase();
+                  const typeLabel = NOTIF_TYPE_LABEL[t.notificationType] ?? (t.notificationType ?? '').toUpperCase();
                   const productName = products.find(p => p.id === t.productId)?.name ?? t.productName ?? `product-${t.productId}`;
                   return (
                     <tr key={t.id} className="border-b border-border/20 hover:bg-muted/10 cursor-pointer"
@@ -3134,10 +3143,16 @@ function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
                       </td>
                       <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{fmtDate(t.createdAt)}</td>
                       <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => deleteTplMut.mutate(t.id)} data-testid={`btn-del-tpl-${t.id}`}
-                          className="text-muted-foreground hover:text-red-400 transition-colors">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setSelectedTpl(t)} data-testid={`btn-edit-tpl-${t.id}`}
+                            className="text-muted-foreground hover:text-foreground transition-colors">
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button onClick={() => deleteTplMut.mutate(t.id)} data-testid={`btn-del-tpl-${t.id}`}
+                            className="text-muted-foreground hover:text-red-400 transition-colors">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
