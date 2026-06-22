@@ -1546,7 +1546,7 @@ function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => vo
             </button>
             {job.status === 'failed' || job.status === 'partial' ? (
               <button
-                onClick={() => apiRequest('POST', `/api/rate-manager/jobs/${job.id}/retry`).then(() => onClose())}
+                onClick={() => apiRequest('POST', `/api/rate-manager/jobs/${job.jobId}/retry`).then(() => onClose())}
                 className="flex items-center gap-1.5 text-xs bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded border border-blue-500/20 transition-colors"
               >
                 Re-send
@@ -2066,6 +2066,13 @@ function TemplateDetail({
   const [showAddDest, setShowAddDest]     = useState(false);
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [sendResult, setSendResult]       = useState<any>(null);
+  const [editMode, setEditMode]           = useState(false);
+  const [editForm, setEditForm]           = useState({
+    recipients: tpl.recipients ?? "",
+    ccEmails:   tpl.ccEmails   ?? "",
+    subject:    tpl.subject    ?? "",
+    bodyTemplate: tpl.bodyTemplate ?? "",
+  });
 
   const detailKey = ["/api/rate-notification-templates", tpl.id];
   const { data: detail, isLoading } = useQuery<RnTemplate & { destinations: RnDestination[] }>({
@@ -2091,6 +2098,20 @@ function TemplateDetail({
     onError: (e: any) => toast({ title: "Send failed", description: e.message, variant: "destructive" }),
   });
 
+  const saveMut = useMutation({
+    mutationFn: () => apiRequest("PATCH", `/api/rate-notification-templates/${tpl.id}`, {
+      recipients:   editForm.recipients || null,
+      ccEmails:     editForm.ccEmails   || null,
+      subject:      editForm.subject    || null,
+      bodyTemplate: editForm.bodyTemplate || null,
+    }),
+    onSuccess: () => {
+      setEditMode(false);
+      qc.invalidateQueries({ queryKey: ["/api/rate-notification-templates"] });
+      toast({ title: "Template saved" });
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+  });
   const productName = products.find(p => p.id === tpl.productId)?.name ?? tpl.productName ?? `product-${tpl.productId}`;
 
   return (
@@ -2122,22 +2143,40 @@ function TemplateDetail({
             className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white px-3 py-1 rounded transition-colors">
             <Send className="w-3 h-3" /> Send Notification
           </button>
+          {editMode ? (
+            <>
+              <button onClick={() => setEditMode(false)} className="flex items-center gap-1 text-xs border border-border/50 px-2.5 py-1 rounded text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
+              <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="flex items-center gap-1 text-xs bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white px-2.5 py-1 rounded transition-colors">{saveMut.isPending ? "Saving…" : "Save"}</button>
+            </>
+          ) : (
+            <button onClick={() => setEditMode(true)} className="flex items-center gap-1 text-xs border border-border/50 px-2.5 py-1 rounded text-muted-foreground hover:text-foreground transition-colors">
+              <Pencil className="w-3 h-3" /> Edit
+            </button>
+          )}
         </span>
       </div>
 
-      {/* Meta row */}
-      <div className="flex flex-wrap gap-4 mb-4 text-xs text-muted-foreground">
-        {tpl.recipients && (
-          <span><span className="text-foreground/60 font-medium">To:</span> {tpl.recipients}</span>
-        )}
-        {tpl.ccEmails && (
-          <span><span className="text-foreground/60 font-medium">CC:</span> {tpl.ccEmails}</span>
-        )}
-        {tpl.trafficFormat && (
-          <span><span className="text-foreground/60 font-medium">Format:</span> {tpl.trafficFormat}</span>
-        )}
-        <span><span className="text-foreground/60 font-medium">Created:</span> {fmtDate(tpl.createdAt)}</span>
-      </div>
+      {/* Meta row — view or edit */}
+      {editMode ? (
+        <div className="mb-4 border border-border/40 rounded-lg p-3 bg-muted/20 grid grid-cols-1 gap-3 text-xs">
+          <div><label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-1">Subject</label>
+            <input value={editForm.subject} onChange={e => setEditForm(f => ({ ...f, subject: e.target.value }))} placeholder="Rate update: {{productName}}" className="w-full bg-background border border-border/50 rounded px-2 py-1.5 text-xs" /></div>
+          <div><label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-1">Recipients (comma-separated)</label>
+            <input value={editForm.recipients} onChange={e => setEditForm(f => ({ ...f, recipients: e.target.value }))} placeholder="billing@client.com, noc@client.com" className="w-full bg-background border border-border/50 rounded px-2 py-1.5 text-xs" /></div>
+          <div><label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-1">CC (optional)</label>
+            <input value={editForm.ccEmails} onChange={e => setEditForm(f => ({ ...f, ccEmails: e.target.value }))} placeholder="kam@bitsauto.com" className="w-full bg-background border border-border/50 rounded px-2 py-1.5 text-xs" /></div>
+          <div><label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-1">Body Template</label>
+            <textarea value={editForm.bodyTemplate} onChange={e => setEditForm(f => ({ ...f, bodyTemplate: e.target.value }))} rows={4} placeholder="Dear {{clientName}}, please find updated rates for {{productName}}…" className="w-full bg-background border border-border/50 rounded px-2 py-1.5 text-xs font-mono resize-y" /></div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-4 mb-4 text-xs text-muted-foreground">
+          {tpl.recipients && <span><span className="text-foreground/60 font-medium">To:</span> {tpl.recipients}</span>}
+          {tpl.ccEmails && <span><span className="text-foreground/60 font-medium">CC:</span> {tpl.ccEmails}</span>}
+          {tpl.subject && <span><span className="text-foreground/60 font-medium">Subject:</span> {tpl.subject}</span>}
+          {tpl.trafficFormat && <span><span className="text-foreground/60 font-medium">Format:</span> {tpl.trafficFormat}</span>}
+          <span><span className="text-foreground/60 font-medium">Created:</span> {fmtDate(tpl.createdAt)}</span>
+        </div>
+      )}
 
       {/* Send result banner */}
       {sendResult && (
