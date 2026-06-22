@@ -259,12 +259,12 @@ async function loadSslCertStatusFromDb(): Promise<void> {
         certId:        r.cert_id as string,
         subject:       r.subject as string,
         issuer:        r.issuer as string | undefined,
-        expiresAt:     r.expires_at ? (r.expires_at as Date).toISOString() : new Date(0).toISOString(),
+        expiresAt:     r.expires_at ? new Date(r.expires_at).toISOString() : new Date(0).toISOString(),
         daysRemaining: Number(r.days_remaining),
         status:        r.status as 'ok' | 'warning' | 'critical' | 'expired',
         source:        r.source as 'sippy_api' | 'tls_probe',
         autoRenew:     Boolean(r.auto_renew),
-        checkedAt:     r.checked_at ? (r.checked_at as Date).toISOString() : new Date().toISOString(),
+        checkedAt:     r.checked_at ? new Date(r.checked_at).toISOString() : new Date().toISOString(),
       }));
       sslCertStatusCheckedAt = new Date(
         Math.max(...sslCertStatusCache.map(c => new Date(c.checkedAt).getTime()))
@@ -6557,13 +6557,14 @@ export async function registerRoutes(
       if (!portalUrl) { console.warn("[pnl-cache] no portalUrl"); return; }
       const fromDate = new Date(Date.now() - 24 * 60 * 60_000);
       const toDate = new Date();
-      const vendorCdrs = await sippy.exportVendorsCDRsMera(portalUrl, username, password, fromDate, toDate);
-      if (!Array.isArray(vendorCdrs) || vendorCdrs.length === 0) {
-        console.warn("[pnl-cache] exportVendorsCDRsMera returned no rows (401 or empty) — skipping");
+      const _meraResult = await sippy.exportVendorsCDRsMera(username, password, { portalUrl, trustedMode: true });
+      if (!_meraResult.success || _meraResult.cdrs.length === 0) {
+        console.warn("[pnl-cache] exportVendorsCDRsMera returned no rows — " + _meraResult.message);
         pnlCacheLastProbe = [{ attempt: "exportVendorsCDRsMera", statusCode: 0, bodyLen: 0, contentType: "xml-rpc" }];
         return;
       }
-      pnlCacheLastProbe = [{ attempt: "exportVendorsCDRsMera", statusCode: 200, bodyLen: vendorCdrs.length, contentType: "xml-rpc" }];
+      pnlCacheLastProbe = [{ attempt: "exportVendorsCDRsMera", statusCode: 200, bodyLen: _meraResult.cdrs.length, contentType: "xml-rpc" }];
+      const vendorCdrs = _meraResult.cdrs;
       let added = 0;
       for (const row of vendorCdrs) {
         const cld = (row.dstNumberBill || row.dstNumberIn || "").replace(/\D/g, "");

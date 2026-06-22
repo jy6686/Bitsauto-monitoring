@@ -203,7 +203,7 @@ export function registerRateManagerRoutes(app: Express) {
         effectiveFrom,
         effectiveTo:   effectiveTo || null,
         notes:         notes || null,
-        createdBy:     req.user?.username || 'operator',
+        createdBy:     ((req.user as any)?.firstName && (req.user as any)?.lastName ? `${(req.user as any).firstName} ${(req.user as any).lastName}` : (req.user as any)?.firstName || (req.user as any)?.email || 'operator'),
       }).returning();
       res.json(row);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -336,7 +336,7 @@ export function registerRateManagerRoutes(app: Express) {
             failedClients: accountNames.length - successCount,
             status:        successCount === accountNames.length ? 'completed' : successCount > 0 ? 'partial' : 'failed',
             notes:         results.map(r => `${r.accountName}:${r.success ? 'ok' : r.message}`).join(' | '),
-            createdBy:     req.user?.username || 'operator',
+            createdBy:     ((req.user as any)?.firstName && (req.user as any)?.lastName ? `${(req.user as any).firstName} ${(req.user as any).lastName}` : (req.user as any)?.firstName || (req.user as any)?.email || 'operator'),
           }).catch((e: any) => { console.error('[rate_push_jobs] product-rates insert failed:', e?.message || e); });
         } catch (e: any) { console.error('[rate_push_jobs] product-rates outer catch:', e?.message || e); }
 
@@ -408,7 +408,7 @@ export function registerRateManagerRoutes(app: Express) {
         affectedCount,
         scheduledFor:     scheduledFor ? new Date(scheduledFor) : null,
         status:           'pending',
-        createdBy:        req.user?.username || 'operator',
+        createdBy:        ((req.user as any)?.firstName && (req.user as any)?.lastName ? `${(req.user as any).firstName} ${(req.user as any).lastName}` : (req.user as any)?.firstName || (req.user as any)?.email || 'operator'),
       }).returning();
       res.json(row);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -640,19 +640,26 @@ export function registerRateManagerRoutes(app: Express) {
   app.get('/api/rate-manager/export', async (req: any, res) => {
     try {
       const { productId, country, format = 'xlsx', type = 'full' } = req.query;
-      // Build query
-      let conditions = '';
-      const params: any[] = [];
-      if (productId) { params.push(productId); conditions += ` AND dpr.product_prefix IN (SELECT trunk_prefix::text FROM product_registry WHERE id = $${params.length})`; }
-      if (country)   { params.push(`${country}%`); conditions += ` AND gd.dial_prefix LIKE $${params.length}`; }
+      // Query built below with parameterised WHERE clause
 
-      const rows = await db.execute(sql.raw(`
-        SELECT
-          gd.name        AS destination,
-          gd.dial_prefix AS prefix,
+      // Build parameterised query
+      let whereClause = "WHERE 1=1";
+      const qParams: any[] = [];
+      if (productId) {
+        qParams.push(productId);
+        whereClause += ` AND pr.id = $${qParams.length}`;
+      }
+      if (country) {
+        qParams.push(`${country}%`);
+        whereClause += ` AND dpr.product_prefix LIKE $${qParams.length}`;
+      }
+      const rows = await db.execute(sql.raw(
+        `SELECT
+          COALESCE(gd.name, dpr.destination_name) AS destination,
+          dpr.product_prefix                       AS prefix,
           gd.country_code,
-          pr.name        AS product,
-          pr.code        AS product_code,
+          pr.name                                  AS product,
+          pr.code                                  AS product_code,
           dpr.sell_rate,
           dpr.buy_rate,
           dpr.interval_1,
@@ -663,11 +670,12 @@ export function registerRateManagerRoutes(app: Express) {
           dpr.approval_status,
           dpr.updated_at
         FROM destination_product_rates dpr
-        JOIN global_destinations gd ON gd.id = dpr.destination_id
-        JOIN product_registry pr ON pr.trunk_prefix::text = dpr.product_prefix
-        WHERE 1=1 ${conditions}
-        ORDER BY gd.name, pr.name
-      `));
+        LEFT JOIN global_destinations gd ON gd.id = dpr.destination_id
+        LEFT JOIN product_registry pr ON pr.code = dpr.product_code
+        ${whereClause}
+        ORDER BY destination, product`,
+        qParams
+      ));
 
       const data = (rows as any).rows ?? [];
       const sheetData = [
@@ -688,9 +696,14 @@ export function registerRateManagerRoutes(app: Express) {
         ]),
       ];
 
-      const prodLabel = productId ? `_product${productId}` : '';
+      // Build descriptive filename
+      let prodName = 'AllProducts';
+      if (productId) {
+        const pRow = await db.execute(sql.raw(`SELECT name FROM product_registry WHERE id = $1`, [productId]));
+        prodName = ((pRow as any).rows[0]?.name ?? `Product${productId}`).replace(/\s+/g, '_');
+      }
       const dateLabel = new Date().toISOString().slice(0, 10);
-      const filename  = `BitsAuto_RateSheet${prodLabel}_${dateLabel}`;
+      const filename  = `RateSheet_${prodName}_${dateLabel}`;
 
       if (format === 'csv') {
         const csv = sheetData.map(row => row.map((c: any) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');

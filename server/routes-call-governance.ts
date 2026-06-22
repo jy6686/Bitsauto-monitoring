@@ -41,6 +41,8 @@ function _getGlobalPnlCache(): Map<string, any> | null {
 // Also limits Track-2 to calls within the 2h portal visibility window — older calls
 // can never be found via live scrape (CDRs age out of portal view).
 let _portalScrapeLock = false;
+let _portalScrapeCache: { cdrs: any[]; ts: number } | null = null;
+const PORTAL_CACHE_TTL_MS = 60_000; // 60s — reuse last scrape for concurrent lookups
 const PORTAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // ── Track 2b: P&L targeted lookup concurrency guard ──────────────────────────
@@ -157,6 +159,10 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
     : rawDestDigits;
   while (stripped.length > 12) stripped = stripped.slice(1);
   const destDigits  = stripped;
+  if (!destDigits) {
+    console.log(`[call-governance] CDR lookup #${governedCallId}: skipped — empty destDigits (callee="${gc.callee}")`);
+    return;
+  }
   const destSuffix  = destDigits.slice(-10);
   const destSuffix9 = destDigits.slice(-9);
   const cliSuffix   = (gc.caller || '').replace(/\D/g, '').slice(-8);  // ← A-leg = CLI
@@ -281,6 +287,7 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
         maxPages:  6,   // 300 CDRs — covers ~30 min of traffic at 500 cuts/hr
       });
       if (liveCdrs.length > 0) {
+        _portalScrapeCache = { cdrs: liveCdrs, ts: Date.now() }; // cache for concurrent lookups
         const seenFp = new Set(cdrs.map((c: any) => `${c.startTime}:${c.caller}:${c.callee}`));
         let added = 0;
         for (const c of liveCdrs) {
@@ -295,7 +302,19 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
   } else if (!callIsRecent) {
     console.log(`[call-governance] CDR lookup #${governedCallId}: Track2 skipped (call >2h old, outside portal window)`);
   } else {
-    console.log(`[call-governance] CDR lookup #${governedCallId}: Track2 skipped (concurrent scrape in progress)`);
+    // Use cached scrape result if fresh enough instead of skipping entirely
+    if (_portalScrapeCache && (Date.now() - _portalScrapeCache.ts) < PORTAL_CACHE_TTL_MS) {
+      const seenFp = new Set(cdrs.map((c: any) => `${c.startTime}:${c.caller}:${c.callee}`));
+      let added = 0;
+      for (const c of _portalScrapeCache.cdrs) {
+        const fp = `${c.startTime}:${c.caller}:${c.callee}`;
+        if (!seenFp.has(fp)) { seenFp.add(fp); cdrs.push(c); added++; }
+      }
+      if (added > 0) source = 'cache+portal-cached';
+      console.log(`[call-governance] CDR lookup #${governedCallId}: Track2 cache-hit → ${_portalScrapeCache.cdrs.length} CDR(s), +${added} new (age=${Math.round((Date.now()-_portalScrapeCache.ts)/1000)}s)`);
+    } else {
+      console.log(`[call-governance] CDR lookup #${governedCallId}: Track2 skipped (concurrent scrape, no fresh cache)`);
+    }
   }
 
   // ── Track 2b: Targeted P&L CDR lookup ────────────────────────────────────

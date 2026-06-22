@@ -319,6 +319,7 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
     ...(!hasName    ? ["✗ Destination name required"] : []),
     ...(!hasRates   ? ["✗ At least one product rate required"] : []),
     ...(!hasBilling ? ["✗ Billing increment must not be 0/0 on all rates"] : []),
+  ...(hasRates && !Array.from(dest.rates.values()).every((r: any) => r.activation_date) ? ["✗ Activation date required on each rate"] : []),
   ];
 
   const approveMut = useMutation({

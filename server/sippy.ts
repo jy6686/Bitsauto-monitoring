@@ -4511,7 +4511,7 @@ export async function getSippyCDRs(
       }
       // getAccountCDRs: do NOT default i_customer — omitting it returns ALL accounts' CDRs
 
-      const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password);
+      const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password, 45000);
       if (resp.statusCode === 401 || resp.statusCode === 403) {
         console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`);
         cdrAuthFailCount++;
