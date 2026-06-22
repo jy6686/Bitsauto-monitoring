@@ -308,6 +308,13 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
   const ancestors = useMemo(() => getAncestors(flatNodes, node.id), [flatNodes, node.id]);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["/api/product-registry/destinations"] });
+  const { data: destRates = [] } = useQuery<DestRateBilling[]>({
+    queryKey: [`/api/destination-catalog/product-rates/by-destination/${node.id}`],
+  });
+  const hasName = !!(node.name?.trim());
+  const hasRates = destRates.length > 0;
+  const hasBilling = destRates.length > 0 && destRates.every((r: DestRateBilling) => r.interval_1 > 0 && r.interval_n > 0);
+  const readiness = hasName && hasRates && hasBilling ? "ready" : hasName && hasRates ? "review" : "incomplete";
 
   const approveMut = useMutation({
     mutationFn: () => apiRequest("POST", `/api/product-registry/destinations/${node.id}/approve`, {}),
