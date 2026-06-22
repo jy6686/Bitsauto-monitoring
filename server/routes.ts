@@ -34626,6 +34626,22 @@ ${footer}
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // POST /api/product-registry/destinations/bulk-reset
+  app.post('/api/product-registry/destinations/bulk-reset', async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub ?? req.user?.id;
+      if (!userId) return res.status(401).json({ error: 'Auth required' });
+      const fromStatus = req.body.from_status ?? 'approved';
+      const toStatus   = req.body.to_status   ?? 'pending';
+      const result = await db.execute(
+        sql`UPDATE global_destinations SET commercial_status = ${toStatus}, blocked_reason = NULL WHERE commercial_status = ${fromStatus}`
+      );
+      const count = (result as any).rowCount ?? 0;
+      console.log('[dest-bulk-reset] ' + userId + ': ' + fromStatus + ' -> ' + toStatus + ', ' + count + ' rows');
+      res.json({ reset: count, from: fromStatus, to: toStatus });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/product-registry/destinations/approved
   app.get('/api/product-registry/destinations/approved', async (_req, res) => {
     try {
