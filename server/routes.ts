@@ -9866,11 +9866,14 @@ export async function registerRoutes(
         id: productRegistry.id,
         code: productRegistry.code,
         trunkPrefix: productRegistry.trunkPrefix,
+        segment: productRegistry.segment,
       }).from(productRegistry).where(eq(productRegistry.status, 'commercial'));
 
       const prefixToProductId = new Map<string, number>(); // "1"→1(FC), "2"→2(BC), etc.
       let fcProductId = 1;
-      for (const p of commercialProducts) {
+      // Only map wholesale products to avoid retail overriding wholesale trunk prefix
+      const wholesaleProducts = commercialProducts.filter((p: any) => p.segment === 'wholesale' || !p.segment);
+      for (const p of wholesaleProducts) {
         if (p.trunkPrefix) prefixToProductId.set(String(p.trunkPrefix), p.id);
         if (p.code === 'FC') fcProductId = p.id;
       }
