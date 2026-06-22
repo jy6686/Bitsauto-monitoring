@@ -10,6 +10,7 @@ import {
   BarChart2, Eye, Clock, ChevronRight, Loader2, CircleCheck, CircleX,
   Plus, Trash2, Bell, Building2, BellRing, TrendingUp, TrendingDown, Lightbulb,
   PackageCheck, Tag, Calendar, ShieldAlert, ExternalLink, Download, Mail,
+  Pencil,
 } from "lucide-react";
 
 // ── Display helper — strips internal product/trunk prefix digit for UI display ──
