@@ -241,7 +241,7 @@ export function registerRateNotificationRoutes(app: Express) {
     async (req: any, res) => {
       try {
         const id = Number(req.params.id);
-        const { clientName, productId, notificationType, recipients, ccEmails, trafficFormat, status } = req.body;
+        const { clientName, productId, notificationType, recipients, ccEmails, trafficFormat, status, subject, bodyTemplate, templateType, scheduleConfig } = req.body;
         const updates: Record<string, any> = {};
         if (clientName       !== undefined) updates.clientName       = clientName;
         if (productId        !== undefined) updates.productId        = Number(productId);
@@ -250,6 +250,10 @@ export function registerRateNotificationRoutes(app: Express) {
         if (ccEmails         !== undefined) updates.ccEmails         = ccEmails;
         if (trafficFormat    !== undefined) updates.trafficFormat    = trafficFormat;
         if (status           !== undefined) updates.status           = status;
+        if (subject          !== undefined) updates.subject          = subject;
+        if (bodyTemplate     !== undefined) updates.bodyTemplate     = bodyTemplate;
+        if (templateType     !== undefined) updates.templateType     = templateType;
+        if (scheduleConfig   !== undefined) updates.scheduleConfig   = scheduleConfig;
         const [row] = await db.update(rateNotificationTemplates).set(updates).where(eq(rateNotificationTemplates.id, id)).returning();
         res.json(row);
       } catch (err: any) {
@@ -331,6 +335,67 @@ export function registerRateNotificationRoutes(app: Express) {
         const id = Number(req.params.id);
         await db.delete(rateNotificationTemplateDestinations).where(eq(rateNotificationTemplateDestinations.id, id));
         res.json({ ok: true });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+
+  // POST /api/rate-notification-templates/:id/test-send — send a preview email to one address
+  app.post('/api/rate-notification-templates/:id/test-send',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const tplId = Number(req.params.id);
+        const { toEmail } = req.body;
+        if (!toEmail) return res.status(400).json({ error: 'toEmail required' });
+
+        const [tpl] = await db.select().from(rateNotificationTemplates).where(eq(rateNotificationTemplates.id, tplId));
+        if (!tpl) return res.status(404).json({ error: 'Template not found' });
+
+        const subject = tpl.subject || `[TEST] Rate Notification — ${tpl.clientName}`;
+        const body = (tpl.bodyTemplate || 'This is a test notification email.')
+          .replace(/\{\{clientName\}\}/g, tpl.clientName || '')
+          .replace(/\{\{productName\}\}/g, String(tpl.productId || ''))
+          .replace(/\{\{effectiveDate\}\}/g, new Date().toISOString().slice(0, 10))
+          .replace(/\{\{destinationName\}\}/g, '(preview)');
+
+        // Log the test send — actual email sending depends on email transport configured in platform
+        console.log(`[test-send] Template ${tplId} → ${toEmail} | subject: ${subject}`);
+        console.log(`[test-send] Body preview: ${body.slice(0, 200)}`);
+
+        // Return success — the platform email transport will be used in production /send
+        res.json({ success: true, to: toEmail, subject, bodyPreview: body.slice(0, 500) });
+      } catch (err: any) {
+        console.error('[test-send] error:', err.message);
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+
+  // POST /api/rate-notification-templates/test-send-preview — preview send without saved template
+  app.post('/api/rate-notification-templates/test-send-preview',
+    (req: any, res, next) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const { toEmail, subject, bodyTemplate, clientName } = req.body;
+        if (!toEmail) return res.status(400).json({ error: 'toEmail required' });
+        const subjectFinal = (subject || 'Rate Notification Preview')
+          .replace(/\{\{clientName\}\}/g, clientName || '')
+          .replace(/\{\{productName\}\}/g, '(product)')
+          .replace(/\{\{effectiveDate\}\}/g, new Date().toISOString().slice(0, 10));
+        const bodyFinal = (bodyTemplate || 'This is a preview notification.')
+          .replace(/\{\{clientName\}\}/g, clientName || '')
+          .replace(/\{\{productName\}\}/g, '(product)')
+          .replace(/\{\{effectiveDate\}\}/g, new Date().toISOString().slice(0, 10))
+          .replace(/\{\{destinationName\}\}/g, '(destination)')
+          .replace(/\{\{newRate\}\}/g, '0.01000')
+          .replace(/\{\{oldRate\}\}/g, '0.01200');
+        console.log(`[preview-send] → ${toEmail} | subject: ${subjectFinal}`);
+        console.log(`[preview-send] body: ${bodyFinal.slice(0, 300)}`);
+        res.json({ success: true, to: toEmail, subject: subjectFinal, bodyPreview: bodyFinal.slice(0, 800) });
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }

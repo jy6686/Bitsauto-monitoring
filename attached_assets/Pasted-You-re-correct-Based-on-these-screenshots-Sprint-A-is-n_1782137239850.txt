@@ -1,0 +1,359 @@
+You're correct. Based on these screenshots, Sprint A is not actually complete.
+
+The screenshots show that the code changes either:
+
+Were never connected to the UI,
+Are behind dead feature flags,
+Are calling endpoints that return empty data,
+Or were implemented only partially.
+What I can verify from the screenshots
+Feature	Expected	Actual	Status
+Notification Templates	Full editor with Subject, Body, Schedule, Preview, Test Email, Template Types	Old popup still visible	❌ FAIL
+Push History Drawer	Product, clients, destinations, old→new rate, retry button, errors	Only basic fields shown	❌ FAIL
+Push History Re-send	Re-send action	Not visible	❌ FAIL
+Push History Error Details	Expandable error block	Not visible	❌ FAIL
+Notification Template Cards	Default / Changes Only / Full Sheet / Emergency	Not visible	❌ FAIL
+Template Preview	Modal preview	Not visible	❌ FAIL
+Send Test Email	Button	Not visible	❌ FAIL
+Scheduled Notifications	Datetime selector	Not visible	❌ FAIL
+Screenshot #1
+
+Notification popup is still the original dialog:
+
+Current fields:
+
+Client
+Product
+Notification Type
+Recipients
+CC
+Traffic Format
+
+Missing:
+
+Subject
+Body Template
+Schedule
+Preview
+Test Email
+Template Type cards
+
+Therefore:
+
+❌ Sprint A Notification Template work not deployed
+
+Screenshot #2
+
+Templates page still empty-state.
+
+Expected:
+
+Template cards
+Editor panel
+Existing templates
+
+Not present.
+
+❌ FAIL
+
+Screenshot #3
+
+Push History drawer.
+
+Expected:
+
+Clients
+Destination list
+Rate count
+Old Rate → New Rate
+Effective date
+Push method
+Verification result
+Upload status
+Error details
+Retry button
+
+Actual:
+
+Job ID
+Prefix
+Verification
+Switch
+Format
+
+Only a tiny subset exists.
+
+❌ FAIL
+
+My assessment
+
+Sprint A completion claim is currently inaccurate.
+
+Actual progress looks closer to:
+
+Item	Status
+Download Rate Sheet	⚠ Partial
+Approval Validation	⚠ Partial
+Billing Presets	⚠ Partial
+Push History Enrichment	❌ Missing
+Retry Push	❌ Missing
+Notification Templates Rebuild	❌ Missing
+Preview/Test Email	❌ Missing
+Scheduling	❌ Missing
+Next step
+
+Before moving to Sprint B (8 products, 352 countries, Send Rate product visibility), I would reopen Sprint A and specifically ask the developer:
+
+Show me:
+
+1. The exact commit implementing the new Notification Template editor.
+2. The exact React component rendering Subject/Body/Schedule/Test Email.
+3. The exact API response from:
+   GET /api/rate-notification-templates
+
+4. The exact component rendering the Push History drawer.
+5. The exact JSX showing Retry button.
+6. Browser screenshots proving:
+   - Subject field
+   - Body field
+   - Preview
+   - Test Email
+   - Retry Push
+   - Error Details
+
+Because the screenshots you've provided are strong evidence that those features are not currently present in the deployed UI.
+
+Looking at these 3 screenshots carefully, two separate issues are visible:
+Issue 1 — Deployment hasn't propagated
+
+KAM still shows 53966848 on the Push History drawer (screenshot 3). That fix was applied to routes-rate-manager.ts in dev. Since you're on vo-ip-watcher--junaid70.replit.app (the production deployment URL) and the republish was stuck at Provision, the production build never picked up today's changes.
+Test dev first: In Replit, open the app in the built-in preview pane (not the .replit.app URL) — that runs the dev server which HAS all today's fixes. Check KAM there first. If it shows a name there, it's purely a deployment problem, not a code problem.
+Issue 2 — Notification Template modal is genuinely incomplete
+
+The modal in screenshot 2 has Client/Product/Notification Type/Recipients — that's the existing structure. It's missing Subject, Body template, Template Type cards, Preview, and Test Email. These were listed as "already fully implemented" in the prior session summary, but the screenshot contradicts that. The modal is a stripped-down create form, not a full template editor.
+What actually needs to be built:
+
+Template Type selector cards (Default / Changes Only / Full Sheet / Emergency)
+Subject line field
+Body template editor
+Preview button
+Test Email button
+Schedule/datetime field
+
+The Push History drawer gap (retry button, error detail expansion, rate diff display) is a separate issue.
+Recommended next step: Confirm the KAM fix works in dev preview first. If it does, fix the Replit deployment. Then we tackle the Notification Template editor as a genuine missing feature — it needs to be built, not just deployed.
+Want me to write the full Notification Template editor now, or fix the deployment blocker first?
+
+Fix the deployment blocker first.
+
+Based on everything you've shown, there are two different realities right now:
+
+Reality A — Codebase
+
+The developer has clearly modified multiple areas:
+
+Export endpoint exists
+Download button exists
+Push History technical section was expanded
+Approval blockers were added
+Billing validation changes were added
+
+The screenshots already prove some of those changes are visible.
+
+Reality B — Production UI
+
+The deployed app is still showing:
+
+Old Notification Template modal
+Old Push History drawer
+Numeric KAM ID
+Missing Retry button
+Missing Subject/Body editor
+
+That means either:
+
+Production deployment is stale, or
+The new code was never wired into the rendered component tree.
+What I would do next
+Step 1 — Verify Dev Preview
+
+Open:
+
+Replit Preview
+
+NOT
+
+https://vo-ip-watcher--junaid70.replit.app
+
+Then test:
+
+Push History
+
+Open Job Details.
+
+Expected:
+
+KAM Name
+Retry Button
+Rate Change details
+Error section
+Notifications
+
+Click New Template.
+
+Expected:
+
+Template Type cards
+Subject
+Body
+Preview
+Test Email
+Schedule
+Decision Tree
+If Dev Preview shows the new features
+
+Then:
+
+Code = OK
+Deployment = Broken
+
+Fix deployment only.
+
+No coding required.
+
+If Dev Preview still shows old UI
+
+Then:
+
+Features were never actually completed
+
+And Sprint A remains open.
+
+My current assessment
+
+From your screenshots alone:
+
+Item	Confidence
+Deployment issue exists	90%
+Notification editor unfinished	95%
+Push History enrichment incomplete	80%
+KAM fix may already exist in dev	70%
+
+So I would not start building Notification Templates yet.
+
+First prove whether the dev server already contains the new UI.
+
+If the dev preview still shows the same modal and same drawer, then the previous implementation claim was incorrect and we should reopen these Sprint A tasks and build them properly. If dev preview shows the new UI, then focus entirely on getting the Replit deployment unstuck before touching more code.
+
+Pasted text.txt
+Document
+
+The important part of that log is not the call-governance events. It's these two lines:
+
+[ssl-monitor] Loaded 1 cert(s) from DB
+
+and
+
+[process] Uncaught exception (non-fatal): listen EADDRINUSE: address already in use 0.0.0.0:5000
+What this proves
+1. SSL Monitor is fixed ✅
+
+Previously:
+
+r.expires_at.toISOString is not a function
+
+Then:
+
+r.checked_at.toISOString is not a function
+
+Now:
+
+[ssl-monitor] Loaded 1 cert(s) from DB
+
+That issue is resolved.
+
+2. You have TWO servers running ❌
+
+The command failed:
+
+kill $(lsof -t -i:5000)
+
+because:
+
+bash: lsof: command not found
+
+So the old Node process never stopped.
+
+Then when you started a new server:
+
+listen EADDRINUSE: address already in use 0.0.0.0:5000
+
+Meaning:
+
+Old server still owns port 5000
+New server cannot bind to 5000
+
+This is extremely important because it means:
+
+You may still be looking at the OLD code
+
+The process serving port 5000 may be the previous build.
+
+So when you test:
+
+Notification Templates
+Push History
+KAM name
+Export
+
+you might not actually be hitting today's code.
+
+Fix properly
+
+Find running Node processes:
+
+ps aux | grep tsx
+
+or
+
+ps aux | grep node
+
+Then kill them:
+
+pkill -f "tsx server"
+pkill -f node
+
+Verify:
+
+ps aux | grep tsx
+
+should return nothing except grep.
+
+Then:
+
+npm run dev
+
+and confirm:
+
+[express] serving on port 5000
+
+appears without:
+
+EADDRINUSE
+Current Sprint A status
+
+From the screenshots you provided earlier, I still consider:
+
+Feature	Status
+Download Rate Sheet	⚠ Partial
+Approval Validation	✅ Visible
+Billing Validation	✅ Visible
+Notification Editor	❌ Missing
+Template Preview	❌ Missing
+Test Email	❌ Missing
+Schedule	❌ Missing
+Push History Retry	❌ Missing
+Push History Rate Diff	❌ Missing
+Push History Error Details	❌ Missing
+
+But before judging the UI further, make sure you're actually running the latest dev server and not an old process on port 5000. Right now the logs prove there is still a port conflict.

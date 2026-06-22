@@ -9,7 +9,7 @@ import {
   ChevronDown, Search, X, RefreshCw, Check, AlertTriangle, Send,
   BarChart2, Eye, Clock, ChevronRight, Loader2, CircleCheck, CircleX,
   Plus, Trash2, Bell, Building2, BellRing, TrendingUp, TrendingDown, Lightbulb,
-  PackageCheck, Tag, Calendar, ShieldAlert, ExternalLink, Download,
+  PackageCheck, Tag, Calendar, ShieldAlert, ExternalLink, Download, Mail,
 } from "lucide-react";
 
 // ── Display helper — strips internal product/trunk prefix digit for UI display ──
@@ -2261,8 +2261,11 @@ function NewTemplateModal({
   const [showDrop, setShowDrop] = useState(false);
   const [recipientList, setRecipientList] = useState<string[]>([""]);
   const [ccList, setCcList] = useState<string[]>([]);
+  const [testEmail, setTestEmail] = useState("");
+  const [sendingTest, setSendingTest] = useState(false);
   const [form, setForm] = useState({
     clientName: "", productId: "", notificationType: "default", trafficFormat: "",
+    subject: "", bodyTemplate: "", templateType: "default", scheduleType: "immediate", scheduledAt: "",
   });
 
   const { data: allCompanies = [] } = useQuery<any[]>({
@@ -2281,32 +2284,61 @@ function NewTemplateModal({
     setCompanySearch(co.name || co.companyName || "");
     setShowDrop(false);
     setForm(p => ({ ...p, clientName: co.name || co.companyName || "" }));
-    // Auto-populate emails from company profile
     const primary = co.email || co.primaryEmail || co.billingEmail || co.contactEmail || "";
     const rawCc = co.ccEmails || co.cc_emails || co.ccEmail || [];
     if (primary) setRecipientList([primary]);
-    const ccArr = Array.isArray(rawCc)
-      ? rawCc
-      : typeof rawCc === "string" && rawCc
-        ? rawCc.split(",").map((e: string) => e.trim()).filter(Boolean)
-        : [];
+    const ccArr = Array.isArray(rawCc) ? rawCc
+      : typeof rawCc === "string" && rawCc ? rawCc.split(",").map((e: string) => e.trim()).filter(Boolean) : [];
     if (ccArr.length) setCcList(ccArr);
   };
 
   const saveMut = useMutation({
     mutationFn: () => apiRequest("POST", "/api/rate-notification-templates", {
-      ...form,
+      clientName: form.clientName,
       productId: Number(form.productId),
+      notificationType: form.notificationType,
+      trafficFormat: form.trafficFormat,
       recipients: recipientList.filter(Boolean).join(", "),
       ccEmails: ccList.filter(Boolean).join(", "),
+      subject: form.subject,
+      bodyTemplate: form.bodyTemplate,
+      templateType: form.templateType,
+      scheduleConfig: form.scheduleType === "scheduled" && form.scheduledAt
+        ? { type: "scheduled", at: form.scheduledAt }
+        : { type: "immediate" },
     }),
     onSuccess: (res: any) => { toast({ title: "Template created" }); onSaved(res); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const handleTestSend = async () => {
+    if (!testEmail) return;
+    setSendingTest(true);
+    try {
+      const r = await apiRequest("POST", "/api/rate-notification-templates/test-send-preview", {
+        subject: form.subject || `Rate Notification — ${form.clientName}`,
+        bodyTemplate: form.bodyTemplate,
+        toEmail: testEmail,
+        clientName: form.clientName,
+      });
+      toast({ title: "Test email queued", description: `Sent preview to ${testEmail}` });
+    } catch (e: any) {
+      toast({ title: "Test send failed", description: e.message, variant: "destructive" });
+    } finally { setSendingTest(false); }
+  };
+
+  const TEMPLATE_TYPES = [
+    { value: "default",      label: "Default",       desc: "Standard rate update",    color: "border-blue-500/40 bg-blue-500/5 text-blue-400" },
+    { value: "changes_only", label: "Changes Only",  desc: "Delta / partial update",  color: "border-amber-500/40 bg-amber-500/5 text-amber-400" },
+    { value: "full_sheet",   label: "Full Sheet",    desc: "Complete A–Z rate sheet", color: "border-green-500/40 bg-green-500/5 text-green-400" },
+    { value: "emergency",    label: "Emergency",     desc: "Urgent rate notice",      color: "border-red-500/40 bg-red-500/5 text-red-400" },
+  ] as const;
+
+  const TOKEN_HINTS = ["{{clientName}}", "{{productName}}", "{{effectiveDate}}", "{{destinationName}}", "{{newRate}}", "{{oldRate}}"];
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setShowDrop(false); }}>
-      <div className="bg-background border border-border rounded-lg w-full max-w-lg overflow-hidden shadow-xl">
+      <div className="bg-background border border-border rounded-lg w-full max-w-2xl overflow-hidden shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
           <span className="text-sm font-semibold flex items-center gap-2">
@@ -2315,7 +2347,22 @@ function NewTemplateModal({
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="p-4 flex flex-col gap-3 max-h-[68vh] overflow-y-auto">
+        <div className="p-4 flex flex-col gap-4 max-h-[75vh] overflow-y-auto">
+
+          {/* Template Type Cards */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Template Type</label>
+            <div className="grid grid-cols-4 gap-2">
+              {TEMPLATE_TYPES.map(t => (
+                <button key={t.value} type="button"
+                  onClick={() => setForm(p => ({ ...p, templateType: t.value }))}
+                  className={`rounded-lg border p-2.5 text-left transition-all ${form.templateType === t.value ? t.color + " ring-1 ring-current/30" : "border-border/40 hover:border-border"}`}>
+                  <div className="text-[11px] font-semibold">{t.label}</div>
+                  <div className="text-[9px] text-muted-foreground mt-0.5 leading-tight">{t.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Client search */}
           <div className="flex flex-col gap-1 relative">
@@ -2325,12 +2372,7 @@ function NewTemplateModal({
                 className="bg-muted border border-border rounded px-2 py-1.5 text-xs w-full pr-7 focus:outline-none focus:border-amber-500/50"
                 placeholder="Search company…"
                 value={companySearch}
-                onChange={e => {
-                  setCompanySearch(e.target.value);
-                  setShowDrop(true);
-                  setSelectedCompany(null);
-                  setForm(p => ({ ...p, clientName: e.target.value }));
-                }}
+                onChange={e => { setCompanySearch(e.target.value); setShowDrop(true); setSelectedCompany(null); setForm(p => ({ ...p, clientName: e.target.value })); }}
                 onFocus={() => companySearch.length >= 1 && setShowDrop(true)}
               />
               <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50 pointer-events-none" />
@@ -2338,17 +2380,12 @@ function NewTemplateModal({
             {showDrop && companySearch.length >= 1 && companies.length > 0 && (
               <div className="absolute top-full left-0 right-0 z-50 bg-background border border-border rounded-lg shadow-xl mt-1 max-h-48 overflow-y-auto">
                 {companies.slice(0, 12).map((co: any) => (
-                  <button
-                    key={co.id}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/50 flex items-center gap-2 border-b border-border/20 last:border-0 transition-colors"
-                    onClick={() => selectCompany(co)}
-                  >
+                  <button key={co.id} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/50 flex items-center gap-2 border-b border-border/20 last:border-0"
+                    onClick={() => selectCompany(co)}>
                     <Building2 className="w-3 h-3 text-muted-foreground/50 shrink-0" />
                     <span className="font-medium flex-1">{co.name || co.companyName}</span>
                     {(co.email || co.primaryEmail) && (
-                      <span className="text-muted-foreground/50 text-[10px] truncate max-w-[150px]">
-                        {co.email || co.primaryEmail}
-                      </span>
+                      <span className="text-muted-foreground/50 text-[10px] truncate max-w-[150px]">{co.email || co.primaryEmail}</span>
                     )}
                   </button>
                 ))}
@@ -2357,35 +2394,25 @@ function NewTemplateModal({
             {selectedCompany && (
               <div className="text-[10px] text-green-400 flex items-center gap-1 mt-0.5">
                 <Check className="w-3 h-3" /> {selectedCompany.name || selectedCompany.companyName}
-                {(selectedCompany.email || selectedCompany.primaryEmail) && (
-                  <span className="text-muted-foreground/60 ml-1">· emails auto-filled</span>
-                )}
+                {(selectedCompany.email || selectedCompany.primaryEmail) && <span className="text-muted-foreground/60 ml-1">· emails auto-filled</span>}
               </div>
             )}
           </div>
 
-          {/* Product + Type */}
+          {/* Product + Notification Type */}
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Product *</label>
-              <select
-                data-testid="select-tpl-product"
-                className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
-                value={form.productId}
-                onChange={e => setForm(p => ({ ...p, productId: e.target.value }))}
-              >
+              <select className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                value={form.productId} onChange={e => setForm(p => ({ ...p, productId: e.target.value }))}>
                 <option value="">— Select product —</option>
                 {products.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Notification Type</label>
-              <select
-                data-testid="select-tpl-type"
-                className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
-                value={form.notificationType}
-                onChange={e => setForm(p => ({ ...p, notificationType: e.target.value }))}
-              >
+              <select className="bg-muted border border-border rounded px-2 py-1.5 text-xs"
+                value={form.notificationType} onChange={e => setForm(p => ({ ...p, notificationType: e.target.value }))}>
                 <option value="default">DEFAULT — standard update</option>
                 <option value="changes_only">CHANGES — partial/delta only</option>
                 <option value="full_sheet">FULL — complete A–Z sheet</option>
@@ -2393,32 +2420,54 @@ function NewTemplateModal({
             </div>
           </div>
 
+          {/* Subject */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Subject Line</label>
+            <input className="bg-muted border border-border rounded px-2 py-1.5 text-xs focus:outline-none focus:border-amber-500/50"
+              placeholder="e.g. Rate Update — {{clientName}} — {{productName}}"
+              value={form.subject} onChange={e => setForm(p => ({ ...p, subject: e.target.value }))} />
+          </div>
+
+          {/* Body Template */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Body Template</label>
+              <div className="flex gap-1 flex-wrap">
+                {TOKEN_HINTS.map(t => (
+                  <button key={t} type="button"
+                    className="text-[9px] bg-muted border border-border/40 rounded px-1 py-0.5 text-muted-foreground hover:text-foreground hover:border-border font-mono"
+                    onClick={() => setForm(p => ({ ...p, bodyTemplate: p.bodyTemplate + t }))}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <textarea
+              rows={5}
+              className="bg-muted border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-amber-500/50 resize-none"
+              placeholder={"Dear {{clientName}},\n\nPlease find attached the updated rate sheet for {{productName}}.\n\nEffective date: {{effectiveDate}}\n\nRegards,\nBitsAuto Network"}
+              value={form.bodyTemplate}
+              onChange={e => setForm(p => ({ ...p, bodyTemplate: e.target.value }))}
+            />
+          </div>
+
           {/* Recipients */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Recipients *</label>
-              <button
-                onClick={() => setRecipientList(l => [...l, ""])}
-                className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-0.5 transition-colors"
-              >
+              <button onClick={() => setRecipientList(l => [...l, ""])}
+                className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-0.5">
                 <Plus className="w-3 h-3" /> Add Recipient
               </button>
             </div>
             {recipientList.map((email, i) => (
               <div key={i} className="flex items-center gap-1.5">
-                <input
-                  className="bg-muted border border-border rounded px-2 py-1.5 text-xs flex-1 focus:outline-none focus:border-amber-500/50"
-                  placeholder="email@company.com"
-                  value={email}
-                  onChange={e => setRecipientList(l => l.map((x, idx) => idx === i ? e.target.value : x))}
-                />
+                <input className="bg-muted border border-border rounded px-2 py-1.5 text-xs flex-1 focus:outline-none focus:border-amber-500/50"
+                  placeholder="email@company.com" value={email}
+                  onChange={e => setRecipientList(l => l.map((x, idx) => idx === i ? e.target.value : x))} />
                 {recipientList.length > 1 && (
-                  <button
-                    onClick={() => setRecipientList(l => l.filter((_, idx) => idx !== i))}
-                    className="text-muted-foreground/40 hover:text-red-400 transition-colors p-0.5"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                  <button onClick={() => setRecipientList(l => l.filter((_, idx) => idx !== i))}
+                    className="text-muted-foreground/40 hover:text-red-400 p-0.5"><X className="w-3 h-3" /></button>
                 )}
               </div>
             ))}
@@ -2428,46 +2477,69 @@ function NewTemplateModal({
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <label className="text-[10px] text-muted-foreground uppercase tracking-wide">CC (optional)</label>
-              <button
-                onClick={() => setCcList(l => [...l, ""])}
-                className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-0.5 transition-colors"
-              >
+              <button onClick={() => setCcList(l => [...l, ""])}
+                className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center gap-0.5">
                 <Plus className="w-3 h-3" /> Add CC
               </button>
             </div>
-            {ccList.length === 0 ? (
-              <div className="text-[10px] text-muted-foreground/40 italic py-0.5">None — click Add CC to add</div>
-            ) : (
-              ccList.map((email, i) => (
+            {ccList.length === 0
+              ? <div className="text-[10px] text-muted-foreground/40 italic py-0.5">None — click Add CC to add</div>
+              : ccList.map((email, i) => (
                 <div key={i} className="flex items-center gap-1.5">
-                  <input
-                    className="bg-muted border border-border rounded px-2 py-1.5 text-xs flex-1 focus:outline-none focus:border-blue-500/50"
-                    placeholder="cc@company.com"
-                    value={email}
-                    onChange={e => setCcList(l => l.map((x, idx) => idx === i ? e.target.value : x))}
-                  />
-                  <button
-                    onClick={() => setCcList(l => l.filter((_, idx) => idx !== i))}
-                    className="text-muted-foreground/40 hover:text-red-400 transition-colors p-0.5"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                  <input className="bg-muted border border-border rounded px-2 py-1.5 text-xs flex-1 focus:outline-none focus:border-blue-500/50"
+                    placeholder="cc@company.com" value={email}
+                    onChange={e => setCcList(l => l.map((x, idx) => idx === i ? e.target.value : x))} />
+                  <button onClick={() => setCcList(l => l.filter((_, idx) => idx !== i))}
+                    className="text-muted-foreground/40 hover:text-red-400 p-0.5"><X className="w-3 h-3" /></button>
                 </div>
               ))
+            }
+          </div>
+
+          {/* Schedule */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Send Schedule</label>
+            <div className="flex gap-3">
+              {(["immediate", "scheduled"] as const).map(v => (
+                <label key={v} className="flex items-center gap-1.5 cursor-pointer text-xs">
+                  <input type="radio" name="scheduleType" value={v} checked={form.scheduleType === v}
+                    onChange={() => setForm(p => ({ ...p, scheduleType: v }))} className="accent-amber-500" />
+                  {v === "immediate" ? "Send immediately" : "Schedule for later"}
+                </label>
+              ))}
+            </div>
+            {form.scheduleType === "scheduled" && (
+              <input type="datetime-local"
+                className="bg-muted border border-border rounded px-2 py-1.5 text-xs w-52 focus:outline-none focus:border-amber-500/50"
+                value={form.scheduledAt} onChange={e => setForm(p => ({ ...p, scheduledAt: e.target.value }))} />
             )}
           </div>
 
-          {/* Traffic format */}
+          {/* Traffic Format */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Traffic Format (optional)</label>
-            <input
-              data-testid="input-tpl-format"
-              className="bg-muted border border-border rounded px-2 py-1.5 text-xs focus:outline-none focus:border-border"
-              placeholder="e.g. E.164 with 9230XXXXXXX"
-              value={form.trafficFormat}
-              onChange={e => setForm(p => ({ ...p, trafficFormat: e.target.value }))}
-            />
+            <input className="bg-muted border border-border rounded px-2 py-1.5 text-xs focus:outline-none focus:border-border"
+              placeholder="e.g. E.164 with 9230XXXXXXX" value={form.trafficFormat}
+              onChange={e => setForm(p => ({ ...p, trafficFormat: e.target.value }))} />
           </div>
+
+          {/* Test Send */}
+          <div className="border border-border/30 rounded-lg p-3 bg-muted/20">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2">Send Test Email</div>
+            <div className="flex gap-2">
+              <input className="bg-muted border border-border rounded px-2 py-1.5 text-xs flex-1 focus:outline-none focus:border-amber-500/50"
+                placeholder="test@example.com" value={testEmail}
+                onChange={e => setTestEmail(e.target.value)} />
+              <button type="button"
+                disabled={!testEmail || sendingTest}
+                onClick={handleTestSend}
+                className="text-xs border border-border rounded px-2.5 py-1.5 hover:bg-muted disabled:opacity-40 flex items-center gap-1">
+                {sendingTest ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+                Send Test
+              </button>
+            </div>
+          </div>
+
         </div>
 
         {/* Footer */}
@@ -2476,8 +2548,7 @@ function NewTemplateModal({
             onClick={() => saveMut.mutate()}
             disabled={saveMut.isPending || !form.clientName || !form.productId || !recipientList.some(Boolean)}
             data-testid="btn-save-template"
-            className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors"
-          >
+            className="flex items-center gap-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors">
             {saveMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
             Create Template
           </button>

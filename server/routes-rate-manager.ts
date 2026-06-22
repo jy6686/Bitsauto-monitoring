@@ -727,4 +727,57 @@ export function registerRateManagerRoutes(app: Express) {
   });
 
 
+
+  // POST /api/rate-manager/jobs/:id/retry
+  app.post("/api/rate-manager/jobs/:id/retry", (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next), async (req: any, res) => {
+    try {
+      const jobId = req.params.id;  // this is the job_id text value e.g. "job-1782052079612"
+      let job: any = null;
+      let jobTable = "";
+
+      const rpj = await db.execute(sql`SELECT * FROM rate_push_jobs WHERE job_id = ${jobId}`);
+      if ((rpj as any).rows?.length) { job = (rpj as any).rows[0]; jobTable = "rate_push_jobs"; }
+
+      if (!job) {
+        const rnj = await db.execute(sql`SELECT * FROM rate_notification_jobs WHERE job_ref = ${jobId}`);
+        if ((rnj as any).rows?.length) { job = (rnj as any).rows[0]; jobTable = "rate_notification_jobs"; }
+      }
+
+      if (!job) return res.status(404).json({ success: false, message: "Job not found" });
+      if (!["failed","partial"].includes(job.status)) {
+        return res.status(400).json({ success: false, message: `Cannot retry job with status: ${job.status}` });
+      }
+
+      const createdBy = ((req.user as any)?.firstName && (req.user as any)?.lastName
+        ? `${(req.user as any).firstName} ${(req.user as any).lastName}`
+        : (req.user as any)?.firstName || (req.user as any)?.email || 'operator');
+
+      const newJobId = `job-${Date.now()}`;
+      const now = new Date().toISOString();
+
+      if (jobTable === "rate_push_jobs") {
+        const pn = job.product_name ?? null;
+        const fp = job.full_prefix ?? null;
+        const pm = job.push_method || 'portal_csv';
+        const fmt = job.format || 'full';
+        const vr = job.verification_result || 'confirmed';
+        const cn = job.client_names ?? null;
+        const dn = job.destination_name ?? null;
+        await db.execute(sql`INSERT INTO rate_push_jobs (job_id, product_name, full_prefix, status, push_method, format, verification_result, created_by, client_names, destination_name, created_at, retried_from) VALUES (${newJobId},${pn},${fp},'pending',${pm},${fmt},${vr},${createdBy},${cn},${dn},${now},${jobId})`);
+      } else {
+        const tid = job.template_id ?? null;
+        const cln = job.client_name ?? null;
+        const prn = job.product_name ?? null;
+        const ntype = job.notification_type || 'DEFAULT';
+        await db.execute(sql`INSERT INTO rate_notification_jobs (job_ref, template_id, client_name, product_name, notification_type, status, created_by, created_at) VALUES (${newJobId},${tid},${cln},${prn},${ntype},'pending',${createdBy},${now})`);
+      }
+
+      console.log(`[retry] Job ${jobId} retried → new job ${newJobId} by ${createdBy}`);
+      return res.json({ success: true, newJobId });
+    } catch (err: any) {
+      console.error("[retry] Error:", err.message);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
 }
