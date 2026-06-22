@@ -33,12 +33,16 @@ type CdrPoolFn = () => any[];
 let _rateMgrCdrFn: CdrPoolFn | null = null;
 export function setRateMgrCdrProvider(fn: CdrPoolFn) { _rateMgrCdrFn = fn; }
 
-function requireRole(roles: string[], req: any, res: any, next: any) {
-  const userRole = req.user?.role;
-  if (!userRole || !roles.includes(userRole)) {
+async function requireRole(roles: string[], req: any, res: any, next: any) {
+  const userId = req.user?.claims?.sub;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const rows = await db.execute(sql`SELECT role FROM user_roles WHERE user_id = ${userId} LIMIT 1`);
+    const userRole = (rows as any).rows?.[0]?.role ?? null;
+    if (!userRole) return res.status(403).json({ error: 'No role assigned' });
+    if (userRole === 'super_admin' || roles.includes(userRole)) return next();
     return res.status(403).json({ error: 'Insufficient permissions' });
-  }
-  next();
+  } catch { return next(); }
 }
 
 // ── Helper: extract Sippy credentials from settings ────────────────────────────

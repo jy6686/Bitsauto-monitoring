@@ -1544,9 +1544,9 @@ function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => vo
             >
               <Download className="w-3 h-3" /> Download Rate Sheet
             </button>
-            {job.status === 'failed' || job.status === 'partial' ? (
+            {(['failed','partial'].includes((job.status??'').toLowerCase())) ? (
               <button
-                onClick={() => apiRequest('POST', `/api/rate-manager/jobs/${job.jobId}/retry`).then(() => onClose())}
+                onClick={() => apiRequest('POST', `/api/rate-manager/jobs/${job.jobId??job.job_id??job.id}/retry`).then(() => onClose())}
                 className="flex items-center gap-1.5 text-xs bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded border border-blue-500/20 transition-colors"
               >
                 Re-send

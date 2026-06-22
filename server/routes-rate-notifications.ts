@@ -10,7 +10,7 @@
 import type { Express } from 'express';
 import { createHash }   from 'crypto';
 import { db }           from './db';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, sql } from 'drizzle-orm';
 import {
   rateNotificationTemplates,
   rateNotificationTemplateDestinations,
@@ -34,10 +34,16 @@ async function getSippyCreds() {
   };
 }
 
-function requireRole(roles: string[], req: any, res: any, next: any) {
-  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-  next();
+async function requireRole(roles: string[], req: any, res: any, next: any) {
+  const userId = req.user?.claims?.sub;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const rows = await db.execute(sql`SELECT role FROM user_roles WHERE user_id = ${userId} LIMIT 1`);
+    const userRole = (rows as any).rows?.[0]?.role ?? null;
+    if (!userRole) return res.status(403).json({ error: 'No role assigned' });
+    if (userRole === 'super_admin' || roles.includes(userRole)) return next();
+    return res.status(403).json({ error: 'Forbidden' });
+  } catch { return next(); }
 }
 
 function jobRef(): string {
