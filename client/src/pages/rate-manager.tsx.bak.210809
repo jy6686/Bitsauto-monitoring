@@ -3290,12 +3290,6 @@ function NotificationsTab({ products, initialSubTab, initialStatusFilter }: {
 function PricingIntelligenceTab({ products }: { products: Product[] }) {
   const [selectedProductId, setSelectedProductId] = useState<string>("");
 
-  const { data: kpiStats } = useQuery<any>({
-    queryKey: ["/api/rate-manager/kpi"],
-    queryFn: () => fetch("/api/rate-manager/kpi").then(r => r.ok ? r.json() : null).catch(() => null),
-    staleTime: 60_000,
-  });
-
   const { data, isLoading, refetch } = useQuery<{ recommendations: any[]; generatedAt: string }>({
     queryKey: ["/api/pricing-intelligence", selectedProductId],
     queryFn: () => fetch(`/api/pricing-intelligence${selectedProductId ? `?productId=${selectedProductId}` : ""}`).then(r => r.json()),
@@ -3311,28 +3305,6 @@ function PricingIntelligenceTab({ products }: { products: Product[] }) {
     <div className="flex flex-1 overflow-hidden">
       {/* Sidebar */}
       <div className="w-48 shrink-0 border-r border-border/50 flex flex-col gap-0 overflow-y-auto py-2">
-        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">Platform Coverage</div>
-        <div className="px-3 pb-3 grid grid-cols-2 gap-1.5">
-          <div className="flex flex-col items-center px-2 py-2 rounded-lg border border-blue-500/20 bg-blue-500/8">
-            <div className="text-base font-bold tabular-nums leading-tight text-blue-400">{products.length || "—"}</div>
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight text-center">Products</div>
-          </div>
-          <div className="flex flex-col items-center px-2 py-2 rounded-lg border border-green-500/20 bg-green-500/8">
-            <div className="text-base font-bold tabular-nums leading-tight text-green-400">{kpiStats?.totalClients ?? "—"}</div>
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight text-center">Clients</div>
-          </div>
-          <div className="flex flex-col items-center px-2 py-2 rounded-lg border border-purple-500/20 bg-purple-500/8">
-            <div className="text-base font-bold tabular-nums leading-tight text-purple-400">
-              {kpiStats?.totalDestinations != null ? Number(kpiStats.totalDestinations).toLocaleString() : "—"}
-            </div>
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight text-center">Dests</div>
-          </div>
-          <div className="flex flex-col items-center px-2 py-2 rounded-lg border border-amber-500/20 bg-amber-500/8">
-            <div className="text-base font-bold tabular-nums leading-tight text-amber-400">{kpiStats?.totalCountries ?? "—"}</div>
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight text-center">Countries</div>
-          </div>
-        </div>
-        <div className="border-t border-border/30 mb-1" />
         <div className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">Filter Product</div>
         <button
           onClick={() => setSelectedProductId("")}
@@ -3518,6 +3490,41 @@ export default function RateManagerPage() {
         </div>
       </div>
 
+      {/* KPI Strip */}
+      <div className="flex-shrink-0 border-b border-border/20 bg-muted/3 px-5 py-2 flex items-center gap-3 overflow-x-auto">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-500/20 bg-blue-500/8 shrink-0">
+          <div>
+            <div className="text-base font-bold tabular-nums leading-tight text-blue-400">{products.length || "—"}</div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Products</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-500/20 bg-green-500/8 shrink-0">
+          <div>
+            <div className="text-base font-bold tabular-nums leading-tight text-green-400">
+              {kpiStats?.totalClients != null ? kpiStats.totalClients : accounts.length > 0 ? accounts.length : "—"}
+            </div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Active Clients</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-purple-500/20 bg-purple-500/8 shrink-0">
+          <div>
+            <div className="text-base font-bold tabular-nums leading-tight text-purple-400">
+              {kpiStats?.totalDestinations != null
+                ? Number(kpiStats.totalDestinations).toLocaleString()
+                : allDests.length > 0 ? allDests.length.toLocaleString() : "—"}
+            </div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Destinations</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-500/20 bg-amber-500/8 shrink-0">
+          <div>
+            <div className="text-base font-bold tabular-nums leading-tight text-amber-400">
+              {kpiStats?.totalCountries != null ? kpiStats.totalCountries : allDests.filter((d: DestNode) => d.level === 1).length || "—"}
+            </div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">Countries</div>
+          </div>
+        </div>
+      </div>
       {/* Tab content */}
       {activeTab === "analysis"      && <AnalysisTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
       {activeTab === "send"          && <SendRateTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
