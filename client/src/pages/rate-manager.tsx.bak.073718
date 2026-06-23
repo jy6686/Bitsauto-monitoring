@@ -364,8 +364,8 @@ function RateDetailPanel({
                 <th className="text-left py-2 px-3 border-b border-border w-8">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} data-testid="checkbox-select-all" />
                 </th>
-                {["", "Code", "Destination", "Client Dest", "Rate (USD)", "Increment", "Active From", "Active Till", "Status"].map(h => (
-                  <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground border-b border-border whitespace-nowrap text-[11px]">
+                {["#", "Client", "KAM", "Module", "Product", "Dests", "Status", "Created", ""].map(h => (
+                  <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground border-b border-border whitespace-nowrap">
                     {h}
                   </th>
                 ))}
@@ -394,11 +394,6 @@ function RateDetailPanel({
                   <td className="py-1.5 px-3 text-right font-mono tabular-nums">
                     {r.price1 != null ? Number(r.price1).toFixed(5) : "—"}
                   </td>
-                  <td className="py-1.5 px-3 font-mono text-[11px] text-center text-muted-foreground">
-                    {(r as any).interval1 != null && (r as any).intervalN != null
-                      ? `${(r as any).interval1}/${(r as any).intervalN}`
-                      : "—"}
-                  </td>
                   <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">
                     {r.activationDate ? (() => { const d = new Date(String(r.activationDate).replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T')); return isNaN(d.getTime()) ? String(r.activationDate).slice(0,10) : d.toLocaleDateString(); })() : "—"}
                   </td>
@@ -406,22 +401,17 @@ function RateDetailPanel({
                     {r.expirationDate ? (() => { const d = new Date(String(r.expirationDate).replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T')); return isNaN(d.getTime()) ? String(r.expirationDate).slice(0,10) : d.toLocaleDateString(); })() : "None"}
                   </td>
                   <td className="py-1.5 px-3">
-                    {(() => {
-                      if (r.forbidden) return <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded-full px-2 py-0.5">● Blocked</span>;
-                      const now = Date.now();
-                      const parseTs = (s: any) => { if (!s) return null; const d = new Date(String(s).replace(/^(\d{4})(\d{2})(\d{2})T/, '$1-$2-$3T')); return isNaN(d.getTime()) ? null : d.getTime(); };
-                      const act = parseTs(r.activationDate);
-                      const exp = parseTs(r.expirationDate);
-                      if (exp && exp < now) return <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2 py-0.5">● Expired</span>;
-                      if (act && act > now) return <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full px-2 py-0.5">◷ Scheduled</span>;
-                      return <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-500/10 text-green-400 border border-green-500/20 rounded-full px-2 py-0.5">● Active</span>;
-                    })()}
+                    {r.forbidden ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded-full px-2 py-0.5">● Blocked</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-500/10 text-green-400 border border-green-500/20 rounded-full px-2 py-0.5">● Active</span>
+                    )}
                   </td>
                 </tr>
               ))}
               {rates.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center py-10 text-muted-foreground">
+                  <td colSpan={8} className="text-center py-10 text-muted-foreground">
                     No rates found with prefix <span className="font-mono text-blue-400">"{trunkPrefix}*"</span>
                   </td>
                 </tr>
