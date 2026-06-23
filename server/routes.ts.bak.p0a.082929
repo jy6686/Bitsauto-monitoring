@@ -9955,28 +9955,7 @@ export async function registerRoutes(
       const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
 
       if (!cache || cache.size === 0) {
-        // Cache still warming — return DB assignments so dropdown isn't empty
-        const fallbackRows = await db.select({
-          iAccount: customerProductAssignments.iAccount,
-          customerName: customerProductAssignments.customerName,
-        }).from(customerProductAssignments)
-          .where(and(
-            eq(customerProductAssignments.productId, productId),
-            eq(customerProductAssignments.status, 'active')
-          ));
-        const fallbackAccounts = fallbackRows
-          .filter((a: any) => Number(a.iAccount) > 0)
-          .map((a: any) => ({
-            iAccount:   Number(a.iAccount),
-            username:   a.customerName ?? `Account ${a.iAccount}`,
-            tariffName: null,
-            balance:    null,
-          }));
-        return res.json({
-          accounts:    fallbackAccounts,
-          productName: product?.name ?? null,
-          syncing:     true,
-        });
+        return res.json({ accounts: [], productName: product?.name ?? null, syncing: true });
       }
 
       // Filter to only clients assigned to this product
@@ -35990,17 +35969,13 @@ ${footer}
             uploadStatus:       firstR?.uploadStatus ?? null,
             verificationResult: firstR?.verificationResult ?? null,
             completedAt:        new Date(),
-            clientNames:        accountName,
             notes:              `${accountName}: ${prefixes.length} prefix(es), newRate=${rate}, method=${methods.join(',') || 'n/a'}, ok=${ok}/${prefixes.length}`,
           }).where(eq(ratePushJobs.jobId, jobId));
         } catch (e: any) { console.error('[rate_push_jobs] change-client-rates update failed:', e?.message || e); }
 
         console.log(`[RateManager] Push complete — ok=${ok}/${prefixes.length} method=${methods.join(',')} verificationResult=${firstR?.verificationResult ?? 'n/a'}`);
         res.json({ results, ok, total: prefixes.length, methods });
-      } catch (e: any) {
-        console.error('[P0C-DEBUG] change-client-rates 500:', e?.stack ?? e?.message ?? e);
-        res.status(500).json({ error: e.message });
-      }
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
     },
   );
   // GET /api/rate-manager/jobs — rate push job history (business-enriched)

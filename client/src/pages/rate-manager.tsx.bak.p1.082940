@@ -469,7 +469,7 @@ function ChangeClientRateModal({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [rate, setRate] = useState("");
-  const [effectiveFrom, setEffectiveFrom] = useState<string>(() => new Date(Date.now() + 5 * 60_000).toISOString().slice(0, 16));
+  const [effectiveFrom, setEffectiveFrom] = useState("");
   const [effectiveTill, setEffectiveTill] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<{ prefix: string; success: boolean; message: string; method?: string; detail?: string }[] | null>(null);
@@ -497,20 +497,14 @@ function ChangeClientRateModal({
       // Always send the full Sippy prefix (r.prefix = e.g. "192"), NOT rawPrefix ("92").
       // rawPrefix strips the trunk prefix for display only — Sippy rate keys use the full prefix.
       const prefixes = selectedRates.map(r => String(r.prefix));
-      const fmtDate = (v: string) => v ? v.replace("T", " ") : undefined;
-      const doReq = () => apiRequest("POST", "/api/rate-manager/change-client-rates", {
+      const res = await apiRequest("POST", "/api/rate-manager/change-client-rates", {
         accountName: account.username,
         iTariff: iTariff ?? undefined,
         prefixes,
         rate: rateNum,
-        effectiveFrom: fmtDate(effectiveFrom),
-        effectiveTill: fmtDate(effectiveTill),
+        effectiveFrom: effectiveFrom || undefined,
+        effectiveTill: effectiveTill || undefined,
       });
-      let res = await doReq();
-      if (!res.ok && res.status >= 500) {
-        await new Promise(r => setTimeout(r, 1200));
-        res = await doReq();
-      }
       const data = await res.json();
       setResults(data.results ?? []);
       if (data.ok === prefixes.length) {
@@ -580,19 +574,21 @@ function ChangeClientRateModal({
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Active From</label>
               <input
-                type="datetime-local"
+                type="text"
                 value={effectiveFrom}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
-                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"
+                placeholder="YYYY-MM-DD HH:mm"
+                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm font-mono"
               />
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Active Till</label>
               <input
-                type="datetime-local"
+                type="text"
                 value={effectiveTill}
                 onChange={(e) => setEffectiveTill(e.target.value)}
-                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"
+                placeholder="YYYY-MM-DD HH:mm"
+                className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm font-mono"
               />
             </div>
           </div>

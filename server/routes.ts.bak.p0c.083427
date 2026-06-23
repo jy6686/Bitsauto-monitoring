@@ -35997,10 +35997,7 @@ ${footer}
 
         console.log(`[RateManager] Push complete — ok=${ok}/${prefixes.length} method=${methods.join(',')} verificationResult=${firstR?.verificationResult ?? 'n/a'}`);
         res.json({ results, ok, total: prefixes.length, methods });
-      } catch (e: any) {
-        console.error('[P0C-DEBUG] change-client-rates 500:', e?.stack ?? e?.message ?? e);
-        res.status(500).json({ error: e.message });
-      }
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
     },
   );
   // GET /api/rate-manager/jobs — rate push job history (business-enriched)
