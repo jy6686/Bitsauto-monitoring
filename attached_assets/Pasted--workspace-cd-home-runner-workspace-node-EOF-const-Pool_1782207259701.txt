@@ -1,0 +1,71 @@
+~/workspace$ cd /home/runner/workspace
+node - << 'EOF'
+const { Pool } = require('pg');
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+(async () => {
+
+  // 1. LEFT JOIN: assignments vs sippy_accounts
+  console.log("\n=== ASSIGNMENT vs SIPPY_ACCOUNTS (First Class) ===");
+  try {
+    const r = await pool.query(`
+      SELECT cpa.i_account, cpa.customer_name, cpa.created_by,
+             sa.i_account as sippy_exists, sa.username as sippy_username
+      FROM customer_product_assignments cpa
+      LEFT JOIN sippy_accounts sa ON sa.i_account = cpa.i_account
+      WHERE cpa.product_id = 1 ORDER BY cpa.i_account`);
+    r.rows.forEach(x => console.log(
+      ` ${x.i_account} | cpa=${x.customer_name} | sippy=${x.sippy_exists ? x.sippy_username : 'NULL — NOT IN SIPPY'} | by=${x.created_by}`
+    ));
+  } catch(e) { console.log("sippy_accounts table:", e.message); }
+
+  // 2. What tables exist related to accounts
+  console.log("\n=== ACCOUNT-RELATED TABLES ===");
+  const tables = await pool.query(`
+    SELECT table_name FROM information_schema.tables
+    WHERE table_schema='public' AND table_name ILIKE '%account%' OR table_name ILIKE '%customer%' OR table_name ILIKE '%sippy%'
+    ORDER BY table_name`);
+  tables.rows.forEach(r => console.log(" ", r.table_name));
+
+  // 3. How many accounts in each source
+  console.log("\n=== ROW COUNTS ===");
+  for (const t of ['sippy_accounts','customers','companies','customer_product_assignments']) {
+    try {
+      const c = await pool.query(`SELECT COUNT(*) FROM ${t}`);
+      console.log(` ${t}: ${c.rows[0].count} rows`);
+    } catch(e) { console.log(` ${t}: does not exist`); }
+  }
+
+  // 4. sippy_accounts schema if it exists
+  console.log("\n=== sippy_accounts columns ===");
+  try {
+    const cols = await pool.query(`
+      SELECT column_name, data_type FROM information_schema.columns
+      WHERE table_name='sippy_accounts' ORDER BY ordinal_position`);
+    cols.rows.forEach(c => console.log(` ${c.column_name} (${c.data_type})`));
+EOF).catch(e => console.error(e.message));t"); }umn_name}`)););
+
+=== ASSIGNMENT vs SIPPY_ACCOUNTS (First Class) ===
+sippy_accounts table: relation "sippy_accounts" does not exist
+
+=== ACCOUNT-RELATED TABLES ===
+  account_actions
+  account_caps
+  account_configs
+  account_state
+  account_state_history
+  company_bank_accounts
+  customer_product_assignments
+  kam_accounts
+  sippy_change_events
+  sippy_snapshots
+
+=== ROW COUNTS ===
+ sippy_accounts: does not exist
+ customers: does not exist
+ companies: 21 rows
+ customer_product_assignments: 41 rows
+
+=== sippy_accounts columns ===
+
+=== customers columns ===
+~/workspace$ 

@@ -1,0 +1,463 @@
+~/workspace$ cd /home/runner/workspace
+node - << 'EOF'
+const { Pool } = require('pg');
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+(async () => {
+
+  // companies schema + sample
+  console.log("=== companies (schema) ===");
+  const cc = await pool.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name='companies' ORDER BY ordinal_position`);
+  cc.rows.forEach(r => console.log(` ${r.column_name} (${r.data_type})`));
+  const cs = await pool.query(`SELECT * FROM companies LIMIT 3`);
+  console.log("Sample:", JSON.stringify(cs.rows, null, 2));
+
+  // account_state schema + sample
+  console.log("\n=== account_state (schema) ===");
+  try {
+    const ac = await pool.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name='account_state' ORDER BY ordinal_position`);
+    ac.rows.forEach(r => console.log(` ${r.column_name} (${r.data_type})`));
+    const as2 = await pool.query(`SELECT * FROM account_state LIMIT 3`);
+    console.log("Sample:", JSON.stringify(as2.rows, null, 2));
+  } catch(e) { console.log(e.message); }
+
+  // account_configs schema
+  console.log("\n=== account_configs (schema) ===");
+  try {
+    const aconf = await pool.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name='account_configs' ORDER BY ordinal_position`);
+    aconf.rows.forEach(r => console.log(` ${r.column_name} (${r.data_type})`));
+  } catch(e) { console.log(e.message); }
+
+  // customer_product_assignments full schema
+  console.log("\n=== customer_product_assignments (schema) ===");
+  const cpa = await pool.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name='customer_product_assignments' ORDER BY ordinal_position`);
+  cpa.rows.forEach(r => console.log(` ${r.column_name} (${r.data_type})`));
+
+  // How does listSippyAccounts get called at startup?
+  await pool.end();
+})().catch(e => console.error(e.message));
+EOF
+=== companies (schema) ===
+ id (integer)
+ name (character varying)
+ short_code (character varying)
+ country (character varying)
+ kam (character varying)
+ status (character varying)
+ company_type (character varying)
+ contract_type (character varying)
+ department (character varying)
+ team (character varying)
+ client_timezone (character varying)
+ vendor_timezone (character varying)
+ currency (character varying)
+ vendor_billing_cycle (character varying)
+ vendor_grace_period (integer)
+ vendor_credit_limit (real)
+ dispute_over_pct (real)
+ client_billing_cycle (character varying)
+ client_grace_period (integer)
+ client_credit_limit (real)
+ dispute_over_val (real)
+ payment_term (character varying)
+ legal_name_ci (character varying)
+ legal_name_ven (character varying)
+ invoice_email (character varying)
+ notes (text)
+ created_at (timestamp without time zone)
+ created_by (character varying)
+ provisioning_status (character varying)
+ provisioned_at (timestamp without time zone)
+ provisioned_by (character varying)
+ sippy_i_account (integer)
+ wizard_draft (text)
+ sippy_i_tariff (integer)
+ activated_at (timestamp with time zone)
+ activated_by (text)
+Sample: [
+  {
+    "id": 2,
+    "name": "acmetel",
+    "short_code": "58",
+    "country": null,
+    "kam": null,
+    "status": "active",
+    "company_type": "client",
+    "contract_type": "bilateral",
+    "department": null,
+    "team": null,
+    "client_timezone": null,
+    "vendor_timezone": null,
+    "currency": "USD",
+    "vendor_billing_cycle": "weekly_cutoff",
+    "vendor_grace_period": 3,
+    "vendor_credit_limit": 0,
+    "dispute_over_pct": 0,
+    "client_billing_cycle": "weekly_cutoff",
+    "client_grace_period": 3,
+    "client_credit_limit": 0,
+    "dispute_over_val": 0,
+    "payment_term": "prepaid",
+    "legal_name_ci": null,
+    "legal_name_ven": null,
+    "invoice_email": null,
+    "notes": null,
+    "created_at": "2026-06-14T13:54:14.924Z",
+    "created_by": null,
+    "provisioning_status": "draft",
+    "provisioned_at": null,
+    "provisioned_by": null,
+    "sippy_i_account": 58,
+    "wizard_draft": null,
+    "sippy_i_tariff": null,
+    "activated_at": null,
+    "activated_by": null
+  },
+  {
+    "id": 3,
+    "name": "aircel",
+    "short_code": "4",
+    "country": null,
+    "kam": null,
+    "status": "active",
+    "company_type": "client",
+    "contract_type": "bilateral",
+    "department": null,
+    "team": null,
+    "client_timezone": null,
+    "vendor_timezone": null,
+    "currency": "USD",
+    "vendor_billing_cycle": "weekly_cutoff",
+    "vendor_grace_period": 3,
+    "vendor_credit_limit": 0,
+    "dispute_over_pct": 0,
+    "client_billing_cycle": "weekly_cutoff",
+    "client_grace_period": 3,
+    "client_credit_limit": 0,
+    "dispute_over_val": 0,
+    "payment_term": "prepaid",
+    "legal_name_ci": null,
+    "legal_name_ven": null,
+    "invoice_email": null,
+    "notes": null,
+    "created_at": "2026-06-14T13:54:14.991Z",
+    "created_by": null,
+    "provisioning_status": "draft",
+    "provisioned_at": null,
+    "provisioned_by": null,
+    "sippy_i_account": 4,
+    "wizard_draft": null,
+    "sippy_i_tariff": null,
+    "activated_at": null,
+    "activated_by": null
+  },
+  {
+    "id": 4,
+    "name": "asif",
+    "short_code": "55",
+    "country": null,
+    "kam": null,
+    "status": "active",
+    "company_type": "client",
+    "contract_type": "bilateral",
+    "department": null,
+    "team": null,
+    "client_timezone": null,
+    "vendor_timezone": null,
+    "currency": "USD",
+    "vendor_billing_cycle": "weekly_cutoff",
+    "vendor_grace_period": 3,
+    "vendor_credit_limit": 0,
+    "dispute_over_pct": 0,
+    "client_billing_cycle": "weekly_cutoff",
+    "client_grace_period": 3,
+    "client_credit_limit": 0,
+    "dispute_over_val": 0,
+    "payment_term": "prepaid",
+    "legal_name_ci": null,
+    "legal_name_ven": null,
+    "invoice_email": null,
+    "notes": null,
+    "created_at": "2026-06-14T13:54:15.056Z",
+    "created_by": null,
+    "provisioning_status": "draft",
+    "provisioned_at": null,
+    "provisioned_by": null,
+    "sippy_i_account": 55,
+    "wizard_draft": null,
+    "sippy_i_tariff": null,
+    "activated_at": null,
+    "activated_by": null
+  }
+]
+
+=== account_state (schema) ===
+ id (integer)
+ account_id (character varying)
+ account_name (character varying)
+ health_score (integer)
+ fraud_risk (integer)
+ anomaly_score (integer)
+ quality_score (integer)
+ balance_trend (character varying)
+ active_incident_count (integer)
+ state (character varying)
+ reasons (json)
+ last_incident_at (timestamp without time zone)
+ updated_at (timestamp without time zone)
+ previous_health_score (integer)
+ previous_state (character varying)
+ trend_direction (character varying)
+ score_delta_24h (integer)
+ auth_exposure_score (integer)
+ exposure_risk_level (character varying)
+ auth_exposure_signals (jsonb)
+ recommendation (jsonb)
+ risk_index (integer)
+Sample: [
+  {
+    "id": 3002,
+    "account_id": "683",
+    "account_name": "internaltelstra",
+    "health_score": 80,
+    "fraud_risk": 0,
+    "anomaly_score": 35,
+    "quality_score": 75,
+    "balance_trend": "stable",
+    "active_incident_count": 1,
+    "state": "healthy",
+    "reasons": [
+      "Low ASR: 0%"
+    ],
+    "last_incident_at": null,
+    "updated_at": "2026-06-19T13:40:02.800Z",
+    "previous_health_score": 80,
+    "previous_state": "healthy",
+    "trend_direction": "stable",
+    "score_delta_24h": 0,
+    "auth_exposure_score": 0,
+    "exposure_risk_level": "low",
+    "auth_exposure_signals": {
+      "ipRisk": 0,
+      "signals": [],
+      "authWeakness": 0,
+      "accessBreadth": 0,
+      "configMisalignment": 0
+    },
+    "recommendation": {
+      "urgency": "monitor",
+      "priority": 5,
+      "riskScore": 7.5,
+      "computedAt": "2026-06-23T09:12:45.250Z",
+      "confidence": 57,
+      "actionReason": [
+        "Health score at 80/100",
+        "Concurrent anomaly activity detected",
+        "1 active incident(s)"
+      ],
+      "primaryAction": "Escalate to KAM and review routing configuration for performance degradation",
+      "signalSummary": {
+        "fraudRisk": 0,
+        "healthScore": 80,
+        "anomalyScore": 35,
+        "activeIncidents": 1,
+        "authExposureScore": 0
+      },
+      "dominantSignal": "health"
+    },
+    "risk_index": 8
+  },
+  {
+    "id": 137,
+    "account_id": "76",
+    "account_name": "ptcl",
+    "health_score": 93,
+    "fraud_risk": 0,
+    "anomaly_score": 0,
+    "quality_score": 75,
+    "balance_trend": "stable",
+    "active_incident_count": 0,
+    "state": "healthy",
+    "reasons": [
+      "Low ASR: 0%"
+    ],
+    "last_incident_at": null,
+    "updated_at": "2026-05-18T17:33:36.926Z",
+    "previous_health_score": 93,
+    "previous_state": "healthy",
+    "trend_direction": "stable",
+    "score_delta_24h": 0,
+    "auth_exposure_score": 0,
+    "exposure_risk_level": "low",
+    "auth_exposure_signals": {
+      "ipRisk": 0,
+      "signals": [],
+      "authWeakness": 0,
+      "accessBreadth": 0,
+      "configMisalignment": 0
+    },
+    "recommendation": {
+      "urgency": "monitor",
+      "priority": 7,
+      "riskScore": 1.4,
+      "computedAt": "2026-06-23T09:12:45.250Z",
+      "confidence": 52,
+      "actionReason": [
+        "Health score at 93/100"
+      ],
+      "primaryAction": "Escalate to KAM and review routing configuration for performance degradation",
+      "signalSummary": {
+        "fraudRisk": 0,
+        "healthScore": 93,
+        "anomalyScore": 0,
+        "activeIncidents": 0,
+        "authExposureScore": 0
+      },
+      "dominantSignal": "health"
+    },
+    "risk_index": 1
+  },
+  {
+    "id": 1,
+    "account_id": "59",
+    "account_name": "internal-bd",
+    "health_score": 51,
+    "fraud_risk": 80,
+    "anomaly_score": 25,
+    "quality_score": 60,
+    "balance_trend": "stable",
+    "active_incident_count": 2,
+    "state": "warning",
+    "reasons": [
+      "377 FAS events in last 24h",
+      "Abnormal destination diversity (119 unique prefixes)",
+      "Low ASR: 23%",
+      "Low average call duration: 12s"
+    ],
+    "last_incident_at": null,
+    "updated_at": "2026-06-23T09:29:46.598Z",
+    "previous_health_score": 51,
+    "previous_state": "warning",
+    "trend_direction": "stable",
+    "score_delta_24h": 0,
+    "auth_exposure_score": 0,
+    "exposure_risk_level": "low",
+    "auth_exposure_signals": {
+      "ipRisk": 0,
+      "signals": [],
+      "authWeakness": 0,
+      "accessBreadth": 0,
+      "configMisalignment": 0
+    },
+    "recommendation": {
+      "urgency": "today",
+      "priority": 3,
+      "riskScore": 40.3,
+      "computedAt": "2026-06-23T09:12:45.250Z",
+      "confidence": 87,
+      "actionReason": [
+        "High fraud risk score",
+        "2 active fraud incident(s)"
+      ],
+      "primaryAction": "Apply rate limits and audit recent call destinations for FAS/IRSF patterns",
+      "signalSummary": {
+        "fraudRisk": 80,
+        "healthScore": 51,
+        "anomalyScore": 25,
+        "activeIncidents": 2,
+        "authExposureScore": 0
+      },
+      "dominantSignal": "fraud"
+    },
+    "risk_index": 40
+  }
+]
+
+=== account_configs (schema) ===
+ i_account (integer)
+ config_json (text)
+ updated_at (timestamp without time zone)
+
+=== customer_product_assignments (schema) ===
+ id (integer)
+ product_id (integer)
+ i_account (integer)
+ customer_name (character varying)
+ status (character varying)
+ created_at (timestamp without time zone)
+ created_by (character varying)
+~/workspace$ cd /home/runner/workspace
+python3 - << 'PYEOF'
+lines = open("server/routes.ts").read().splitlines()
+for i, l in enumerate(lines):
+    if '__bitsautoAccountCache' in l:
+        for j in range(max(0,i-4), min(len(lines), i+8)):
+            m = ">>>" if j==i else "   "
+            print(f"  {m} {j+1}: {lines[j]}")
+        print()
+PYEOF
+      118: 
+      119: // ── Account name cache — populated dynamically from Sippy listAccounts() ──────
+      120: // Maps iAccount string → username. No hardcoded IDs — always reflects the live switch.
+      121: const accountNameCache: Map<string, string> = new Map();
+  >>> 122: (global as any).__bitsautoAccountCache = accountNameCache;
+      123: 
+      124: // ── Client Portal Scope Resolver ──────────────────────────────────────────────
+      125: // Returns null = unrestricted (admin/management/super_admin/noc_operator).
+      126: // Returns populated sets for KAM-role users scoped to their account subtree.
+      127: const UNRESTRICTED_ROLES = new Set(['admin', 'super_admin', 'management', 'noc_operator', 'destination_manager', 'routing_admin']);
+      128: async function resolveUserScope(req: any): Promise<{ accountIds: Set<string> | null; clis: Set<string> | null }> {
+      129:   const role = req.user?.role as string | undefined;
+
+      820:   app.use('/api', sessionActivityMiddleware);
+      821:   // GET /api/debug/account-cache — internal script access, no auth needed (UNGUARDED)
+      822:   app.get('/api/debug/account-cache', async (_req: any, res: any) => {
+      823:     try {
+  >>> 824:       const cache = (global as any).__bitsautoAccountCache;
+      825:       const accounts = cache ? Array.from(cache.entries()).map(([id, name]: any) => ({ iAccount: id, name })) : [];
+      826:       res.json({ total: accounts.length, accounts });
+      827:     } catch(e: any) { res.status(500).json({ error: e.message }); }
+      828:   });
+      829: 
+      830:     const UNGUARDED = new Set(['/probe/status','/portal/auth/logout','/portal/auth/session','/debug/account-cache','/sippy/rates/portal-probe']);
+      831:   app.use('/api',(req,res,next)=>{
+
+      9814:       } catch (e: any) {
+      9815:         console.warn('[tariff-sync] listSippyBillingPlans failed:', e.message);
+      9816:       }
+      9817: 
+  >>> 9818:       const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+      9819:       if (!cache || cache.size === 0) {
+      9820:         console.warn('[tariff-sync] account cache empty — deferring');
+      9821:         return { assigned: 0, defaulted: 0, errors: 0 };
+      9822:       }
+      9823: 
+      9824:       // Step 3: for each client, read iBillingPlan from Sippy and resolve tariff ID + name
+      9825:       // Chain: client → iBillingPlan (service plan) → iTariff → tariffName
+
+      9951:       if (!productId) return res.status(400).json({ error: 'productId required' });
+      9952: 
+      9953:       const productRows = await db.select().from(productRegistry).where(eq(productRegistry.id, productId));
+      9954:       const product = productRows[0];
+  >>> 9955:       const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+      9956: 
+      9957:       if (!cache || cache.size === 0) {
+      9958:         // Cache still warming — return DB assignments so dropdown isn't empty
+      9959:         const fallbackRows = await db.select({
+      9960:           iAccount: customerProductAssignments.iAccount,
+      9961:           customerName: customerProductAssignments.customerName,
+      9962:         }).from(customerProductAssignments)
+
+      27805:     try {
+      27806:       const userId = req.user?.claims?.sub ?? req.user?.id;
+      27807:       if (!userId) return res.status(401).json({ error: 'Auth required' });
+      27808:       const result = await rebuildTariffProductMap();
+  >>> 27809:       const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+      27810:       const total = cache?.size ?? 0;
+      27811:       res.json({
+      27812:         total,
+      27813:         assigned:  result.assigned,
+      27814:         defaulted: result.defaulted,
+      27815:         errors:    result.errors,
+      27816:         message:   result.assigned > 0
+
+~/workspace$ 

@@ -9979,26 +9979,20 @@ export async function registerRoutes(
         });
       }
 
-      // Fetch all DB-assigned accounts for this product
-      // DB is the source of truth — cache supplements with live data but is not required
-      const assignments = await db.select({
-        iAccount: customerProductAssignments.iAccount,
-        customerName: customerProductAssignments.customerName,
-      }).from(customerProductAssignments)
+      // Filter to only clients assigned to this product
+      const assignments = await db.select({ iAccount: customerProductAssignments.iAccount })
+        .from(customerProductAssignments)
         .where(and(
           eq(customerProductAssignments.productId, productId),
           eq(customerProductAssignments.status, 'active')
         ));
-      console.log(`[accounts-by-product] productId=${productId} db_assignments=${assignments.length} cache.size=${cache?.size ?? 0}`);
-      const accounts = assignments
-        .filter((a: any) => Number(a.iAccount) > 0)
-        .map((a: any) => {
-          const iAccount = Number(a.iAccount);
-          // Cache supplements username — fall back to DB customerName if not cached
-          const username = cache?.get(String(iAccount)) ?? a.customerName ?? `Account ${iAccount}`;
-          const tariffName = _tariffProductCache?.labels?.get(iAccount) ?? null;
-          return { iAccount, username, tariffName, balance: null };
-        });
+      const assignedIds = new Set(assignments.map((a: any) => Number(a.iAccount)));
+      console.log(`[accounts-by-product] productId=${productId} cache.size=${cache.size} assignedIds.size=${assignedIds.size} sample=${JSON.stringify([...assignedIds].slice(0,3))}`);
+      const accounts = Array.from(cache.entries()).map(([iAccountStr, name]) => {
+        const iAccount = parseInt(iAccountStr, 10);
+        const tariffName = _tariffProductCache.labels.get(iAccount) ?? null;
+        return { iAccount, username: name, tariffName, balance: null };
+      }).filter(a => a.iAccount > 0 && assignedIds.has(a.iAccount));
 
       return res.json({
         accounts,
