@@ -4252,7 +4252,7 @@ export const vendorRateSheetRows = pgTable("vendor_rate_sheet_rows", {
   expiryDate:    date("expiry_date"),
   interval1:     integer("interval_1").default(60),
   intervalN:     integer("interval_n").default(60),
-  interconnect:  varchar("interconnect", { length: 50  }),
+  interconnect:  text("interconnect"),
   rawRow:        jsonb("raw_row"),
 });
 export type VendorRateSheetRow = typeof vendorRateSheetRows.$inferSelect;

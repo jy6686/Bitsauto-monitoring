@@ -6,11 +6,25 @@ import {
   canonicalVendors, approvalRequests, marginAnalyticsDaily, approvalAuditLog, vendorRateSheets, vendorRateSheetRows, vendorColumnMaps,
 } from '../shared/schema';
 
-function parseFile(fileData: string): { headers: string[]; dataRows: any[][] } {
+function getSheetList(fileData: string): { index: number; name: string; rowCount: number }[] {
+  const buf = Buffer.from(fileData, 'base64');
+  const wb = XLSX.read(buf, { type: 'buffer', raw: false });
+  return wb.SheetNames.map((name: string, index: number) => {
+    const ws = wb.Sheets[name];
+    const all: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+    return { index, name, rowCount: all.filter((r:any[]) => r.some((c:any) => c != null)).length };
+  });
+}
+function parseFile(fileData: string, sheetIndex?: number): { headers: string[]; dataRows: any[][] } {
   const buf = Buffer.from(fileData, 'base64');
   const wb = XLSX.read(buf, { type: 'buffer', raw: false, cellDates: true });
-  const RATE_KW = ['pricing','rates','rate','tariff','price'];
-  const sheetName = wb.SheetNames.find((n:string) => RATE_KW.some(k => n.toLowerCase().includes(k))) ?? wb.SheetNames[0];
+  let sheetName: string;
+  if (sheetIndex !== undefined && sheetIndex >= 0 && sheetIndex < wb.SheetNames.length) {
+    sheetName = wb.SheetNames[sheetIndex];
+  } else {
+    const RATE_KW = ['pricing','rates','rate','tariff','price'];
+    sheetName = wb.SheetNames.find((n:string) => RATE_KW.some(k => n.toLowerCase().includes(k))) ?? wb.SheetNames[0];
+  }
   const ws = wb.Sheets[sheetName];
   const all: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
   // Find the row with the most non-empty cells — that's the real header row
@@ -84,23 +98,24 @@ export function registerVendorRatesRoutes(app: Express) {
   // POST /api/vendor-rates/preview — parse file, return headers + sample (no DB write)
   app.post('/api/vendor-rates/preview', async (req, res) => {
     try {
-      const { fileData, skipRows = 0 } = req.body;
+      const { fileData, skipRows = 0, sheetIndex } = req.body;
       if (!fileData) return res.status(400).json({ error: 'fileData required' });
-      const { headers, dataRows } = parseFile(fileData);
-      return res.json({ headers, sampleRows: dataRows.slice(skipRows, skipRows + 12), totalRows: dataRows.length });
+      const sheets = getSheetList(fileData);
+      const { headers, dataRows } = parseFile(fileData, sheetIndex);
+      return res.json({ sheets, headers, sampleRows: dataRows.slice(skipRows, skipRows + 12), totalRows: dataRows.length });
     } catch (e: any) { return res.status(500).json({ error: e.message }); }
   });
 
   // POST /api/vendor-rates/import
   app.post('/api/vendor-rates/import', async (req, res) => {
     try {
-      const { fileData, fileType = 'xlsx', vendorId, fileName = 'upload',
+      const { fileData, fileType = 'xlsx', vendorId, fileName = 'upload', sheetIndex,
         currency = 'USD', effectiveDate, notes, columnMap, skipRows = 0,
         saveTemplate, templateLabel } = req.body;
       if (!fileData || !vendorId || !columnMap)
         return res.status(400).json({ error: 'fileData, vendorId, columnMap required' });
 
-      const { headers, dataRows } = parseFile(fileData);
+      const { headers, dataRows } = parseFile(fileData, sheetIndex);
       const parsed: any[] = applyMap(headers, dataRows, columnMap, skipRows) as any[];
       if (!parsed.length) return res.status(400).json({ error: 'No valid rows after mapping' });
 

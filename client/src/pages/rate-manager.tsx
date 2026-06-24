@@ -924,6 +924,8 @@ function VendorRatesTab() {
   const [wStep, setWStep] = useState(1);
   const [wVid, setWVid] = useState<number|null>(null);
   const [wFile, setWFile] = useState<{name:string;type:string;data:string}|null>(null);
+  const [wSheets, setWSheets] = useState<{index:number;name:string;rowCount:number}[]>([]);
+  const [wSheetIdx, setWSheetIdx] = useState<number|null>(null);
   const [wHeaders, setWHdrs] = useState<string[]>([]);
   const [wSample,  setWSample]  = useState<any[][]>([]);
   const [wTotal,   setWTotal]   = useState(0);
@@ -952,6 +954,11 @@ function VendorRatesTab() {
       setBusy(true);
       try {
         const r = await fetch('/api/vendor-rates/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileData:b64})}).then(r=>r.json());
+        setWSheets(r.sheets??[]);
+        const RATE_KW = ['pricing','rates','rate','tariff','price'];
+        const auto_idx = (r.sheets??[]).findIndex((s:any)=>RATE_KW.some((k:string)=>s.name.toLowerCase().includes(k)));
+        const sel = auto_idx >= 0 ? auto_idx : 0;
+        setWSheetIdx(sel);
         setWHdrs(r.headers??[]);
         setWSample(r.sampleRows??[]);
         setWTotal(r.totalRows??0);
@@ -984,7 +991,7 @@ function VendorRatesTab() {
       const r = await fetch('/api/vendor-rates/import',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({fileData:wFile.data,fileType:wFile.type,vendorId:wVid,fileName:wFile.name,
           currency:wCcy,effectiveDate:wEffDate||undefined,notes:wNotes||undefined,
-          columnMap:wMap,saveTemplate:wSaveTpl,templateLabel:wTplLabel||wFile.name})}).then(r=>r.json());
+          columnMap:wMap,saveTemplate:wSaveTpl,templateLabel:wTplLabel||wFile.name,sheetIndex:wSheetIdx??undefined})}).then(r=>r.json());
       if (r.error) throw new Error(r.error);
       toast({title:`Imported ${r.rowCount?.toLocaleString()} rows`,description:r.duplicatesSkipped?`${r.duplicatesSkipped} duplicates skipped`:undefined});
       setUpOpen(false); setWStep(1); setWFile(null); setWVid(null); setWMap({});
@@ -1448,7 +1455,7 @@ function VendorRatesTab() {
           <div className="bg-background border border-border rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-auto" onClick={e=>e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <span className="text-sm font-semibold">Upload Vendor Rate Sheet</span>
-              <span className="text-xs text-muted-foreground">Step {wStep} of 2</span>
+              <span className="text-xs text-muted-foreground">Step {wStep} of 3</span>
               <button onClick={()=>setUpOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4"/></button>
             </div>
             {wStep===1&&<div className="p-4 space-y-4">
@@ -1483,6 +1490,37 @@ function VendorRatesTab() {
               </div>
             </div>}
             {wStep===2&&<div className="p-4 space-y-3">
+              <p className="text-xs text-muted-foreground">Select the sheet containing rate data.</p>
+              <div className="divide-y divide-border/30 border border-border/50 rounded overflow-hidden">
+                {wSheets.map((s:{index:number;name:string;rowCount:number})=>(
+                  <button key={s.index} onClick={async()=>{
+                    setWSheetIdx(s.index);
+                    const r2 = await fetch('/api/vendor-rates/preview',{method:'POST',headers:{'Content-Type':'application/json'},
+                      body:JSON.stringify({fileData:wFile!.data,sheetIndex:s.index})}).then(x=>x.json());
+                    setWHdrs(r2.headers??[]); setWSample(r2.sampleRows??[]); setWTotal(r2.totalRows??0);
+                    const auto2:{[k:string]:string}={};
+                    ((r2.headers??[]) as string[]).forEach((h:string)=>{
+                      const l=h.toLowerCase();
+                      if(/dest|country/.test(l)) auto2[h]='destination';
+                      else if(/area.?code|prefix|dial|^cc$/.test(l)) auto2[h]='prefix';
+                      else if(/new.?price|^rate$|^cost$/.test(l)) auto2[h]='rate';
+                      else if(/valid.?from|effective|start.?date|^from$/.test(l)) auto2[h]='effectiveDate';
+                      else if(/expir|end.?date|until|valid.?to/.test(l)) auto2[h]='expiryDate';
+                      else if(/currency/.test(l)) auto2[h]='currency';
+                    });
+                    setWMap(auto2);
+                  }} className={`w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/10 text-left transition-colors ${wSheetIdx===s.index?'bg-blue-500/10 border-l-2 border-blue-500':''}`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${wSheetIdx===s.index?'bg-blue-400':'bg-muted-foreground/30'}`}/>
+                      <span className="text-sm font-medium">{s.name}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{s.rowCount.toLocaleString()} rows</span>
+                  </button>
+                ))}
+              </div>
+              {wTotal>0&&<p className="text-[11px] text-muted-foreground">{wTotal.toLocaleString()} data rows detected in selected sheet</p>}
+            </div>}
+            {wStep===3&&<div className="p-4 space-y-3">
               <p className="text-xs text-muted-foreground">Map columns to BitsAuto fields. <span className="text-amber-400">* required</span></p>
               <div className="border border-border/50 rounded overflow-hidden">
                 <div className="grid grid-cols-2 bg-muted/20 py-1.5 px-3 border-b border-border/50 text-[11px] font-medium text-muted-foreground">
@@ -1528,8 +1566,9 @@ function VendorRatesTab() {
               <button onClick={()=>wStep>1?setWStep(s=>(s-1) as 1|2):setUpOpen(false)} className="text-xs px-3 py-1.5 rounded border border-border hover:bg-muted/30">
                 {wStep===1?'Cancel':'← Back'}
               </button>
-              {wStep===1&&<button disabled={!wFile||busy} onClick={()=>setWStep(2)} className="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded px-3 py-1.5 font-medium">Map Columns →</button>}
-              {wStep===2&&<button disabled={busy} onClick={doImport} className="text-xs bg-green-600 hover:bg-green-700 disabled:bg-muted/30 text-white rounded px-3 py-1.5 font-medium flex items-center gap-1.5">
+              {wStep===1&&<button disabled={!wFile||busy} onClick={()=>setWStep(2)} className="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded px-3 py-1.5 font-medium">Select Sheet →</button>}
+              {wStep===2&&<button onClick={()=>setWStep(3)} className="text-xs bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 font-medium">Map Columns →</button>}
+              {wStep===3&&<button disabled={busy} onClick={doImport} className="text-xs bg-green-600 hover:bg-green-700 disabled:bg-muted/30 text-white rounded px-3 py-1.5 font-medium flex items-center gap-1.5">
                 {busy&&<Loader2 className="w-3 h-3 animate-spin"/>}Import {wTotal.toLocaleString()} Rows
               </button>}
             </div>
