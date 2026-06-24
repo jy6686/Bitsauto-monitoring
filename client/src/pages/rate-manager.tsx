@@ -491,40 +491,51 @@ function ChangeClientRateModal({
       toast({ title: "Enter a valid rate", variant: "destructive" });
       return;
     }
-    setSubmitting(true);
-    setResults(null);
-    try {
-      // Always send the full Sippy prefix (r.prefix = e.g. "192"), NOT rawPrefix ("92").
-      // rawPrefix strips the trunk prefix for display only — Sippy rate keys use the full prefix.
-      const prefixes = selectedRates.map(r => String(r.prefix));
-      const fmtDate = (v: string) => v ? v.replace("T", " ") : undefined;
-      const doReq = () => apiRequest("POST", "/api/rate-manager/change-client-rates", {
-        accountName: account.username,
-        iTariff: iTariff ?? undefined,
-        prefixes,
-        rate: rateNum,
-        effectiveFrom: fmtDate(effectiveFrom),
-        effectiveTill: fmtDate(effectiveTill),
-      });
-      let res = await doReq();
-      if (!res.ok && res.status >= 500) {
-        await new Promise(r => setTimeout(r, 1200));
-        res = await doReq();
+    // Always send the full Sippy prefix (r.prefix = e.g. "192"), NOT rawPrefix ("92").
+    // rawPrefix strips the trunk prefix for display only — Sippy rate keys use the full prefix.
+    const prefixes = selectedRates.map(r => String(r.prefix));
+    const fmtDate = (v: string) => v ? v.replace("T", " ") : undefined;
+    const reqBody = {
+      accountName: account.username,
+      iTariff: iTariff ?? undefined,
+      prefixes,
+      rate: rateNum,
+      effectiveFrom: fmtDate(effectiveFrom),
+      effectiveTill: fmtDate(effectiveTill),
+    };
+
+    // Close modal immediately — operators should never see transport errors
+    onClose();
+    toast({ title: "Submitting rate change…", description: `${prefixes.length} prefix(es) · ${account.username}` });
+
+    // Background retry — up to 3 attempts, 2.5s apart, silent to user
+    (async () => {
+      let succeeded = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 2500));
+        try {
+          const res = await apiRequest("POST", "/api/rate-manager/change-client-rates", reqBody);
+          const isOk = typeof res.ok === "boolean" ? res.ok : (res.status ?? 500) < 400;
+          if (isOk) {
+            const data = await res.json().catch(() => ({}));
+            if ((data.ok ?? 0) > 0) {
+              toast({ title: `Rate updated — ${account.username}`, description: `${data.ok}/${prefixes.length} prefix(es) applied` });
+              queryClient.invalidateQueries({ queryKey: [`/api/sippy/tariffs/${iTariff}/rates?limit=500`] });
+              succeeded = true;
+              break;
+            }
+          }
+          if ((res.status ?? 500) < 500) break; // 4xx — don't retry
+        } catch { /* retry on timeout / network error */ }
       }
-      const data = await res.json();
-      setResults(data.results ?? []);
-      if (data.ok === prefixes.length) {
-        toast({ title: `Updated ${data.ok} rate(s) successfully` });
-        queryClient.invalidateQueries({ queryKey: [`/api/sippy/tariffs/${iTariff}/rates?limit=500`] });
-        setTimeout(() => onSuccess(), 1200);
-      } else {
-        toast({ title: `${data.ok}/${prefixes.length} rate(s) updated`, description: "Some pushes failed — see details below.", variant: "destructive" });
+      if (!succeeded) {
+        toast({
+          title: "Rate update — verify in Push History",
+          description: `${account.username} · rate may have applied on Sippy`,
+          variant: "destructive",
+        });
       }
-    } catch (e: any) {
-      toast({ title: "Failed to change rates", description: e.message, variant: "destructive" });
-    } finally {
-      setSubmitting(false);
-    }
+    })();
   };
 
   return (
