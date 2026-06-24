@@ -952,7 +952,20 @@ function VendorRatesTab() {
       setBusy(true);
       try {
         const r = await fetch('/api/vendor-rates/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileData:b64})}).then(r=>r.json());
-        setWHdrs(r.headers??[]); setWSample(r.sampleRows??[]); setWTotal(r.totalRows??0);
+        setWHdrs(r.headers??[]);
+        setWSample(r.sampleRows??[]);
+        setWTotal(r.totalRows??0);
+        const auto: Record<string,string> = {};
+        ((r.headers??[]) as string[]).forEach((h:string) => {
+          const l = h.toLowerCase();
+          if (/dest|country/.test(l))                         auto[h] = 'destination';
+          else if (/area.?code|prefix|dial|^cc$/.test(l))    auto[h] = 'prefix';
+          else if (/new.?price|^rate$|^cost$/.test(l))       auto[h] = 'rate';
+          else if (/valid.?from|effective|start.?date|^from$/.test(l)) auto[h] = 'effectiveDate';
+          else if (/expir|end.?date|until|valid.?to/.test(l)) auto[h] = 'expiryDate';
+          else if (/currency/.test(l))                        auto[h] = 'currency';
+        });
+        setWMap(auto);
         const def = (savedMaps as any[]).find((m:any)=>m.isDefault) ?? savedMaps[0] ?? null;
         if (def) setWMap(def.mappings as Record<string,string>);
         setWStep(2);

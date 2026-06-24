@@ -42,7 +42,13 @@ function applyMap(
   const parseDate = (v: any): string | null => {
     if (v == null) return null;
     if (v instanceof Date) return v.toISOString().slice(0, 10);
-    const d = new Date(String(v));
+    const s = String(v).trim();
+    // Excel date serial (5-digit number like 46085)
+    if (/^\d{4,5}$/.test(s)) {
+      const d = new Date(Date.UTC(1900, 0, 1) + (parseInt(s) - 2) * 86400000);
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+    const d = new Date(s);
     return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
   };
   return rows.slice(skipRows).map(row => {
