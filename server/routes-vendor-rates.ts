@@ -9,11 +9,22 @@ import {
 function parseFile(fileData: string): { headers: string[]; dataRows: any[][] } {
   const buf = Buffer.from(fileData, 'base64');
   const wb = XLSX.read(buf, { type: 'buffer', raw: false, cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
+  const RATE_KW = ['pricing','rates','rate','tariff','price'];
+  const sheetName = wb.SheetNames.find((n:string) => RATE_KW.some(k => n.toLowerCase().includes(k))) ?? wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
   const all: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
-  const hIdx = all.findIndex(r => r.some(c => c != null && String(c).trim() !== ''));
+  // Find the row with the most non-empty cells — that's the real header row
+  let hIdx = -1, maxFilled = 0;
+  all.forEach((r, i) => {
+    const filled = r.filter(c => c != null && String(c).trim() !== '').length;
+    if (filled > maxFilled) { maxFilled = filled; hIdx = i; }
+  });
   if (hIdx === -1) return { headers: [], dataRows: [] };
-  const headers = all[hIdx].map((h: any) => h != null ? String(h).trim() : '');
+  // Make empty column names unique so mapping state doesn't collide
+  const headers = all[hIdx].map((h: any, i: number) => {
+    const v = h != null ? String(h).trim() : '';
+    return v !== '' ? v : ('col_' + i);
+  });
   return { headers, dataRows: all.slice(hIdx + 1) };
 }
 
