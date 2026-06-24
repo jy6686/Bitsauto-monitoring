@@ -444,6 +444,7 @@ function RateDetailPanel({
           onSuccess={() => {
             setChangeModalOpen(false);
             setSelectedRateKeys(new Set());
+            onClose(); // close detail panel → return to clean Rate Analysis state
           }}
         />
       )}
@@ -521,6 +522,7 @@ function ChangeClientRateModal({
             if ((data.ok ?? 0) > 0) {
               toast({ title: `Rate updated — ${account.username}`, description: `${data.ok}/${prefixes.length} prefix(es) applied` });
               queryClient.invalidateQueries({ queryKey: [`/api/sippy/tariffs/${iTariff}/rates?limit=500`] });
+              onSuccess();
               succeeded = true;
               break;
             }
@@ -1099,6 +1101,10 @@ function SendRateTab({
         description: `${destQueue.length} destination${destQueue.length > 1 ? "s" : ""} × ${selectedClients.length} client${selectedClients.length > 1 ? "s" : ""}`,
         variant: data.ok === data.total ? "default" : "destructive",
       });
+      // Auto-reset: return to clean state — results visible in Push History
+      setDestQueue([]);
+      setPushResults(null);
+      setNotifCountry(""); setNotifOperator(""); setNotifCategory(""); setNotifDetail(""); setPrice("");
     } catch (e: any) {
       toast({ title: "Push failed", description: e.message, variant: "destructive" });
     } finally {
@@ -1305,7 +1311,7 @@ function SendRateTab({
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground font-medium">Network / Type</label>
+              <label className="text-[10px] text-muted-foreground font-medium">Operator Type</label>
               <select
                 value={notifOperator}
                 onChange={e => { setNotifOperator(e.target.value); setNotifCategory(""); setNotifDetail(""); }}
@@ -1323,7 +1329,7 @@ function SendRateTab({
             </div>
             {categories.length > 0 && (
               <div className="space-y-1">
-                <label className="text-[10px] text-muted-foreground font-medium">Operator</label>
+                <label className="text-[10px] text-muted-foreground font-medium">Network / Carrier</label>
                 <select
                   value={notifCategory}
                   onChange={e => { setNotifCategory(e.target.value); setNotifDetail(""); }}

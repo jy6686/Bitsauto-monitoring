@@ -799,9 +799,14 @@ export function registerRateNotificationRoutes(app: Express) {
         const now        = new Date();
         const dtStamp    = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
         const typeLabel  = notifTypeLabel(job.notificationType || 'default');
-        const clientSlug = job.clientName.toUpperCase().replace(/\s+/g, '-');
-        const prodSlug   = (job.productName || 'PRODUCT').toUpperCase().replace(/\s+/g, '-');
-        const filename   = `REDOWNLOAD-${clientSlug}-${prodSlug}-${dtStamp}-${typeLabel}.xlsx`;
+        const clientSlug = (job.clientName || '').replace(/[^a-zA-Z0-9]/g, '_').replace(/^_+|_+$/g, '').toUpperCase() || 'CLIENT';
+        let resolvedProd = job.productName;
+        if (!resolvedProd && job.productId) {
+          const [pRow] = await db.select({ name: productRegistry.name }).from(productRegistry).where(eq(productRegistry.id, job.productId)).limit(1);
+          resolvedProd = pRow?.name ?? null;
+        }
+        const prodSlug   = (resolvedProd || 'Rates').replace(/\s+/g, '_');
+        const filename   = `${clientSlug}_${prodSlug}_${dtStamp}.xlsx`;
 
         res.setHeader('Content-Type',          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition',   `attachment; filename="${filename}"`);

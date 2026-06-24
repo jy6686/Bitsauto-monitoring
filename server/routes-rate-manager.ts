@@ -707,7 +707,7 @@ export function registerRateManagerRoutes(app: Express) {
         prodName = ((pRow as any).rows[0]?.name ?? `Product${productId}`).replace(/\s+/g, '_');
       }
       const dateLabel = new Date().toISOString().slice(0, 10);
-      const filename  = `RateSheet_${prodName}_${dateLabel}`;
+      const filename  = `${prodName}_${dateLabel}`;
 
       if (format === 'csv') {
         const csv = sheetData.map(row => row.map((c: any) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
