@@ -4221,3 +4221,52 @@ export const governanceReviews = pgTable("governance_reviews", {
   updatedAt:  timestamp("updated_at").defaultNow().notNull(),
 });
 export type GovernanceReview = typeof governanceReviews.$inferSelect;
+
+// ── Vendor Rate Sheets ─────────────────────────────────────────────────────────
+export const vendorRateSheets = pgTable("vendor_rate_sheets", {
+  id:            serial("id").primaryKey(),
+  vendorId:      integer("vendor_id").notNull().references(() => canonicalVendors.id),
+  fileName:      varchar("file_name",     { length: 255 }).notNull(),
+  fileType:      varchar("file_type",     { length: 10  }).notNull(),
+  currency:      varchar("currency",      { length: 3   }).notNull().default("USD"),
+  effectiveDate: date("effective_date"),
+  rowCount:      integer("row_count").notNull().default(0),
+  status:        varchar("status",        { length: 20  }).notNull().default("draft"),
+  notes:         text("notes"),
+  uploadedBy:    varchar("uploaded_by",   { length: 128 }),
+  uploadedAt:    timestamp("uploaded_at").defaultNow().notNull(),
+  activatedAt:   timestamp("activated_at"),
+  activatedBy:   varchar("activated_by", { length: 128 }),
+});
+export type VendorRateSheet    = typeof vendorRateSheets.$inferSelect;
+export type InsertVendorRateSheet = typeof vendorRateSheets.$inferInsert;
+
+export const vendorRateSheetRows = pgTable("vendor_rate_sheet_rows", {
+  id:            serial("id").primaryKey(),
+  sheetId:       integer("sheet_id").notNull().references(() => vendorRateSheets.id, { onDelete: "cascade" }),
+  prefix:        varchar("prefix",       { length: 20  }).notNull(),
+  destination:   varchar("destination", { length: 150 }),
+  rate:          numeric("rate",         { precision: 10, scale: 6 }).notNull(),
+  currency:      varchar("currency",     { length: 3   }).default("USD"),
+  effectiveDate: date("effective_date"),
+  expiryDate:    date("expiry_date"),
+  interval1:     integer("interval_1").default(60),
+  intervalN:     integer("interval_n").default(60),
+  interconnect:  varchar("interconnect", { length: 50  }),
+  rawRow:        jsonb("raw_row"),
+});
+export type VendorRateSheetRow = typeof vendorRateSheetRows.$inferSelect;
+
+export const vendorColumnMaps = pgTable("vendor_column_maps", {
+  id:        serial("id").primaryKey(),
+  vendorId:  integer("vendor_id").notNull().references(() => canonicalVendors.id),
+  label:     varchar("label",     { length: 100 }).notNull(),
+  mappings:  jsonb("mappings").notNull(),
+  skipRows:  integer("skip_rows").notNull().default(0),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdBy: varchar("created_by", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type VendorColumnMap       = typeof vendorColumnMaps.$inferSelect;
+export type InsertVendorColumnMap  = typeof vendorColumnMaps.$inferInsert;

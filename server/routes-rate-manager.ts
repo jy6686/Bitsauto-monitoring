@@ -20,7 +20,7 @@
 
 import type { Express } from 'express';
 import { db } from './db';
-import { eq, desc, and, gte, sql } from 'drizzle-orm';
+import { eq, desc, and, gte, or, sql } from 'drizzle-orm';
 import { productRates, rateNotifications, companies, customerProductAssignments, productRegistry, ratePushJobs, globalDestinations } from '@shared/schema';
 import { reconcilePerRow } from './services/sippy/sippy-reconciliation.service';
 import { storage } from './storage';
@@ -781,6 +781,226 @@ export function registerRateManagerRoutes(app: Express) {
     } catch (err: any) {
       console.error("[retry] Error:", err.message);
       return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ── POST /api/sippy/rate-analysis-batch ─────────────────────────────────────
+  // Server-side batch: resolve iTariff per account → fetch rates → calc stats
+  // Body:     { iAccounts: number[], countries?: string[], blockDest?: string, specialDest?: string }
+  // Response: { carriers: CarrierSummary[] }
+  app.post('/api/sippy/rate-analysis-batch', async (req, res) => {
+    try {
+      const { iAccounts, countries, blockDest, specialDest, productId } = req.body as {
+        iAccounts: number[];
+        countries?: string[];
+        blockDest?: string;
+        specialDest?: string;
+        productId?: number;
+      };
+
+      if (!Array.isArray(iAccounts) || iAccounts.length === 0) {
+        return res.status(400).json({ error: 'iAccounts required' });
+      }
+
+      const { username, password, portalUrl } = await getSippyCreds();
+      const now  = new Date();
+      const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+      // Optional: load BitsAuto product rates for drift comparison
+      let bitsautoRateMap: Map<string, number> | null = null;
+      let productTrunkPrefix = '';
+      if (productId) {
+        const [prod] = await db
+          .select({ trunkPrefix: productRegistry.trunkPrefix })
+          .from(productRegistry)
+          .where(eq(productRegistry.id, productId))
+          .limit(1);
+        productTrunkPrefix = prod?.trunkPrefix ?? '';
+
+        const today = now.toISOString().slice(0, 10);
+        const baRates = await db
+          .select({ prefix: productRates.prefix, rate: productRates.rate })
+          .from(productRates)
+          .where(
+            and(
+              eq(productRates.productId, productId),
+              sql`${productRates.effectiveFrom} <= ${today}`,
+              or(
+                sql`${productRates.effectiveTo} IS NULL`,
+                sql`${productRates.effectiveTo} >= ${today}`,
+              ),
+            ),
+          );
+        bitsautoRateMap = new Map(
+          baRates.map(r => [r.prefix ?? '', parseFloat(String(r.rate))]),
+        );
+      }
+
+      const carriers = await Promise.all(
+        iAccounts.map(async (iAccount) => {
+          try {
+            const info = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
+            if (!info) return { iAccount, error: 'Account not found' };
+
+            const acct        = info as any;
+            const iTariff     = acct.iTariff as number | undefined;
+            const carrierName = acct.username ?? String(iAccount);
+
+            if (!iTariff) return { iAccount, carrierName, iTariff: null, error: 'No tariff assigned' };
+
+            // Fetch full rate list from Sippy
+            const rates = await sippy.getTariffRatesListFull(username, password, iTariff);
+
+            // Country filter (match against areaName)
+            let filtered = rates;
+            if (countries && countries.length > 0) {
+              filtered = filtered.filter(r =>
+                countries.some(c => (r.areaName || '').toLowerCase().includes(c.toLowerCase())),
+              );
+            }
+            // Block / special filters
+            if (blockDest === 'block')   filtered = filtered.filter(r => r.forbidden);
+            if (blockDest === 'unblock') filtered = filtered.filter(r => !r.forbidden);
+
+            // Stats
+            const totalDest    = filtered.length;
+            const blockDestCnt = filtered.filter(r => r.forbidden).length;
+            const prices       = filtered.filter(r => !r.forbidden && r.price1 > 0).map(r => r.price1);
+            const avgRate      = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
+            const minRate      = prices.length ? Math.min(...prices) : 0;
+            const maxRate      = prices.length ? Math.max(...prices) : 0;
+            const expiringIn30 = filtered.filter(r => {
+              if (!r.expirationDate) return false;
+              const exp = new Date(r.expirationDate);
+              return exp > now && exp <= in30;
+            }).length;
+
+            // Drift: compare live Sippy rate vs BitsAuto product rate per prefix
+            let driftCount       = 0;
+            let matchCount       = 0;
+            let missingInBitsAuto = 0;
+            if (bitsautoRateMap !== null) {
+              for (const r of filtered.filter(sr => !sr.forbidden)) {
+                const dialPfx = productTrunkPrefix && r.prefix.startsWith(productTrunkPrefix)
+                  ? r.prefix.slice(productTrunkPrefix.length)
+                  : r.prefix;
+                const baRate = bitsautoRateMap.get(dialPfx);
+                if (baRate === undefined) {
+                  missingInBitsAuto++;
+                } else if (Math.abs(r.price1 - baRate) > 0.000001) {
+                  driftCount++;
+                } else {
+                  matchCount++;
+                }
+              }
+            }
+
+            return {
+              iAccount,
+              carrierName,
+              iTariff,
+              totalDest,
+              blockDest: blockDestCnt,
+              avgRate: Math.round(avgRate * 100000) / 100000,
+              minRate,
+              maxRate,
+              expiringIn30Days: expiringIn30,
+              driftCount,
+              matchCount,
+              missingInBitsAuto,
+            };
+          } catch (err: any) {
+            console.error(`[rate-analysis-batch] iAccount=${iAccount}:`, err.message);
+            return { iAccount, error: err.message };
+          }
+        }),
+      );
+
+      return res.json({ carriers });
+    } catch (err: any) {
+      console.error('[rate-analysis-batch]', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/sippy/rate-history ──────────────────────────────────────────────
+  // Read-only. Returns BitsAuto push history for a specific tariff + prefix.
+  // Query: iTariff (number), prefix (dialPrefix string), limit (default 20)
+  app.get('/api/sippy/rate-history', async (req, res) => {
+    try {
+      const iTariff = req.query.iTariff ? Number(req.query.iTariff) : null;
+      const prefix  = (req.query.prefix as string || '').trim();
+      const limit   = Math.min(Number(req.query.limit) || 20, 100);
+
+      if (!iTariff || !prefix) {
+        return res.status(400).json({ error: 'iTariff and prefix are required' });
+      }
+
+      const jobs = await db
+        .select({
+          jobId:              ratePushJobs.jobId,
+          productName:        ratePushJobs.productName,
+          destinationName:    ratePushJobs.destinationName,
+          dialPrefix:         ratePushJobs.dialPrefix,
+          fullPrefix:         ratePushJobs.fullPrefix,
+          oldRate:            ratePushJobs.oldRate,
+          newRate:            ratePushJobs.newRate,
+          effectiveAt:        ratePushJobs.effectiveAt,
+          createdAt:          ratePushJobs.createdAt,
+          createdBy:          ratePushJobs.createdBy,
+          status:             ratePushJobs.status,
+          verificationResult: ratePushJobs.verificationResult,
+        })
+        .from(ratePushJobs)
+        .where(
+          and(
+            eq(ratePushJobs.iTariff, iTariff),
+            or(
+              eq(ratePushJobs.dialPrefix, prefix),
+              sql`${ratePushJobs.fullPrefix} LIKE ${'%' + prefix}`,
+            ),
+          ),
+        )
+        .orderBy(desc(ratePushJobs.createdAt))
+        .limit(limit);
+
+      return res.json({ prefix, history: jobs });
+    } catch (err: any) {
+      console.error('[rate-history]', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/sippy/pre-push-check — compare last BitsAuto push vs current live Sippy rate
+  app.post('/api/sippy/pre-push-check', async (req, res) => {
+    try {
+      const { iTariff, prefixes } = req.body as { iTariff: number; prefixes: string[] };
+      if (!iTariff || !Array.isArray(prefixes) || prefixes.length === 0) {
+        return res.status(400).json({ error: 'iTariff and prefixes required' });
+      }
+      const trunkChars = new Set(['1', '2', '6', '7']);
+      const results = await Promise.all(
+        prefixes.map(async (prefix) => {
+          const dialPrefix = trunkChars.has(prefix[0] ?? '') ? prefix.slice(1) : prefix;
+          const [job] = await db
+            .select({ newRate: ratePushJobs.newRate, createdAt: ratePushJobs.createdAt })
+            .from(ratePushJobs)
+            .where(and(
+              eq(ratePushJobs.iTariff, iTariff),
+              eq(ratePushJobs.dialPrefix, dialPrefix),
+              eq(ratePushJobs.status, 'completed'),
+            ))
+            .orderBy(desc(ratePushJobs.createdAt))
+            .limit(1);
+          return { prefix, dialPrefix,
+            lastPushedRate: job?.newRate ?? null,
+            lastPushedAt: job?.createdAt ?? null };
+        }),
+      );
+      return res.json({ results });
+    } catch (err: any) {
+      console.error('[pre-push-check]', err.message);
+      return res.status(500).json({ error: err.message });
     }
   });
 

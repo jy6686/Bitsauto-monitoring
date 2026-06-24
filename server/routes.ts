@@ -9,6 +9,7 @@ import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
 import { registerRateManagerRoutes } from './routes-rate-manager';
+import { registerVendorRatesRoutes } from './routes-vendor-rates';
 import { registerRateNotificationRoutes, createInitialRateJob } from './routes-rate-notifications';
 import { registerProductTemplatesRoutes } from './routes-product-templates';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
@@ -34048,6 +34049,7 @@ ${footer}
 
   // ── Rate Manager extended routes (product rates, notifications, per-row recon)
   registerRateManagerRoutes(app);
+  registerVendorRatesRoutes(app);
   registerRateNotificationRoutes(app);
   registerProductTemplatesRoutes(app);
 

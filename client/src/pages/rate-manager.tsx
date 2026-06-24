@@ -10,8 +10,7 @@ import {
   BarChart2, Eye, Clock, ChevronRight, Loader2, CircleCheck, CircleX,
   Plus, Trash2, Bell, Building2, BellRing, TrendingUp, TrendingDown, Lightbulb,
   PackageCheck, Tag, Calendar, ShieldAlert, ExternalLink, Download, Mail,
-  Pencil,
-} from "lucide-react";
+  Pencil, ChevronLeft, Upload} from "lucide-react";
 
 // ── Display helper — strips internal product/trunk prefix digit for UI display ──
 // Product trunk digits: 1=FC, 2=BC, 6=SB, 7=SC — never exposed to operators.
@@ -223,6 +222,15 @@ function RateDetailPanel({
 
   const iTariff = acctInfo?.iTariff;
 
+  const { data: tariffInfo } = useQuery<{
+    connectFee?: number; freeSeconds?: number; gracePeriod?: number;
+    postCallSurcharge?: number; currency?: string;
+  }>({
+    queryKey: [`/api/sippy/tariffs/${iTariff}`],
+    enabled: !!iTariff,
+    staleTime: 5 * 60_000,
+  });
+
   const { data: tariffData, isLoading: ratesLoading } = useQuery<RateEntry[]>({
     queryKey: [`/api/sippy/tariffs/${iTariff}/rates?limit=500`],
     enabled: !!iTariff,
@@ -270,6 +278,22 @@ function RateDetailPanel({
   const isLoading = infoLoading || ratesLoading;
   const [selectedRateKeys, setSelectedRateKeys] = useState<Set<string>>(new Set());
   const [changeModalOpen, setChangeModalOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'scheduled' | 'expiring' | 'expired' | 'blocked'>('all');
+  const [historyPrefix, setHistoryPrefix]     = useState<string | null>(null);
+  const [historyDestName, setHistoryDestName] = useState<string>('');
+  const { data: historyData, isLoading: historyLoading } = useQuery<{
+    prefix: string;
+    history: Array<{
+      jobId: string | null; productName: string | null; destinationName: string | null;
+      oldRate: string | null; newRate: string | null; effectiveAt: string | null;
+      createdAt: string; createdBy: string | null; status: string;
+      verificationResult: string | null;
+    }>;
+  }>({
+    queryKey: [`/api/sippy/rate-history?iTariff=${iTariff}&prefix=${encodeURIComponent(historyPrefix ?? '')}`],
+    enabled: !!iTariff && !!historyPrefix,
+    staleTime: 60_000,
+  });
   const rateKey = (r: RateEntry & { rawPrefix?: string }, i: number) => String(r.iRate ?? `${r.prefix}-${i}`);
   const allSelected = rates.length > 0 && rates.every((r, i) => selectedRateKeys.has(rateKey(r, i)));
   const toggleAll = () => {
@@ -284,6 +308,25 @@ function RateDetailPanel({
     });
   };
   const selectedRates = rates.filter((r, i) => selectedRateKeys.has(rateKey(r, i)));
+
+  // Status categorisation — used for filter tabs and badge display
+  const _now  = Date.now();
+  const _in30 = _now + 30 * 24 * 60 * 60 * 1000;
+  const _parseTs = (s: any): number | null => {
+    if (!s) return null;
+    const norm = String(s).replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/, '$1-$2-$3T$4:$5:$6Z');
+    const d = new Date(norm); return isNaN(d.getTime()) ? null : d.getTime();
+  };
+  const getRateStatus = (r: typeof rates[0]) => {
+    if (r.forbidden) return 'blocked' as const;
+    const act = _parseTs((r as any).activationDate);
+    const exp = _parseTs((r as any).expirationDate);
+    if (exp && exp < _now) return 'expired' as const;
+    if (act && act > _now) return 'scheduled' as const;
+    if (exp && exp > _now && exp <= _in30) return 'expiring' as const;
+    return 'active' as const;
+  };
+  const displayRates = statusFilter === 'all' ? rates : rates.filter(r => getRateStatus(r) === statusFilter);
 
   return (
     <div className="flex flex-col h-full">
@@ -345,26 +388,134 @@ function RateDetailPanel({
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 bg-muted/10 flex-shrink-0">
-            <span className="text-[11px] text-muted-foreground">
-              {selectedRateKeys.size > 0 ? `${selectedRateKeys.size} selected` : "Select rates to change"}
-            </span>
-            <button
-              onClick={() => setChangeModalOpen(true)}
-              disabled={selectedRateKeys.size === 0}
-              className="text-xs bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 disabled:from-muted/30 disabled:to-muted/30 disabled:text-muted-foreground text-white rounded-lg px-4 py-1.5 font-medium shadow-sm transition-all"
-              data-testid="btn-change-client-rates"
-            >
-              Change Client Rates
-            </button>
+            {historyPrefix ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { setHistoryPrefix(null); setHistoryDestName(''); }}
+                    className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                  >
+                    <ChevronRight className="w-3 h-3 rotate-180" /> Back
+                  </button>
+                  <span className="text-[11px] text-muted-foreground">
+                    Rate History — <span className="font-mono">{historyPrefix}</span>
+                    {historyDestName ? ` · ${historyDestName}` : ""}
+                  </span>
+                </div>
+                <span className="text-[10px] text-muted-foreground italic">BitsAuto push history only</span>
+              </>
+            ) : (
+              <>
+                <span className="text-[11px] text-muted-foreground">
+                  {selectedRateKeys.size > 0 ? `${selectedRateKeys.size} selected` : "Select rates to change"}
+                </span>
+                <button
+                  onClick={() => setChangeModalOpen(true)}
+                  disabled={selectedRateKeys.size === 0}
+                  className="text-xs bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 disabled:from-muted/30 disabled:to-muted/30 disabled:text-muted-foreground text-white rounded-lg px-4 py-1.5 font-medium shadow-sm transition-all"
+                  data-testid="btn-change-client-rates"
+                >
+                  Change Client Rates
+                </button>
+              </>
+            )}
           </div>
-          <div className="flex-1 overflow-auto">
+          {/* Tariff-level billing settings — connectFee, freeSeconds, gracePeriod */}
+          {tariffInfo && !historyPrefix && (() => {
+            const fee = tariffInfo.connectFee ?? 0;
+            const fs  = tariffInfo.freeSeconds ?? 0;
+            const gp  = tariffInfo.gracePeriod ?? 0;
+            const pcs = tariffInfo.postCallSurcharge ?? 0;
+            if (!fee && !fs && !gp && !pcs) return null;
+            return (
+              <div className="flex items-center gap-4 px-4 py-1.5 border-b border-border/20 bg-blue-500/5 flex-shrink-0 text-[10px] text-muted-foreground">
+                <span className="font-medium text-foreground/50 uppercase tracking-wide text-[9px]">Tariff Billing:</span>
+                {fee  > 0 && <span>Connect Fee: <span className="font-mono text-foreground">{fee.toFixed(4)}</span></span>}
+                {fs   > 0 && <span>Free Sec: <span className="font-mono text-foreground">{fs}s</span></span>}
+                {gp   > 0 && <span>Grace: <span className="font-mono text-foreground">{gp}s</span></span>}
+                {pcs  > 0 && <span>Post-call: <span className="font-mono text-foreground">{pcs.toFixed(4)}</span></span>}
+              </div>
+            );
+          })()}
+          {/* Status filter tabs */}
+          {!historyPrefix && (
+            <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border/20 flex-shrink-0">
+              {(['all', 'active', 'scheduled', 'expiring', 'expired', 'blocked'] as const).map(s => {
+                const count = s === 'all' ? rates.length : rates.filter(r => getRateStatus(r) === s).length;
+                if (s !== 'all' && count === 0) return null;
+                return (
+                  <button key={s} onClick={() => setStatusFilter(s)}
+                    className={cn("px-2 py-0.5 text-[10px] rounded font-medium transition-colors capitalize",
+                      statusFilter === s ? "bg-primary/10 text-primary border border-primary/20" : "text-muted-foreground hover:bg-muted/40"
+                    )}
+                  >
+                    {s} <span className="opacity-60 tabular-nums">({count})</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex-1 overflow-auto relative">
+            {historyPrefix && (
+              <div className="absolute inset-0 bg-background z-10 overflow-auto">
+                {historyLoading ? (
+                  <div className="flex items-center justify-center h-32 text-muted-foreground text-xs">
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading history…
+                  </div>
+                ) : !(historyData?.history?.length) ? (
+                  <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-xs text-center gap-2 p-4">
+                    <Clock className="w-6 h-6 opacity-20" />
+                    <p>No push history found for this prefix.</p>
+                    <p className="text-[10px] opacity-60">Only BitsAuto pushes are tracked here.</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-xs border-collapse">
+                    <thead className="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border/50 z-10">
+                      <tr>
+                        {["Date", "By", "Old Rate", "New Rate", "Effective", "Status"].map(h => (
+                          <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground border-b border-border whitespace-nowrap text-[11px]">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(historyData.history ?? []).map((h, idx) => (
+                        <tr key={h.jobId ?? idx} className="border-b border-border/20 hover:bg-blue-500/5">
+                          <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">
+                            {h.createdAt ? new Date(h.createdAt).toLocaleDateString() : '—'}
+                          </td>
+                          <td className="py-1.5 px-3 text-muted-foreground text-[10px] max-w-[120px] truncate" title={h.createdBy ?? ''}>
+                            {h.createdBy?.split('@')[0] ?? '—'}
+                          </td>
+                          <td className="py-1.5 px-3 font-mono tabular-nums text-muted-foreground">
+                            {h.oldRate ? Number(h.oldRate).toFixed(5) : '—'}
+                          </td>
+                          <td className="py-1.5 px-3 font-mono tabular-nums font-medium">
+                            {h.newRate ? Number(h.newRate).toFixed(5) : '—'}
+                          </td>
+                          <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">
+                            {h.effectiveAt ? new Date(h.effectiveAt).toLocaleDateString() : '—'}
+                          </td>
+                          <td className="py-1.5 px-3">
+                            {h.status === 'completed'
+                              ? <span className="text-[10px] bg-green-500/10 text-green-400 border border-green-500/20 rounded-full px-2 py-0.5">✓ Done</span>
+                              : h.status === 'failed'
+                              ? <span className="text-[10px] bg-red-500/10 text-red-400 border border-red-500/20 rounded-full px-2 py-0.5">✗ Failed</span>
+                              : <span className="text-[10px] bg-muted/20 text-muted-foreground border border-border/30 rounded-full px-2 py-0.5">{h.status}</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
           <table className="w-full text-xs border-collapse">
             <thead className="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border/50 z-10">
               <tr>
                 <th className="text-left py-2 px-3 border-b border-border w-8">
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} data-testid="checkbox-select-all" />
                 </th>
-                {["", "Code", "Destination", "Client Dest", "Rate (USD)", "Increment", "Active From", "Active Till", "Status"].map(h => (
+                {["", "Code", "Destination", "Client Dest", "Rate (USD)", "Increment", "Active From", "Active Till", "Status", ""].map(h => (
                   <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground border-b border-border whitespace-nowrap text-[11px]">
                     {h}
                   </th>
@@ -372,7 +523,7 @@ function RateDetailPanel({
               </tr>
             </thead>
             <tbody>
-              {rates.map((r, i) => (
+              {displayRates.map((r, i) => (
                 <tr
                   key={r.iRate ?? i}
                   className={cn(
@@ -417,11 +568,21 @@ function RateDetailPanel({
                       return <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-500/10 text-green-400 border border-green-500/20 rounded-full px-2 py-0.5">● Active</span>;
                     })()}
                   </td>
+                  <td className="py-1.5 px-3">
+                    <button
+                      onClick={() => { setHistoryPrefix(r.rawPrefix || String(r.prefix)); setHistoryDestName(r.destName || ''); }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary p-0.5 rounded"
+                      title="View rate history"
+                      data-testid={`btn-history-${r.rawPrefix ?? r.prefix}`}
+                    >
+                      <Clock className="w-3 h-3" />
+                    </button>
+                  </td>
                 </tr>
               ))}
               {rates.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center py-10 text-muted-foreground">
+                  <td colSpan={10} className="text-center py-10 text-muted-foreground">
                     No rates found with prefix <span className="font-mono text-blue-400">"{trunkPrefix}*"</span>
                   </td>
                 </tr>
@@ -429,7 +590,7 @@ function RateDetailPanel({
             </tbody>
           </table>
           <div className="px-4 py-2 text-[10px] text-muted-foreground border-t border-border/30">
-            {rates.length} rate{rates.length !== 1 ? "s" : ""} shown
+            {displayRates.length}{displayRates.length !== rates.length ? ` / ${rates.length}` : ""} rate{displayRates.length !== 1 ? "s" : ""} shown
             {trunkPrefix ? ` matching prefix "${trunkPrefix}*"` : ""}
           </div>
           </div>
@@ -474,6 +635,11 @@ function ChangeClientRateModal({
   const [effectiveTill, setEffectiveTill] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<{ prefix: string; success: boolean; message: string; method?: string; detail?: string }[] | null>(null);
+  const [driftItems, setDriftItems] = useState<Array<{
+    prefix: string; rawPrefix: string; destName: string;
+    sippyRate: number; lastPushedRate: string | null;
+  }> | null>(null);
+  const [driftChecking, setDriftChecking] = useState(false);
 
   // Proactive probe: check if the portal rates page is accessible before the user submits.
   // This catches the common case where the Sippy account lacks "Edit Tariff Rates" permission.
@@ -486,14 +652,10 @@ function ChangeClientRateModal({
   });
   const permissionBlocked = probe && probe.ok === false && !probe.ratesPageOk;
 
-  const handleSubmit = async () => {
+  // Core push — called after drift check passes or operator confirms
+  const executePush = () => {
     const rateNum = Number(rate);
-    if (!rate || isNaN(rateNum)) {
-      toast({ title: "Enter a valid rate", variant: "destructive" });
-      return;
-    }
-    // Always send the full Sippy prefix (r.prefix = e.g. "192"), NOT rawPrefix ("92").
-    // rawPrefix strips the trunk prefix for display only — Sippy rate keys use the full prefix.
+    // Always send the full Sippy prefix (r.prefix e.g. "192"), NOT rawPrefix ("92")
     const prefixes = selectedRates.map(r => String(r.prefix));
     const fmtDate = (v: string) => v ? v.replace("T", " ") : undefined;
     const reqBody = {
@@ -504,11 +666,9 @@ function ChangeClientRateModal({
       effectiveFrom: fmtDate(effectiveFrom),
       effectiveTill: fmtDate(effectiveTill),
     };
-
     // Close modal immediately — operators should never see transport errors
     onClose();
     toast({ title: "Submitting rate change…", description: `${prefixes.length} prefix(es) · ${account.username}` });
-
     // Background retry — up to 3 attempts, 2.5s apart, silent to user
     (async () => {
       let succeeded = false;
@@ -527,18 +687,55 @@ function ChangeClientRateModal({
               break;
             }
           }
-          if ((res.status ?? 500) < 500) break; // 4xx — don't retry
-        } catch { /* retry on timeout / network error */ }
+          if ((res.status ?? 500) < 500) break;
+        } catch { /* retry on network error */ }
       }
       if (!succeeded) {
-        toast({
-          title: "Rate update — verify in Push History",
+        toast({ title: "Rate update — verify in Push History",
           description: `${account.username} · rate may have applied on Sippy`,
-          variant: "destructive",
-        });
+          variant: "destructive" });
       }
     })();
   };
+
+  const handleSubmit = async () => {
+    const rateNum = Number(rate);
+    if (!rate || isNaN(rateNum)) {
+      toast({ title: "Enter a valid rate", variant: "destructive" });
+      return;
+    }
+    // Pre-push drift check
+    setDriftChecking(true);
+    try {
+      const prefixes = selectedRates.map(r => String(r.prefix));
+      const checkRes: {
+        results: Array<{ prefix: string; dialPrefix: string;
+          lastPushedRate: string | null; lastPushedAt: string | null }>;
+      } = await fetch('/api/sippy/pre-push-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ iTariff, prefixes }),
+      }).then(r => r.json());
+      const drifted = (checkRes.results ?? [])
+        .filter(item => {
+          if (!item.lastPushedRate) return false;
+          const sel = selectedRates.find(r => String(r.prefix) === item.prefix);
+          return Math.abs(Number(item.lastPushedRate) - Number(sel?.price1 ?? 0)) > 0.000001;
+        })
+        .map(item => {
+          const sel = selectedRates.find(r => String(r.prefix) === item.prefix);
+          return { prefix: item.prefix,
+            rawPrefix: sel?.rawPrefix ?? item.dialPrefix ?? item.prefix,
+            destName: sel?.destName ?? '',
+            sippyRate: Number(sel?.price1 ?? 0),
+            lastPushedRate: item.lastPushedRate };
+        });
+      setDriftChecking(false);
+      if (drifted.length > 0) { setDriftItems(drifted); return; }
+    } catch { setDriftChecking(false); }
+    executePush();
+  };
+
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -577,6 +774,36 @@ function ChangeClientRateModal({
               ))}
             </div>
           </div>
+          {driftItems !== null ? (
+            <div className="border border-amber-500/40 rounded-lg bg-amber-500/[0.06] p-3 space-y-2">
+              <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold">
+                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                Sippy drift detected — {driftItems.length} prefix{driftItems.length !== 1 ? 'es' : ''} changed since last BitsAuto push
+              </div>
+              <p className="text-[10px] text-amber-200/70">
+                These rates were manually modified in Sippy after BitsAuto last pushed. Proceeding will overwrite the current Sippy rate with your new rate.
+              </p>
+              <div className="border border-amber-500/20 rounded text-[10px] divide-y divide-amber-500/10 max-h-40 overflow-auto">
+                {driftItems.map((d, idx) => (
+                  <div key={idx} className="px-2 py-1.5 flex items-center justify-between gap-4">
+                    <span>
+                      <span className="font-mono text-foreground">{d.rawPrefix}</span>
+                      {d.destName && <span className="text-muted-foreground ml-2">{d.destName}</span>}
+                    </span>
+                    <span className="flex items-center gap-3 font-mono shrink-0 text-[10px]">
+                      <span className="text-muted-foreground">BitsAuto <span className="text-foreground/80">{Number(d.lastPushedRate).toFixed(5)}</span></span>
+                      <span className="text-amber-400">→</span>
+                      <span className="text-amber-300">Sippy <span className="text-amber-200">{d.sippyRate.toFixed(5)}</span></span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-amber-200/60">
+                Your new rate: <span className="font-mono text-foreground">{rate || '—'}</span>
+              </p>
+            </div>
+          ) : (
+            <>
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">New Rate (USD / min)</label>
             <input
@@ -609,6 +836,8 @@ function ChangeClientRateModal({
               />
             </div>
           </div>
+            </>
+          )}
           {results && (
             <div className="border border-border/50 rounded text-xs divide-y divide-border/30 max-h-40 overflow-auto">
               {results.map((r, i) => (
@@ -634,23 +863,670 @@ function ChangeClientRateModal({
           )}
         </div>
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
-          <button onClick={onClose} className="text-xs px-3 py-1.5 rounded border border-border hover:bg-muted/30">
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || !rate}
-            className="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded px-3 py-1.5 font-medium flex items-center gap-1.5"
-            data-testid="btn-submit-change-rate"
-          >
-            {submitting && <Loader2 className="w-3 h-3 animate-spin" />}
-            Submit
-          </button>
+          {driftItems !== null ? (
+            <>
+              <button
+                onClick={() => setDriftItems(null)}
+                className="text-xs px-3 py-1.5 rounded border border-border hover:bg-muted/30"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={executePush}
+                className="text-xs bg-amber-600 hover:bg-amber-700 text-white rounded px-3 py-1.5 font-medium"
+              >
+                Continue Anyway →
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={onClose} className="text-xs px-3 py-1.5 rounded border border-border hover:bg-muted/30">
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || !rate || driftChecking}
+                className="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded px-3 py-1.5 font-medium flex items-center gap-1.5"
+                data-testid="btn-submit-change-rate"
+              >
+                {driftChecking && <Loader2 className="w-3 h-3 animate-spin" />}
+                {driftChecking ? "Checking…" : "Submit"}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
   );
 }
+
+// ── Vendor Rates Tab ──────────────────────────────────────────────────────────
+const VR_CANON = [
+  { v:'', l:'— skip —' }, { v:'prefix', l:'Dial Prefix *' }, { v:'destination', l:'Destination' },
+  { v:'rate', l:'Rate *' }, { v:'currency', l:'Currency' }, { v:'effectiveDate', l:'Effective Date' },
+  { v:'expiryDate', l:'Expiry Date' }, { v:'interval1', l:'Billing Start (s)' },
+  { v:'intervalN', l:'Billing Ongoing (s)' }, { v:'interconnect', l:'Interconnect' },
+];
+function VendorRatesTab() {
+  const { toast } = useToast();
+  const [view, setView] = useState<'list'|'rows'|'compare'|'margin'>('list');
+  const [selSheet, setSelSheet] = useState<any|null>(null);
+  const [compareBase, setCompareBase] = useState<number|null>(null);
+  const [compareNew,  setCompareNew]  = useState<number|null>(null);
+  const [marginSheet, setMarginSheet] = useState<any|null>(null);
+  const [marginPid,   setMarginPid]   = useState<number|null>(null);
+  const [impactSheet, setImpactSheet] = useState<any|null>(null);
+  const [impactBase,    setImpactBase]    = useState<number|null>(null);
+  const [approvalPending, setApprovalPending] = useState(false);
+  const [showApprovals,   setShowApprovals]   = useState(false);
+  const [vFilter, setVFilter] = useState('all');
+  const [upOpen, setUpOpen] = useState(false);
+  const [wStep, setWStep] = useState(1);
+  const [wVid, setWVid] = useState<number|null>(null);
+  const [wFile, setWFile] = useState<{name:string;type:string;data:string}|null>(null);
+  const [wHeaders, setWHdrs] = useState<string[]>([]);
+  const [wSample,  setWSample]  = useState<any[][]>([]);
+  const [wTotal,   setWTotal]   = useState(0);
+  const [wMap,     setWMap]     = useState<Record<string,string>>({});
+  const [wSaveTpl, setWSaveTpl] = useState(false);
+  const [wTplLabel,setWTplLabel]= useState('');
+  const [wCcy,     setWCcy]     = useState('USD');
+  const [wEffDate, setWEffDate] = useState('');
+  const [wNotes,   setWNotes]   = useState('');
+  const [busy, setBusy] = useState(false);
+  const { data: vendors=[] }  = useQuery<any[]>({ queryKey:['/api/vendor-rates/vendors'], staleTime:5*60_000 });
+  const { data: sheets=[],  refetch: refetchSheets } = useQuery<any[]>({ queryKey:['/api/vendor-rates/sheets'], staleTime:30_000 });
+  const { data: savedMaps=[] } = useQuery<any[]>({ queryKey:[`/api/vendor-rates/column-maps/${wVid}`], enabled:!!wVid, staleTime:60_000 });
+  const { data: rowData, isLoading: rowsLoading } = useQuery<{rows:any[]}>({
+    queryKey:[`/api/vendor-rates/sheets/${selSheet?.id}/rows?limit=200`], enabled:view==='rows'&&!!selSheet, staleTime:60_000 });
+  const { data: cmpData, isLoading: cmpLoading } = useQuery<any>({
+    queryKey:['/api/vendor-rates/compare', compareBase, compareNew],
+    queryFn:()=>fetch('/api/vendor-rates/compare',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({baseSheetId:compareBase,newSheetId:compareNew})}).then(r=>r.json()),
+    enabled:view==='compare'&&!!compareBase&&!!compareNew, staleTime:60_000 });
+  const onFile = (file: File) => {
+    const rd = new FileReader();
+    rd.onload = async (e) => {
+      const b64 = (e.target?.result as string).split(',')[1];
+      setWFile({ name:file.name, type:file.name.endsWith('.csv')?'csv':'xlsx', data:b64 });
+      setBusy(true);
+      try {
+        const r = await fetch('/api/vendor-rates/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileData:b64})}).then(r=>r.json());
+        setWHdrs(r.headers??[]); setWSample(r.sampleRows??[]); setWTotal(r.totalRows??0);
+        const def = (savedMaps as any[]).find((m:any)=>m.isDefault) ?? savedMaps[0] ?? null;
+        if (def) setWMap(def.mappings as Record<string,string>);
+        setWStep(2);
+      } catch(err:any) { toast({title:'Parse failed',description:err.message,variant:'destructive'}); }
+      setBusy(false);
+    };
+    rd.readAsDataURL(file);
+  };
+  const doImport = async () => {
+    if (!wFile||!wVid) return;
+    if (!Object.values(wMap).includes('prefix')||!Object.values(wMap).includes('rate')) {
+      toast({title:'Map required fields',description:'prefix and rate must be mapped',variant:'destructive'}); return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch('/api/vendor-rates/import',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({fileData:wFile.data,fileType:wFile.type,vendorId:wVid,fileName:wFile.name,
+          currency:wCcy,effectiveDate:wEffDate||undefined,notes:wNotes||undefined,
+          columnMap:wMap,saveTemplate:wSaveTpl,templateLabel:wTplLabel||wFile.name})}).then(r=>r.json());
+      if (r.error) throw new Error(r.error);
+      toast({title:`Imported ${r.rowCount?.toLocaleString()} rows`,description:r.duplicatesSkipped?`${r.duplicatesSkipped} duplicates skipped`:undefined});
+      setUpOpen(false); setWStep(1); setWFile(null); setWVid(null); setWMap({});
+      refetchSheets();
+    } catch(err:any) { toast({title:'Import failed',description:err.message,variant:'destructive'}); }
+    setBusy(false);
+  };
+  const doActivate = async (id:number) => { await fetch(`/api/vendor-rates/sheets/${id}/activate`,{method:'POST'}); refetchSheets(); toast({title:'Sheet activated'}); };
+  const doDelete  = async (id:number) => {
+    if (!confirm('Delete this sheet and all its rows?')) return;
+    await fetch(`/api/vendor-rates/sheets/${id}`,{method:'DELETE'}); refetchSheets(); toast({title:'Sheet deleted'});
+  };
+  const { data: productPrefixes=[] } = useQuery<string[]>({
+    queryKey:['/api/vendor-rates/products-with-rates'], staleTime:5*60_000 });
+  const { data: marginData, isLoading: marginLoading } = useQuery<any>({
+    queryKey:['/api/vendor-rates/margin-analysis', marginSheet?.id, marginPid],
+    queryFn:()=>fetch('/api/vendor-rates/margin-analysis',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({sheetId:marginSheet?.id,productPrefix:marginPid})}).then(r=>r.json()),
+    enabled:view==='margin'&&!!marginSheet&&!!marginPid, staleTime:60_000,
+  });
+  const { data: impactData, isLoading: impactLoading } = useQuery<any>({
+    queryKey:['/api/vendor-rates/impact-analysis', impactSheet?.id, impactBase],
+    queryFn:()=>fetch('/api/vendor-rates/impact-analysis',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({newSheetId:impactSheet?.id, baseSheetId:impactBase??undefined})}).then(r=>r.json()),
+    enabled:view==='impact'&&!!impactSheet, staleTime:60_000,
+  });
+  const qc = useQueryClient();
+  const { data: pendingApprovals=[], refetch: refetchApprovals } = useQuery<any[]>({
+    queryKey:['/api/vendor-rates/approvals/pending'], staleTime:30_000,
+    queryFn:()=>fetch('/api/vendor-rates/approvals/pending').then(r=>r.json()),
+  });
+  const filtered = vFilter==='all' ? sheets : (sheets as any[]).filter((s:any)=>String(s.vendorId)===vFilter);
+  const badge = (s:string) => s==='active'
+    ? <span className="text-[10px] bg-green-500/15 text-green-400 border border-green-500/30 rounded-full px-2 py-0.5">● active</span>
+    : s==='archived'
+    ? <span className="text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-full px-2 py-0.5">archived</span>
+    : <span className="text-[10px] bg-muted/50 text-muted-foreground border border-border/50 rounded-full px-2 py-0.5">draft</span>;
+  if (view==='rows'&&selSheet) return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <button onClick={()=>setView('list')} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"><ChevronLeft className="w-3.5 h-3.5"/>Back</button>
+        <span className="text-xs font-semibold">{selSheet.vendorName} — {selSheet.fileName}</span>
+        <span className="ml-auto text-xs text-muted-foreground">{selSheet.rowCount?.toLocaleString()} rows</span>
+      </div>
+      <div className="flex-1 overflow-auto">
+        {rowsLoading ? <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">Loading…</div> : (
+          <table className="w-full text-xs border-collapse">
+            <thead className="sticky top-0 bg-background border-b border-border">
+              <tr>{['Prefix','Destination','Rate','Ccy','Effective','Expiry','Billing'].map(h=>(
+                <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground text-[11px]">{h}</th>))}</tr>
+            </thead>
+            <tbody>{(rowData?.rows??[]).map((r:any,i:number)=>(
+              <tr key={i} className="border-b border-border/20 hover:bg-muted/20">
+                <td className="py-1.5 px-3 font-mono text-[11px]">{r.prefix}</td>
+                <td className="py-1.5 px-3">{r.destination??'—'}</td>
+                <td className="py-1.5 px-3 font-mono tabular-nums text-right">{r.rate?Number(r.rate).toFixed(6):'—'}</td>
+                <td className="py-1.5 px-3 text-muted-foreground">{r.currency??'USD'}</td>
+                <td className="py-1.5 px-3 text-muted-foreground">{r.effectiveDate??'—'}</td>
+                <td className="py-1.5 px-3 text-muted-foreground">{r.expiryDate??'—'}</td>
+                <td className="py-1.5 px-3 font-mono text-[11px] text-muted-foreground">{r.interval1??60}/{r.intervalN??60}</td>
+              </tr>))}</tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+  if (view==='impact') return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
+        <button onClick={()=>setView('list')} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+          <ChevronLeft className="w-3.5 h-3.5"/>Back
+        </button>
+        <span className="text-xs font-semibold">Impact Analysis — {impactSheet?.vendorName} / {impactSheet?.fileName}</span>
+        {impactData&&!impactData.error&&(
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={()=>doActivate(impactSheet.id)}
+              className="text-xs border border-green-600 text-green-400 hover:bg-green-600 hover:text-white px-3 py-1 rounded font-medium">
+              Activate Directly
+            </button>
+            <button disabled={approvalPending} onClick={async()=>{
+              setApprovalPending(true);
+              try {
+                const r = await fetch(`/api/vendor-rates/sheets/${impactSheet.id}/request-activation`,{
+                  method:'POST', headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({requestedBy:'user', requestedByName:'Operator', impactSummary:impactData?.summary}),
+                }).then(r=>r.json());
+                if (r.error) throw new Error(r.error);
+                toast({title:'Approval request submitted',description:`Request #${r.requestId} is pending review`});
+                refetchApprovals();
+              } catch(err:any){toast({title:'Failed',description:err.message,variant:'destructive'});}
+              setApprovalPending(false);
+            }} className="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 text-white px-3 py-1 rounded font-medium flex items-center gap-1.5">
+              {approvalPending&&<Loader2 className="w-3 h-3 animate-spin"/>}Submit for Approval →
+            </button>
+          </div>
+        )}
+      </div>
+      {impactLoading&&<div className="flex items-center justify-center flex-1 text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mr-2"/>Analysing impact…</div>}
+      {impactData?.error&&<div className="flex items-center justify-center flex-1 text-red-400 text-sm">{impactData.error}</div>}
+      {impactData&&!impactData.error&&<>
+        {!impactData.hasBase&&<div className="mx-4 mt-3 text-xs bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded px-3 py-2">No active sheet found — showing new prefixes only (no rate comparison available)</div>}
+        <div className="grid grid-cols-4 gap-3 p-4 border-b border-border shrink-0">
+          {([
+            ['Rates Increased', impactData.summary.prefixesIncreased, 'text-amber-400'],
+            ['Rates Decreased', impactData.summary.prefixesDecreased, 'text-blue-400'],
+            ['Negative Margins',impactData.summary.negativeMargins,   'text-red-400'],
+            ['Low Margins',     impactData.summary.lowMargins,        'text-amber-300'],
+          ] as [string,number,string][]).map(([l,c,cl])=>(
+            <div key={l} className="bg-muted/20 rounded-lg p-3 text-center">
+              <div className={`text-xl font-bold tabular-nums ${cl}`}>{c?.toLocaleString()}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{l}</div>
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3 px-4 pb-3 border-b border-border shrink-0">
+          <div className="bg-muted/10 rounded p-3">
+            <div className="text-[10px] text-muted-foreground mb-1.5 font-medium">Products Affected</div>
+            <div className="flex flex-wrap gap-1.5">
+              {impactData.summary.productsAffected.length>0
+                ? impactData.summary.productsAffected.map((p:string)=>(
+                    <span key={p} className="text-[10px] bg-blue-500/15 text-blue-300 border border-blue-500/30 rounded px-2 py-0.5">{p}</span>))
+                : <span className="text-xs text-muted-foreground">None</span>}
+            </div>
+          </div>
+          <div className="bg-muted/10 rounded p-3">
+            <div className="text-[10px] text-muted-foreground mb-1.5 font-medium">Clients Affected ({impactData.summary.clientCount})</div>
+            <div className="flex flex-wrap gap-1.5">
+              {impactData.summary.topClients.map((c:string)=>(
+                <span key={c} className="text-[10px] bg-muted/40 text-muted-foreground border border-border/50 rounded px-2 py-0.5">{c}</span>))}
+              {impactData.summary.clientCount>10&&<span className="text-[10px] text-muted-foreground">+{impactData.summary.clientCount-10} more</span>}
+            </div>
+          </div>
+        </div>
+        {impactData.vendorTraffic&&impactData.vendorTraffic.daysOfData>0&&(
+          <div className="grid grid-cols-3 gap-3 px-4 pb-3 border-b border-border/30 shrink-0">
+            <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3">
+              <div className="text-[10px] text-muted-foreground mb-1">30-day Traffic (Sippy)</div>
+              <div className="text-sm font-bold tabular-nums">{impactData.vendorTraffic.monthlyMinutes.toLocaleString()} min</div>
+              <div className="text-[10px] text-muted-foreground">{impactData.vendorTraffic.daysOfData} days of data</div>
+            </div>
+            <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3">
+              <div className="text-[10px] text-muted-foreground mb-1">30-day Buy Cost</div>
+              <div className="text-sm font-bold tabular-nums">${impactData.vendorTraffic.monthlyCostUsd.toLocaleString()}</div>
+              <div className="text-[10px] text-muted-foreground">via {impactData.vendorTraffic.vendorName}</div>
+            </div>
+            <div className="bg-amber-500/5 border border-amber-500/15 rounded-lg p-3">
+              <div className="text-[10px] text-muted-foreground mb-1">Max Exposure Estimate</div>
+              <div className="text-sm font-bold tabular-nums text-amber-400">
+                ${impactData.summary.prefixesIncreased>0&&impactData.vendorTraffic.monthlyMinutes>0
+                  ? Math.round(impactData.vendorTraffic.monthlyMinutes * (impactData.summary.avgDeltaPerMin||0.0025)).toLocaleString()
+                  : '—'}
+              </div>
+              <div className="text-[10px] text-muted-foreground">assuming avg +$0.0025/min on affected routes</div>
+            </div>
+          </div>
+        )}
+        {(impactData.clientImpact??[]).length>0&&(
+          <div className="shrink-0 border-b border-border/30">
+            <div className="text-[10px] font-medium text-muted-foreground px-4 py-2">
+              Client Exposure ({(impactData.clientImpact??[]).length} clients affected)
+            </div>
+            <div className="max-h-36 overflow-auto divide-y divide-border/20">
+              {(impactData.clientImpact as any[]).map((c:any)=>{
+                const risk = c.negativeCount>0?'text-red-400':c.lowCount>0?'text-amber-400':'text-green-400';
+                const bg   = c.negativeCount>0?'bg-red-500/3':c.lowCount>0?'bg-amber-500/3':'';
+                return (
+                  <div key={c.clientName} className={`flex items-center gap-3 px-4 py-1.5 hover:bg-muted/10 ${bg}`}>
+                    <span className="text-xs font-medium flex-1 truncate" title={c.clientName}>{c.clientName}</span>
+                    <div className="flex items-center gap-3 text-[10px] text-muted-foreground shrink-0">
+                      <span>{c.affectedPrefixes} prefix{c.affectedPrefixes!==1?'es':''}</span>
+                      <div className="flex gap-1">
+                        {c.productsAffected.map((p:string)=>(
+                          <span key={p} className="bg-blue-500/15 text-blue-300 rounded px-1 py-0.5">{p}</span>))}
+                      </div>
+                      {c.negativeCount>0&&<span className="text-red-400 font-medium">{c.negativeCount} negative</span>}
+                      {c.lowCount>0&&<span className="text-amber-400">{c.lowCount} low</span>}
+                      {c.worstMarginPct!=null&&<span className={`font-mono ${risk}`}>{Number(c.worstMarginPct).toFixed(1)}% worst</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {impactData.increased.length>0 ? (
+          <div className="flex-1 overflow-auto">
+            <div className="text-[10px] font-medium text-muted-foreground px-4 py-2 border-b border-border/50">
+              Increased Rate Routes ({impactData.increased.length})
+            </div>
+            <table className="w-full text-xs border-collapse">
+              <thead className="sticky top-0 bg-background border-b border-border">
+                <tr>{['Prefix','Destination','Old Cost','New Cost','Δ%','Products','Worst Margin','Clients'].map(h=>(
+                  <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground text-[11px]">{h}</th>))}</tr>
+              </thead>
+              <tbody>{impactData.increased.map((r:any,i:number)=>{
+                const worstProd = r.products.reduce((w:any,p:any)=>!w||(p.margin!=null&&(w.margin==null||p.margin<w.margin))?p:w, null);
+                const rowCl = worstProd?.status==='negative'?'bg-red-500/5':worstProd?.status==='low'?'bg-amber-500/5':'';
+                const mc = worstProd?.status==='negative'?'text-red-400':worstProd?.status==='low'?'text-amber-400':'text-green-400';
+                return <tr key={i} className={`border-b border-border/20 hover:bg-muted/10 ${rowCl}`}>
+                  <td className="py-1.5 px-3 font-mono text-[11px]">{r.prefix}</td>
+                  <td className="py-1.5 px-3 max-w-[140px] truncate" title={r.destination}>{r.destination??'—'}</td>
+                  <td className="py-1.5 px-3 font-mono tabular-nums text-right text-muted-foreground">{r.oldRate!=null?Number(r.oldRate).toFixed(6):'—'}</td>
+                  <td className="py-1.5 px-3 font-mono tabular-nums text-right">{Number(r.newRate).toFixed(6)}</td>
+                  <td className="py-1.5 px-3 font-mono tabular-nums text-right text-amber-400">+{r.deltaPct!=null?Number(r.deltaPct).toFixed(2):'>0'}%</td>
+                  <td className="py-1.5 px-3">
+                    <div className="flex flex-wrap gap-1">{r.products.map((p:any)=>(
+                      <span key={p.productCode} className="text-[10px] bg-blue-500/15 text-blue-300 rounded px-1.5 py-0.5">{p.productCode}</span>))}</div>
+                  </td>
+                  <td className={`py-1.5 px-3 font-mono tabular-nums text-right text-[11px] ${mc}`}>
+                    {worstProd?.margin!=null?Number(worstProd.margin).toFixed(6):'—'}
+                    {worstProd?.marginPct!=null&&<span className="ml-1 text-[10px]">({Number(worstProd.marginPct).toFixed(1)}%)</span>}
+                  </td>
+                  <td className="py-1.5 px-3 text-[10px] text-muted-foreground max-w-[120px] truncate">
+                    {r.products.flatMap((p:any)=>p.clients).filter((v:any,i:any,a:any)=>a.indexOf(v)===i).slice(0,3).join(', ')||'—'}
+                  </td>
+                </tr>;
+              })}</tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground gap-2">
+            <div className="text-2xl">✓</div>
+            <p className="text-sm font-medium text-green-400">No rate increases in this sheet</p>
+            <p className="text-xs">All changes are decreases or new prefixes — safe to activate</p>
+          </div>
+        )}
+      </>}
+    </div>
+  );
+
+
+  if (view==='margin') return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
+        <button onClick={()=>setView('list')} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+          <ChevronLeft className="w-3.5 h-3.5"/>Back
+        </button>
+        <span className="text-xs font-semibold">{marginSheet?.vendorName} — {marginSheet?.fileName}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">Product:</label>
+          <select value={marginPid??''} onChange={e=>setMarginPid(e.target.value||null as any)}
+            className="text-xs bg-muted/30 border border-border/50 rounded px-2 py-1">
+            <option value="">Select product…</option>
+            {(productPrefixes as string[]).map((p:string)=><option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+      </div>
+      {!marginPid ? (
+        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground gap-2">
+          <p className="text-sm">Select a product to calculate margin</p>
+          <p className="text-xs">Each product has different sell rates — margin is product-specific</p>
+        </div>
+      ) : marginLoading ? (
+        <div className="flex items-center justify-center flex-1 text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin mr-2"/>Calculating margin…
+        </div>
+      ) : marginData && (
+        <>
+          <div className="grid grid-cols-5 gap-3 p-4 border-b border-border shrink-0">
+            {([
+              ['Total Prefixes', marginData.summary.total,    'text-foreground'],
+              ['Matched',        marginData.summary.matched,  'text-blue-400'],
+              ['Negative',       marginData.summary.negative, 'text-red-400'],
+              ['Low (<10%)',     marginData.summary.low,      'text-amber-400'],
+              ['Healthy',        marginData.summary.healthy,  'text-green-400'],
+            ] as [string,number,string][]).map(([l,c,cl])=>(
+              <div key={l} className="bg-muted/20 rounded-lg p-3 text-center">
+                <div className={`text-xl font-bold tabular-nums ${cl}`}>{c?.toLocaleString()}</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">{l}</div>
+              </div>
+            ))}
+          </div>
+          <div className="flex-1 overflow-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead className="sticky top-0 bg-background border-b border-border">
+                <tr>{['Prefix','Destination','Cost','Sell','Margin','Margin %',''].map(h=>(
+                  <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground text-[11px]">{h}</th>))}</tr>
+              </thead>
+              <tbody>{(marginData.rows??[]).map((r:any,i:number)=>{
+                const neg = r.sell_rate!=null && Number(r.margin)<0;
+                const low = r.sell_rate!=null && !neg && Number(r.margin_pct)<10;
+                const unk = r.sell_rate==null;
+                const rc = neg?'bg-red-500/5':low?'bg-amber-500/5':unk?'':'bg-green-500/3';
+                const mc = neg?'text-red-400':low?'text-amber-400':unk?'text-muted-foreground':'text-green-400';
+                const tag = neg?'negative':low?'low margin':unk?'no rate':'healthy';
+                return <tr key={i} className={`border-b border-border/20 ${rc}`}>
+                  <td className="py-1.5 px-3 font-mono text-[11px]">{r.prefix}</td>
+                  <td className="py-1.5 px-3 max-w-[160px] truncate" title={r.dest_name}>{r.dest_name??'—'}</td>
+                  <td className="py-1.5 px-3 font-mono tabular-nums text-right text-muted-foreground">{Number(r.cost_rate).toFixed(6)}</td>
+                  <td className="py-1.5 px-3 font-mono tabular-nums text-right">{r.sell_rate!=null?Number(r.sell_rate).toFixed(6):'—'}</td>
+                  <td className={`py-1.5 px-3 font-mono tabular-nums text-right ${mc}`}>{r.margin!=null?Number(r.margin).toFixed(6):'—'}</td>
+                  <td className={`py-1.5 px-3 font-mono tabular-nums text-right ${mc}`}>{r.margin_pct!=null?`${Number(r.margin_pct).toFixed(2)}%`:'—'}</td>
+                  <td className={`py-1.5 px-3 text-[10px] font-medium ${mc}`}>{tag}</td>
+                </tr>;
+              })}</tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+
+  if (view==='compare') return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <button onClick={()=>setView('list')} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"><ChevronLeft className="w-3.5 h-3.5"/>Back</button>
+        <span className="text-xs font-semibold">Rate Comparison</span>
+        {cmpData&&compareNew&&<button onClick={()=>doActivate(compareNew)} className="ml-auto text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded font-medium">Activate New Sheet →</button>}
+      </div>
+      {cmpLoading&&<div className="flex items-center justify-center h-32 text-muted-foreground text-sm">Comparing…</div>}
+      {cmpData&&<>
+        <div className="grid grid-cols-5 gap-3 p-4 border-b border-border">
+          {([['New',cmpData.summary.newPrefixes,'text-green-400'],['Removed',cmpData.summary.removedPrefixes,'text-red-400'],
+             ['Increased',cmpData.summary.increased,'text-amber-400'],['Decreased',cmpData.summary.decreased,'text-blue-400'],
+             ['Unchanged',cmpData.summary.unchanged,'text-muted-foreground']] as [string,number,string][]).map(([l,c,cl])=>(
+            <div key={l} className="bg-muted/20 rounded-lg p-3 text-center">
+              <div className={`text-xl font-bold tabular-nums ${cl}`}>{c?.toLocaleString()}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{l}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead className="sticky top-0 bg-background border-b border-border">
+              <tr>{['Prefix','Destination','Old Rate','New Rate','Delta %','Change'].map(h=>(
+                <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground text-[11px]">{h}</th>))}</tr>
+            </thead>
+            <tbody>{(cmpData.rows??[]).slice(0,500).map((r:any,i:number)=>{
+              const cc=r.change==='new'?'bg-green-500/5':r.change==='removed'?'bg-red-500/5':r.change==='increased'?'bg-amber-500/5':r.change==='decreased'?'bg-blue-500/5':'';
+              const tc=r.change==='new'?'text-green-400':r.change==='removed'?'text-red-400':r.change==='increased'?'text-amber-400':r.change==='decreased'?'text-blue-400':'text-muted-foreground';
+              return <tr key={i} className={`border-b border-border/20 ${cc}`}>
+                <td className="py-1.5 px-3 font-mono text-[11px]">{r.prefix}</td>
+                <td className="py-1.5 px-3">{r.destination??'—'}</td>
+                <td className="py-1.5 px-3 font-mono tabular-nums text-right text-muted-foreground">{r.oldRate!=null?Number(r.oldRate).toFixed(6):'—'}</td>
+                <td className="py-1.5 px-3 font-mono tabular-nums text-right">{r.newRate!=null?Number(r.newRate).toFixed(6):'—'}</td>
+                <td className={`py-1.5 px-3 font-mono tabular-nums text-right ${tc}`}>{r.deltaPercent!=null?`${r.deltaPercent>0?'+':''}${Number(r.deltaPercent).toFixed(2)}%`:'—'}</td>
+                <td className={`py-1.5 px-3 capitalize font-medium text-[11px] ${tc}`}>{r.change}</td>
+              </tr>;
+            })}</tbody>
+          </table>
+          {(cmpData.rows??[]).length>500&&<div className="p-3 text-center text-xs text-muted-foreground">First 500 of {cmpData.rows.length.toLocaleString()} rows</div>}
+        </div>
+      </>}
+    </div>
+  );
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+        <select value={vFilter} onChange={e=>setVFilter(e.target.value)} className="text-xs bg-muted/30 border border-border/50 rounded px-2 py-1.5">
+          <option value="all">All Vendors</option>
+          {(vendors as any[]).map((v:any)=><option key={v.id} value={String(v.id)}>{v.name}</option>)}
+        </select>
+        <span className="text-xs text-muted-foreground">{(filtered as any[]).length} sheet{(filtered as any[]).length!==1?'s':''}</span>
+        <button onClick={()=>{setUpOpen(true);setWStep(1);setWFile(null);setWVid(null);setWMap({});}}
+          className="ml-auto text-xs bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 font-medium flex items-center gap-1.5">
+          <Upload className="w-3 h-3"/>Upload Sheet
+        </button>
+        {(pendingApprovals as any[]).length>0&&(
+          <button onClick={()=>setShowApprovals(v=>!v)}
+            className="text-xs bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 rounded px-3 py-1.5 font-medium flex items-center gap-1.5">
+            {(pendingApprovals as any[]).length} Pending Approval{(pendingApprovals as any[]).length>1?'s':''}
+          </button>
+        )}
+      </div>
+      {showApprovals&&(pendingApprovals as any[]).length>0&&(
+        <div className="border-b border-border/50 bg-amber-500/5 divide-y divide-border/30 shrink-0">
+          {(pendingApprovals as any[]).map((ap:any)=>(
+            <div key={ap.id} className="flex items-center gap-3 px-4 py-2.5">
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-medium">{ap.entityName}</span>
+                <span className="text-[10px] text-muted-foreground ml-2">requested by {ap.requestedByName||ap.requestedBy} · {new Date(ap.requestedAt).toLocaleDateString()}</span>
+                {ap.payloadAfter&&<span className="text-[10px] text-amber-300 ml-2">↑{ap.payloadAfter.prefixesIncreased} increases · {ap.payloadAfter.negativeMargins} negative margins</span>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={async()=>{
+                  await fetch(`/api/vendor-rates/approvals/${ap.id}/decide`,{method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({decision:'rejected',reviewedBy:'user',reviewedByName:'Operator'})});
+                  refetchApprovals(); refetchSheets(); toast({title:'Request rejected'});
+                }} className="text-[10px] text-red-400 hover:text-red-300 border border-red-400/30 rounded px-2 py-0.5">Reject</button>
+                <button onClick={async()=>{
+                  const r = await fetch(`/api/vendor-rates/approvals/${ap.id}/decide`,{method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({decision:'approved',reviewedBy:'user',reviewedByName:'Operator'})}).then(r=>r.json());
+                  if (r.error) toast({title:'Failed',description:r.error,variant:'destructive'});
+                  else { refetchApprovals(); refetchSheets(); toast({title:'Sheet approved and activated'}); }
+                }} className="text-[10px] bg-green-600 hover:bg-green-700 text-white border border-green-600 rounded px-2 py-0.5">Approve & Activate</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {(() => {
+        const vendorStats = (vendors as any[]).map((v:any) => {
+          const active = (sheets as any[]).find((s:any)=>s.vendorId===v.id&&s.status==='active');
+          const cnt = (sheets as any[]).filter((s:any)=>s.vendorId===v.id).length;
+          return {...v, active, cnt};
+        }).filter((v:any)=>v.cnt>0);
+        if (!vendorStats.length) return null;
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4 border-b border-border shrink-0">
+            {vendorStats.map((v:any)=>(
+              <div key={v.id} className="bg-muted/20 rounded-lg p-3 cursor-pointer hover:bg-muted/30 transition-colors" onClick={()=>setVFilter(String(v.id))}>
+                <div className="text-xs font-semibold truncate" title={v.name}>{v.name}</div>
+                {v.active ? (<>
+                  <div className="text-[10px] text-muted-foreground mt-1 truncate" title={v.active.fileName}>{v.active.fileName}</div>
+                  <div className="flex items-center justify-between mt-1.5">
+                    <span className="text-sm font-bold tabular-nums">{v.active.rowCount?.toLocaleString()}</span>
+                    <span className="text-[10px] bg-green-500/15 text-green-400 border border-green-500/30 rounded-full px-1.5 py-0.5">● active</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">{new Date(v.active.activatedAt||v.active.uploadedAt).toLocaleDateString()}</div>
+                </>) : (
+                  <div className="text-[10px] text-amber-400/80 mt-2">{v.cnt} draft{v.cnt!==1?'s':''} — no active sheet</div>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+      {(filtered as any[]).length===0 ? (
+        <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground gap-2">
+          <Upload className="w-8 h-8 opacity-30"/><p className="text-sm">No rate sheets yet</p>
+          <p className="text-xs">Upload a vendor rate sheet to get started</p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead className="sticky top-0 bg-background border-b border-border">
+              <tr>{['Vendor','File','Rows','Status','Effective','Uploaded','Actions'].map(h=>(
+                <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground text-[11px]">{h}</th>))}</tr>
+            </thead>
+            <tbody>{(filtered as any[]).map((s:any)=>(
+              <tr key={s.id} className="border-b border-border/20 hover:bg-muted/10">
+                <td className="py-2 px-3 font-medium">{s.vendorName}</td>
+                <td className="py-2 px-3 text-muted-foreground max-w-[180px] truncate" title={s.fileName}>{s.fileName}</td>
+                <td className="py-2 px-3 tabular-nums">{s.rowCount?.toLocaleString()}</td>
+                <td className="py-2 px-3">{badge(s.status)}</td>
+                <td className="py-2 px-3 text-muted-foreground">{s.effectiveDate??'—'}</td>
+                <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{new Date(s.uploadedAt).toLocaleDateString()}</td>
+                <td className="py-2 px-3">
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>{setSelSheet(s);setView('rows');}} className="text-[10px] text-blue-400 hover:text-blue-300">View</button>
+                    {s.status!=='active'&&<><span className="text-border">|</span><button onClick={()=>doActivate(s.id)} className="text-[10px] text-green-400 hover:text-green-300">Activate</button></>}
+                    <span className="text-border">|</span>
+                    <button onClick={()=>doDelete(s.id)} className="text-[10px] text-red-400/70 hover:text-red-400">Delete</button>
+                      <span className="text-border">|</span>
+                      <button onClick={()=>{setCompareBase((filtered as any[]).find((x:any)=>x.status==='active'&&x.id!==s.id)?.id??null);setCompareNew(s.id);setView('compare');}} className="text-[10px] text-purple-400 hover:text-purple-300">Compare</button>
+                      <span className="text-border">|</span>
+                      <button onClick={()=>{setMarginSheet(s);setView('margin');}} className="text-[10px] text-teal-400 hover:text-teal-300">Margin</button>
+                      <span className="text-border">|</span>
+                      <button onClick={()=>{setImpactSheet(s);setImpactBase(null);setView('impact');}} className="text-[10px] text-orange-400 hover:text-orange-300">Impact</button>
+                  </div>
+                </td>
+              </tr>))}</tbody>
+          </table>
+        </div>
+      )}
+      {upOpen&&(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={()=>setUpOpen(false)}>
+          <div className="bg-background border border-border rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-auto" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span className="text-sm font-semibold">Upload Vendor Rate Sheet</span>
+              <span className="text-xs text-muted-foreground">Step {wStep} of 2</span>
+              <button onClick={()=>setUpOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4"/></button>
+            </div>
+            {wStep===1&&<div className="p-4 space-y-4">
+              <div><label className="text-xs text-muted-foreground mb-1 block">Vendor</label>
+                <select value={wVid??''} onChange={e=>setWVid(Number(e.target.value))} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm">
+                  <option value="">Select vendor…</option>
+                  {(vendors as any[]).map((v:any)=><option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </div>
+              <div><label className="text-xs text-muted-foreground mb-1 block">Rate Sheet (.xlsx or .csv)</label>
+                <label className={`flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-8 cursor-pointer transition-colors ${wVid?'border-blue-500/40 hover:border-blue-500/60':'border-border/40 opacity-50 pointer-events-none'}`}>
+                  {busy?<Loader2 className="w-6 h-6 animate-spin text-muted-foreground"/>:<>
+                    <Upload className="w-6 h-6 text-muted-foreground mb-2"/>
+                    <span className="text-xs text-muted-foreground">Drop file or click to browse</span>
+                    {wFile&&<span className="text-xs text-blue-400 mt-1">{wFile.name}</span>}
+                  </>}
+                  <input type="file" accept=".xlsx,.csv,.xls" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f&&wVid)onFile(f);}}/>
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="text-xs text-muted-foreground mb-1 block">Currency</label>
+                  <select value={wCcy} onChange={e=>setWCcy(e.target.value)} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm">
+                    <option>USD</option><option>EUR</option><option>GBP</option><option>AUD</option>
+                  </select>
+                </div>
+                <div><label className="text-xs text-muted-foreground mb-1 block">Effective Date</label>
+                  <input type="date" value={wEffDate} onChange={e=>setWEffDate(e.target.value)} className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"/>
+                </div>
+              </div>
+              <div><label className="text-xs text-muted-foreground mb-1 block">Notes</label>
+                <input type="text" value={wNotes} onChange={e=>setWNotes(e.target.value)} placeholder="e.g. July 2026 tariff update" className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"/>
+              </div>
+            </div>}
+            {wStep===2&&<div className="p-4 space-y-3">
+              <p className="text-xs text-muted-foreground">Map columns to BitsAuto fields. <span className="text-amber-400">* required</span></p>
+              <div className="border border-border/50 rounded overflow-hidden">
+                <div className="grid grid-cols-2 bg-muted/20 py-1.5 px-3 border-b border-border/50 text-[11px] font-medium text-muted-foreground">
+                  <span>Vendor Column</span><span>BitsAuto Field</span>
+                </div>
+                <div className="divide-y divide-border/30 max-h-56 overflow-auto">
+                  {wHeaders.map(h=>(
+                    <div key={h} className="grid grid-cols-2 items-center px-3 py-1.5 hover:bg-muted/10">
+                      <span className="text-xs font-mono truncate">{h||'(empty)'}</span>
+                      <select value={wMap[h]??''} onChange={e=>setWMap(m=>({...m,[h]:e.target.value}))} className="text-xs bg-muted/30 border border-border/50 rounded px-1.5 py-1">
+                        {VR_CANON.map(f=><option key={f.v} value={f.v}>{f.l}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {(savedMaps as any[]).length>0&&<div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Templates:</span>
+                {(savedMaps as any[]).map((m:any)=>(
+                  <button key={m.id} onClick={()=>setWMap(m.mappings as Record<string,string>)} className="text-blue-400 hover:text-blue-300 underline underline-offset-2">{m.label}</button>
+                ))}
+              </div>}
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="wSaveTpl" checked={wSaveTpl} onChange={e=>setWSaveTpl(e.target.checked)}/>
+                <label htmlFor="wSaveTpl" className="text-xs">Save as template</label>
+                {wSaveTpl&&<input type="text" value={wTplLabel} onChange={e=>setWTplLabel(e.target.value)} placeholder="Template name" className="flex-1 bg-muted/30 border border-border rounded px-2 py-1 text-xs"/>}
+              </div>
+              <div className="border border-border/40 rounded overflow-auto max-h-28">
+                <table className="text-[10px] w-full">
+                  <thead className="bg-muted/20 border-b border-border/40">
+                    <tr>{wHeaders.map(h=><th key={h} className="py-1 px-2 text-left font-medium text-muted-foreground">{h}</th>)}</tr>
+                  </thead>
+                  <tbody>{wSample.slice(0,4).map((row,i)=>(
+                    <tr key={i} className="border-b border-border/20">
+                      {wHeaders.map((_,j)=><td key={j} className="py-1 px-2 font-mono">{row[j]!=null?String(row[j]).slice(0,14):'—'}</td>)}
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{wTotal.toLocaleString()} rows in file</p>
+            </div>}
+            <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+              <button onClick={()=>wStep>1?setWStep(s=>(s-1) as 1|2):setUpOpen(false)} className="text-xs px-3 py-1.5 rounded border border-border hover:bg-muted/30">
+                {wStep===1?'Cancel':'← Back'}
+              </button>
+              {wStep===1&&<button disabled={!wFile||busy} onClick={()=>setWStep(2)} className="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-muted/30 disabled:text-muted-foreground text-white rounded px-3 py-1.5 font-medium">Map Columns →</button>}
+              {wStep===2&&<button disabled={busy} onClick={doImport} className="text-xs bg-green-600 hover:bg-green-700 disabled:bg-muted/30 text-white rounded px-3 py-1.5 font-medium flex items-center gap-1.5">
+                {busy&&<Loader2 className="w-3 h-3 animate-spin"/>}Import {wTotal.toLocaleString()} Rows
+              </button>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ── Rate Analysis Tab ──────────────────────────────────────────────────────────
 function AnalysisTab({
@@ -679,6 +1555,12 @@ function AnalysisTab({
   const [period, setPeriod] = useState("Active");
   const [applied, setApplied] = useState(false);
   const [detailAccount, setDetailAccount] = useState<SippyAccount | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisResults, setAnalysisResults] = useState<Record<number, {
+    totalDest: number; blockDest: number; avgRate: number;
+    minRate: number; maxRate: number; expiringIn30Days: number;
+    driftCount?: number; matchCount?: number; missingInBitsAuto?: number; error?: string;
+  }>>({});
 
   const product = products.find(p => String(p.id) === selectedProduct);
   const trunkPrefix = product?.trunkPrefix ?? "";
@@ -709,15 +1591,42 @@ function AnalysisTab({
     [countries, selectedCountries],
   );
 
-  const handleApply = () => {
-    setApplied(true);
+  const handleApply = async () => {
+    if (!appliedCarriers.length) return;
+    setAnalysisLoading(true);
     setDetailAccount(null);
+    try {
+      const iAccounts   = appliedCarriers.map(a => a.iAccount);
+      const countryList = selectedCountries.length
+        ? countries.filter(c => selectedCountries.includes(String(c.id))).map(c => c.name)
+        : undefined;
+      const bDest = blockMode === 'All'    ? undefined : blockMode === 'Block'   ? 'block'   : 'unblock';
+      const sDest = specialMode === 'All'  ? undefined : specialMode === 'Special' ? 'lock'  : 'unlock';
+      const resp = await fetch('/api/sippy/rate-analysis-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ iAccounts, countries: countryList, blockDest: bDest, specialDest: sDest, productId: selectedProduct ? Number(selectedProduct) : undefined }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      const map: Record<number, any> = {};
+      for (const c of (data.carriers ?? [])) map[c.iAccount] = c;
+      setAnalysisResults(map);
+      setApplied(true);
+    } catch (err: any) {
+      console.error('[rate-analysis-batch]', err.message);
+      setApplied(true); // show table even on error
+    } finally {
+      setAnalysisLoading(false);
+    }
   };
   const handleReset = () => {
     setSelectedProduct(""); setSelectedCarriers([]); setSelectedCountries([]);
     setSelectedOperators([]); setSelectedCategories([]); setSelectedDetails([]);
     setDestInput(""); setApplied(false); setDetailAccount(null);
     setFormat("Default"); setBlockMode("All"); setSpecialMode("All");
+    setAnalysisResults({}); setAnalysisLoading(false);
   };
 
   return (
@@ -907,7 +1816,12 @@ function AnalysisTab({
             )}
 
             <div className="flex-1 overflow-auto">
-              {!applied ? (
+              {analysisLoading ? (
+                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground gap-3 p-8">
+                  <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                  <p className="text-xs">Fetching carrier rates…</p>
+                </div>
+              ) : !applied ? (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground gap-3 p-8">
                   <BarChart2 className="w-10 h-10 opacity-20" />
                   <div>
@@ -921,7 +1835,7 @@ function AnalysisTab({
                 <table className="w-full text-xs border-collapse">
                   <thead className="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border/50 z-10">
                     <tr>
-                      {["Carrier Name", "Country", "Total Dest.", "Block Dest.", "Total Codes", "Actions"].map(h => (
+                      {["Carrier Name", "Country", "Total Dest.", "Block Dest.", "Avg Rate", "Expiring 30d", "Drift", "Actions"].map(h => (
                         <th key={h} className="text-left py-2 px-4 font-medium text-muted-foreground border-b border-border whitespace-nowrap">
                           {h}
                         </th>
@@ -939,9 +1853,36 @@ function AnalysisTab({
                         <td className="py-2.5 px-4 text-muted-foreground">
                           {countryNames || "All countries"}
                         </td>
-                        <td className="py-2.5 px-4 text-muted-foreground">—</td>
-                        <td className="py-2.5 px-4 text-muted-foreground">—</td>
-                        <td className="py-2.5 px-4 text-muted-foreground">—</td>
+                        <td className="py-2.5 px-4 text-muted-foreground">
+                          {analysisResults[acct.iAccount]?.error
+                            ? <span className="text-destructive text-[10px]" title={analysisResults[acct.iAccount].error}>Err</span>
+                            : (analysisResults[acct.iAccount]?.totalDest ?? "…")}
+                        </td>
+                        <td className="py-2.5 px-4 text-muted-foreground">
+                          {analysisResults[acct.iAccount]?.blockDest ?? "…"}
+                        </td>
+                        <td className="py-2.5 px-4 text-muted-foreground">
+                          {analysisResults[acct.iAccount]?.avgRate != null
+                            ? analysisResults[acct.iAccount].avgRate.toFixed(5)
+                            : "…"}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          {(() => {
+                            const n = analysisResults[acct.iAccount]?.expiringIn30Days;
+                            if (n == null) return <span className="text-muted-foreground">…</span>;
+                            if (n === 0) return <span className="text-muted-foreground">—</span>;
+                            return <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full px-2 py-0.5">⚠ {n}</span>;
+                          })()}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          {(() => {
+                            const r = analysisResults[acct.iAccount];
+                            if (!r || r.driftCount === undefined) return <span className="text-muted-foreground text-[10px]">—</span>;
+                            if (r.driftCount === 0 && !r.missingInBitsAuto)
+                              return <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-green-500/10 text-green-400 border border-green-500/20 rounded-full px-2 py-0.5">✓ {r.matchCount}</span>;
+                            return <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded-full px-2 py-0.5" title={`${r.driftCount} rate drift · ${r.missingInBitsAuto} missing in BitsAuto`}>⚠ {r.driftCount}</span>;
+                          })()}
+                        </td>
                         <td className="py-2.5 px-4">
                           <button
                             onClick={() => setDetailAccount(acct)}
@@ -3447,11 +4388,11 @@ export default function RateManagerPage() {
   const qc = useQueryClient();
   const searchStr = useSearch();
   const searchParams = new URLSearchParams(searchStr);
-  const urlTab = searchParams.get("tab") as "analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence" | null;
+  const urlTab = searchParams.get("tab") as "analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence" | "vendor-rates" | null;
   const urlSubTab = searchParams.get("subtab") as "templates" | "jobs" | null;
   const urlStatusFilter = searchParams.get("statusFilter") ?? "";
 
-  const [activeTab, setActiveTab] = useState<"analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence">(
+  const [activeTab, setActiveTab] = useState<"analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence" | "vendor-rates">(
     urlTab ?? "analysis"
   );
 
@@ -3487,6 +4428,7 @@ export default function RateManagerPage() {
   });
   const TABS = [
     { key: "analysis"      as const, label: "Rate Analysis"   },
+    { key: "vendor-rates"  as const, label: "Vendor Rates"    },
     { key: "send"          as const, label: "Send Rate"        },
     { key: "jobs"          as const, label: "Push History"     },
     { key: "product-rates" as const, label: "Product Rates"   },
@@ -3552,6 +4494,7 @@ export default function RateManagerPage() {
       {activeTab === "product-rates" && <ProductRatesTab products={products} />}
       {activeTab === "notifications" && <NotificationsTab products={products} initialSubTab={urlSubTab ?? undefined} initialStatusFilter={urlStatusFilter || undefined} />}
       {activeTab === "intelligence"  && <PricingIntelligenceTab products={products} />}
+          {activeTab === "vendor-rates"   && <VendorRatesTab />}
     </div>
   );
 }

@@ -1,0 +1,657 @@
+During our earlier discussions, we agreed on implementing several security controls within the sippy, but it appears that this initiative was paused and has not been revisited since.
+
+The primary objective of these controls was to prevent unauthorized or manual changes within sippy and ensure that all provisioning activities are performed exclusively through the BitsAuto platform.
+
+The proposed security controls included:
+
+•⁠  ⁠IP Addition Freeze
+•⁠  ⁠Authentication Freeze
+•⁠  ⁠Manual Rate Change Freeze
+•⁠  ⁠Configuration Change Monitoring
+
+The expected behavior was:
+
+1.⁠ ⁠If any IP is added manually in sippy, the system should automatically detect and remove it within a predefined interval (e.g., 15–60 seconds), unless it was provisioned through the BitsAuto platform.
+2.⁠ ⁠If any authentication is created, modified, or removed manually in sippy, the system should automatically revert the change and restore the approved configuration.
+3.⁠ ⁠If any tariff or rate changes are made directly in sippy, those changes should be automatically rolled back. Only rates pushed through the BitsAuto platform should remain active.
+4.⁠ ⁠Any unauthorized modification should generate immediate alerts through:
+    * Email Notifications
+    * WhatsApp Notifications
+    * Audit Logs
+
+The purpose of these controls was to:
+
+•⁠  ⁠Eliminate manual configuration drift.
+•⁠  ⁠Ensure sippy remains synchronized with BitsAuto.
+•⁠  ⁠Maintain a single source of truth for provisioning and pricing.
+•⁠  ⁠Prevent accidental or unauthorized changes by operational staff.
+•⁠  ⁠Improve security, compliance, and change tracking.
+
+We need to review why this project was put on hold, what technical or operational concerns led to the decision, and whether there are any blockers preventing implementation.
+
+Please provide feedback on the original reasons for pausing this initiative and whether we should proceed with implementation as part of the platform security roadmap.
+
+This initiative was not paused because the idea was wrong. It was paused because, during the Sippy integration discovery phase, we found several architectural and operational risks that needed to be solved first.
+
+Original Objective
+
+The objective was correct:
+
+BitsAuto = System of Record (Source of Truth)
+
+Sippy = Execution Engine
+
+No human should make operational changes directly in Sippy.
+
+All provisioning should originate from BitsAuto.
+
+That principle is still valid and aligns with enterprise telecom OSS/BSS design.
+
+Why It Was Paused
+1. Sippy Is Not Fully API Driven
+
+The biggest blocker discovered was that Sippy provisioning is split across multiple mechanisms:
+
+Some items use XML-RPC
+Customers
+Accounts
+Tariffs
+Routing
+Reporting
+Some items require portal interaction
+
+Examples discovered:
+
+Service Plan creation
+Certain tariff/rate operations
+Upload workflows
+
+We already discovered during Rate Manager development:
+
+Sippy does not provide a clean direct rate modification API.
+
+Instead we had to use:
+
+getUploadToken()
+upload XLSX
+getUploadStatus()
+
+and later the proven:
+
+pushRateViaPortalUpload()
+
+Because of this, we couldn't safely enforce immediate rollback until we understood every write path.
+
+2. Risk of Infinite Provisioning Loops
+
+Example:
+
+NOC Engineer
+
+Adds:
+
+19233
+Pakistan Ufone
+
+directly in Sippy.
+
+Security daemon detects change.
+
+Daemon deletes it.
+
+Sippy triggers refresh.
+
+BitsAuto re-syncs.
+
+Daemon sees mismatch again.
+
+Loop begins.
+
+Without proper state management:
+
+delete
+recreate
+delete
+recreate
+
+can occur repeatedly.
+
+3. Missing Configuration Snapshot Layer
+
+At the time BitsAuto had:
+
+Provisioning
+
+YES
+
+Monitoring
+
+YES
+
+Audit Logs
+
+PARTIAL
+
+Configuration Baseline
+
+NO
+
+A rollback engine requires:
+
+desired_state
+actual_state
+diff_engine
+rollback_engine
+
+We had not yet built:
+
+config_snapshots
+
+or
+
+state_baselines
+
+tables.
+
+Without a baseline there is nothing authoritative to restore.
+
+4. Multi-Switch Complexity
+
+Your roadmap includes:
+
+Production switch
+DID switch
+Test switch
+Future switches
+
+A freeze engine must support:
+
+switch A
+switch B
+switch C
+switch D
+
+independently.
+
+Otherwise one switch could revert another's intended changes.
+
+5. Rate Management Was Higher Priority
+
+At that time we discovered:
+
+Send Rate issues
+Tariff push issues
+Sippy upload workflows
+Service Plan provisioning failures
+
+Those directly impacted revenue.
+
+Security freeze controls were therefore deferred behind:
+
+Rate Manager stabilization
+Send Rate certification
+Service Plan automation
+Provisioning reliability
+Technical Review Today
+
+Today the situation is different.
+
+BitsAuto is much more mature.
+
+I would now recommend implementing this.
+
+However:
+
+NOT as "freeze"
+Implement as:
+Configuration Governance Framework
+Layer 1 — Detection
+
+Every 30 seconds:
+
+Fetch Sippy Configuration
+Compare with Baseline
+Generate Diff
+
+Monitor:
+
+Accounts
+additions
+deletions
+edits
+Authentications
+additions
+deletions
+edits
+IP Authorizations
+additions
+deletions
+edits
+Tariffs
+additions
+deletions
+edits
+Rates
+additions
+deletions
+edits
+Routing
+additions
+deletions
+edits
+Layer 2 — Alerting
+
+Immediate:
+
+Email
+WhatsApp
+Audit Log
+
+Example:
+
+CRITICAL
+
+Unauthorized Sippy Change Detected
+
+Switch:
+Production
+
+Entity:
+Authentication
+
+Account:
+ABC Telecom
+
+Field:
+IP Address
+
+Old:
+1.2.3.4
+
+New:
+5.6.7.8
+
+Changed By:
+Unknown (outside BitsAuto)
+
+Action:
+Pending Auto-Revert
+Layer 3 — Approval Window
+
+Instead of immediate deletion:
+
+Give:
+
+30 seconds
+
+or
+
+60 seconds
+
+grace period.
+
+Operations can approve:
+
+Accept Change
+
+or
+
+Revert Change
+
+This prevents accidental rollback of legitimate emergency work.
+
+Layer 4 — Auto-Revert
+
+If not approved:
+
+Restore:
+
+IPs
+remove unauthorized IP
+Auth
+restore original credentials
+Routing
+restore original route
+Tariffs
+restore original tariff
+Rates
+push approved tariff snapshot
+
+using the proven:
+
+pushRateViaPortalUpload()
+
+workflow.
+
+Architecture Required
+
+New tables:
+
+config_snapshots
+config_changes
+config_policies
+config_approvals
+config_reverts
+
+New services:
+
+configuration-monitor.service.ts
+
+configuration-baseline.service.ts
+
+configuration-diff.service.ts
+
+configuration-revert.service.ts
+
+configuration-alert.service.ts
+Priority Assessment
+
+Current Status:
+
+Control	Recommendation
+IP Addition Freeze	Implement Now
+Authentication Freeze	Implement Now
+Configuration Monitoring	Implement Now
+Unauthorized Change Alerts	Implement Now
+Automatic Rollback	Phase 2
+Rate Rollback	Phase 2
+Routing Rollback	Phase 2
+Recommended Roadmap
+Phase 1 (2 Weeks)
+
+Configuration Monitoring
+
+Snapshot engine
+Diff engine
+Alerting
+Audit logs
+Dashboard
+
+No rollback yet.
+
+Phase 2 (2–3 Weeks)
+
+Configuration Governance
+
+Approval workflow
+Auto-revert
+IP freeze
+Authentication freeze
+Phase 3 (3–4 Weeks)
+
+Full Immutable Sippy
+
+Rate rollback
+Tariff rollback
+Routing rollback
+Multi-switch governance
+Compliance reporting
+Recommendation
+
+Proceed with the project.
+
+However, do not start with automatic deletion/reversion on day one.
+
+First build:
+
+Configuration Snapshot Engine
+Configuration Diff Engine
+Alerting & Audit Framework
+
+Run it in monitor-only mode for 2–4 weeks.
+
+After validating there are no false positives, enable automated rollback.
+
+That approach will give you the original objective—a Sippy environment fully governed by BitsAuto—without risking service-impacting rollback loops or accidental configuration reversions.
+
+https://support.sippysoft.com/support/solutions
+
+After reviewing the Sippy documentation structure and the API capabilities, I believe the original decision should be revisited.
+
+The key finding is that Sippy exposes management APIs for most of the objects we wanted to govern:
+
+Authentication Rules Management (addAuthRule, updateAuthRule, etc.)
+Environment and IP management APIs (list/create/update/delete environment-related configuration)
+Tariff and Tariff Rates Management APIs
+Account, Customer, Routing and other provisioning APIs
+
+This changes the assessment.
+
+What Was Correct About The Original Design
+
+The original design principle was:
+
+BitsAuto = Source of Truth
+Sippy = Execution Layer
+
+That remains the correct architecture.
+
+In enterprise telecom environments:
+
+OSS/BSS
+   ↓
+Provisioning Layer
+   ↓
+Softswitch
+
+The softswitch should not become the system of record.
+
+What We Know Today
+
+During the Rate Manager project we discovered:
+
+Rate Writes
+
+Not all tariff operations are reliable through XML-RPC.
+
+For production rate pushes we ended up using:
+
+getUploadToken()
+Upload XLSX
+getUploadStatus()
+
+and later:
+
+pushRateViaPortalUpload()
+
+because it matched Sippy's native workflow.
+
+That means:
+
+IP Controls
+
+Low Risk
+
+Authentication Controls
+
+Low Risk
+
+Account Controls
+
+Low Risk
+
+Rate Controls
+
+Medium Risk
+
+Routing Controls
+
+Medium Risk
+
+My Current Recommendation
+
+Do NOT build a "freeze".
+
+Build:
+
+Sippy Configuration Governance
+Mode 1 — Monitor
+
+Every 30 seconds:
+
+Read Sippy
+Read BitsAuto
+Compare
+Generate Diff
+
+Monitor:
+
+Authentication Rules
+Auth Added
+Auth Removed
+Auth Changed
+IP Authorizations
+IP Added
+IP Removed
+IP Changed
+Customer Accounts
+Account Modified
+Tariffs
+Tariff Modified
+Rates
+Rate Modified
+Routing
+Routing Modified
+Mode 2 — Alert
+
+Generate:
+
+Audit Entry
+CRITICAL
+Unauthorized Configuration Change
+Email
+WhatsApp
+Dashboard Alert
+Mode 3 — Approval Workflow
+
+Instead of immediately reverting:
+
+Detected Change
+↓
+Pending Review
+↓
+Approve
+or
+Reject
+
+This is much safer operationally.
+
+Mode 4 — Auto-Revert
+
+Only after approval timeout.
+
+Example:
+
+Unauthorized IP Added
+↓
+Wait 60 sec
+↓
+No Approval
+↓
+Remove IP
+↓
+Notify
+Updated Assessment Per Control
+IP Addition Freeze
+Implement
+
+This should be Phase 1.
+
+Sippy provides visibility into configured entities and BitsAuto already owns provisioning.
+
+Risk is low.
+
+Authentication Freeze
+Implement
+
+Authentication Rules are fully manageable through XML-RPC APIs.
+
+Risk is low.
+
+This is actually the strongest candidate.
+
+Configuration Monitoring
+Implement Immediately
+
+This should already exist.
+
+No reason to delay.
+
+This becomes the foundation for everything else.
+
+Manual Rate Change Freeze
+Delay Until Phase 2
+
+This is the only area where caution is required.
+
+Because we already know Sippy rate management uses a combination of:
+
+XML-RPC
+Upload APIs
+Portal Workflows
+
+we should first validate every rollback path.
+
+What I Would Build Inside BitsAuto
+
+New Module:
+
+Security Center
+ ├── Configuration Drift Monitor
+ ├── Unauthorized Change Alerts
+ ├── Configuration Governance
+ ├── Auto-Revert Policies
+ ├── Compliance Dashboard
+ └── Audit Timeline
+
+New Database Tables:
+
+config_snapshots
+config_diffs
+config_alerts
+config_approvals
+config_reverts
+
+New Services:
+
+configuration-monitor.service.ts
+
+configuration-diff.service.ts
+
+configuration-alert.service.ts
+
+configuration-approval.service.ts
+
+configuration-revert.service.ts
+Revised Roadmap
+Sprint 1
+
+Configuration Drift Detection
+
+Authentication monitoring
+IP monitoring
+Account monitoring
+Audit logs
+WhatsApp alerts
+Email alerts
+Sprint 2
+
+Governance Controls
+
+Approval workflow
+Auto-revert engine
+IP freeze
+Authentication freeze
+Sprint 3
+
+Advanced Controls
+
+Tariff rollback
+Rate rollback
+Routing rollback
+Multi-switch governance
+Conclusion
+
+Based on what we know today, I no longer see any architectural reason to keep the project paused.
+
+I would immediately start Configuration Monitoring, IP Governance, and Authentication Governance, and I would place Rate Governance behind the completion of the current Send Rate certification work because rate management remains the most complex area of the Sippy integration.
