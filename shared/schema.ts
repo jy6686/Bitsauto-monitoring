@@ -4244,8 +4244,8 @@ export type InsertVendorRateSheet = typeof vendorRateSheets.$inferInsert;
 export const vendorRateSheetRows = pgTable("vendor_rate_sheet_rows", {
   id:            serial("id").primaryKey(),
   sheetId:       integer("sheet_id").notNull().references(() => vendorRateSheets.id, { onDelete: "cascade" }),
-  prefix:        varchar("prefix",       { length: 20  }).notNull(),
-  destination:   varchar("destination", { length: 150 }),
+  prefix:        varchar("prefix",       { length: 50  }).notNull(),
+  destination:   varchar("destination", { length: 255 }),
   rate:          numeric("rate",         { precision: 10, scale: 6 }).notNull(),
   currency:      varchar("currency",     { length: 3   }).default("USD"),
   effectiveDate: date("effective_date"),
