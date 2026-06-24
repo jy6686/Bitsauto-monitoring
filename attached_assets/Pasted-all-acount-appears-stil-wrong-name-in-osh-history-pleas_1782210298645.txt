@@ -1,0 +1,88 @@
+all acount appears,
+stil wrong name in osh history
+please lock/block/freeze donot change account appearance command 
+
+The screenshots show two separate outcomes:
+
+✅ Account visibility issue is resolved
+
+The first screenshot confirms:
+
+First Class = 24 clients
+internal-ptcl visible
+internal-citc visible
+internaltelstra visible
+uzair visible
+dropdown populated correctly
+
+This means the account discovery problem is fixed.
+
+🔴 Push History is still partially broken
+
+The second screenshot shows:
+
+change-1782201652786
+Client = 1/1 client
+
+while older rows correctly show:
+
+internal-ptcl
+internaltelstra
+internal-citc, internaltelstra
+
+That tells us:
+
+P0-A code is now present in routes.ts
+but the row shown as 1/1 client was likely created before the fix was deployed OR
+the Change Client Rate endpoint is not the path that generated that row
+
+Need to verify by creating a new Change Client Rate push and checking the newest row.
+
+If the next row still shows:
+
+1/1 client
+
+then there is a second write path updating rate_push_jobs.
+
+Search:
+
+grep -R "ratePushJobs" server -n
+grep -R "clientNames" server -n
+grep -R "1/1 client" client -n
+
+and identify every insert/update into rate_push_jobs.
+
+Freeze Recommendation
+
+I agree with your concern.
+
+Freeze these immediately:
+
+✅ Account discovery logic
+✅ Product assignment logic
+✅ Account dropdown filtering
+✅ customer_product_assignments structure
+✅ companies.sippy_i_account mapping
+
+Do not allow further AI changes to:
+
+Rate Manager account loading
+Account Wizard account creation
+customer_product_assignments
+companies mapping
+__bitsautoAccountCache behavior
+
+until regression testing is complete.
+
+Current platform status
+Area	Status
+Account visibility	✅ Fixed
+Missing companies	✅ Fixed
+Layout width	✅ Fixed
+Datetime controls	✅ Fixed
+Retry on first push	✅ Applied
+Push History names	⚠ Needs verification with NEW push
+Tariff-sync UPSERT	⏳ Not done
+Companies JOIN endpoint	⏳ Not done
+
+My recommendation: freeze account-related changes now and only investigate the Push History row issue. Do not touch account loading again since the screenshots prove all 24 accounts are appearing correctly.

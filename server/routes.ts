@@ -35931,6 +35931,7 @@ ${footer}
             newRate:      String(rate),
             effectiveAt:  effectiveFrom ?? null,
             createdBy:    (req as any).user?.claims?.sub ?? 'system',
+            clientNames:  accountName,
             notes:        `Pending: changing ${prefixes.length} rate(s) for ${accountName} to ${rate}`,
           });
         } catch (e: any) { console.error('[rate_push_jobs] change-client-rates pending insert failed:', e?.message || e); }
