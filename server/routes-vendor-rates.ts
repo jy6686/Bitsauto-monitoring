@@ -152,12 +152,12 @@ export function registerVendorRatesRoutes(app: Express) {
       const [sheet] = await db.insert(vendorRateSheets).values({
         vendorId, fileName, fileType, currency,
         effectiveDate: effectiveDate ?? null,
-        rowCount: parsed.length, notes: notes ?? null,
+        rowCount: validated.length, notes: notes ?? null,
       }).returning();
 
-      for (let i = 0; i < parsed.length; i += 500) {
+      for (let i = 0; i < validated.length; i += 500) {
         await db.insert(vendorRateSheetRows).values(
-          parsed.slice(i, i + 500).map((r: any) => ({
+          validated.slice(i, i + 500).map((r: any) => ({
             sheetId: sheet.id, prefix: r.prefix, destination: r.destination,
             rate: String(r.rate), currency: r.currency,
             effectiveDate: r.effectiveDate, expiryDate: r.expiryDate,
@@ -166,7 +166,7 @@ export function registerVendorRatesRoutes(app: Express) {
           }))
         );
       }
-      return res.json({ sheetId: sheet.id, rowCount: parsed.length, duplicatesSkipped: dupPfx.length });
+      return res.json({ sheetId: sheet.id, rowCount: validated.length, duplicatesSkipped: dupPfx.length });
     } catch (e: any) { console.error('[vr/import]', e.message); return res.status(500).json({ error: e.message }); }
   });
 
