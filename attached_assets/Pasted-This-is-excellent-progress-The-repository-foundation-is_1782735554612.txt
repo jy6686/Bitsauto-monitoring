@@ -1,0 +1,262 @@
+This is excellent progress. The repository foundation is now working, so I would not work on those four items in the order suggested.
+
+My recommended priority is different because I want to protect the architecture before adding features.
+
+Current Status
+
+You have now proven:
+
+✅ Vendor Sheet Repository
+
+✅ Import Wizard
+
+✅ Column Mapping
+
+✅ Validation
+
+✅ Draft Storage
+
+✅ Row Viewer
+
+This completes Phase 1.
+
+Now the question is not "what feature next?"
+
+The question is:
+
+How does this sheet become a correct Sippy Destination Set?
+
+That is still the missing piece.
+
+My Recommended Next Sprint
+Sprint 1 — Product & Destination Set Mapping ⭐⭐⭐⭐⭐
+
+Before Compare, Margin or Impact, every sheet must know:
+
+Vendor:
+Telstra
+
+Vendor Product:
+Premium AUS A-Z
+
+↓
+
+Internal Product:
+Premium
+
+↓
+
+Sippy Destination Set:
+FC Premium AUS
+
+I'd add these fields to vendor_rate_sheets:
+
+vendor_id
+vendor_product
+internal_product_id
+destination_set_id
+sippy_switch_id
+status
+
+Without this, Compare and Publish won't know which routing class the sheet belongs to.
+
+Sprint 2 — Compare Engine ⭐⭐⭐⭐⭐
+
+This should become the heart of Vendor Rate Manager.
+
+Compare:
+
+Sheet 8
+
+vs
+
+Previous Premium AUS
+
+Display:
+
+New Prefixes
+
+Removed Prefixes
+
+Rate Increased
+
+Rate Decreased
+
+No Change
+
+Billing Changed
+
+Effective Date Changed
+
+The Telstra sheet already contains:
+
+Old Price
+New Price
+Change
+Change Indicator
+
+so you can leverage vendor-provided information and also verify it independently.
+
+Sprint 3 — Validation Engine ⭐⭐⭐⭐
+
+Not just Excel validation.
+
+Business validation.
+
+Examples:
+
+Unknown Prefix
+
+Unknown Destination
+
+Multiple Destination Matches
+
+Missing Billing
+
+Currency Changed
+
+Product Mapping Missing
+
+Large Rate Change
+
+Effective Date in Past
+
+The sheet should receive a score such as:
+
+Validation
+
+98%
+
+Warnings: 3
+
+Errors: 1
+Sprint 4 — Destination Catalog Matching ⭐⭐⭐⭐⭐
+
+This is the most important intelligence layer.
+
+Every imported row should become:
+
+Vendor Destination
+
+↓
+
+BitsAuto Destination
+
+↓
+
+Destination ID
+
+↓
+
+Product
+
+↓
+
+Sippy Prefix
+
+Then every row knows exactly where it belongs.
+
+Sprint 5 — Margin & Impact ⭐⭐⭐⭐
+
+Now the buttons become meaningful.
+
+Instead of just comparing vendor sheets:
+
+Pakistan Jazz
+
+Vendor Rate
+↓
+
+Client Rates
+
+↓
+
+Margin
+
+↓
+
+Affected Customers
+
+↓
+
+Revenue Impact
+
+This is where BitsAuto starts providing commercial intelligence.
+
+Sprint 6 — Publishing ⭐⭐⭐⭐⭐
+
+Only now would I enable:
+
+Publish
+
+↓
+
+Destination Set
+
+↓
+
+XML-RPC
+
+↓
+
+Verify
+
+↓
+
+Audit
+
+because all prerequisites are in place.
+
+About Range-Based Prefix Expansion
+
+I would not implement it yet.
+
+This is why.
+
+Your screenshot shows values like:
+
+12645391264540
+
+Before deciding how to expand them, answer this question:
+
+How do vendors encode multiple prefixes?
+
+Different vendors use:
+
+1264;12645;12646
+
+Others use:
+
+1264,12645
+
+Others use:
+
+1264-1269
+
+Others use:
+
+12645391264540
+
+That last example might be:
+
+concatenated prefixes,
+malformed data,
+or a vendor-specific notation.
+
+I would first build a Prefix Parsing Engine that supports multiple vendor formats instead of hardcoding Telstra's format.
+
+Final Roadmap
+
+I'd recommend this order:
+
+Vendor → Product → Destination Set Mapping
+Compare Engine
+Validation Engine
+Destination Catalog Matching
+Margin & Impact
+Publishing to Sippy
+Scheduled Verification
+Prefix Parsing Engine (including range/compound prefix handling)
+Why this order?
+
+The repository is complete. The next major milestone should be ensuring every imported sheet has enough metadata and validation to be published safely. Once that foundation exists, Compare, Margin, Impact, and Sippy publishing all become much simpler and more reliable because they operate on normalized, fully classified data rather than raw vendor spreadsheets.

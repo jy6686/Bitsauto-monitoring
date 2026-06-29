@@ -1,4 +1,6 @@
 import { Express } from 'express';
+import { parsePrefixExpression } from './services/vendor-prefix-parser';
+import { matchSheetDestinations } from './services/vendor-destination-matcher';
 import { db } from './db';
 import * as XLSX from 'xlsx';
 import { eq, desc, and, sql, ilike } from 'drizzle-orm';
@@ -66,11 +68,13 @@ function applyMap(
     return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
   };
   return rows.slice(skipRows).map(row => {
-    const prefix = String(get(row, 'prefix') ?? '').replace(/[^\d+]/g, '').replace(/^\+/, '').trim();
+    const rawPrefixExpression = get(row, 'prefix') != null ? String(get(row, 'prefix')).trim() : null;
+    const parsedPfx = parsePrefixExpression(rawPrefixExpression, 'mixed');
+    const prefix = parsedPfx[0]?.prefix ?? '';
     const rate = parseFloat(String(get(row, 'rate') ?? '').replace(/[^0-9.\-]/g, ''));
-    if (!prefix || isNaN(rate) || rate <= 0) return null;
+    if (!rawPrefixExpression || !prefix || isNaN(rate) || rate <= 0) return null;
     return {
-      prefix, rate,
+      prefix, rawPrefixExpression, rate,
       destination: get(row, 'destination') != null ? String(get(row, 'destination')).trim() : null,
       currency: get(row, 'currency') != null ? String(get(row, 'currency')).trim().slice(0, 3) : 'USD',
       effectiveDate: parseDate(get(row, 'effectiveDate')),
@@ -111,7 +115,8 @@ export function registerVendorRatesRoutes(app: Express) {
     try {
       const { fileData, fileType = 'xlsx', vendorId, fileName = 'upload', sheetIndex,
         currency = 'USD', effectiveDate, notes, columnMap, skipRows = 0,
-        saveTemplate, templateLabel } = req.body;
+        saveTemplate, templateLabel,
+        vendorProduct, internalProductId, destinationSetId, sippySwitchId } = req.body;
       if (!fileData || !vendorId || !columnMap)
         return res.status(400).json({ error: 'fileData, vendorId, columnMap required' });
 
@@ -153,23 +158,89 @@ export function registerVendorRatesRoutes(app: Express) {
         vendorId, fileName, fileType, currency,
         effectiveDate: effectiveDate ?? null,
         rowCount: validated.length, notes: notes ?? null,
+        vendorProduct: vendorProduct ?? null,
+        internalProductId: internalProductId ?? null,
+        destinationSetId: destinationSetId ?? null,
+        sippySwitchId: sippySwitchId ?? null,
       }).returning();
 
+      const insertedRows: {
+        id: number; rawPrefixExpression: string | null; prefix: string;
+        destination: string | null; rate: string; currency: string;
+        effectiveDate: string | null; expiryDate: string | null;
+        interval1: number; intervalN: number;
+      }[] = [];
       for (let i = 0; i < validated.length; i += 500) {
-        await db.insert(vendorRateSheetRows).values(
+        const returned = await db.insert(vendorRateSheetRows).values(
           validated.slice(i, i + 500).map((r: any) => ({
-            sheetId: sheet.id, prefix: r.prefix, destination: r.destination,
+            sheetId: sheet.id, prefix: r.prefix, rawPrefixExpression: r.rawPrefixExpression ?? null, destination: r.destination,
             rate: String(r.rate), currency: r.currency,
             effectiveDate: r.effectiveDate, expiryDate: r.expiryDate,
             interval1: r.interval1, intervalN: r.intervalN,
             interconnect: r.interconnect, rawRow: r.rawRow,
           }))
-        );
+        ).returning({
+          id: vendorRateSheetRows.id,
+          rawPrefixExpression: vendorRateSheetRows.rawPrefixExpression,
+          prefix: vendorRateSheetRows.prefix,
+          destination: vendorRateSheetRows.destination,
+          rate: vendorRateSheetRows.rate,
+          currency: vendorRateSheetRows.currency,
+          effectiveDate: vendorRateSheetRows.effectiveDate,
+          expiryDate: vendorRateSheetRows.expiryDate,
+          interval1: vendorRateSheetRows.interval1,
+          intervalN: vendorRateSheetRows.intervalN,
+        });
+        insertedRows.push(...returned);
       }
-      return res.json({ sheetId: sheet.id, rowCount: validated.length, duplicatesSkipped: dupPfx.length });
+      // Populate vendor_rate_normalized_prefixes from parsed prefix expressions
+      const normBatch: any[] = [];
+      for (const r of insertedRows) {
+        const parsed = parsePrefixExpression(r.rawPrefixExpression ?? r.prefix, 'mixed');
+        const unique = new Map<string, typeof parsed[0]>();
+        for (const p of parsed) unique.set(p.prefix, p);
+        for (const p of unique.values()) {
+          normBatch.push({
+            sheetId: sheet.id,
+            sheetRowId: r.id,
+            normalizedPrefix: p.prefix,
+            destination: r.destination,
+            rate: String(r.rate),
+            currency: r.currency,
+            effectiveDate: r.effectiveDate,
+            expiryDate: r.expiryDate,
+            interval1: r.interval1,
+            intervalN: r.intervalN,
+            matchStatus: 'pending',
+            matchMethod: p.method,
+            parserVersion: 1,
+            parserWarnings: p.warnings?.length ? p.warnings : null,
+          });
+        }
+      }
+      const dedupedNorm = [
+        ...new Map(normBatch.map((r: any) => [`${r.sheetId}:${r.normalizedPrefix}`, r])).values()
+      ];
+      for (let i = 0; i < dedupedNorm.length; i += 500) {
+        await db.insert(vendorRateNormalizedPrefixes).values(dedupedNorm.slice(i, i + 500));
+      }
+      return res.json({ sheetId: sheet.id, rowCount: validated.length, normalizedCount: normBatch.length, duplicatesSkipped: dupPfx.length });
     } catch (e: any) { console.error('[vr/import]', e.message); return res.status(500).json({ error: e.message }); }
   });
 
+
+  // POST /api/vendor-rates/sheets/:id/match
+  app.post('/api/vendor-rates/sheets/:id/match', async (req, res) => {
+    try {
+      const sheetId = parseInt(req.params.id);
+      if (isNaN(sheetId)) return res.status(400).json({ error: 'invalid sheet id' });
+      const result = await matchSheetDestinations(sheetId);
+      return res.json(result);
+    } catch (e: any) {
+      console.error('[vr/match]', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
   // GET /api/vendor-rates/sheets
   app.get('/api/vendor-rates/sheets', async (_req, res) => {
     try {
@@ -230,10 +301,10 @@ export function registerVendorRatesRoutes(app: Express) {
       if (!baseSheetId || !newSheetId)
         return res.status(400).json({ error: 'baseSheetId and newSheetId required' });
       const [baseRows, newRows] = await Promise.all([
-        db.select({ prefix: vendorRateSheetRows.prefix, destination: vendorRateSheetRows.destination, rate: vendorRateSheetRows.rate })
-          .from(vendorRateSheetRows).where(eq(vendorRateSheetRows.sheetId, baseSheetId)),
-        db.select({ prefix: vendorRateSheetRows.prefix, destination: vendorRateSheetRows.destination, rate: vendorRateSheetRows.rate })
-          .from(vendorRateSheetRows).where(eq(vendorRateSheetRows.sheetId, newSheetId)),
+        db.select({ prefix: vendorRateNormalizedPrefixes.normalizedPrefix, destination: vendorRateNormalizedPrefixes.destination, rate: vendorRateNormalizedPrefixes.rate })
+          .from(vendorRateNormalizedPrefixes).where(eq(vendorRateNormalizedPrefixes.sheetId, baseSheetId)),
+        db.select({ prefix: vendorRateNormalizedPrefixes.normalizedPrefix, destination: vendorRateNormalizedPrefixes.destination, rate: vendorRateNormalizedPrefixes.rate })
+          .from(vendorRateNormalizedPrefixes).where(eq(vendorRateNormalizedPrefixes.sheetId, newSheetId)),
       ]);
       const baseMap = new Map<string, { destination: string | null; rate: number }>();
       for (const r of baseRows) baseMap.set(r.prefix, { destination: r.destination, rate: Number(r.rate) });

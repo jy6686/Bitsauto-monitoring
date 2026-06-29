@@ -4235,8 +4235,14 @@ export const vendorRateSheets = pgTable("vendor_rate_sheets", {
   notes:         text("notes"),
   uploadedBy:    varchar("uploaded_by",   { length: 128 }),
   uploadedAt:    timestamp("uploaded_at").defaultNow().notNull(),
-  activatedAt:   timestamp("activated_at"),
-  activatedBy:   varchar("activated_by", { length: 128 }),
+  activatedAt:      timestamp("activated_at"),
+  activatedBy:      varchar("activated_by", { length: 128 }),
+  vendorProduct:    text("vendor_product"),
+  internalProductId: integer("internal_product_id"),
+  destinationSetId: integer("destination_set_id"),
+  sippySwitchId:    integer("sippy_switch_id"),
+  parserProfileId:  integer("parser_profile_id"),
+  parserVersion:    integer("parser_version"),
 });
 export type VendorRateSheet    = typeof vendorRateSheets.$inferSelect;
 export type InsertVendorRateSheet = typeof vendorRateSheets.$inferInsert;
@@ -4253,7 +4259,8 @@ export const vendorRateSheetRows = pgTable("vendor_rate_sheet_rows", {
   interval1:     integer("interval_1").default(60),
   intervalN:     integer("interval_n").default(60),
   interconnect:  text("interconnect"),
-  rawRow:        jsonb("raw_row"),
+  rawRow:               jsonb("raw_row"),
+  rawPrefixExpression:  text("raw_prefix_expression"),
 });
 export type VendorRateSheetRow = typeof vendorRateSheetRows.$inferSelect;
 
@@ -4270,3 +4277,65 @@ export const vendorColumnMaps = pgTable("vendor_column_maps", {
 });
 export type VendorColumnMap       = typeof vendorColumnMaps.$inferSelect;
 export type InsertVendorColumnMap  = typeof vendorColumnMaps.$inferInsert;
+// ── Vendor Rate Manager — Sprint 1 additions ──────────────────────────────────
+// Sync with direct SQL migrations applied 2026-06-29
+
+export const vendorParserProfiles = pgTable("vendor_parser_profiles", {
+  id:                   serial("id").primaryKey(),
+  vendorId:             integer("vendor_id").notNull().unique().references(() => canonicalVendors.id),
+  prefixFormat:         text("prefix_format").notNull().default("single"),
+  prefixExpressionMode: text("prefix_expression_mode").notNull().default("mixed"),
+  dateFormat:           text("date_format").notNull().default("YYYY-MM-DD"),
+  decimalSeparator:     text("decimal_separator").notNull().default("."),
+  defaultCurrency:      text("default_currency").notNull().default("USD"),
+  defaultBilling:       text("default_billing").notNull().default("60/60"),
+  ignoreHeaderRows:     integer("ignore_header_rows").notNull().default(0),
+  sheetName:            text("sheet_name"),
+  timezone:             text("timezone").notNull().default("UTC"),
+  isActive:             boolean("is_active").notNull().default(true),
+  parserVersion:        integer("parser_version").notNull().default(1),
+  notes:                text("notes"),
+  createdAt:            timestamp("created_at").defaultNow(),
+  updatedAt:            timestamp("updated_at").defaultNow(),
+});
+export type VendorParserProfile       = typeof vendorParserProfiles.$inferSelect;
+export type InsertVendorParserProfile  = typeof vendorParserProfiles.$inferInsert;
+
+export const vendorProductMappings = pgTable("vendor_product_mappings", {
+  id:                  serial("id").primaryKey(),
+  vendorId:            integer("vendor_id").notNull().references(() => canonicalVendors.id),
+  vendorProductLabel:  text("vendor_product_label").notNull(),
+  internalProductId:   integer("internal_product_id").references(() => productRegistry.id),
+  destinationSetId:    integer("destination_set_id"),
+  sippySwitchId:       integer("sippy_switch_id"),
+  notes:               text("notes"),
+  createdBy:           text("created_by"),
+  createdAt:           timestamp("created_at").defaultNow(),
+  updatedAt:           timestamp("updated_at").defaultNow(),
+});
+export type VendorProductMapping       = typeof vendorProductMappings.$inferSelect;
+export type InsertVendorProductMapping  = typeof vendorProductMappings.$inferInsert;
+
+export const vendorRateNormalizedPrefixes = pgTable("vendor_rate_normalized_prefixes", {
+  id:               serial("id").primaryKey(),
+  sheetId:          integer("sheet_id").notNull().references(() => vendorRateSheets.id, { onDelete: "cascade" }),
+  sheetRowId:       integer("sheet_row_id").references(() => vendorRateSheetRows.id, { onDelete: "cascade" }),
+  normalizedPrefix: varchar("normalized_prefix", { length: 50 }).notNull(),
+  destination:      varchar("destination", { length: 255 }),
+  destinationId:    integer("destination_id"),
+  rate:             numeric("rate", { precision: 10, scale: 6 }).notNull(),
+  currency:         varchar("currency", { length: 3 }).default("USD"),
+  effectiveDate:    date("effective_date"),
+  expiryDate:       date("expiry_date"),
+  interval1:        integer("interval_1").default(60),
+  intervalN:        integer("interval_n").default(60),
+  matchStatus:      varchar("match_status", { length: 20 }).default("pending"),
+  matchConfidence:  varchar("match_confidence", { length: 20 }),
+  matchMethod:      varchar("match_method", { length: 30 }),
+  parserVersion:    integer("parser_version"),
+  parserWarnings:   jsonb("parser_warnings"),
+  createdAt:        timestamp("created_at").defaultNow(),
+});
+export type VendorRateNormalizedPrefix       = typeof vendorRateNormalizedPrefixes.$inferSelect;
+export type InsertVendorRateNormalizedPrefix  = typeof vendorRateNormalizedPrefixes.$inferInsert;
+
