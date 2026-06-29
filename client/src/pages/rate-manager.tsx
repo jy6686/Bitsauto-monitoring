@@ -989,7 +989,7 @@ function VendorRatesTab() {
     setBusy(true);
     try {
       const r = await fetch('/api/vendor-rates/import',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({fileData:wFile.data,fileType:wFile.type,vendorId:wVid,fileName:wFile.name,
+        body:JSON.stringify({fileData:wFile.data,fileType:wFile.name.split('.').pop()?.slice(0,10)||'xlsx',vendorId:wVid,fileName:wFile.name,
           currency:wCcy,effectiveDate:wEffDate||undefined,notes:wNotes||undefined,
           columnMap:wMap,saveTemplate:wSaveTpl,templateLabel:wTplLabel||wFile.name,sheetIndex:wSheetIdx??undefined})}).then(r=>r.json());
       if (r.error) throw new Error(r.error);

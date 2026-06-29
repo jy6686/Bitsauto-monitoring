@@ -4227,7 +4227,7 @@ export const vendorRateSheets = pgTable("vendor_rate_sheets", {
   id:            serial("id").primaryKey(),
   vendorId:      integer("vendor_id").notNull().references(() => canonicalVendors.id),
   fileName:      varchar("file_name",     { length: 255 }).notNull(),
-  fileType:      varchar("file_type",     { length: 10  }).notNull(),
+  fileType:      varchar("file_type",     { length: 20  }).notNull(),
   currency:      varchar("currency",      { length: 3   }).notNull().default("USD"),
   effectiveDate: date("effective_date"),
   rowCount:      integer("row_count").notNull().default(0),

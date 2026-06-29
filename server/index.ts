@@ -78,6 +78,7 @@ app.use('/api/auth', authLimiter);
 // ── Per-route body size overrides (before global limit) ───────────────────────
 // CDR recon upload sends a base64-encoded xlsx; needs larger limit
 app.use('/api/cdr-recon/upload', express.json({ limit: '25mb' }));
+app.use('/api/vendor-rates', express.json({ limit: '25mb' }));
 
 // ── Body size limit (prevent large payload attacks) ───────────────────────────
 app.use(express.json({

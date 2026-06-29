@@ -130,6 +130,14 @@ export function registerVendorRatesRoutes(app: Express) {
         return true;
       });
       if (!validated.length) return res.status(400).json({ error: 'No valid rows after validation' });
+      // Debug: log first 3 rows to find varchar overflow
+      console.log('[vr-import] sample rows:', JSON.stringify(validated.slice(0,3).map((r:any)=>({
+        prefix: r.prefix, prefixLen: r.prefix?.length,
+        destination: r.destination?.slice(0,40), destLen: r.destination?.length,
+        rate: r.rate,
+        interconnect: r.interconnect?.slice(0,40), icLen: r.interconnect?.length,
+        currency: r.currency,
+      })), null, 2));
 
       if (saveTemplate && templateLabel) {
         const [ex] = await db.select({ id: vendorColumnMaps.id }).from(vendorColumnMaps)
