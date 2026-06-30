@@ -195,8 +195,24 @@ app.use((req, res, next) => {
   // Schema check is diagnostic-only — run async so it doesn't delay routes
   runSchemaCheck().catch(() => {});
 
-  await registerRoutes(httpServer, app);
-  _serverReady = true; // ← routes are live; startup gate now passes all requests
+  // Safety net: if routes haven't finished loading within 60 s (e.g. OIDC or
+  // Sippy network hangs in Cloud Run), force the gate open anyway so the static
+  // server can answer GET / and keep the startup probe healthy.
+  const _startupSafetyTimer = setTimeout(() => {
+    if (!_serverReady) {
+      console.warn('[startup] 60 s safety timeout — opening gate before routes finish loading');
+      _serverReady = true;
+    }
+  }, 60_000);
+
+  try {
+    await registerRoutes(httpServer, app);
+  } catch (e: any) {
+    console.error('[startup] registerRoutes error (non-fatal):', e?.message);
+  } finally {
+    clearTimeout(_startupSafetyTimer);
+    _serverReady = true; // ← always flip, even if routes threw or timed-out
+  }
 
   // Pre-generate the PPTX at startup and write to the static downloads folder.
   // Vite / the static server serves it directly — bypasses Express routing entirely.
