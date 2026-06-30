@@ -8,45 +8,45 @@
 BEGIN;
 
 -- 1. Delete Cluster A rate rows (buy_rate=0 placeholder shells)
---    These cannot be remapped — both old_id and new_id already have rate rows
+--    These cannot be remapped — both cluster_a_id and cluster_b_id already have rate rows
 --    for the same product_prefix (unique constraint). Old rows are all buy_rate=0.
 DELETE FROM destination_product_rates
 WHERE destination_id IN (
-  SELECT old_id FROM destination_dedup_map WHERE deleted_at IS NULL
+  SELECT cluster_a_id FROM destination_dedup_map WHERE deleted_at IS NULL
 );
 
 -- 2. Remap vendor_rate_normalized_prefixes
 UPDATE vendor_rate_normalized_prefixes vrnp
-SET destination_id = m.new_id
+SET destination_id = m.cluster_b_id
 FROM destination_dedup_map m
-WHERE vrnp.destination_id = m.old_id
+WHERE vrnp.destination_id = m.cluster_a_id
   AND m.deleted_at IS NULL;
 
 -- 3. Remap optional tables (existence-guarded)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'deal_destinations') THEN
-    EXECUTE 'UPDATE deal_destinations d SET destination_id = m.new_id
+    EXECUTE 'UPDATE deal_destinations d SET destination_id = m.cluster_b_id
              FROM destination_dedup_map m
-             WHERE d.destination_id = m.old_id AND m.deleted_at IS NULL';
+             WHERE d.destination_id = m.cluster_a_id AND m.deleted_at IS NULL';
   END IF;
 
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'product_rates') THEN
-    EXECUTE 'UPDATE product_rates p SET destination_id = m.new_id
+    EXECUTE 'UPDATE product_rates p SET destination_id = m.cluster_b_id
              FROM destination_dedup_map m
-             WHERE p.destination_id = m.old_id AND m.deleted_at IS NULL';
+             WHERE p.destination_id = m.cluster_a_id AND m.deleted_at IS NULL';
   END IF;
 
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'product_history') THEN
-    EXECUTE 'UPDATE product_history p SET destination_id = m.new_id
+    EXECUTE 'UPDATE product_history p SET destination_id = m.cluster_b_id
              FROM destination_dedup_map m
-             WHERE p.destination_id = m.old_id AND m.deleted_at IS NULL';
+             WHERE p.destination_id = m.cluster_a_id AND m.deleted_at IS NULL';
   END IF;
 
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'product_destination_assignments') THEN
-    EXECUTE 'UPDATE product_destination_assignments p SET destination_id = m.new_id
+    EXECUTE 'UPDATE product_destination_assignments p SET destination_id = m.cluster_b_id
              FROM destination_dedup_map m
-             WHERE p.destination_id = m.old_id AND m.deleted_at IS NULL';
+             WHERE p.destination_id = m.cluster_a_id AND m.deleted_at IS NULL';
   END IF;
 END $$;
 
@@ -62,12 +62,12 @@ DECLARE
 BEGIN
   SELECT COUNT(*) INTO orphan_rates
   FROM destination_product_rates dpr
-  JOIN destination_dedup_map m ON dpr.destination_id = m.old_id
+  JOIN destination_dedup_map m ON dpr.destination_id = m.cluster_a_id
   WHERE m.deleted_at IS NULL;
 
   SELECT COUNT(*) INTO orphan_normalized
   FROM vendor_rate_normalized_prefixes vrnp
-  JOIN destination_dedup_map m ON vrnp.destination_id = m.old_id
+  JOIN destination_dedup_map m ON vrnp.destination_id = m.cluster_a_id
   WHERE m.deleted_at IS NULL;
 
   IF orphan_rates > 0 OR orphan_normalized > 0 THEN
@@ -82,7 +82,7 @@ END $$;
 -- 6. Delete duplicate global_destinations rows (Cluster A shells)
 DELETE FROM global_destinations
 WHERE id IN (
-  SELECT old_id FROM destination_dedup_map WHERE deleted_at IS NULL
+  SELECT cluster_a_id FROM destination_dedup_map WHERE deleted_at IS NULL
 );
 
 -- 7. Mark deleted
