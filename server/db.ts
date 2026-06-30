@@ -845,6 +845,10 @@ export async function runSafeMigrations(): Promise<void> {
     // ── Rate notification job destination snapshot (migration 032) ────────────
     await client.query(`ALTER TABLE rate_notification_jobs ADD COLUMN IF NOT EXISTS destination_snapshot TEXT`);
 
+    // ── governed_calls channel indexes (prevent full-table scan on AMI hangup) ─
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_governed_calls_channel_a ON governed_calls (channel_a)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_governed_calls_channel_b ON governed_calls (channel_b)`);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);

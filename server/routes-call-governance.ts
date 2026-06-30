@@ -1015,7 +1015,15 @@ export function registerCallGovernanceRoutes(app: Express) {
   });
 
   // ── Hangup event → mark governed call completed ────────────────────────────
+  // Dedup set: prevents duplicate processing when the AMI replays events on
+  // reconnect. A channel entry expires after 10 s (well past any real re-dial).
+  const _hangupDedup = new Map<string, ReturnType<typeof setTimeout>>();
+
   amiGovernance.on('hangup', async (event) => {
+    // Skip if we already processed a hangup for this channel in the last 10 s
+    if (_hangupDedup.has(event.channel)) return;
+    _hangupDedup.set(event.channel, setTimeout(() => _hangupDedup.delete(event.channel), 10_000));
+
     try {
       const rows = await db
         .select()
