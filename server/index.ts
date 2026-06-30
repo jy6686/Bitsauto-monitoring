@@ -195,12 +195,25 @@ app.use((req, res, next) => {
   // Schema check is diagnostic-only — run async so it doesn't delay routes
   runSchemaCheck().catch(() => {});
 
+  // Guard: ensures serveStatic is registered exactly once (called from either
+  // the safety timeout OR the finally block, whichever fires first).
+  let _staticRegistered = false;
+  const _registerStatic = () => {
+    if (_staticRegistered) return;
+    _staticRegistered = true;
+    // NODE_ENV is baked as "production" by esbuild define at build time.
+    if (process.env.NODE_ENV === "production") {
+      serveStatic(app);
+    }
+  };
+
   // Safety net: if routes haven't finished loading within 60 s (e.g. OIDC or
-  // Sippy network hangs in Cloud Run), force the gate open anyway so the static
-  // server can answer GET / and keep the startup probe healthy.
+  // Sippy network hangs in Cloud Run), register static serving and open the gate
+  // so GET / returns 200 and the Cloud Run startup probe stays healthy.
   const _startupSafetyTimer = setTimeout(() => {
     if (!_serverReady) {
       console.warn('[startup] 60 s safety timeout — opening gate before routes finish loading');
+      _registerStatic();  // ensure static is served even if routes haven't completed
       _serverReady = true;
     }
   }, 60_000);
@@ -211,6 +224,9 @@ app.use((req, res, next) => {
     console.error('[startup] registerRoutes error (non-fatal):', e?.message);
   } finally {
     clearTimeout(_startupSafetyTimer);
+    // Register static THEN open the gate — no event-loop yield between them,
+    // so health probes immediately get index.html (not 404) after _serverReady flips.
+    _registerStatic();
     _serverReady = true; // ← always flip, even if routes threw or timed-out
   }
 
@@ -293,10 +309,8 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  // Setup frontend serving — port is already open (listen() called at top of IIFE).
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else {
+  // Dev-only: start Vite HMR dev-server (production uses serveStatic registered above).
+  if (process.env.NODE_ENV !== "production") {
     // Vite dev-server may take time to initialize (plugin warmup, dep optimisation,
     // or Replit-specific plugin network calls). Fire-and-forget so the port stays open.
     (async () => {
