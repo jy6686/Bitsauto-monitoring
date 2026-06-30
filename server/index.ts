@@ -15,11 +15,22 @@ process.on('unhandledRejection', (reason: any) => {
   console.error('[process] Unhandled rejection (non-fatal):', reason?.message ?? reason);
 });
 process.on('uncaughtException', (err: Error) => {
+
+process.on("exit", (code) => { console.error("[EXIT] code=", code); });
+process.on("SIGTERM", () => { console.error("[SIGTERM] received"); });
+process.on("SIGINT",  () => { console.error("[SIGINT] received"); });
+
+const _bootStart = Date.now();
+function boot(msg: string) {
+  console.log(`[BOOT +${Date.now() - _bootStart}ms] ${msg}`);
+}
+boot(`1 process started · Node ${process.version} · PID=${process.pid} · PORT=${process.env.PORT} · NODE_ENV=${process.env.NODE_ENV}`);
   console.error('[process] Uncaught exception (non-fatal):', err.message);
 });
 
 const app = express();
 const httpServer = createServer(app);
+boot("2 express app + httpServer created");
 
 declare module "http" {
   interface IncomingMessage {
@@ -164,9 +175,10 @@ app.use((req, res, next) => {
   // timeout". Calling listen() first keeps the TCP connection alive while DB
   // migrations and route registration run in the background.
   const port = parseInt(process.env.PORT || "5000", 10);
+  boot(`3 calling httpServer.listen on PORT=${process.env.PORT || 5000}`);
   httpServer.listen(
     { port, host: "0.0.0.0", reusePort: true },
-    () => { log(`serving on port ${port}`); },
+    () => { boot(`4 httpServer listening on ${port}`); log(`serving on port ${port}`); },
   );
 
   // ── 2. Startup gate ─────────────────────────────────────────────────────────
@@ -191,7 +203,9 @@ app.use((req, res, next) => {
   });
 
   // ── 3. DB migrations (required before routes so all tables exist) ───────────
+  boot("5 runSafeMigrations() starting");
   await runSafeMigrations();
+  boot("6 runSafeMigrations() done");
   // Schema check is diagnostic-only — run async so it doesn't delay routes
   runSchemaCheck().catch(() => {});
 
@@ -203,7 +217,9 @@ app.use((req, res, next) => {
     _staticRegistered = true;
     // NODE_ENV is baked as "production" by esbuild define at build time.
     if (process.env.NODE_ENV === "production") {
+      boot("7 serveStatic() registering");
       serveStatic(app);
+      boot("8 serveStatic() done");
     }
   };
 
@@ -219,7 +235,9 @@ app.use((req, res, next) => {
   }, 60_000);
 
   try {
+    boot("9 registerRoutes() starting");
     await registerRoutes(httpServer, app);
+    boot("10 registerRoutes() done");
   } catch (e: any) {
     console.error('[startup] registerRoutes error (non-fatal):', e?.message);
   } finally {
@@ -228,6 +246,7 @@ app.use((req, res, next) => {
     // so health probes immediately get index.html (not 404) after _serverReady flips.
     _registerStatic();
     _serverReady = true; // ← always flip, even if routes threw or timed-out
+    boot("11 _serverReady=true · startup complete");
   }
 
   // Pre-generate the PPTX at startup and write to the static downloads folder.
