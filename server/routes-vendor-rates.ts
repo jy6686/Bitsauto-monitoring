@@ -121,12 +121,19 @@ export function registerVendorRatesRoutes(app: Express) {
       if (!fileData || !vendorId || !columnMap)
         return res.status(400).json({ error: 'fileData, vendorId, columnMap required' });
 
+      // ── Phase: parse ──────────────────────────────────────────────────────────
+      let _ph = performance.now();
       const { headers, dataRows } = parseFile(fileData, sheetIndex);
+      console.log(`[vr] parse ${(performance.now()-_ph).toFixed(1)}ms headers=${headers.length} rows=${dataRows.length}`);
+
+      // ── Phase: applyMap ───────────────────────────────────────────────────────
+      _ph = performance.now();
       const parsed: any[] = applyMap(headers, dataRows, columnMap, skipRows) as any[];
-      console.log("[vr] mapped", parsed.length);
+      console.log(`[vr] applyMap ${(performance.now()-_ph).toFixed(1)}ms mapped=${parsed.length}`);
       if (!parsed.length) return res.status(400).json({ error: 'No valid rows after mapping' });
 
-      // Validation pass: dedup + sanity checks
+      // ── Phase: validate ───────────────────────────────────────────────────────
+      _ph = performance.now();
       const seenPfx = new Set<string>();
       const dupPfx: string[] = [];
       const validated: any[] = (parsed as any[]).filter((r: any) => {
@@ -136,15 +143,12 @@ export function registerVendorRatesRoutes(app: Express) {
         seenPfx.add(r.prefix);
         return true;
       });
-      console.log("[vr] validated", validated.length);
+      console.log(`[vr] validate ${(performance.now()-_ph).toFixed(1)}ms valid=${validated.length} dups=${dupPfx.length}`);
       if (!validated.length) return res.status(400).json({ error: 'No valid rows after validation' });
-      // Debug: log first 3 rows to find varchar overflow
       console.log('[vr-import] sample rows:', JSON.stringify(validated.slice(0,3).map((r:any)=>({
         prefix: r.prefix, prefixLen: r.prefix?.length,
         destination: r.destination?.slice(0,40), destLen: r.destination?.length,
-        rate: r.rate,
-        interconnect: r.interconnect?.slice(0,40), icLen: r.interconnect?.length,
-        currency: r.currency,
+        rate: r.rate, interconnect: r.interconnect?.slice(0,40), currency: r.currency,
       })), null, 2));
 
       if (saveTemplate && templateLabel) {
@@ -157,6 +161,8 @@ export function registerVendorRatesRoutes(app: Express) {
         }
       }
 
+      // ── Phase: DB insert (sheet record) ──────────────────────────────────────
+      _ph = performance.now();
       const [sheet] = await db.insert(vendorRateSheets).values({
         vendorId, fileName, fileType, currency,
         effectiveDate: effectiveDate ?? null,
@@ -166,81 +172,87 @@ export function registerVendorRatesRoutes(app: Express) {
         destinationSetId: destinationSetId ?? null,
         sippySwitchId: sippySwitchId ?? null,
       }).returning();
+      await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'processing' WHERE id = ${sheet.id}`);
+      console.log(`[vr] DB insert (sheet) ${(performance.now()-_ph).toFixed(1)}ms sheetId=${sheet.id}`);
 
-      const insertedRows: {
-        id: number; rawPrefixExpression: string | null; prefix: string;
-        destination: string | null; rate: string; currency: string;
-        effectiveDate: string | null; expiryDate: string | null;
-        interval1: number; intervalN: number;
-      }[] = [];
-      for (let i = 0; i < validated.length; i += 500) {
-        const returned = await db.insert(vendorRateSheetRows).values(
-          validated.slice(i, i + 500).map((r: any) => ({
-            sheetId: sheet.id, prefix: r.prefix, rawPrefixExpression: r.rawPrefixExpression ?? null, destination: r.destination,
-            rate: String(r.rate), currency: r.currency,
-            effectiveDate: r.effectiveDate, expiryDate: r.expiryDate,
-            interval1: r.interval1, intervalN: r.intervalN,
-            interconnect: r.interconnect, rawRow: r.rawRow,
-          }))
-        ).returning({
-          id: vendorRateSheetRows.id,
-          rawPrefixExpression: vendorRateSheetRows.rawPrefixExpression,
-          prefix: vendorRateSheetRows.prefix,
-          destination: vendorRateSheetRows.destination,
-          rate: vendorRateSheetRows.rate,
-          currency: vendorRateSheetRows.currency,
-          effectiveDate: vendorRateSheetRows.effectiveDate,
-          expiryDate: vendorRateSheetRows.expiryDate,
-          interval1: vendorRateSheetRows.interval1,
-          intervalN: vendorRateSheetRows.intervalN,
-        });
-        insertedRows.push(...returned);
-      console.log("[vr] rows inserted so far", insertedRows.length);
-      }
-      // Populate vendor_rate_normalized_prefixes from parsed prefix expressions
-      const normBatch: any[] = [];
-      for (const r of insertedRows) {
-        const parsed = parsePrefixExpression(r.rawPrefixExpression ?? r.prefix, 'mixed');
-        const unique = new Map<string, typeof parsed[0]>();
-        for (const p of parsed) unique.set(p.prefix, p);
-        for (const p of unique.values()) {
-          normBatch.push({
-            sheetId: sheet.id,
-            sheetRowId: r.id,
-            normalizedPrefix: p.prefix,
-            destination: r.destination,
-            rate: String(r.rate),
-            currency: r.currency,
-            effectiveDate: r.effectiveDate,
-            expiryDate: r.expiryDate,
-            interval1: r.interval1,
-            intervalN: r.intervalN,
-            matchStatus: 'pending',
-            matchMethod: p.method,
-            parserVersion: 1,
-            parserWarnings: p.warnings?.length ? p.warnings : null,
-          });
+      // Return immediately — rows/normalization/matching run in background
+      res.json({ sheetId: sheet.id, status: 'processing', rowCount: validated.length, duplicatesSkipped: dupPfx.length });
+
+      // ── Background worker ─────────────────────────────────────────────────────
+      setImmediate(async () => {
+        try {
+          // Phase: DB insert (rows)
+          let _bph = performance.now();
+          await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'parsing' WHERE id = ${sheet.id}`);
+          const insertedRows: {
+            id: number; rawPrefixExpression: string | null; prefix: string;
+            destination: string | null; rate: string; currency: string;
+            effectiveDate: string | null; expiryDate: string | null;
+            interval1: number; intervalN: number;
+          }[] = [];
+          for (let i = 0; i < validated.length; i += 500) {
+            const returned = await db.insert(vendorRateSheetRows).values(
+              validated.slice(i, i + 500).map((r: any) => ({
+                sheetId: sheet.id, prefix: r.prefix, rawPrefixExpression: r.rawPrefixExpression ?? null, destination: r.destination,
+                rate: String(r.rate), currency: r.currency,
+                effectiveDate: r.effectiveDate, expiryDate: r.expiryDate,
+                interval1: r.interval1, intervalN: r.intervalN,
+                interconnect: r.interconnect, rawRow: r.rawRow,
+              }))
+            ).returning({
+              id: vendorRateSheetRows.id,
+              rawPrefixExpression: vendorRateSheetRows.rawPrefixExpression,
+              prefix: vendorRateSheetRows.prefix,
+              destination: vendorRateSheetRows.destination,
+              rate: vendorRateSheetRows.rate,
+              currency: vendorRateSheetRows.currency,
+              effectiveDate: vendorRateSheetRows.effectiveDate,
+              expiryDate: vendorRateSheetRows.expiryDate,
+              interval1: vendorRateSheetRows.interval1,
+              intervalN: vendorRateSheetRows.intervalN,
+            });
+            insertedRows.push(...returned);
+          }
+          console.log(`[vr] DB insert (rows) ${(performance.now()-_bph).toFixed(1)}ms inserted=${insertedRows.length}`);
+
+          // Phase: normalization
+          _bph = performance.now();
+          await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'normalizing' WHERE id = ${sheet.id}`);
+          const normBatch: any[] = [];
+          for (const r of insertedRows) {
+            const parsedPfx = parsePrefixExpression(r.rawPrefixExpression ?? r.prefix, 'mixed');
+            const unique = new Map<string, typeof parsedPfx[0]>();
+            for (const p of parsedPfx) unique.set(p.prefix, p);
+            for (const p of unique.values()) {
+              normBatch.push({
+                sheetId: sheet.id, sheetRowId: r.id,
+                normalizedPrefix: p.prefix, destination: r.destination,
+                rate: String(r.rate), currency: r.currency,
+                effectiveDate: r.effectiveDate, expiryDate: r.expiryDate,
+                interval1: r.interval1, intervalN: r.intervalN,
+                matchStatus: 'pending', matchMethod: p.method,
+                parserVersion: 1, parserWarnings: p.warnings?.length ? p.warnings : null,
+              });
+            }
+          }
+          const dedupedNorm = [
+            ...new Map(normBatch.map((r: any) => [`${r.sheetId}:${r.normalizedPrefix}`, r])).values()
+          ];
+          for (let i = 0; i < dedupedNorm.length; i += 500) {
+            await db.insert(vendorRateNormalizedPrefixes).values(dedupedNorm.slice(i, i + 500));
+          }
+          console.log(`[vr] normalization ${(performance.now()-_bph).toFixed(1)}ms normalized=${dedupedNorm.length}`);
+
+          // Phase: matching
+          _bph = performance.now();
+          await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'matching' WHERE id = ${sheet.id}`);
+          const matchResult = await matchSheetDestinations(sheet.id);
+          await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'ready' WHERE id = ${sheet.id}`);
+          console.log(`[vr] matching ${(performance.now()-_bph).toFixed(1)}ms matched=${matchResult.matched} partial=${matchResult.partial} unmatched=${matchResult.unmatched}`);
+        } catch (bgErr: any) {
+          console.error('[vr/import-bg]', bgErr.message);
+          await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'error' WHERE id = ${sheet.id}`).catch(() => {});
         }
-      }
-      const dedupedNorm = [
-        ...new Map(normBatch.map((r: any) => [`${r.sheetId}:${r.normalizedPrefix}`, r])).values()
-      ];
-      console.log("[vr] normalized", dedupedNorm.length);
-      for (let i = 0; i < dedupedNorm.length; i += 500) {
-        await db.insert(vendorRateNormalizedPrefixes).values(dedupedNorm.slice(i, i + 500));
-      }
-      await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'normalized' WHERE id = ${sheet.id}`);
-      // Auto-match destinations immediately after normalization
-      const matchResult = await matchSheetDestinations(sheet.id);
-      await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'processed' WHERE id = ${sheet.id}`);
-      return res.json({
-        sheetId: sheet.id,
-        rowCount: validated.length,
-        normalizedCount: dedupedNorm.length,
-        duplicatesSkipped: dupPfx.length,
-        matched: matchResult.matched,
-        partial: matchResult.partial,
-        unmatched: matchResult.unmatched,
       });
     } catch (e: any) { console.error('[vr/import]', e.message); return res.status(500).json({ error: e.message }); }
   });
@@ -257,6 +269,22 @@ export function registerVendorRatesRoutes(app: Express) {
       console.error('[vr/match]', e.message);
       return res.status(500).json({ error: e.message });
     }
+  });
+
+  // GET /api/vendor-rates/sheets/:id/status — poll processing progress
+  app.get('/api/vendor-rates/sheets/:id/status', async (req, res) => {
+    try {
+      const sheetId = parseInt(req.params.id);
+      if (isNaN(sheetId)) return res.status(400).json({ error: 'invalid sheet id' });
+      const [row] = await db.select({
+        id: vendorRateSheets.id,
+        status: vendorRateSheets.status,
+        rowCount: vendorRateSheets.rowCount,
+        uploadedAt: vendorRateSheets.uploadedAt,
+      }).from(vendorRateSheets).where(eq(vendorRateSheets.id, sheetId)).limit(1);
+      if (!row) return res.status(404).json({ error: 'sheet not found' });
+      return res.json(row);
+    } catch (e: any) { return res.status(500).json({ error: e.message }); }
   });
 
   // POST /api/vendor-rates/match-sheet  { sheetId: number }

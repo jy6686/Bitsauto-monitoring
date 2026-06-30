@@ -6209,9 +6209,10 @@ export async function registerRoutes(
   let _cdrCacheRunning = false;
   let _presenceGeoBootstrapped = false; // set true after first CDR-history country/destination seed
   async function refreshCdrCache(): Promise<void> {
-    if (_cdrCacheRunning) return;
+    if (_cdrCacheRunning) { console.log('[auto-recovery] CDR refresh already running — skipping'); return; }
     _cdrCacheRunning = true;
     const _cdrT0 = Date.now();
+    console.log('[cdr-cache] started');
     try {
       const settings = await storage.getSettings();
       const credPairs = sippyXmlCredsPairs(settings);
@@ -6538,6 +6539,7 @@ export async function registerRoutes(
       console.warn('[cdr-cache] refresh error:', e.message);
     } finally {
       const _cdrMs = Date.now() - _cdrT0;
+      console.log(`[cdr-cache] completed in ${_cdrMs}ms`);
       if (_cdrMs > 8000) console.warn(`[perf] refreshCdrCache took ${_cdrMs}ms`);
       _cdrCacheRunning = false;
     }
@@ -6551,6 +6553,7 @@ export async function registerRoutes(
     if (_pnlCacheRunning) return;
     _pnlCacheRunning = true;
     const t0 = Date.now();
+    console.log('[pnl-cache] started');
     try {
       const settings = await storage.getSettings();
       if (!settings) return;
@@ -6559,7 +6562,20 @@ export async function registerRoutes(
       if (!portalUrl) { console.warn("[pnl-cache] no portalUrl"); return; }
       const fromDate = new Date(Date.now() - 24 * 60 * 60_000);
       const toDate = new Date();
-      const _meraResult = await sippy.exportVendorsCDRsMera(username, password, { portalUrl, trustedMode: true });
+      const _meraCall = sippy.exportVendorsCDRsMera(username, password, { portalUrl, trustedMode: true });
+      const _meraTimeoutP = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('__mera_timeout')), 15_000)
+      );
+      let _meraResult: Awaited<ReturnType<typeof sippy.exportVendorsCDRsMera>>;
+      try {
+        _meraResult = await Promise.race([_meraCall, _meraTimeoutP]);
+      } catch (meraRaceErr: any) {
+        if (meraRaceErr.message === '__mera_timeout') {
+          console.warn('[pnl-cache] Mera timeout — skipping cycle');
+          return;
+        }
+        throw meraRaceErr;
+      }
       if (!_meraResult.success || _meraResult.cdrs.length === 0) {
         console.warn("[pnl-cache] exportVendorsCDRsMera returned no rows — " + _meraResult.message);
         pnlCacheLastProbe = [{ attempt: "exportVendorsCDRsMera", statusCode: 0, bodyLen: 0, contentType: "xml-rpc" }];
@@ -6581,7 +6597,7 @@ export async function registerRoutes(
       (global as any).__bitsautoPnlCache = pnlCache;
       console.log("[pnl-cache] exportVendorsCDRsMera OK — "+added+" new, cache="+pnlCache.size+" ("+(Date.now()-t0)+"ms)");
     } catch(e) { console.warn("[pnl-cache] error:", e.message); }
-    finally { _pnlCacheRunning = false; }
+    finally { console.log(`[pnl-cache] completed in ${Date.now()-t0}ms`); _pnlCacheRunning = false; }
   }
 
   // ── Live Traffic Snapshot Engine ─────────────────────────────────────────────
@@ -6709,8 +6725,17 @@ export async function registerRoutes(
 
   // Delay first CDR cache refresh by 60s so the portal auto-connect session can be
   // established first. Early XML-RPC bursts (at 5s) were triggering ECONNRESET.
-  setTimeout(() => refreshCdrCache(), 60 * 1000);
-  setInterval(() => refreshCdrCache(), 5 * 60 * 1000);
+  async function _runCdrCacheWithTimeout(): Promise<void> {
+    let _guardTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      console.warn('[auto-recovery] CDR refresh timed out after 10min — clearing lock');
+      _cdrCacheRunning = false;
+      _guardTimer = null;
+    }, 10 * 60 * 1000);
+    try { await refreshCdrCache(); }
+    finally { if (_guardTimer) { clearTimeout(_guardTimer); _guardTimer = null; } }
+  }
+  setTimeout(() => _runCdrCacheWithTimeout(), 60 * 1000);
+  setInterval(() => _runCdrCacheWithTimeout(), 5 * 60 * 1000);
 
   // P&L CSV cache — first run at T+90s (after CDR warmup), then every 10 min.
   setTimeout(() => refreshPnlCache(), 90 * 1000);
@@ -15722,6 +15747,7 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
     if (_snapshotRunning) return; // mutex — skip if previous cycle still in progress
     _snapshotRunning = true;
     const _snapT0 = Date.now();
+    console.log('[snapshot-bg] started');
     try {
       const settings = await storage.getSippySettings();
       if (!settings) return;
@@ -15967,8 +15993,8 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
       console.warn('[snapshot-bg] error:', e.message);
     } finally {
       const _snapMs = Date.now() - _snapT0;
+      console.log(`[snapshot-bg] completed in ${_snapMs}ms`);
       if (_snapMs > 5000) console.warn(`[perf] snapshotActiveCalls took ${_snapMs}ms`);
-      else console.debug(`[perf] snapshotActiveCalls ${_snapMs}ms`);
       _snapshotRunning = false;
     }
   }
