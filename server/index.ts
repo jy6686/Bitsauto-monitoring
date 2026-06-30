@@ -157,12 +157,43 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Run safe idempotent DB column migrations before routes start
+  // ── 1. Open port IMMEDIATELY ────────────────────────────────────────────────
+  // Replit autoscale wakes a fresh container on the very first request.
+  // On a cold start the OIDC /api/callback redirect arrives ~5-10 s after boot.
+  // If the port is not open in time, Replit's proxy returns "upstream request
+  // timeout". Calling listen() first keeps the TCP connection alive while DB
+  // migrations and route registration run in the background.
+  const port = parseInt(process.env.PORT || "5000", 10);
+  httpServer.listen(
+    { port, host: "0.0.0.0", reusePort: true },
+    () => { log(`serving on port ${port}`); },
+  );
+
+  // ── 2. Startup gate ─────────────────────────────────────────────────────────
+  // Intercepts all requests while DB migrations + route registration are in
+  // progress. Once _serverReady flips to true, every request passes through.
+  let _serverReady = false;
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (_serverReady) return next();
+    // OAuth callback during cold-start: redirect to home so the user can
+    // click "Login" again once the server finishes initialising (~10-30 s).
+    if (req.path === '/api/callback') return res.redirect('/');
+    // API calls: return 503 so JS clients know to retry
+    if (req.path.startsWith('/api/')) {
+      res.set('Retry-After', '5');
+      return res.status(503).json({ message: 'Server is starting up. Please retry in a few seconds.' });
+    }
+    // Browser page requests: auto-refresh loading screen
+    return res.status(503).send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="4"><title>Starting up…</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0f172a;color:#94a3b8;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px}h2{color:#f8fafc;font-size:1.25rem}p{font-size:.875rem}</style></head><body><h2>Bitsauto is starting up…</h2><p>This page will refresh automatically in 4 seconds.</p></body></html>`);
+  });
+
+  // ── 3. DB migrations (required before routes so all tables exist) ───────────
   await runSafeMigrations();
-  // Verify all expected columns are present — logs warnings for anything missing
-  await runSchemaCheck();
+  // Schema check is diagnostic-only — run async so it doesn't delay routes
+  runSchemaCheck().catch(() => {});
 
   await registerRoutes(httpServer, app);
+  _serverReady = true; // ← routes are live; startup gate now passes all requests
 
   // Pre-generate the PPTX at startup and write to the static downloads folder.
   // Vite / the static server serves it directly — bypasses Express routing entirely.
@@ -243,25 +274,7 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  // NOTE: We listen BEFORE setupVite so the port opens immediately even if
-  // Vite's dev-server initialization takes a long time (e.g. plugin network calls).
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
-
-  // Setup frontend serving — after port is open so startup isn't blocked.
+  // Setup frontend serving — port is already open (listen() called at top of IIFE).
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
