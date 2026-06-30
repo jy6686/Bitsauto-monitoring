@@ -35,33 +35,33 @@ CREATE INDEX IF NOT EXISTS idx_dest_aliases_normalized
 -- 2. Dedup map table — persists old->new ID mapping for audit + rollback
 CREATE TABLE IF NOT EXISTS destination_dedup_map (
   id                SERIAL      PRIMARY KEY,
-  old_id            INTEGER     NOT NULL,
-  new_id            INTEGER     NOT NULL,
+  cluster_a_id            INTEGER     NOT NULL,
+  cluster_b_id            INTEGER     NOT NULL,
   normalized_prefix TEXT        NOT NULL,
-  old_dial_prefix   TEXT,
-  new_dial_prefix   TEXT,
+  cluster_a_prefix   TEXT,
+  cluster_b_prefix   TEXT,
   remapped_at       TIMESTAMPTZ,
   deleted_at        TIMESTAMPTZ,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_dedup_map_old_new
-  ON destination_dedup_map (old_id, new_id);
+  ON destination_dedup_map (cluster_a_id, cluster_b_id);
 
-CREATE INDEX IF NOT EXISTS idx_dedup_map_old ON destination_dedup_map (old_id);
-CREATE INDEX IF NOT EXISTS idx_dedup_map_new ON destination_dedup_map (new_id);
+CREATE INDEX IF NOT EXISTS idx_dedup_map_old ON destination_dedup_map (cluster_a_id);
+CREATE INDEX IF NOT EXISTS idx_dedup_map_new ON destination_dedup_map (cluster_b_id);
 
 -- 3. Populate dedup map — idempotent via WHERE NOT EXISTS
 --    keeper = highest id per normalized prefix (Cluster B: real rates, bare prefix)
 --    old    = lower  id per normalized prefix (Cluster A: buy_rate=0, +prefix shells)
 INSERT INTO destination_dedup_map
-  (old_id, new_id, normalized_prefix, old_dial_prefix, new_dial_prefix)
+  (cluster_a_id, cluster_b_id, normalized_prefix, cluster_a_prefix, cluster_b_prefix)
 SELECT
-  dup.id             AS old_id,
-  keeper.id          AS new_id,
+  dup.id             AS cluster_a_id,
+  keeper.id          AS cluster_b_id,
   keeper.norm        AS normalized_prefix,
-  dup.dial_prefix    AS old_dial_prefix,
-  keeper.dial_prefix AS new_dial_prefix
+  dup.dial_prefix    AS cluster_a_prefix,
+  keeper.dial_prefix AS cluster_b_prefix
 FROM (
   SELECT DISTINCT ON (REGEXP_REPLACE(dial_prefix, '^\+', ''))
     id,
@@ -79,7 +79,7 @@ JOIN (
 ) dup ON dup.norm = keeper.norm AND dup.id <> keeper.id
 WHERE NOT EXISTS (
   SELECT 1 FROM destination_dedup_map m
-  WHERE m.old_id = dup.id AND m.new_id = keeper.id
+  WHERE m.cluster_a_id = dup.id AND m.cluster_b_id = keeper.id
 );
 
 -- 4. Report — no assertions here (033 will assert before deleting)
