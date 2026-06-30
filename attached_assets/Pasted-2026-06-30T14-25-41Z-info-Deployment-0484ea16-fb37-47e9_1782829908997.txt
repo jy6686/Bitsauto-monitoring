@@ -1,0 +1,88 @@
+2026-06-30T14:25:41Z info: Deployment: 0484ea16-fb37-47e9-b317-17b765282846
+2026-06-30T14:25:41Z info: Build: 847a53f3-c780-44c3-88a2-fb287082397e
+2026-06-30T14:25:41Z info: Running Security Scan
+2026-06-30T14:25:46Z info: Installing packages
+--> npm install
+
+
+up to date, audited 759 packages in 4s
+
+105 packages are looking for funding
+  run `npm fund` for details
+
+
+25 vulnerabilities (1 low, 8 moderate, 16 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.18.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.18.0
+npm notice To update run: npm install -g npm@11.18.0
+npm notice
+
+2026-06-30T14:25:51Z info: Starting Build
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+
+building client...
+
+vite v7.3.0 building client environment for production...
+
+transforming...
+
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+✓ 4280 modules transformed.
+
+rendering chunks...
+
+[plugin vite:reporter] 
+(!) /home/runner/workspace/node_modules/xlsx/xlsx.mjs is dynamically imported by /home/runner/workspace/client/src/pages/client-reconciliation.tsx, /home/runner/workspace/client/src/pages/rate-cards.tsx but also statically imported by /home/runner/workspace/client/src/lib/export-excel.ts, /home/runner/workspace/client/src/pages/cdr-reconciliation.tsx, /home/runner/workspace/client/src/pages/cdrs.tsx, /home/runner/workspace/client/src/pages/destination-catalog.tsx, /home/runner/workspace/client/src/pages/portal-view.tsx, /home/runner/workspace/client/src/pages/rate-editor.tsx, /home/runner/workspace/client/src/pages/reports.tsx, /home/runner/workspace/client/src/pages/routing-manager.tsx, /home/runner/workspace/client/src/pages/tariff-profiles.tsx, /home/runner/workspace/client/src/pages/vendor-sla-scorecard.tsx, dynamic import will not move module into another chunk.
+
+
+computing gzip size...
+
+../dist/public/index.html                              2.20 kB │ gzip:     0.87 kB
+../dist/public/assets/index-jXj0f7He.css             240.99 kB │ gzip:    40.04 kB
+../dist/public/assets/html2canvas.esm-DXEQVQnt.js    201.04 kB │ gzip:    47.07 kB
+../dist/public/assets/index-BhoiiPRh.js            7,854.58 kB │ gzip: 1,899.69 kB
+
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+building server...
+
+
+  dist/index.cjs  5.3mb ⚠️
+
+⚡ Done in 1315ms
+
+2026-06-30T14:26:28Z info: Pushing pid1 binary layer...
+2026-06-30T14:26:30Z info: Pushing Repl layer...
+2026-06-30T14:26:30Z info: Pushing hosting layer...
+2026-06-30T14:26:30Z info: Retrieved cached nix layer
+2026-06-30T14:26:30Z info: Created hosting layer
+2026-06-30T14:26:30Z info: Created pid1 binary layer
+2026-06-30T14:27:37Z info: Security Scan Complete
+2026-06-30T14:28:19Z info: Created Repl layer
+2026-06-30T14:28:19Z info: Pushing Repl (cache) layer...
+2026-06-30T14:28:20Z info: Created Repl (cache) layer
+2026-06-30T14:28:23Z info: Pushed image manifest
+2026-06-30T14:28:23Z info: Skipping container streaming artifacts (SOCI/ZTOC) for non-reserved-VM deployment
