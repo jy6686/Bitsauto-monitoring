@@ -1,5 +1,6 @@
 
 import type { Express } from "express";
+import { createAlias } from './services/destination/destination-alias.service';
 import { registerBhaooRoutes } from './routes-bhaoo';
 import { registerConfigurationValueRoutes } from './routes-configuration-values';
 import { registerValidationRuleRoutes }     from './routes-validation-rules';
@@ -35020,6 +35021,43 @@ ${footer}
   });
 
   // ── end GDS Reconciliation Layer ─────────────────────────────────────────────
+
+  // POST /api/destination-catalog/aliases — save a Sippy or vendor alias for a destination
+  app.post('/api/destination-catalog/aliases', async (req: any, res: any) => {
+    try {
+      const { aliasText, aliasType, destinationId, source, confidence } = req.body;
+      if (!aliasText || !aliasType || !destinationId)
+        return res.status(400).json({ error: 'aliasText, aliasType, destinationId required' });
+      const validTypes = ['vendor_name', 'sippy', 'customer', 'legacy', 'manual'];
+      if (!validTypes.includes(aliasType))
+        return res.status(400).json({ error: `aliasType must be one of: ${validTypes.join(', ')}` });
+      const result = await createAlias({
+        destinationId: parseInt(destinationId),
+        aliasText,
+        aliasType,
+        source: source ?? null,
+        confidence: confidence ?? 100,
+        createdBy: req.user?.claims?.sub ?? 'system',
+      });
+      if ('conflict' in result)
+        return res.status(409).json({ error: 'conflict', existingDestinationId: result.existingDestinationId });
+      return res.json({ id: result.id });
+    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/destination-catalog/aliases/:destinationId — list aliases for a destination
+  app.get('/api/destination-catalog/aliases/:destinationId', async (req: any, res: any) => {
+    try {
+      const destId = parseInt(req.params.destinationId);
+      const rows = await db.execute(sql`
+        SELECT id, alias_text, alias_type, source, confidence, is_active, last_used_at, created_at
+        FROM destination_aliases
+        WHERE destination_id = ${destId}
+        ORDER BY created_at DESC
+      `);
+      return res.json(rows.rows);
+    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+  });
 
   // POST /api/product-registry/destinations/sync-legacy
   // Scrapes ALL pages of the legacy BitsAuto client_filteration view.

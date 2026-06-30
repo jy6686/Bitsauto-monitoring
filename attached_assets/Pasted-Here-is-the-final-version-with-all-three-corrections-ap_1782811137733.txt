@@ -1,0 +1,209 @@
+Here is the final version with all three corrections applied. This is ready to paste into Replit AI Build mode:
+
+BitsAuto — Replit AI Build Instructions (Final)
+BEFORE CREATING ANYTHING
+Inspect whether each object already exists and compare its schema against the specification below. If compatible, reuse it. If different, stop and report the differences. Do not create duplicate tables or conflicting indexes.
+
+CRITICAL CONSTRAINTS
+NEVER modify these files:
+
+server/routes.ts — Sippy write logic is frozen
+pushRateViaPortalUpload(), pushRateToSippy(), resolveSippyPrefix() — frozen
+client/src/pages/rate-manager.tsx — import wizard and column mapping are frozen
+shared/schema.ts — do not edit, do not run db:push
+
+Prohibited database operations:
+
+Do not perform bulk UPDATEs, DELETEs, or migrations on existing data. The only permitted writes to vendor_rate_sheet_rows, vendor_rate_normalized_prefixes, and destination_product_rates are those already performed by the existing vendor import pipeline during normal sheet processing. All other existing tables are read-only for this sprint.
+All migration SQL must be transactional:
+sqlBEGIN;
+-- work here
+COMMIT;
+-- on any failure: ROLLBACK automatically
+No partial state may remain in the database under any circumstances.
+
+PHASE A1 — Investigation Only
+No application code changes in this phase.
+Step 1: Create destination_dedup_map
+Inspect first. If the table already exists with compatible columns, skip creation.
+sqlCREATE TABLE IF NOT EXISTS destination_dedup_map (
+  id                    SERIAL PRIMARY KEY,
+  cluster_a_id          INTEGER NOT NULL,  -- old generation: +prefix format
+  cluster_b_id          INTEGER NOT NULL,  -- new generation: bare prefix format
+  cluster_a_name        TEXT,
+  cluster_b_name        TEXT,
+  cluster_a_prefix      TEXT,              -- raw dial_prefix from DB
+  cluster_b_prefix      TEXT,              -- raw dial_prefix from DB
+  normalized_prefix     TEXT NOT NULL,     -- regexp_replace(dial_prefix, '^\+', '')
+  classification        TEXT NOT NULL,     -- see values below
+  cluster_a_rate_rows   INTEGER DEFAULT 0,
+  cluster_b_rate_rows   INTEGER DEFAULT 0,
+  referencing_tables    TEXT,
+  recommended_action    TEXT NOT NULL,     -- 'MERGE' | 'KEEP_BOTH' | 'MANUAL_REVIEW'
+  remapped_at           TIMESTAMPTZ,
+  deleted_at            TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dedup_map_pair ON destination_dedup_map (cluster_a_id, cluster_b_id);
+CREATE INDEX IF NOT EXISTS idx_dedup_map_a ON destination_dedup_map (cluster_a_id);
+CREATE INDEX IF NOT EXISTS idx_dedup_map_b ON destination_dedup_map (cluster_b_id);
+Step 2: Identify clusters by characteristics (not ID ranges)
+Define clusters as follows:
+
+Cluster A (old generation): rows where dial_prefix LIKE '+%' — the +prefix import format
+Cluster B (new generation): rows where dial_prefix NOT LIKE '+%' — the bare prefix import format
+
+A duplicate pair exists when regexp_replace(cluster_a.dial_prefix, '^\+', '') = cluster_b.dial_prefix.
+Classify each pair:
+
+exact_duplicate — same normalized prefix AND names are substantially similar (normalized text match >80%)
+parent_child — Cluster A normalized prefix is shorter than Cluster B (e.g. 92 vs 9230) — Cluster A is a broader routing prefix, not the same destination
+name_only — normalized prefix matches but names differ significantly
+manual_review — cannot be confidently classified by the above rules
+
+Set recommended_action:
+
+MERGE — exact_duplicate confirmed, safe to remap Cluster A FKs to Cluster B then delete Cluster A
+KEEP_BOTH — parent_child, genuinely different destinations at different prefix depths
+MANUAL_REVIEW — insufficient confidence
+
+Step 3: Populate destination_dedup_map
+Count destination_product_rates rows for each cluster_a_id and cluster_b_id. Record in cluster_a_rate_rows and cluster_b_rate_rows. Record which tables hold FK references to cluster_a_id in referencing_tables (comma-separated table names).
+Step 4: Investigation quality gate (run before proceeding)
+sql-- All groups classified
+SELECT COUNT(*) AS unclassified FROM destination_dedup_map WHERE classification IS NULL;
+-- Expected: 0
+
+-- No group classified twice
+SELECT cluster_a_id, COUNT(*) FROM destination_dedup_map GROUP BY cluster_a_id HAVING COUNT(*) > 1;
+-- Expected: 0 rows
+
+-- No NULL recommended_action
+SELECT COUNT(*) FROM destination_dedup_map WHERE recommended_action IS NULL;
+-- Expected: 0
+
+-- Map count equals duplicate group count
+SELECT COUNT(*) FROM destination_dedup_map;
+SELECT COUNT(DISTINCT regexp_replace(dial_prefix, '^\+', ''))
+FROM global_destinations
+WHERE dial_prefix LIKE '+%'
+AND regexp_replace(dial_prefix, '^\+', '') IN (
+  SELECT dial_prefix FROM global_destinations WHERE dial_prefix NOT LIKE '+%'
+);
+-- Both counts must match
+If any check fails, stop and report before proceeding.
+Step 5: Write .local/architecture/dedup-findings.md
+Required sections:
+markdown## Summary
+- Total duplicate groups: N
+- Exact duplicates:       N (N%)
+- Parent-child:           N (N%)
+- Name only:              N (N%)
+- Manual review required: N (N%)
+
+## Rate Row Impact
+- Cluster A total rate rows: N
+- Cluster B total rate rows: N
+- Rows remappable if MERGE applied: N
+- Rows with no Cluster B equivalent: N
+
+## Referencing Tables
+| Table | Cluster A rows | Cluster B rows |
+|-------|---------------|----------------|
+
+## Sample: Exact Duplicates (5 examples)
+| cluster_a_id | cluster_b_id | name | cluster_a_prefix | cluster_b_prefix |
+
+## Sample: Parent-Child (5 examples)
+| cluster_a_id | cluster_b_id | cluster_a_prefix | cluster_b_prefix | prefix_length_diff |
+
+## Sample: Manual Review Required (5 examples)
+| cluster_a_id | cluster_b_id | reason |
+
+## Recommended Next Steps
+Statistics in the report must exactly match the SQL counts from Step 4.
+
+PHASE A1 COMPLETE GATE
+Do not proceed to Phase A2 until ALL of the following are confirmed:
+
+✅ destination_dedup_map populated and quality gate passed
+✅ .local/architecture/dedup-findings.md written with matching statistics
+✅ Zero UPDATEs on any existing table
+✅ Zero DELETEs on any existing table
+✅ Zero FK remapping performed
+✅ idx_global_destinations_prefix_unique NOT created
+✅ Human has reviewed and approved the findings report
+
+
+PHASE A2 — Alias Registry (only after A1 gate is passed)
+Step 1: Create destination_aliases
+Inspect first. If it already exists with compatible columns, skip creation and report what exists.
+sqlCREATE TABLE IF NOT EXISTS destination_aliases (
+  id               SERIAL PRIMARY KEY,
+  alias_text       TEXT        NOT NULL,
+  normalized_alias TEXT GENERATED ALWAYS AS (
+                     LOWER(REGEXP_REPLACE(alias_text, '[^a-zA-Z0-9]', '', 'g'))
+                   ) STORED,
+  alias_type       TEXT        NOT NULL DEFAULT 'vendor_name',
+  -- alias_type values: 'vendor_name' | 'sippy' | 'customer' | 'legacy' | 'manual'
+  source           TEXT,
+  confidence       INTEGER     NOT NULL DEFAULT 100,
+  destination_id   INTEGER     NOT NULL REFERENCES global_destinations(id) ON DELETE CASCADE,
+  is_active        BOOLEAN     NOT NULL DEFAULT TRUE,
+  verified_at      TIMESTAMPTZ,
+  verified_by      TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_used_at     TIMESTAMPTZ,
+  created_by       TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dest_aliases_unique ON destination_aliases (normalized_alias, alias_type);
+CREATE INDEX IF NOT EXISTS idx_dest_aliases_dest ON destination_aliases (destination_id);
+CREATE INDEX IF NOT EXISTS idx_dest_aliases_normalized ON destination_aliases (normalized_alias);
+CREATE INDEX IF NOT EXISTS idx_dest_aliases_active ON destination_aliases (is_active) WHERE is_active = TRUE;
+Step 2: Alias service
+Create server/services/destination/destination-alias.service.ts if it does not already exist. If it exists, inspect and extend rather than replace. Export:
+
+lookupAlias(text: string): Promise<{destinationId: number, confidence: number} | null> — updates last_used_at on match
+createAlias(params): Promise<{id: number} | {conflict: true, existingDestinationId: number}>
+
+Step 3: Alias fallback in matchSheetDestinations()
+In server/services/destination/destination-matcher.service.ts only. Do not change the public function signature. Insert alias lookup between canonical name lookup and the unmatched fallback:
+typescript// After canonical name lookup fails:
+const aliasMatch = await lookupAlias(vendorName);
+if (aliasMatch && aliasMatch.confidence >= 80) {
+  // resolve to aliasMatch.destinationId
+  // set match_method = 'alias'
+  // set match_confidence = aliasMatch.confidence
+}
+// Only if alias lookup also fails: mark as unmatched
+Step 4: API endpoint
+Add POST /api/destination-catalog/aliases to the destination catalog routes file (not routes.ts):
+
+Body: { aliasText, aliasType, destinationId, source, confidence }
+Calls createAlias()
+Returns { id } or { error: 'conflict', existingDestinationId }
+
+Step 5: "Save as Alias" in Market Intel tab
+In client/src/pages/destination-catalog.tsx, Market Intel tab only. Add a "Save as Alias" button per row. On click: POST to /api/destination-catalog/aliases with the Sippy operator name as aliasText and aliasType: 'sippy'. Show success or conflict toast.
+
+PHASE A2 COMPLETE GATE
+
+✅ destination_aliases created (or verified compatible)
+✅ Alias service created or extended
+✅ Alias fallback inserted in matcher (non-breaking, read-only alias lookup)
+✅ "Save as Alias" button in Market Intel tab
+✅ Zero existing rows modified in any table
+
+
+OUT OF SCOPE — DO NOT IMPLEMENT
+
+FK migration (Cluster A → Cluster B remapping)
+Deleting any global_destinations rows
+Creating idx_global_destinations_prefix_unique
+Moving Rate Manager UI components to Destination Catalogue
+Any changes to vendor_rate_sheet_rows outside normal import pipeline
+Any changes to the Sippy push workflow
+db:push or any Drizzle schema generation commands
+Sprint B (FK migration, dedup execution, unique index) — requires separate human approval after reviewing A1 findings

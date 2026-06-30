@@ -982,7 +982,14 @@ function VendorRatesTab() {
     rd.readAsDataURL(file);
   };
   const doImport = async () => {
-    if (!wFile||!wVid) return;
+    if (!wFile) {
+      toast({ title: 'No file selected', description: 'Please select a rate sheet before importing.', variant: 'destructive' });
+      return;
+    }
+    if (!wVid) {
+      toast({ title: 'Vendor required', description: 'Please select a vendor before importing.', variant: 'destructive' });
+      return;
+    }
     if (!Object.values(wMap).includes('prefix')||!Object.values(wMap).includes('rate')) {
       toast({title:'Map required fields',description:'prefix and rate must be mapped',variant:'destructive'}); return;
     }

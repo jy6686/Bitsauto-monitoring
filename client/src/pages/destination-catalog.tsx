@@ -946,6 +946,8 @@ function ApprovalsTab({ flatNodes }: { flatNodes: Dest[] }) {
 function MarketIntelTab({ flatNodes }: { flatNodes: Dest[] }) {
   const [search, setSearch] = useState("");
   const [levelFilter, setLevelFilter] = useState("all");
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const { toast } = useToast();
   const { data: productRates = [] } = useQuery<any[]>({ queryKey: ["/api/destination-catalog/product-rates"] });
   const rateByDest = useMemo(() => { const m = new Map(); for (const r of productRates) { if (r.approval_status !== "approved") continue; const key = r.dest_name_live ?? r.destination_name ?? ""; if (!key) continue; const buy = r.buy_rate ? parseFloat(r.buy_rate) : null; const sell = r.sell_rate ? parseFloat(r.sell_rate) : null; if (!m.has(key)) { m.set(key, { buy, sell }); } else { const ex = m.get(key); if (buy !== null && (ex.buy === null || buy < ex.buy)) ex.buy = buy; if (sell !== null && (ex.sell === null || sell < ex.sell)) ex.sell = sell; } } return m; }, [productRates]);
   const approved = flatNodes.filter(n => n.commercialStatus === "approved");
@@ -955,6 +957,36 @@ function MarketIntelTab({ flatNodes }: { flatNodes: Dest[] }) {
     const match = !sq || n.name.toLowerCase().includes(sq) || (n.dialPrefix ?? "").includes(sq) || (n.operatorName ?? "").toLowerCase().includes(sq);
     return ok && match;
   });
+
+  async function saveAlias(n: Dest) {
+    const aliasText = n.operatorName?.trim();
+    if (!aliasText) {
+      toast({ title: "No operator name to save", description: "This destination has no operator name set.", variant: "destructive" });
+      return;
+    }
+    setSavingId(n.id);
+    try {
+      const res = await apiRequest("POST", "/api/destination-catalog/aliases", {
+        aliasText,
+        aliasType: "sippy",
+        destinationId: n.id,
+        source: "Market Intel",
+        confidence: 100,
+      });
+      const data = await res.json();
+      if (data.error === "conflict") {
+        toast({ title: "Alias already exists", description: `"${aliasText}" is already mapped to destination #${data.existingDestinationId}.` });
+      } else if (data.id) {
+        toast({ title: "Alias saved", description: `"${aliasText}" → ${n.name}` });
+      } else {
+        toast({ title: "Error", description: data.error ?? "Unknown error", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Failed to save alias", variant: "destructive" });
+    } finally {
+      setSavingId(null);
+    }
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -979,14 +1011,14 @@ function MarketIntelTab({ flatNodes }: { flatNodes: Dest[] }) {
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-border bg-muted/30">
-              {["Destination", "Level", "Prefix", "Country", "Operator", "Vendor Cost", "Sell Rate", "Margin", "Notes"].map(h => (
+              {["Destination", "Level", "Prefix", "Country", "Operator (Sippy Name)", "Vendor Cost", "Sell Rate", "Margin", "Notes", ""].map(h => (
                 <th key={h} className="text-left py-2.5 px-4 text-xs font-medium text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={9} className="text-center py-8 text-xs text-muted-foreground">No approved destinations match your filters</td></tr>
+              <tr><td colSpan={10} className="text-center py-8 text-xs text-muted-foreground">No approved destinations match your filters</td></tr>
             )}
             {filtered.map(n => (
               <tr key={n.id} className="border-b border-border/40 hover:bg-muted/20">
@@ -1001,6 +1033,21 @@ function MarketIntelTab({ flatNodes }: { flatNodes: Dest[] }) {
                 <td className="py-2.5 px-4 text-muted-foreground italic text-xs">Coming soon</td>
                 <td className="py-2.5 px-4 text-muted-foreground italic text-xs">—</td>
                 <td className="py-2.5 px-4 text-xs text-muted-foreground max-w-[160px] truncate">{n.notes ?? "—"}</td>
+                <td className="py-2 px-3">
+                  {n.operatorName ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-xs px-2 gap-1"
+                      disabled={savingId === n.id}
+                      onClick={() => saveAlias(n)}
+                      data-testid={`btn-save-alias-${n.id}`}
+                    >
+                      {savingId === n.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
+                      Save as Alias
+                    </Button>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>

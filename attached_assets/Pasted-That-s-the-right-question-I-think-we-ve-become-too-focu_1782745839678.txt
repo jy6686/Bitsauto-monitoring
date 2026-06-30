@@ -1,0 +1,240 @@
+That's the right question. I think we've become too focused on the endpoint and lost sight of the actual goal.
+
+What we're actually trying to build
+
+We're not building an API endpoint.
+
+We're building a Vendor Rate Intelligence Engine.
+
+The endpoint is only one small step in this pipeline.
+
+Vendor XLSX
+      │
+      ▼
+Import
+      │
+      ▼
+Normalize
+      │
+      ▼
+Expand Prefix Expressions
+      │
+      ▼
+Destination Matching
+      │
+      ▼
+Product Mapping
+      │
+      ▼
+Diff Engine
+      │
+      ▼
+Commercial Analysis
+      │
+      ▼
+Publish to Sippy Destination Set
+      │
+      ▼
+Verification
+      │
+      ▼
+Audit Trail
+
+The /match-sheet endpoint is simply the trigger for the Destination Matching stage.
+
+Why are we matching?
+
+Take your Telstra sheet.
+
+One row contains:
+
+INDIA MOBILE OTHER
+
+916200-916207
+916260
+916263
+916266
+...
+
+After import we have
+
+vendor_rate_sheet_rows
+
+containing the raw expression.
+
+After normalization we have
+
+vendor_rate_normalized_prefixes
+
+916200
+916201
+916202
+...
+916207
+
+Now BitsAuto has to answer:
+
+Which destination does prefix 916203 belong to?
+
+It searches
+
+destination_product_rates
+
+using longest-prefix match.
+
+Example
+
+Vendor:
+
+916203
+
+Catalog:
+
+91       India
+9162     India Mobile
+916203   Reliance
+
+Result:
+
+destination_id = 345
+destination = India Reliance
+confidence = 100%
+
+That is what we're trying to accomplish.
+
+Why do we need destination matching?
+
+Because everything else depends on it.
+
+Without matching
+
+916203
+
+rate = 0.0135
+
+is just a number.
+
+After matching
+
+Destination:
+India Reliance
+
+Product:
+Premium
+
+Destination Set:
+Internal Telstra
+
+Current Rate:
+0.0142
+
+Vendor Rate:
+0.0135
+
+Margin:
++0.0007
+
+Customers affected:
+17
+
+Now BitsAuto understands the commercial impact.
+
+Why are you seeing HTML?
+
+That's actually not the important problem.
+
+It's only preventing us from manually testing the matching engine.
+
+Your latest log is more interesting:
+
+grep "[vr/match]" /tmp/vrmlog.txt
+
+<no output>
+
+That means
+
+Browser
+      │
+      ▼
+never reaches
+
+matchSheetDestinations()
+
+So the matching algorithm hasn't even run yet.
+
+I would stop testing it from DevTools
+
+This endpoint is an internal workflow step.
+
+Users are never going to open DevTools and run
+
+fetch(...)
+
+The UI should do it.
+
+I would instead wire it into the import workflow.
+
+Upload
+      ▼
+Import rows
+      ▼
+Normalize prefixes
+      ▼
+Automatically run
+matchSheetDestinations(sheetId)
+      ▼
+Store destination_id
+      ▼
+Return summary
+
+766 rows imported
+
+1,984 normalized prefixes
+
+1,951 matched
+
+24 partial
+
+9 unmatched
+
+The user never needs to click "Match."
+
+My recommendation
+
+I would remove the standalone Match API from the roadmap.
+
+Instead, make matching part of the import transaction.
+
+Import Sheet
+      │
+      ▼
+Save Sheet
+      │
+      ▼
+Normalize Prefixes
+      │
+      ▼
+Match Destinations
+      │
+      ▼
+Calculate Statistics
+      │
+      ▼
+Return Import Result
+
+Then the Vendor Rate Manager can immediately display something like:
+
+Imported Successfully
+
+Rows:                 766
+Normalized Prefixes:  1,984
+Matched:              1,951
+Partial:                 24
+Unmatched:                9
+
+View Unmatched
+Compare
+Margin
+Publish
+
+That aligns much better with the architecture you're building. The matching engine becomes an automatic stage in the ingestion pipeline instead of a separate API that someone has to remember to invoke. It also means every downstream feature—comparison, margin analysis, validation, and publishing—can rely on destination_id already being populated.

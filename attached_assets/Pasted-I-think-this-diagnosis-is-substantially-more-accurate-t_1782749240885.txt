@@ -1,0 +1,317 @@
+I think this diagnosis is substantially more accurate than the earlier assumption of a "151,741-row naming problem." Based on what you've presented and everything I know about the BitsAuto architecture, I'd refine it even further.
+
+Revised Root Cause Analysis
+
+The platform actually has three independent destination catalogues that have become mixed together.
+
+Catalogue	Purpose	Current Status	Should be Source Of
+global_destinations	Canonical commercial catalogue	✅ Already standardized	Everything commercial
+destination_product_rates	Product-specific rates	✅ Mostly clean, but duplicated because of duplicate destination IDs	Pricing
+Sippy Destination Sets / destination_sets_cache	Technical routing catalogue	⚠ Legacy Sippy names (PAK Mobile MOBLIN, TELNOR, etc.)	Routing only
+
+That separation explains why your SQL shows clean names while the UI still shows "PAK Mobile MOBLIN".
+
+The UI isn't reading from the wrong table accidentally—it is using the wrong catalogue for the wrong purpose.
+
+The duplicate problem is actually more dangerous than the naming problem
+
+This is the issue I would prioritize.
+
+If two rows represent the same destination:
+
+ID 1093
++9230
+Pakistan Mobile Jazz
+
+ID 374641
+9230
+Pakistan Mobile Jazz
+
+then every downstream table referencing those IDs can split.
+
+For example:
+
+Vendor Rate Import
+        │
+        ▼
+Longest Prefix Match
+        │
+        ├── destination_id = 1093
+        │
+        └── destination_id = 374641
+
+Now one vendor rate updates one ID.
+
+Another vendor rate updates another.
+
+Commercial reports become inconsistent.
+
+Routing statistics split.
+
+Approval status splits.
+
+Historical analytics split.
+
+That is a data integrity issue, not just a cosmetic issue.
+
+I would actually make Deduplication Sprint 0
+
+Instead of calling it Sprint 2A.
+
+Because almost every commercial feature depends on one canonical destination.
+
+Order should become:
+
+Sprint 0
+---------
+Destination Deduplication
+
+↓
+
+Sprint 1
+---------
+Canonical Destination Catalogue
+
+↓
+
+Sprint 2
+---------
+Commercial Governance
+
+↓
+
+Sprint 3
+---------
+Rate Manager Improvements
+
+Everything becomes simpler afterwards.
+
+I would NOT keep rows based on ID range
+
+One thing I would change from the proposal.
+
+Instead of:
+
+Keep Cluster B because IDs are newer
+
+I would choose the canonical record using quality rules.
+
+Example:
+
+Score:
+
+Has country code
++20
+
+Uses E.164 prefix
++20
+
+Longest prefix
++10
+
+Referenced by products
++30
+
+Referenced by vendor mappings
++30
+
+Whichever row scores highest survives.
+
+That avoids assuming the newer import is always better.
+
+The real canonical key should never be destination_id
+
+This is another architectural improvement.
+
+Today:
+
+destination_id
+
+acts as identity.
+
+Instead I would introduce:
+
+destination_uuid
+
+or
+
+canonical_destination_id
+
+Example:
+
+Pakistan Mobile Jazz
+
+canonical_destination_id = 182
+
+Aliases
+
+ID 1093
+ID 374641
+ID 881212
+
+↓
+
+all map to
+
+182
+
+Then future imports cannot create another logical duplicate.
+
+The Rate Manager should never display Sippy names
+
+I completely agree with this.
+
+Routing names belong to routing.
+
+Commercial names belong to commercial.
+
+Current architecture:
+
+Dropdown
+
+↓
+
+destination_sets_cache
+
+↓
+
+PAK Mobile MOBLIN
+
+Should become
+
+Dropdown
+
+↓
+
+global_destinations
+
+↓
+
+Pakistan Mobile Jazz
+
+Internally:
+
+Pakistan Mobile Jazz
+
+↓
+
+destination_set_id
+
+↓
+
+PAK Mobile MOBLIN
+
+↓
+
+Sippy
+
+The user never sees the routing alias.
+
+I would also keep Sippy aliases
+
+I would not delete the Sippy names.
+
+Instead create something like:
+
+destination_aliases
+
+id
+
+destination_id
+
+alias
+
+source
+
+source_type
+
+Example:
+
+destination_id	alias	source
+182	PAK Mobile MOBLIN	Sippy
+182	Pakistan Mobile Jazz	Commercial
+182	Mobilink	Vendor
+182	Jazz	Vendor
+
+This becomes extremely valuable during imports because vendor files almost never use identical naming.
+
+Commercial Status
+
+I agree with your conclusion.
+
+The approval workflow becomes much simpler.
+
+global_destinations
+
+id
+
+name
+
+commercial_status
+
+approved_by
+
+approved_at
+
+Vendor imports simply do:
+
+Match destination
+
+↓
+
+commercial_status == approved
+
+↓
+
+Yes
+
+↓
+
+Import
+
+No
+
+↓
+
+Review Queue
+
+Very clean.
+
+One additional safeguard I would add
+
+Beyond a naming regex, I would add a uniqueness constraint on normalized prefixes after deduplication.
+
+For example:
+
+normalize(+9230)
+
+↓
+
+9230
+
+Then enforce:
+
+UNIQUE(normalized_prefix, operator, destination_type)
+
+That prevents future imports from creating another pair like:
+
++9230
+
+9230
+
+because both normalize to:
+
+9230
+
+This addresses the root cause permanently rather than relying only on validation.
+
+Overall assessment
+
+I think this changes the roadmap in an important way:
+
+Deduplicate the canonical destination catalogue first (highest priority). This eliminates ambiguous destination identity and prevents inconsistent foreign-key relationships.
+Separate commercial and routing catalogues by sourcing all commercial UI components (including Rate Manager pickers) from global_destinations, while keeping Sippy naming only as technical aliases.
+Introduce alias mapping and normalized-prefix uniqueness so future vendor imports and Sippy synchronizations cannot recreate the duplicate problem.
+Build the commercial governance workflow (commercial_status, approvals, review queue) on top of the cleaned catalogue.
+
+This shifts the project from what initially looked like a massive renaming exercise into a focused master data management (MDM) initiative. The canonical naming standard is already in place; the remaining work is to establish a single authoritative destination identity, preserve technical aliases for interoperability, and ensure every commercial, routing, and analytics component references that canonical record consistently.

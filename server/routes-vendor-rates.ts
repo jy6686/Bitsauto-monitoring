@@ -1,11 +1,11 @@
 import { Express } from 'express';
 import { parsePrefixExpression } from './services/vendor-prefix-parser';
-import { matchSheetDestinations } from './services/vendor-destination-matcher';
+import { matchSheetDestinations } from './services/destination/destination-matcher.service';
 import { db } from './db';
 import * as XLSX from 'xlsx';
 import { eq, desc, and, sql, ilike } from 'drizzle-orm';
 import {
-  canonicalVendors, approvalRequests, marginAnalyticsDaily, approvalAuditLog, vendorRateSheets, vendorRateSheetRows, vendorColumnMaps,
+  canonicalVendors, approvalRequests, marginAnalyticsDaily, approvalAuditLog, vendorRateSheets, vendorRateSheetRows, vendorColumnMaps, vendorRateNormalizedPrefixes,
 } from '../shared/schema';
 
 function getSheetList(fileData: string): { index: number; name: string; rowCount: number }[] {
@@ -106,6 +106,7 @@ export function registerVendorRatesRoutes(app: Express) {
       if (!fileData) return res.status(400).json({ error: 'fileData required' });
       const sheets = getSheetList(fileData);
       const { headers, dataRows } = parseFile(fileData, sheetIndex);
+      console.log("[vr] parse", { headers: headers.length, rows: dataRows.length });
       return res.json({ sheets, headers, sampleRows: dataRows.slice(skipRows, skipRows + 12), totalRows: dataRows.length });
     } catch (e: any) { return res.status(500).json({ error: e.message }); }
   });
@@ -122,6 +123,7 @@ export function registerVendorRatesRoutes(app: Express) {
 
       const { headers, dataRows } = parseFile(fileData, sheetIndex);
       const parsed: any[] = applyMap(headers, dataRows, columnMap, skipRows) as any[];
+      console.log("[vr] mapped", parsed.length);
       if (!parsed.length) return res.status(400).json({ error: 'No valid rows after mapping' });
 
       // Validation pass: dedup + sanity checks
@@ -134,6 +136,7 @@ export function registerVendorRatesRoutes(app: Express) {
         seenPfx.add(r.prefix);
         return true;
       });
+      console.log("[vr] validated", validated.length);
       if (!validated.length) return res.status(400).json({ error: 'No valid rows after validation' });
       // Debug: log first 3 rows to find varchar overflow
       console.log('[vr-import] sample rows:', JSON.stringify(validated.slice(0,3).map((r:any)=>({
@@ -192,6 +195,7 @@ export function registerVendorRatesRoutes(app: Express) {
           intervalN: vendorRateSheetRows.intervalN,
         });
         insertedRows.push(...returned);
+      console.log("[vr] rows inserted so far", insertedRows.length);
       }
       // Populate vendor_rate_normalized_prefixes from parsed prefix expressions
       const normBatch: any[] = [];
@@ -221,10 +225,23 @@ export function registerVendorRatesRoutes(app: Express) {
       const dedupedNorm = [
         ...new Map(normBatch.map((r: any) => [`${r.sheetId}:${r.normalizedPrefix}`, r])).values()
       ];
+      console.log("[vr] normalized", dedupedNorm.length);
       for (let i = 0; i < dedupedNorm.length; i += 500) {
         await db.insert(vendorRateNormalizedPrefixes).values(dedupedNorm.slice(i, i + 500));
       }
-      return res.json({ sheetId: sheet.id, rowCount: validated.length, normalizedCount: normBatch.length, duplicatesSkipped: dupPfx.length });
+      await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'normalized' WHERE id = ${sheet.id}`);
+      // Auto-match destinations immediately after normalization
+      const matchResult = await matchSheetDestinations(sheet.id);
+      await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'processed' WHERE id = ${sheet.id}`);
+      return res.json({
+        sheetId: sheet.id,
+        rowCount: validated.length,
+        normalizedCount: dedupedNorm.length,
+        duplicatesSkipped: dupPfx.length,
+        matched: matchResult.matched,
+        partial: matchResult.partial,
+        unmatched: matchResult.unmatched,
+      });
     } catch (e: any) { console.error('[vr/import]', e.message); return res.status(500).json({ error: e.message }); }
   });
 
@@ -238,6 +255,20 @@ export function registerVendorRatesRoutes(app: Express) {
       return res.json(result);
     } catch (e: any) {
       console.error('[vr/match]', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/vendor-rates/match-sheet  { sheetId: number }
+  app.post('/api/vendor-rates/match-sheet', async (req, res) => {
+    try {
+      const sheetId = parseInt(req.body?.sheetId);
+      if (isNaN(sheetId)) return res.status(400).json({ error: 'sheetId required' });
+      console.log('[vr/match] entered sheetId=', sheetId);
+      const result = await matchSheetDestinations(sheetId);
+      return res.json(result);
+    } catch (e: any) {
+      console.error('[vr/match] error:', e.message);
       return res.status(500).json({ error: e.message });
     }
   });

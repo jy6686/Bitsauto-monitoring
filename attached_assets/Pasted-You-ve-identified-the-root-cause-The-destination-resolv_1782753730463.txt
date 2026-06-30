@@ -1,0 +1,137 @@
+You've identified the root cause. The destination resolver isn't the problem—the vendor import pipeline never populated any rows.
+
+What the evidence shows
+
+Your database state is:
+
+vendor_rate_sheets
+------------------
+id:          1
+file_name:   test.xlsx
+status:      draft
+row_count:   0
+
+And:
+
+vendor_rate_sheet_rows               = 0
+vendor_rate_normalized_prefixes      = 0
+
+That means the pipeline stopped immediately after creating the sheet record.
+
+The intended flow is:
+
+Upload
+    │
+    ▼
+vendor_rate_sheets          ✓
+
+    │
+    ▼
+Parse XLSX                  ✗
+
+    │
+    ▼
+vendor_rate_sheet_rows      ✗
+
+    │
+    ▼
+Normalize prefixes          ✗
+
+    │
+    ▼
+Destination Resolver        (never reached)
+The routes confirm where to look
+
+You found:
+
+POST /api/vendor-rates/import
+
+around line 114.
+
+You also found every consumer of vendor_rate_sheet_rows, but no writer in your grep output.
+
+That strongly suggests one of two things:
+
+/import only creates the sheet header and leaves it in draft, expecting another step to parse it.
+The parser inside /import is failing before inserting rows.
+
+The status = 'draft' is the strongest clue. I would have expected something like:
+
+processing
+parsed
+ready
+failed
+
+A sheet that remains in draft usually indicates the import workflow never advanced.
+
+Next investigation
+
+Don't guess—inspect the import implementation.
+
+Open the section around the import route:
+
+sed -n '114,240p' server/routes-vendor-rates.ts
+
+Specifically answer these questions:
+
+After inserting into vendor_rate_sheets, does it call the XLSX parser?
+Does it insert into vendor_rate_sheet_rows?
+Does it update:
+row_count
+status
+Does it catch exceptions and silently continue?
+Also inspect the preview route
+
+You have:
+
+POST /api/vendor-rates/preview
+
+at line 102.
+
+Very often systems are implemented like this:
+
+Preview
+    ↓
+Parse XLSX
+
+Import
+    ↓
+Save metadata only
+
+If that's the case, the import route is incomplete.
+
+Open that section too:
+
+sed -n '102,170p' server/routes-vendor-rates.ts
+Verify whether parsing code exists
+
+Run:
+
+grep -R "xlsx\|sheet_to_json\|readFile\|read(" server -n
+
+or
+
+grep -R "vendor_rate_sheet_rows" server -n
+
+There should be an INSERT or Drizzle .insert() somewhere. If there isn't, the parser was never implemented.
+
+I don't think the matcher should be touched anymore
+
+The matcher is waiting for:
+
+vendor_rate_normalized_prefixes
+
+Since that table is empty, it's behaving correctly.
+
+Fixing the matcher now won't change anything.
+
+Recommended next step
+
+At this stage I would focus exclusively on the import route:
+
+Inspect POST /api/vendor-rates/preview (lines ~102–113).
+Inspect POST /api/vendor-rates/import (lines ~114–240).
+Find where (or if) vendor_rate_sheet_rows is populated.
+Verify whether the sheet status transitions from draft to parsed or whether that logic is missing.
+
+Once the import route successfully inserts raw rows and updates row_count, the normalization stage and your new destination resolution service should begin working without further changes. The current evidence points to the parser/import stage as the actual blocker, not the destination governance work you've completed.
