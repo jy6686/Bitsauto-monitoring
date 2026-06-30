@@ -170,7 +170,12 @@ app.use((req, res, next) => {
     const { writeFile } = await import('fs/promises');
     const { resolve }   = await import('path');
     const buf  = await generatePlatformPresentationPptx();
-    const dest = resolve(import.meta.dirname, '..', 'client', 'public', 'downloads', 'Bitsauto_Top11_Features.pptx');
+    // Use process.cwd() so this works in both CJS (production) and ESM (dev).
+    // In production the built static folder is dist/public/; in dev it's client/public/.
+    const downloadsDir = process.env.NODE_ENV === 'production'
+      ? resolve(process.cwd(), 'dist', 'public', 'downloads')
+      : resolve(process.cwd(), 'client', 'public', 'downloads');
+    const dest = resolve(downloadsDir, 'Bitsauto_Top11_Features.pptx');
     await writeFile(dest, buf);
     console.log(`[pptx] Pre-generated PPTX → ${dest} (${buf.length} bytes)`);
   }).catch((e: any) => {
