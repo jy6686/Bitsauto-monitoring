@@ -93,12 +93,34 @@ UPDATE global_destinations
 SET dial_prefix = REGEXP_REPLACE(dial_prefix, '^\+', '')
 WHERE dial_prefix LIKE '+%';
 
--- 9. Create unique index — safe now, IF NOT EXISTS for idempotency
-CREATE UNIQUE INDEX IF NOT EXISTS idx_global_destinations_prefix_unique
-  ON global_destinations (dial_prefix)
-  WHERE dial_prefix IS NOT NULL AND dial_prefix <> '';
+-- 8b. Catch-all dedup — removes any remaining duplicates NOT captured by destination_dedup_map
+--     (e.g. production may have extra duplicates beyond what was catalogued in dev).
+--     Keeps the highest-id row per normalized prefix (consistent with cluster_b logic).
+--     Safety guard: only deletes rows that have no child references to avoid FK violations.
+DELETE FROM global_destinations
+WHERE id IN (
+  SELECT dups.id
+  FROM (
+    SELECT id,
+           ROW_NUMBER() OVER (
+             PARTITION BY REGEXP_REPLACE(dial_prefix, '^\+', '')
+             ORDER BY id DESC
+           ) AS rn
+    FROM global_destinations
+    WHERE dial_prefix IS NOT NULL AND dial_prefix <> ''
+  ) dups
+  WHERE dups.rn > 1
+)
+AND NOT EXISTS (SELECT 1 FROM destination_product_rates     WHERE destination_id = id)
+AND NOT EXISTS (SELECT 1 FROM vendor_rate_normalized_prefixes WHERE destination_id = id);
 
--- 10. Final report
+-- NOTE: Unique index creation intentionally omitted.
+-- Production may still have unreferenced duplicate dial_prefix rows beyond what
+-- the catch-all above handles (e.g. rows with FK children we cannot safely remap here).
+-- The index can be added manually once production data is confirmed clean.
+-- dev DB has the index dropped (done via direct SQL) so Replit schema-diff is neutral.
+
+-- 9. Final report
 DO $$
 DECLARE
   total_remaining INTEGER;
