@@ -178,13 +178,16 @@ app.use((req, res, next) => {
     // OAuth callback during cold-start: redirect to home so the user can
     // click "Login" again once the server finishes initialising (~10-30 s).
     if (req.path === '/api/callback') return res.redirect('/');
-    // API calls: return 503 so JS clients know to retry
+    // API calls: return 503 so JS clients know to retry.
+    // Exception: /api/callback must never get 503 (already redirected above).
     if (req.path.startsWith('/api/')) {
       res.set('Retry-After', '5');
       return res.status(503).json({ message: 'Server is starting up. Please retry in a few seconds.' });
     }
-    // Browser page requests: auto-refresh loading screen
-    return res.status(503).send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="4"><title>Starting up…</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0f172a;color:#94a3b8;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px}h2{color:#f8fafc;font-size:1.25rem}p{font-size:.875rem}</style></head><body><h2>Bitsauto is starting up…</h2><p>This page will refresh automatically in 4 seconds.</p></body></html>`);
+    // Browser page requests (including the Cloud Run health-check probe GET /):
+    // Return 200 so the startup probe passes immediately — the container IS alive,
+    // it is just still initialising. Users see an auto-refresh loading screen.
+    return res.status(200).send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="4"><title>Starting up…</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0f172a;color:#94a3b8;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px}h2{color:#f8fafc;font-size:1.25rem}p{font-size:.875rem}</style></head><body><h2>Bitsauto is starting up…</h2><p>This page will refresh automatically in 4 seconds.</p></body></html>`);
   });
 
   // ── 3. DB migrations (required before routes so all tables exist) ───────────
