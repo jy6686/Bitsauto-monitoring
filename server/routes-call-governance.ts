@@ -1036,7 +1036,10 @@ export function registerCallGovernanceRoutes(app: Express) {
         )
         .limit(1);
 
-      if (!rows.length) return;
+      if (!rows.length) {
+        console.warn(`[call-governance] hangup on unmatched channel: ${event.channel} cause=${event.cause ?? '?'}`);
+        return;
+      }
       const gc = rows[0];
 
       // Cancel any pending timer
