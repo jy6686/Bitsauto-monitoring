@@ -773,7 +773,15 @@ export default function DashboardPage() {
   }, [displayActiveCalls, displayAsr, displayMos, displayPdd, displayAcd, displayNer]);
   useEffect(() => {
     if (!anyPortalActive) return;
-    const snap = () => setDeltaSnap({ ts: Date.now(), ...metricsRef.current });
+    const snap = () => setDeltaSnap({
+      ts: Date.now(),
+      activeCalls: metricsRef.current.displayActiveCalls,
+      asr:         metricsRef.current.displayAsr,
+      mos:         metricsRef.current.displayMos,
+      pdd:         metricsRef.current.displayPdd,
+      acd:         metricsRef.current.displayAcd,
+      ner:         metricsRef.current.displayNer,
+    });
     snap(); // take the first baseline immediately
     const id = setInterval(snap, 15 * 60_000);
     return () => clearInterval(id);

@@ -382,7 +382,7 @@ function SwitchPanel({
     refetchInterval: 60000,
     enabled: isPrimary,
   });
-  const { data: primarySippyLiveCalls, isLoading: sippyLoading, refetch: refetchSippy } = useQuery<{ calls: LiveCall[]; connected?: boolean }>({
+  const { data: primarySippyLiveCalls, isLoading: sippyLoading, refetch: refetchSippy } = useQuery<{ calls: LiveCall[]; connected?: boolean; error?: string }>({
     queryKey: ['/api/sippy/live-calls'],
     enabled: isPrimary,
     staleTime: 25_000,
@@ -394,7 +394,7 @@ function SwitchPanel({
   }, [lastTick]);
 
   // Secondary switch: use per-switch endpoints (keep polling — no WS for secondary)
-  const { data: switchLiveCalls, isLoading: switchLoading, refetch: refetchSwitch } = useQuery<{ calls: LiveCall[]; error?: string }>({
+  const { data: switchLiveCalls, isLoading: switchLoading, refetch: refetchSwitch } = useQuery<{ calls: LiveCall[]; connected?: boolean; error?: string }>({
     queryKey: ['/api/switches', switchId, 'live-calls'],
     refetchInterval: 60000,
     enabled: !isPrimary,

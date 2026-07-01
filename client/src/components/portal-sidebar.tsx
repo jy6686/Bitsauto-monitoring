@@ -296,7 +296,7 @@ export function PortalSidebar({ collapsed }: { collapsed?: boolean }) {
           {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
         </button>
         <button
-          onClick={logout}
+          onClick={() => logout()}
           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/[0.04] transition-colors flex-shrink-0"
           data-testid="button-portal-logout"
           title="Sign out"
