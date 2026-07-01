@@ -31,6 +31,14 @@ boot(`1 process started · Node ${process.version} · PID=${process.pid} · PORT
 const app = express();
 const httpServer = createServer(app);
 boot("2 express app + httpServer created");
+// Probe logger — first middleware; reveals exactly what Cloud Run health check hits
+app.use((req, _res, next) => {
+  if (req.originalUrl === '/' || req.originalUrl === '/healthz' || req.originalUrl.startsWith('/api/health')) {
+    console.log(`[probe] ${req.method} ${req.originalUrl} accept="${req.headers['accept'] ?? ''}"`);
+  }
+  next();
+});
+
   // ── Unauthenticated health probe (Cloud Run / Replit Autoscale) ──────────
   app.get('/healthz', (_req, res) => {
     res.json({ status: 'ok', uptime: Math.floor(process.uptime()), ts: Date.now() });
