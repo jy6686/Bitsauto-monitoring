@@ -1,4 +1,5 @@
-import * as XLSX from "xlsx";import { useState, useMemo, useCallback, useRef } from "react";
+import * as XLSX from "xlsx";
+import { VendorSheetUploader } from "@/features/vendor-sheets/VendorSheetUploader";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -33,11 +34,12 @@ interface DestRateBilling {
   approval_status: string; updated_at: string | null;
 }
 interface TreeNode extends Dest { children: TreeNode[]; }
-type TabId = "catalog" | "approvals" | "intel" | "import" | "gds";
+type TabId = "catalog" | "vendor" | "approvals" | "intel" | "import" | "gds";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TABS: { id: TabId; label: string; icon: any }[] = [
-  { id: "catalog",   label: "Destination Catalog", icon: Globe      },
+  { id: "catalog",   label: "Destination Catalog", icon: Globe          },
+  { id: "vendor",    label: "Vendor Sheets",       icon: FileSpreadsheet },
   { id: "approvals", label: "Approvals",            icon: Shield     },
   { id: "gds",       label: "GDS Rates",            icon: BarChart2  },
   { id: "intel",     label: "Market Intel",         icon: TrendingUp },
@@ -2024,6 +2026,7 @@ export default function DestinationCatalogPage() {
         ) : (
           <>
             {activeTab === "catalog"   && <CatalogTab flatNodes={flatNodes} />}
+            {activeTab === "vendor"    && <div className="h-full overflow-y-auto"><VendorSheetUploader /></div>}
             {activeTab === "approvals" && <div className="h-full overflow-y-auto"><ApprovalsTab flatNodes={flatNodes} /></div>}
             {activeTab === "gds"       && <div className="h-full overflow-y-auto"><GdsRatesTab /></div>}
             {activeTab === "intel"     && <MarketIntelTab flatNodes={flatNodes} />}
