@@ -15715,7 +15715,42 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
   type EntSnap = { ts: number; count: number; connected: number; routing: number };
   const entityConcurrentHistory = new Map<string, Map<string, EntSnap[]>>();
   const ENT_MAX_SNAP     = 480; // 8h at 45s intervals
+
   const ENT_MAX_ENTITIES = 30;  // top 30 entities tracked per dimension
+  // ── Startup seed: backfill last 6h so chart has history after restart ──────
+  setImmediate(async () => {
+    try {
+      const seedFrom = Date.now() - 6 * 60 * 60 * 1000;
+      const { rows } = await pool.query(
+        `SELECT dim, entity_name, ts, active, connected, routing
+         FROM concurrent_snapshots
+         WHERE ts >= $1
+         ORDER BY ts ASC`,
+        [seedFrom]
+      );
+      for (const row of rows as any[]) {
+        const d = row.dim as string;
+        const n = row.entity_name as string;
+        const snap: EntSnap = {
+          ts: Number(row.ts),
+          count: Number(row.active ?? 0),
+          connected: Number(row.connected ?? 0),
+          routing: Number(row.routing ?? 0),
+        };
+        if (!entityConcurrentHistory.has(d)) entityConcurrentHistory.set(d, new Map());
+        const dm = entityConcurrentHistory.get(d)!;
+        const arr = dm.get(n) ?? [];
+        arr.push(snap);
+        if (arr.length > ENT_MAX_SNAP) arr.splice(0, arr.length - ENT_MAX_SNAP);
+        dm.set(n, arr);
+      }
+      const dims = [...entityConcurrentHistory.keys()].join(', ');
+      const total = [...entityConcurrentHistory.values()].reduce((s, m) => s + m.size, 0);
+      console.log(`[entity-history] seeded ${rows.length} snapshots across ${total} entities (${dims})`);
+    } catch (e: any) {
+      console.warn('[entity-history] startup seed failed (non-fatal):', e?.message);
+    }
+  });
 
   // Persistent entity registry — keeps entities visible even when concurrent calls drop to zero.
   // Entities persist up to: Clients/Vendors 24h, Countries 12h, Destinations 6h after last call.
