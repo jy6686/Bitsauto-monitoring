@@ -31,6 +31,11 @@ boot(`1 process started · Node ${process.version} · PID=${process.pid} · PORT
 const app = express();
 const httpServer = createServer(app);
 boot("2 express app + httpServer created");
+  // ── Unauthenticated health probe (Cloud Run / Replit Autoscale) ──────────
+  app.get('/healthz', (_req, res) => {
+    res.json({ status: 'ok', uptime: Math.floor(process.uptime()), ts: Date.now() });
+  });
+
 
 declare module "http" {
   interface IncomingMessage {
