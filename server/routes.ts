@@ -16037,7 +16037,8 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
   // Single active execution. Slow Sippy cannot spawn overlapping runs.
   // Override interval without redeploy: set SNAPSHOT_INTERVAL_MS secret.
   const SNAPSHOT_INTERVAL_MS = Number(process.env.SNAPSHOT_INTERVAL_MS) || 45_000;
-  let _snapBusy = false;
+  let cachedActiveCallsMeta: { updatedAt: number; durationMs: number; source: string; success: boolean; activeCalls: number } = { updatedAt: 0, durationMs: 0, source: 'none', success: false, activeCalls: 0 };
+let _snapBusy = false;
   let _snapConsecFails = 0;
 
   async function runSnapshotSafe(): Promise<void> {
@@ -22474,7 +22475,6 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
 
     // ── 3. Sippy live API call (listActiveCalls) — also caches result for module checks
     let cachedActiveCalls: any[] | null = null;
-let cachedActiveCallsMeta: { updatedAt: number; durationMs: number; source: string; success: boolean; activeCalls: number } = { updatedAt: 0, durationMs: 0, source: 'none', success: false, activeCalls: 0 };
     const ts3 = Date.now();
     if (settings?.portalUrl && settings?.apiAdminUsername && settings?.apiAdminPassword) {
       try {

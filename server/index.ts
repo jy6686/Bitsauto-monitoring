@@ -15,6 +15,8 @@ process.on('unhandledRejection', (reason: any) => {
   console.error('[process] Unhandled rejection (non-fatal):', reason?.message ?? reason);
 });
 process.on('uncaughtException', (err: Error) => {
+  console.error('[process] Uncaught exception (non-fatal):', err.message);
+});
 
 process.on("exit", (code) => { console.error("[EXIT] code=", code); });
 process.on("SIGTERM", () => { console.error("[SIGTERM] received"); });
@@ -25,8 +27,6 @@ function boot(msg: string) {
   console.log(`[BOOT +${Date.now() - _bootStart}ms] ${msg}`);
 }
 boot(`1 process started · Node ${process.version} · PID=${process.pid} · PORT=${process.env.PORT} · NODE_ENV=${process.env.NODE_ENV}`);
-  console.error('[process] Uncaught exception (non-fatal):', err.message);
-});
 
 const app = express();
 const httpServer = createServer(app);
