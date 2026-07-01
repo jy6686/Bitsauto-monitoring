@@ -16033,8 +16033,45 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
       _snapshotRunning = false;
     }
   }
-  setTimeout(() => snapshotActiveCalls(), 8000);            // first run at startup
-  setInterval(() => snapshotActiveCalls(), 45 * 1000);      // every 45 s — slightly under UI's 60s poll
+  // ── Sippy Collector ─────────────────────────────────────────────────────────
+  // Single active execution. Slow Sippy cannot spawn overlapping runs.
+  // Override interval without redeploy: set SNAPSHOT_INTERVAL_MS secret.
+  const SNAPSHOT_INTERVAL_MS = Number(process.env.SNAPSHOT_INTERVAL_MS) || 45_000;
+  let _snapBusy = false;
+  let _snapConsecFails = 0;
+
+  async function runSnapshotSafe(): Promise<void> {
+    if (_snapBusy) { console.warn('[snapshot] skipped — previous run still in progress'); return; }
+    _snapBusy = true;
+    const _snapStarted = Date.now();
+    try {
+      await snapshotActiveCalls();
+      _snapConsecFails = 0;
+      cachedActiveCallsMeta = {
+        updatedAt: Date.now(),
+        durationMs: Date.now() - _snapStarted,
+        source: 'xmlrpc',
+        success: true,
+      };
+    } catch (err) {
+      console.error('[snapshot] error:', err);
+      _snapConsecFails++;
+      cachedActiveCallsMeta = { ...cachedActiveCallsMeta, success: false, updatedAt: Date.now() };
+      if (_snapConsecFails >= 5) {
+        console.error(`[snapshot] degraded — ${_snapConsecFails} consecutive failures; check Sippy connectivity`);
+      }
+    } finally {
+      const elapsed = Date.now() - _snapStarted;
+      console.log(`[snapshot] completed in ${elapsed}ms`);
+      if (elapsed > SNAPSHOT_INTERVAL_MS) {
+        console.warn(`[snapshot] ⚠ exceeded interval (${elapsed}ms > ${SNAPSHOT_INTERVAL_MS}ms) — mutex prevented overlap`);
+      }
+      _snapBusy = false;
+    }
+  }
+  setTimeout(() => runSnapshotSafe(), 8_000);
+  setInterval(() => runSnapshotSafe(), SNAPSHOT_INTERVAL_MS);
+  console.log(`[snapshot] interval=${SNAPSHOT_INTERVAL_MS / 1000}s (SNAPSHOT_INTERVAL_MS overrides)`);
 
   // ── Incident Escalation Scheduler ────────────────────────────────────────
   // Resends alert emails for unresolved incidents on a severity-weighted cadence.
@@ -22437,6 +22474,7 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
 
     // ── 3. Sippy live API call (listActiveCalls) — also caches result for module checks
     let cachedActiveCalls: any[] | null = null;
+let cachedActiveCallsMeta: { updatedAt: number; durationMs: number; source: string; success: boolean; activeCalls: number } = { updatedAt: 0, durationMs: 0, source: 'none', success: false, activeCalls: 0 };
     const ts3 = Date.now();
     if (settings?.portalUrl && settings?.apiAdminUsername && settings?.apiAdminPassword) {
       try {
