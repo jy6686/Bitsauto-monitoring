@@ -17,10 +17,16 @@ if (!process.env.DATABASE_URL) {
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 10,                  // max concurrent DB connections
-  idleTimeoutMillis: 30000, // close idle connections after 30 s
-  connectionTimeoutMillis: 10000, // fail fast (10 s) instead of hanging
+  max: 25,                   // raised from 10 — 274 concurrent calls need headroom
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 15000,
 });
+// Pool health monitor — logs every 30s so we can spot starvation
+setInterval(() => {
+  if (pool.waitingCount > 0 || pool.totalCount >= 20) {
+    console.warn(`[db-pool] total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount}`);
+  }
+}, 30_000);
 
 // Log pool errors so they appear in logs instead of crashing the process
 pool.on('error', (err) => {
