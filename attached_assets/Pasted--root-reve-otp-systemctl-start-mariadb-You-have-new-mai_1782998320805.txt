@@ -1,0 +1,82 @@
+[root@reve-otp ~]# systemctl start mariadb
+You have new mail in /var/spool/mail/root
+[root@reve-otp ~]# systemctl restart asterisk
+Job for asterisk.service failed. See "systemctl status asterisk.service" and "journalctl -xe" for details.
+[root@reve-otp ~]# fwconsole restart
+Running FreePBX shutdown...
+
+Running Asterisk pre from Core module
+systemctl stStopping Core FastAGI Server
+Stopped FastAGI Server
+Running Asterisk pre from Ucp module
+Stopping UCP Node Server
+[>---------------------------] 2 secs
+Stopped UCP Node Server
+Running Asterisk pre from Xmpp module
+Stopping Chat Server
+Stopped Chat Server
+Shutting down Asterisk Gracefully. Will forcefully kill after 30 seconds.
+Press C to Cancel
+Press N to shut down NOW
+[============================] 30 secs
+Killing asterisk forcefully.
+
+Running FreePBX startup...
+Running Asterisk pre from Firewall module
+Running Asterisk pre from Sysadmin module
+Running Sysadmin Hooks
+Restarting fail2ban
+fail2ban Restarted
+Checking Vpn server 
+Starting Asterisk...
+[============================] 2 secs
+Asterisk Started
+Running Asterisk post from Core module
+Starting Core FastAGI Server...
+[>---------------------------] 1 sec
+Started Core FastAGI Server. PID is 21062
+Running Asterisk post from Ucp module
+Starting UCP Node Server...
+[>---------------------------] 2 secs
+Started UCP Node Server. PID is 21589
+Running Asterisk post from Xmpp module
+Starting Chat Server...
+[>---------------------------] 4 secs
+Started Chat Server. PID is 22987
+[root@reve-otp ~]# systemctl status mariadb asterisk
+● mariadb.service - MariaDB database server
+   Loaded: loaded (/usr/lib/systemd/system/mariadb.service; enabled; vendor preset: disabled)
+   Active: active (running) since Thu 2026-07-02 13:14:35 UTC; 3min 32s ago
+  Process: 7907 ExecStartPost=/usr/libexec/mariadb-wait-ready $MAINPID (code=exited, status=0/SUCCESS)
+  Process: 7750 ExecStartPre=/usr/libexec/mariadb-prepare-db-dir %n (code=exited, status=0/SUCCESS)
+ Main PID: 7906 (mysqld_safe)
+   CGroup: /system.slice/mariadb.service
+           ├─7906 /bin/sh /usr/bin/mysqld_safe --basedir=/usr
+           └─8503 /usr/libexec/mysqld --basedir=/usr --datadir=/var/lib/mysql --plugin-dir=/usr/lib64/mysql/plugin --log-error=/var/log/mariadb/mariadb.log --pid-file=/var/run/mariadb/mariadb.pid --socket=...
+
+Jul 02 13:14:22 reve-otp systemd[1]: Starting MariaDB database server...
+Jul 02 13:14:24 reve-otp mariadb-prepare-db-dir[7750]: Database MariaDB is probably initialized in /var/lib/mysql already, nothing is done.
+Jul 02 13:14:24 reve-otp mariadb-prepare-db-dir[7750]: If this is not the case, make sure the /var/lib/mysql is empty before running mariadb-prepare-db-dir.
+Jul 02 13:14:27 reve-otp mysqld_safe[7906]: 260702 13:14:27 mysqld_safe Logging to '/var/log/mariadb/mariadb.log'.
+Jul 02 13:14:28 reve-otp mysqld_safe[7906]: 260702 13:14:28 mysqld_safe Starting mysqld daemon with databases from /var/lib/mysql
+Jul 02 13:14:35 reve-otp systemd[1]: Started MariaDB database server.
+
+● asterisk.service - LSB: Asterisk PBX
+   Loaded: loaded (/etc/rc.d/init.d/asterisk; bad; vendor preset: disabled)
+   Active: failed (Result: protocol) since Thu 2026-07-02 13:14:52 UTC; 3min 15s ago
+     Docs: man:systemd-sysv-generator(8)
+  Process: 10996 ExecStart=/etc/rc.d/init.d/asterisk start (code=exited, status=0/SUCCESS)
+
+Jul 02 13:14:51 reve-otp systemd[1]: Starting LSB: Asterisk PBX...
+Jul 02 13:14:52 reve-otp asterisk[10996]: Asterisk is already running.
+Jul 02 13:14:52 reve-otp systemd[1]: New main PID 27272 does not belong to service, and PID file is not owned by root. Refusing.
+Jul 02 13:14:52 reve-otp systemd[1]: New main PID 27272 does not belong to service, and PID file is not owned by root. Refusing.
+Jul 02 13:14:52 reve-otp systemd[1]: Failed to start LSB: Asterisk PBX.
+Jul 02 13:14:52 reve-otp systemd[1]: Unit asterisk.service entered failed state.
+Jul 02 13:14:52 reve-otp systemd[1]: asterisk.service failed.
+[root@reve-otp ~]# rm -f /var/log/asterisk/messages.*
+[root@reve-otp ~]# rm -f /var/log/maillog-20260621
+[root@reve-otp ~]# rm -f /var/log/maillog-20260628
+[root@reve-otp ~]# > /var/log/asterisk/full
+[root@reve-otp ~]# > /var/log/asterisk/messages
+[root@reve-otp ~]# df -h /
