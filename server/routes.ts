@@ -829,7 +829,7 @@ export async function registerRoutes(
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
 
-    const UNGUARDED = new Set(['/probe/status','/portal/auth/logout','/portal/auth/session','/debug/account-cache','/sippy/rates/portal-probe']);
+    const UNGUARDED = new Set(['/probe/status','/portal/auth/logout','/portal/auth/session','/debug/account-cache','/sippy/rates/portal-probe','/login','/callback','/logout']);
   app.use('/api',(req,res,next)=>{
     if(UNGUARDED.has(req.path)||req.path.startsWith('/notifications/acknowledge'))return next();
     const uid=req.user?.claims?.sub??req.user?.id??null;
