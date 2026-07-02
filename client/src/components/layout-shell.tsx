@@ -273,7 +273,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/compliance",           label: "Compliance",     icon: FileCheck2,    roles: ['admin','management']              },
       { href: "/audit-log",            label: "Audit Log",      icon: ClipboardList, roles: ['admin','management','destination_manager','routing_admin'], isNew: true },
       { href: "/rbac",                 label: "Permission Matrix", icon: Lock,        roles: ['admin','super_admin'], isNew: true },
-      { href: "/mfa-setup",            label: "MFA / 2FA",      icon: ShieldCheck,   roles: ['admin','super_admin','management','finance','noc_operator','team_lead','kam','viewer'], isNew: true },
+      { href: "/mfa-setup",            label: "MFA / 2FA",      icon: ShieldCheck,   roles: ['admin','super_admin','management','noc_operator','team_lead','viewer'], isNew: true },
       { href: "/security-ops",         label: "Security Ops",   icon: Shield,        roles: ['admin','super_admin'], isNew: true },
     ],
   },

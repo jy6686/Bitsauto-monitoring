@@ -4,8 +4,6 @@ import pg from "pg";
 import { is, getTableName, getTableColumns } from "drizzle-orm";
 import { PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@shared/schema";
-import { is, getTableName, getTableColumns } from "drizzle-orm";
-import { PgTable } from "drizzle-orm/pg-core";
 
 const { Pool } = pg;
 
