@@ -15721,13 +15721,8 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
   setImmediate(async () => {
     try {
       const seedFrom = Date.now() - 6 * 60 * 60 * 1000;
-      const { rows } = await pool.query(
-        `SELECT dim, entity_name, ts, active, connected, routing
-         FROM concurrent_snapshots
-         WHERE ts >= $1
-         ORDER BY ts ASC`,
-        [seedFrom]
-      );
+      const _seedResult = await db.execute(sql`SELECT dim, entity_name, ts, active, connected, routing FROM concurrent_snapshots WHERE ts >= ${seedFrom} ORDER BY ts ASC`);
+      const rows = (_seedResult as any).rows ?? [];
       for (const row of rows as any[]) {
         const d = row.dim as string;
         const n = row.entity_name as string;
