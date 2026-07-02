@@ -130,7 +130,7 @@ function sectionBannerSub(text: string): Paragraph {
   });
 }
 
-function heading(text: string, level: HeadingLevel, colorHex = WHITE) {
+function heading(text: string, level: (typeof HeadingLevel)[keyof typeof HeadingLevel], colorHex = WHITE) {
   const sz = level === HeadingLevel.HEADING_1 ? 40 : level === HeadingLevel.HEADING_2 ? 30 : 24;
   return new Paragraph({
     heading: level,
@@ -171,8 +171,8 @@ function kpiRow(items: { label: string; value: string; color?: string }[]): Tabl
       bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
       left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
       right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-      insideH: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-      insideV: { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      insideVertical: { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
     },
     rows: [
       new TableRow({
@@ -323,8 +323,8 @@ function featureTable(features: typeof FEATURES, groupByTier = false): Table {
       bottom:  { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
       left:    { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
       right:   { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
-      insideH: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
-      insideV: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
     },
     rows: [headerRow, ...dataRows],
   });

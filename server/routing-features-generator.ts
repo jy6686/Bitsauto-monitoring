@@ -134,8 +134,8 @@ function infoTable(rows: [string, string][]): Table {
       bottom:  { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
       left:    { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
       right:   { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
-      insideH: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
-      insideV: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
     },
     rows: rows.map(([label, value]) =>
       new TableRow({
@@ -249,8 +249,8 @@ function summaryTable(): Table {
       bottom:  { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
       left:    { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
       right:   { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
-      insideH: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
-      insideV: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
+      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: DIVIDER_C },
     },
     rows: [headerRow, ...dataRows],
   });
@@ -535,8 +535,8 @@ function kpiRow(items: { label: string; value: string; color?: string }[]): Tabl
       bottom:  { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
       left:    { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
       right:   { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-      insideH: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-      insideV: { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
+      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      insideVertical: { style: BorderStyle.SINGLE, size: 4, color: DIVIDER_C },
     },
     rows: [
       new TableRow({

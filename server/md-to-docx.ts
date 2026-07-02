@@ -162,8 +162,8 @@ function buildTable(rows: string[][]): Table {
       bottom:        { style: BorderStyle.SINGLE, size: 4, color: ROW_BORDER },
       left:          { style: BorderStyle.SINGLE, size: 4, color: ROW_BORDER },
       right:         { style: BorderStyle.SINGLE, size: 4, color: ROW_BORDER },
-      insideH:       { style: BorderStyle.SINGLE, size: 4, color: ROW_BORDER },
-      insideV:       { style: BorderStyle.SINGLE, size: 4, color: ROW_BORDER },
+      insideHorizontal:       { style: BorderStyle.SINGLE, size: 4, color: ROW_BORDER },
+      insideVertical:       { style: BorderStyle.SINGLE, size: 4, color: ROW_BORDER },
     },
     rows: paddedRows.map((cells, ri) => new TableRow({
       tableHeader: ri === 0,

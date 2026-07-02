@@ -123,7 +123,7 @@ function statusColor(status: string): string {
 export async function generateFeatureRegistryDoc(outPath: string): Promise<void> {
   const now = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
-  const children: Paragraph[] = [
+  const children: (Paragraph | Table)[] = [
 
     // ── Cover ────────────────────────────────────────────────────────────────
     new Paragraph({

@@ -145,8 +145,8 @@ function summaryTable(rows: { page: string; fetchItems: string; pushItems: strin
       bottom:       { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
       left:         { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
       right:        { style: BorderStyle.SINGLE, size: 4, color: DARK_GY },
-      insideH:      { style: BorderStyle.SINGLE, size: 2, color: DARK_GY },
-      insideV:      { style: BorderStyle.SINGLE, size: 2, color: DARK_GY },
+      insideHorizontal:      { style: BorderStyle.SINGLE, size: 2, color: DARK_GY },
+      insideVertical:      { style: BorderStyle.SINGLE, size: 2, color: DARK_GY },
     },
     rows: [headerRow, ...dataRows],
   });
@@ -679,7 +679,7 @@ export async function generateSippyDataflowDoc(outputPath?: string): Promise<Buf
         spacer(100),
         new Table({
           width: { size: PAGE_DXA, type: WidthType.DXA },
-          borders: { top: { style: BorderStyle.SINGLE, size: 4, color: DARK_GY }, bottom: { style: BorderStyle.SINGLE, size: 4, color: DARK_GY }, left: { style: BorderStyle.SINGLE, size: 4, color: DARK_GY }, right: { style: BorderStyle.SINGLE, size: 4, color: DARK_GY }, insideH: { style: BorderStyle.SINGLE, size: 2, color: DARK_GY }, insideV: { style: BorderStyle.SINGLE, size: 2, color: DARK_GY } },
+          borders: { top: { style: BorderStyle.SINGLE, size: 4, color: DARK_GY }, bottom: { style: BorderStyle.SINGLE, size: 4, color: DARK_GY }, left: { style: BorderStyle.SINGLE, size: 4, color: DARK_GY }, right: { style: BorderStyle.SINGLE, size: 4, color: DARK_GY }, insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: DARK_GY }, insideVertical: { style: BorderStyle.SINGLE, size: 2, color: DARK_GY } },
           rows: [
             new TableRow({ tableHeader: true, children: [
               new TableCell({ width: { size: w(36), type: WidthType.DXA }, shading: { type: ShadingType.SOLID, fill: PANEL_BG, color: PANEL_BG }, children: [new Paragraph({ children: [new TextRun({ text: 'XML-RPC Method', color: ACCENT, bold: true, size: 18 })] })] }),

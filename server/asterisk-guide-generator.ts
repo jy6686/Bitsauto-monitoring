@@ -193,7 +193,7 @@ export async function generateAsteriskGuide(): Promise<Buffer> {
   return Packer.toBuffer(doc);
 }
 
-function buildSections(): Paragraph[] {
+function buildSections(): (Paragraph | Table)[] {
   return [
     // ── Cover ────────────────────────────────────────────────────────────────
     new Paragraph({ spacing: { before: 1200, after: 200 }, children: [new TextRun({ text: 'ASTERISK', color: ACCENT, bold: true, size: 96 })] }),
