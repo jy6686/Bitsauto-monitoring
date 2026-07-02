@@ -13,7 +13,7 @@
 import type { Express }   from 'express';
 import { db }              from './db';
 import { eq, and, asc }   from 'drizzle-orm';
-import { validationRules, configurationValues, governanceReviews } from '@shared/schema';
+import { validationRules, configurationValues, governanceReviews , Role , ALL_PLATFORM_ROLES } from "@shared/schema";
 
 async function isGovernanceLocked(): Promise<boolean> {
   const [row] = await db.select({ status: governanceReviews.status })
@@ -21,8 +21,6 @@ async function isGovernanceLocked(): Promise<boolean> {
   return row?.status === 'locked';
 }
 
-type Role = 'admin' | 'super_admin' | 'management' | 'support' | 'viewer' |
-  'kam' | 'destination_manager' | 'routing_admin' | 'finance';
 
 function requireRole(roles: Role[], req: any, res: any, next: any) {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -30,13 +28,11 @@ function requireRole(roles: Role[], req: any, res: any, next: any) {
   next();
 }
 
-const ALL_ROLES: Role[] = ['admin','super_admin','management','support','viewer',
-  'kam','destination_manager','routing_admin','finance'];
 
 export function registerValidationRuleRoutes(app: Express) {
   // GET rules for a scope, grouped, with resolved threshold value
   app.get('/api/validation-rules',
-    (req: any, res, next) => requireRole(ALL_ROLES, req, res, next),
+    (req: any, res, next) => requireRole(ALL_PLATFORM_ROLES, req, res, next),
     async (req: any, res) => {
       try {
         const scope = (req.query.scope as string) || 'client';
@@ -82,7 +78,7 @@ export function registerValidationRuleRoutes(app: Express) {
 
   // GET all scopes summary (for future consumption layer)
   app.get('/api/validation-rules/all',
-    (req: any, res, next) => requireRole(ALL_ROLES, req, res, next),
+    (req: any, res, next) => requireRole(ALL_PLATFORM_ROLES, req, res, next),
     async (_req: any, res) => {
       try {
         const rules = await db.select().from(validationRules)

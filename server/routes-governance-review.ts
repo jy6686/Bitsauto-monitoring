@@ -13,10 +13,8 @@
 import type { Express } from 'express';
 import { db }            from './db';
 import { eq, asc, and } from 'drizzle-orm';
-import { governanceReviews, configurationValues, validationRules } from '@shared/schema';
+import { governanceReviews, configurationValues, validationRules , Role , ALL_PLATFORM_ROLES } from "@shared/schema";
 
-type Role = 'admin' | 'super_admin' | 'management' | 'support' | 'viewer' |
-  'kam' | 'destination_manager' | 'routing_admin' | 'finance';
 
 function requireRole(roles: Role[], req: any, res: any, next: any) {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -24,8 +22,6 @@ function requireRole(roles: Role[], req: any, res: any, next: any) {
   next();
 }
 
-const ALL_ROLES: Role[] = ['admin','super_admin','management','support','viewer',
-  'kam','destination_manager','routing_admin','finance'];
 
 async function ensureSingleton() {
   const existing = await db.select().from(governanceReviews).limit(1);
@@ -38,7 +34,7 @@ async function ensureSingleton() {
 export function registerGovernanceReviewRoutes(app: Express) {
   // GET current review + summary data
   app.get('/api/governance-review',
-    (req: any, res, next) => requireRole(ALL_ROLES, req, res, next),
+    (req: any, res, next) => requireRole(ALL_PLATFORM_ROLES, req, res, next),
     async (_req: any, res) => {
       try {
         const review = await ensureSingleton();

@@ -560,6 +560,11 @@ export type Role =
   | 'management'
   | 'viewer';
 
+export const ALL_PLATFORM_ROLES: Role[] = [
+  'super_admin','admin','destination_manager','routing_admin',
+  'noc_operator','team_lead','management','viewer',
+];
+
 // Approval Workflow RBAC policy (configurable — policy may be updated over time)
 export const APPROVAL_POLICY: Record<Role, { canSubmit: boolean; approveScope: 'all' | 'team' | 'none'; selfApproval: boolean }> = {
   super_admin:          { canSubmit: true,  approveScope: 'all',  selfApproval: true  },

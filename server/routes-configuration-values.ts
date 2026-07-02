@@ -10,7 +10,7 @@
 import type { Express } from 'express';
 import { db }           from './db';
 import { eq, and, asc } from 'drizzle-orm';
-import { configurationValues, governanceReviews } from '@shared/schema';
+import { configurationValues, governanceReviews , Role } from "@shared/schema";
 
 async function isGovernanceLocked(): Promise<boolean> {
   const [row] = await db.select({ status: governanceReviews.status })
@@ -18,8 +18,6 @@ async function isGovernanceLocked(): Promise<boolean> {
   return row?.status === 'locked';
 }
 
-type Role = 'admin' | 'super_admin' | 'management' | 'support' | 'viewer' |
-  'kam' | 'destination_manager' | 'routing_admin' | 'finance';
 
 function requireRole(roles: Role[], req: any, res: any, next: any) {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -30,8 +28,8 @@ function requireRole(roles: Role[], req: any, res: any, next: any) {
 export function registerConfigurationValueRoutes(app: Express) {
   // GET all or filtered by category
   app.get('/api/configuration-values',
-    (req: any, res, next) => requireRole(['admin', 'super_admin', 'management', 'support', 'viewer',
-      'kam', 'destination_manager', 'routing_admin', 'finance'], req, res, next),
+    (req: any, res, next) => requireRole(['admin', 'super_admin', 'management', 'noc_operator', 'viewer',
+      'management', 'destination_manager', 'routing_admin', 'management'], req, res, next),
     async (req: any, res) => {
       try {
         const { category } = req.query as { category?: string };
@@ -84,8 +82,8 @@ export function registerConfigurationValueRoutes(app: Express) {
 
   // GET single value by category + key — useful for runtime config reads
   app.get('/api/configuration-values/:category/:key',
-    (req: any, res, next) => requireRole(['admin', 'super_admin', 'management', 'support', 'viewer',
-      'kam', 'destination_manager', 'routing_admin', 'finance'], req, res, next),
+    (req: any, res, next) => requireRole(['admin', 'super_admin', 'management', 'noc_operator', 'viewer',
+      'management', 'destination_manager', 'routing_admin', 'management'], req, res, next),
     async (req: any, res) => {
       try {
         const { category, key } = req.params;

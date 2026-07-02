@@ -256,7 +256,9 @@ const ROLE_PATHS: Record<Role, string[]> = {
   noc_operator: ['/', '/calls', '/approvals'],
   team_lead:    ['/', '/calls', '/approvals'],
   management:   ['/', '/calls', '/alerts', '/reports'],
-  viewer:       ['/', '/calls'],
+  viewer:               ['/', '/calls'],
+  destination_manager:  ['/', '/calls', '/alerts', '/approvals'],
+  routing_admin:        ['/', '/calls', '/alerts', '/approvals'],
 };
 
 // Build a quick lookup: route → feature key (used by ProtectedRoute)
@@ -401,13 +403,13 @@ function Router() {
         {() => <ProtectedRoute component={ToolsPage} requiredRoles={['admin','management']} mgmtFeature="tools" />}
       </Route>
       <Route path="/configuration-values">
-        {() => <ProtectedRoute component={ConfigurationValuesPage} requiredRoles={['admin','management','support','viewer']} />}
+        {() => <ProtectedRoute component={ConfigurationValuesPage} requiredRoles={['admin','management','noc_operator','viewer']} />}
       </Route>
       <Route path="/validation-rules">
-        {() => <ProtectedRoute component={ValidationRulesPage} requiredRoles={['admin','management','support','viewer']} />}
+        {() => <ProtectedRoute component={ValidationRulesPage} requiredRoles={['admin','management','noc_operator','viewer']} />}
       </Route>
       <Route path="/governance-review">
-        {() => <ProtectedRoute component={GovernanceReviewPage} requiredRoles={['admin','management','support','viewer']} />}
+        {() => <ProtectedRoute component={GovernanceReviewPage} requiredRoles={['admin','management','noc_operator','viewer']} />}
       </Route>
       <Route path="/team">
         {() => <ProtectedRoute component={TeamPage} requiredRoles={['admin']} />}
@@ -711,7 +713,7 @@ function Router() {
         {() => <ProtectedRoute component={IntelligenceValidationPage} requiredRoles={['admin','management','destination_manager']} />}
       </Route>
       <Route path="/live-traffic-map">
-        {() => <ProtectedRoute component={LiveTrafficMapPage} requiredRoles={['admin','noc','management']} />}
+        {() => <ProtectedRoute component={LiveTrafficMapPage} requiredRoles={['admin','noc_operator','management']} />}
       </Route>
       <Route path="/vendor-prefix-intelligence">
         {() => <ProtectedRoute component={VendorPrefixIntelligencePage} requiredRoles={['admin','management','destination_manager']} />}
@@ -831,7 +833,7 @@ function Router() {
       </Route>
 
       <Route path="/mfa-setup">
-        {() => <ProtectedRoute component={MfaSetupPage} requiredRoles={['admin','super_admin','management','finance','noc_operator','team_lead','kam','viewer']} />}
+        {() => <ProtectedRoute component={MfaSetupPage} requiredRoles={['admin','super_admin','management','noc_operator','team_lead','destination_manager','routing_admin','viewer']} />}
       </Route>
 
       <Route path="/mfa-verify">
