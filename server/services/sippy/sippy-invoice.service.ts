@@ -592,7 +592,7 @@ export async function generateInvoice(opts: {
         if (company?.sippyITariff) resolvedTariff = String(company.sippyITariff);
       }
       if (!resolvedTariff && opts.customerName) {
-        const allCompanies = await storage.listCompanies();
+        const allCompanies = await storage.getCompanies();
         const match = allCompanies.find(c =>
           c.name?.toLowerCase() === opts.customerName.toLowerCase() ||
           (c as any).billingName?.toLowerCase() === opts.customerName.toLowerCase() ||

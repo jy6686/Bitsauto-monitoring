@@ -60,8 +60,8 @@ export async function getTariffInfo(
   iTariff: string | number,
 ): Promise<SippyTariff> {
   try {
-    const result = await sippy.getTariffInfo(config.username, config.password, iTariff, config.portalUrl);
-    return result as SippyTariff;
+    const result = await sippy.getTariffInfo(config.username, config.password, Number(iTariff));
+    return result as unknown as SippyTariff;
   } catch (err) {
     throw normalizeSippyError(err, 'getTariffInfo');
   }
@@ -80,21 +80,9 @@ export async function getTariffRatesList(
 ): Promise<SippyTariffRate[]> {
   try {
     const rows = await sippy.getTariffRatesListFull(
-      config.username, config.password, iTariff, config.portalUrl, prefix,
+      config.username, config.password, Number(iTariff),
     );
-    return (rows ?? []).map(r => ({
-      prefix:           r.prefix,
-      destination:      r.destination,
-      price1:           r.price1   ?? r.price_1   ?? r.p1,
-      priceN:           r.priceN   ?? r.price_n   ?? r.pn,
-      interval1:        r.interval1  ?? r.interval_1  ?? 60,
-      intervalN:        r.intervalN  ?? r.interval_n  ?? 60,
-      freeSeconds:      r.freeSeconds  ?? r.free_seconds  ?? 0,
-      gracePeriod:      r.gracePeriod  ?? r.grace_period  ?? 0,
-      connectFee:       r.connectFee   ?? r.connect_fee   ?? 0,
-      postCallSurcharge:r.postCallSurcharge ?? r.post_call_surcharge ?? 0,
-      ...r,
-    })) as SippyTariffRate[];
+    return (rows ?? []) as unknown as SippyTariffRate[];
   } catch (err) {
     throw normalizeSippyError(err, 'getTariffRatesList');
   }
@@ -113,7 +101,9 @@ export async function getRateAnalysis(
 ): Promise<unknown> {
   try {
     return await sippy.getSippyRateAnalysis(
-      config.username, config.password, params, config.portalUrl,
+      config.username, config.password,
+      { tariffId: params.iTariff != null ? String(params.iTariff) : undefined,
+        destination: params.prefix },
     );
   } catch (err) {
     throw normalizeSippyError(err, 'getRateAnalysis');
@@ -134,7 +124,6 @@ export async function createTariff(
     const result = await sippy.createTariff(
       config.username, config.password,
       { name: opts.name, currency: opts.currency ?? 'USD' },
-      config.portalUrl,
     );
     await auditLog({
       operationType: 'tariff_update',
@@ -195,7 +184,7 @@ export async function pushRate(
     const result = await withRetry(() =>
       sippy.pushRateToSippy(
         {
-          iTariff:            opts.iTariff,
+          iTariff:            opts.iTariff != null ? String(opts.iTariff) : undefined,
           prefix:             normalizePrefix(opts.prefix),
           price_1:            opts.price1,
           price_n:            opts.priceN,
@@ -275,7 +264,7 @@ export async function clearTariffRates(
 ): Promise<ServiceResult<void>> {
   const t0 = Date.now();
   try {
-    await sippy.deleteAllRatesInTariff(config.username, config.password, iTariff, config.portalUrl);
+    await sippy.deleteAllRatesInTariff(config.username, config.password, Number(iTariff));
     await auditLog({
       operationType: 'tariff_update',
       portalUrl: config.portalUrl,

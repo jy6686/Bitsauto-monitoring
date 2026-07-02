@@ -43,7 +43,7 @@ export async function createInvoiceJob(
   let iTariff = opts.iTariff;
   if (!iTariff) {
     try {
-      const allCompanies = await storage.listCompanies();
+      const allCompanies = await storage.getCompanies();
       const match = allCompanies.find(c =>
         c.name?.toLowerCase() === clientName.toLowerCase() ||
         (c as any).billingName?.toLowerCase() === clientName.toLowerCase()
@@ -181,7 +181,7 @@ export async function detectBillingCycles(): Promise<DetectResult> {
       // Auto-resolve tariff from companies
       let iTariff: string | undefined;
       try {
-        const allCompanies = await storage.listCompanies();
+        const allCompanies = await storage.getCompanies();
         const match = allCompanies.find(c =>
           c.name?.toLowerCase() === client.name.toLowerCase() ||
           (c as any).billingName?.toLowerCase() === client.name.toLowerCase()

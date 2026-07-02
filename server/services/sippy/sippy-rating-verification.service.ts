@@ -144,14 +144,14 @@ export function reproduceCost(
   durationSecs: number,
   rate: SippyTariffRate,
 ): ReproducedRating {
-  const interval1   = rate.interval1    ?? rate.interval_1    ?? 60;
-  const intervalN   = rate.intervalN    ?? rate.interval_n    ?? 60;
-  const price1      = rate.price1       ?? rate.price_1       ?? 0;
-  const priceN      = rate.priceN       ?? rate.price_n       ?? 0;
-  const connectFee  = rate.connectFee   ?? rate.connect_fee   ?? 0;
-  const freeSecs    = rate.freeSeconds  ?? rate.free_seconds  ?? 0;
-  const gracePeriod = rate.gracePeriod  ?? rate.grace_period  ?? 0;
-  const surcharge   = rate.postCallSurcharge ?? rate.post_call_surcharge ?? 0;
+  const interval1   = Number(rate.interval1   ?? 60);
+  const intervalN   = Number(rate.intervalN   ?? 60);
+  const price1      = Number(rate.price1      ?? 0);
+  const priceN      = Number(rate.priceN      ?? 0);
+  const connectFee  = Number(rate.connectFee  ?? 0);
+  const freeSecs    = Number(rate.freeSeconds ?? 0);
+  const gracePeriod = Number(rate.gracePeriod ?? 0);
+  const surcharge   = Number(rate.postCallSurcharge ?? 0);
 
   // Grace period check
   if (gracePeriod > 0 && durationSecs <= gracePeriod) {
