@@ -101,7 +101,14 @@ export async function setupAuth(app: Express) {
   };
 
   passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
+  passport.deserializeUser((user: Express.User, cb) => {
+    try {
+      if (!user || typeof user !== 'object') return cb(null, false as any);
+      cb(null, user);
+    } catch (e) {
+      cb(null, false as any);
+    }
+  });
 
   app.get("/api/login", (req, res, next) => {
     ensureStrategy(req.hostname);

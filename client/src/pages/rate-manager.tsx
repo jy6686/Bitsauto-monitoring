@@ -1355,10 +1355,10 @@ function VendorRatesTab() {
           {(vendors as any[]).map((v:any)=><option key={v.id} value={String(v.id)}>{v.name}</option>)}
         </select>
         <span className="text-xs text-muted-foreground">{(filtered as any[]).length} sheet{(filtered as any[]).length!==1?'s':''}</span>
-        <button onClick={()=>{setUpOpen(true);setWStep(1);setWFile(null);setWVid(null);setWMap({});}}
+        <a href="/destination-catalog?tab=vendor"
           className="ml-auto text-xs bg-blue-600 hover:bg-blue-700 text-white rounded px-3 py-1.5 font-medium flex items-center gap-1.5">
-          <Upload className="w-3 h-3"/>Upload Sheet
-        </button>
+          <Upload className="w-3 h-3"/>Import Vendor Sheet
+        </a>
         {(pendingApprovals as any[]).length>0&&(
           <button onClick={()=>setShowApprovals(v=>!v)}
             className="text-xs bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 rounded px-3 py-1.5 font-medium flex items-center gap-1.5">

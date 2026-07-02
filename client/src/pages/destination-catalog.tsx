@@ -1963,6 +1963,18 @@ function GdsRatesTab() {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function DestinationCatalogPage() {
   const [activeTab, setActiveTab] = useState<TabId>("catalog");
+  // Deep-link support: /destination-catalog?tab=vendor
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("tab") as TabId | null;
+    if (t && ["catalog","vendor","approvals","intel","import","gds"].includes(t)) setActiveTab(t);
+  }, []);
+  // Keep URL in sync when tab changes
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("tab", activeTab);
+    window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+  }, [activeTab]);
   const { data: flatNodes = [], isLoading } = useQuery<Dest[]>({
     queryKey: ["/api/product-registry/destinations"],
   });

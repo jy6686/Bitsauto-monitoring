@@ -219,6 +219,7 @@ app.use((req, res, next) => {
   boot("5 runSafeMigrations() starting");
   await runSafeMigrations();
   boot("6 runSafeMigrations() done");
+  console.log("[db] connected:", (process.env.DATABASE_URL ?? "").replace(/:\/\/[^:]+:[^@]+@/, "://<user>:***@"));
   // Schema check is diagnostic-only — run async so it doesn't delay routes
   runSchemaCheck().catch(() => {});
 
@@ -328,16 +329,20 @@ app.use((req, res, next) => {
   const { storage: gdprStorage } = await import('./storage');
   initGdprRetention(gdprStorage);
 
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) return next(err);
 
-    console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
+    // Stale/incompatible session token — clear it and redirect to login
+    if (err?.message === 'Failed to deserialize user out of session') {
+      req.session?.destroy(() => {});
+      const accept = req.headers['accept'] ?? '';
+      if (accept.includes('text/html')) return res.redirect('/api/login');
+      return res.status(401).json({ message: 'Session expired — please log in again.' });
     }
 
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
+    console.error("Internal Server Error:", err);
     return res.status(status).json({ message });
   });
 

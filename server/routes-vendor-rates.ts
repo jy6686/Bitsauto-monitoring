@@ -163,6 +163,7 @@ export function registerVendorRatesRoutes(app: Express) {
 
       // ── Phase: DB insert (sheet record) ──────────────────────────────────────
       _ph = performance.now();
+      console.log("[vr] BEFORE sheet insert — vendorId:", vendorId, "rowCount:", validated.length);
       const [sheet] = await db.insert(vendorRateSheets).values({
         vendorId, fileName, fileType, currency,
         effectiveDate: effectiveDate ?? null,
@@ -172,6 +173,7 @@ export function registerVendorRatesRoutes(app: Express) {
         destinationSetId: destinationSetId ?? null,
         sippySwitchId: sippySwitchId ?? null,
       }).returning();
+      console.log("[vr] AFTER sheet insert — sheetId:", sheet?.id);
       await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'processing' WHERE id = ${sheet.id}`);
       console.log(`[vr] DB insert (sheet) ${(performance.now()-_ph).toFixed(1)}ms sheetId=${sheet.id}`);
 
@@ -180,10 +182,12 @@ export function registerVendorRatesRoutes(app: Express) {
 
       // ── Background worker ─────────────────────────────────────────────────────
       setImmediate(async () => {
+        console.log(`[vr] bg worker entered sheetId=${sheet.id}`);
         try {
           // Phase: DB insert (rows)
           let _bph = performance.now();
           await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'parsing' WHERE id = ${sheet.id}`);
+          console.log('[vr] bg starting — validated:', validated.length, 'sheetId:', sheet.id);
           const insertedRows: {
             id: number; rawPrefixExpression: string | null; prefix: string;
             destination: string | null; rate: string; currency: string;
@@ -213,7 +217,7 @@ export function registerVendorRatesRoutes(app: Express) {
             });
             insertedRows.push(...returned);
           }
-          console.log(`[vr] DB insert (rows) ${(performance.now()-_bph).toFixed(1)}ms inserted=${insertedRows.length}`);
+          console.log(`[vr] DB insert (rows) ${(performance.now()-_bph).toFixed(1)}ms inserted=${insertedRows.length} sheetId=${sheet.id}`);
 
           // Phase: normalization
           _bph = performance.now();
@@ -241,7 +245,7 @@ export function registerVendorRatesRoutes(app: Express) {
           for (let i = 0; i < dedupedNorm.length; i += 500) {
             await db.insert(vendorRateNormalizedPrefixes).values(dedupedNorm.slice(i, i + 500));
           }
-          console.log(`[vr] normalization ${(performance.now()-_bph).toFixed(1)}ms normalized=${dedupedNorm.length}`);
+          console.log(`[vr] normalization ${(performance.now()-_bph).toFixed(1)}ms normalized=${dedupedNorm.length} sheetId=${sheet.id}`);
 
           // Phase: matching
           _bph = performance.now();
@@ -250,8 +254,11 @@ export function registerVendorRatesRoutes(app: Express) {
           await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'ready' WHERE id = ${sheet.id}`);
           console.log(`[vr] matching ${(performance.now()-_bph).toFixed(1)}ms matched=${matchResult.matched} partial=${matchResult.partial} unmatched=${matchResult.unmatched}`);
         } catch (bgErr: any) {
-          console.error('[vr/import-bg]', bgErr.message);
+          console.error('[vr/import-bg] message:', bgErr?.message);
+          console.error('[vr/import-bg] stack:', bgErr?.stack);
           await db.execute(sql`UPDATE vendor_rate_sheets SET status = 'error' WHERE id = ${sheet.id}`).catch(() => {});
+        } finally {
+          console.log(`[vr] bg worker completed sheetId=${sheet.id}`);
         }
       });
     } catch (e: any) { console.error('[vr/import]', e.message); return res.status(500).json({ error: e.message }); }
