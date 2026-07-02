@@ -601,7 +601,7 @@ export function registerRateManagerRoutes(app: Express) {
   // ── KPI Strip ──────────────────────────────────────────────────────────────
   // GET /api/rate-manager/kpi
   app.get('/api/rate-manager/kpi',
-    (req: any, res: any, next: any) => requireRole(['admin','management','support'], req, res, next),
+    (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next),
     async (_req: any, res: any) => {
       try {
         const now          = new Date();
@@ -733,7 +733,7 @@ export function registerRateManagerRoutes(app: Express) {
 
 
   // POST /api/rate-manager/jobs/:id/retry
-  app.post("/api/rate-manager/jobs/:id/retry", (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next), async (req: any, res) => {
+  app.post("/api/rate-manager/jobs/:id/retry", (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator'], req, res, next), async (req: any, res) => {
     try {
       const jobId = req.params.id;  // this is the job_id text value e.g. "job-1782052079612"
       let job: any = null;

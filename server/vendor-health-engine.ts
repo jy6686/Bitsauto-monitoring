@@ -196,23 +196,10 @@ async function computeVendorScores(): Promise<VendorHealthBreakdown[]> {
     if (row.vendor) fasByVendor.set(row.vendor, Number(row.count));
   }
 
-  // ── 5. Blacklist hit count per vendor (all-time, from blacklist_rules) ────
-  let blacklistByVendor = new Map<string, number>();
-  try {
-    const blRows = await db
-      .select({
-        vendor:   blacklistRules.vendor,
-        hitCount: blacklistRules.hitCount,
-      })
-      .from(blacklistRules)
-      .where(drizzleSql`${blacklistRules.vendor} is not null`);
-    for (const row of blRows) {
-      if (!row.vendor) continue;
-      const existing = blacklistByVendor.get(row.vendor) ?? 0;
-      blacklistByVendor.set(row.vendor, existing + (row.hitCount ?? 0));
-    }
-  } catch { /* non-fatal — blacklist table may not have vendor column */ }
-
+  // ── 5. Blacklist hit count per vendor ─────────────────────────────────
+  // blacklist_rules is now a global table without a vendor column.
+  // Vendor-specific blacklist metrics disabled pending redesign.
+  const blacklistByVendor = new Map<string, number>();
   // ── 6. Margin from daily_minutes_reports (last 7 days) ───────────────────
   const marginRows = await db
     .select({

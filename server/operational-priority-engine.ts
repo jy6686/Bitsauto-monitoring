@@ -47,7 +47,7 @@ export async function getUrgencyScores(forceRefresh = false): Promise<UrgencySna
 
   // Parallel DB reads — all from existing tables, read-only
   const [incidents, fasEvts, carriers, pending] = await Promise.all([
-    db.select({ status: consoleIncidents.status, severity: consoleIncidents.severity })
+    db.select({ status: consoleIncidents.state, severity: consoleIncidents.severity })
       .from(consoleIncidents)
       .catch(() => [] as { status: string; severity: string }[]),
 

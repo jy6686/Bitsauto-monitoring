@@ -158,7 +158,7 @@ export function registerRateNotificationRoutes(app: Express) {
   // ── Templates CRUD ──────────────────────────────────────────────────────────
 
   app.get('/api/rate-notification-templates',
-    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator'], req, res, next),
     async (req: any, res) => {
       try {
         const rows = await db
@@ -205,7 +205,7 @@ export function registerRateNotificationRoutes(app: Express) {
   );
 
   app.get('/api/rate-notification-templates/:id',
-    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator'], req, res, next),
     async (req: any, res) => {
       try {
         const id = Number(req.params.id);
@@ -615,7 +615,7 @@ export function registerRateNotificationRoutes(app: Express) {
   // ── Jobs list + detail ──────────────────────────────────────────────────────
 
   app.get('/api/rate-notification-jobs',
-    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator'], req, res, next),
     async (req: any, res) => {
       try {
         const rows = await db
@@ -631,7 +631,7 @@ export function registerRateNotificationRoutes(app: Express) {
   );
 
   app.get('/api/rate-notification-jobs/:id',
-    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator'], req, res, next),
     async (req: any, res) => {
       try {
         const id = Number(req.params.id);
@@ -649,7 +649,7 @@ export function registerRateNotificationRoutes(app: Express) {
   // 1. Submit for approval (pending_rates → awaiting_approval)
   //    Requires a template to be linked; 400 if not.
   app.post('/api/rate-notification-jobs/:id/submit-approval',
-    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator'], req, res, next),
     async (req: any, res) => {
       try {
         const id = Number(req.params.id);
@@ -746,7 +746,7 @@ export function registerRateNotificationRoutes(app: Express) {
   //   destinations and set a mismatch warning if destinationCount differs.
 
   app.get('/api/rate-notification-jobs/:id/sheet',
-    (req: any, res, next) => requireRole(['admin', 'management', 'support'], req, res, next),
+    (req: any, res, next) => requireRole(['admin', 'management', 'noc_operator'], req, res, next),
     async (req: any, res) => {
       try {
         const id = Number(req.params.id);
