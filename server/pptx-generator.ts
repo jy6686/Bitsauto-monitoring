@@ -228,14 +228,14 @@ const slides: Slide[] = [
 
 function hex(c: string) { return c.startsWith('#') ? c.slice(1) : c; }
 
-function addBackground(slide: PptxGenJS.Slide) {
-  slide.addShape('rect' as PptxGenJS.ShapeType, {
+function addBackground(slide: any) {
+  slide.addShape('rect' as any, {
     x: 0, y: 0, w: '100%', h: '100%', fill: { color: hex(DARK_BG) },
   });
 }
 
-function addAccentBar(slide: PptxGenJS.Slide, color: string) {
-  slide.addShape('rect' as PptxGenJS.ShapeType, {
+function addAccentBar(slide: any, color: string) {
+  slide.addShape('rect' as any, {
     x: 0, y: 0, w: 0.06, h: '100%', fill: { color: hex(color) },
   });
 }
@@ -254,18 +254,18 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
     if (s.type === 'cover') {
       addBackground(slide);
       // Gradient overlay strip
-      slide.addShape('rect' as PptxGenJS.ShapeType, {
+      slide.addShape('rect' as any, {
         x: 0, y: 0, w: '60%', h: '100%',
         fill: { color: '1A0A3D', transparency: 30 },
       });
       // Violet accent bar
-      slide.addShape('rect' as PptxGenJS.ShapeType, {
+      slide.addShape('rect' as any, {
         x: 0, y: 0, w: 0.06, h: '100%', fill: { color: hex(VIOLET) },
       });
       // Badge
-      slide.addShape('rect' as PptxGenJS.ShapeType, {
+      slide.addShape('rect' as any, {
         x: 1, y: 1.1, w: 3.8, h: 0.35, fill: { color: '1E1040' },
-        line: { color: hex(VIOLET), width: 1 }, rounding: 0.5,
+        line: { color: hex(VIOLET), width: 1 },
       });
       slide.addText('COMMERCIAL FEATURE OVERVIEW', {
         x: 1, y: 1.1, w: 3.8, h: 0.35,
@@ -293,10 +293,10 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
       const pillColors = ['7C3AED','06B6D4','10B981','F59E0B'];
       pills.forEach((p, i) => {
         const x = 0.5 + i * 2.05;
-        slide.addShape('rect' as PptxGenJS.ShapeType, {
+        slide.addShape('rect' as any, {
           x, y: 4.8, w: 1.9, h: 0.38,
           fill: { color: pillColors[i], transparency: 85 },
-          line: { color: pillColors[i], width: 1 }, rounding: 0.5,
+          line: { color: pillColors[i], width: 1 },
         });
         slide.addText(p, {
           x, y: 4.8, w: 1.9, h: 0.38,
@@ -313,7 +313,7 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
 
     if (s.type === 'closer') {
       addBackground(slide);
-      slide.addShape('rect' as PptxGenJS.ShapeType, {
+      slide.addShape('rect' as any, {
         x: 0, y: 0, w: '100%', h: '100%',
         fill: { color: '1A0A3D', transparency: 50 },
       });
@@ -328,17 +328,17 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
       });
       s.points.forEach((pt, i) => {
         const y = 2.6 + i * 0.75;
-        slide.addShape('rect' as PptxGenJS.ShapeType, {
+        slide.addShape('rect' as any, {
           x: 1.5, y, w: 10.3, h: 0.62,
           fill: { color: hex(CARD_BG) },
-          line: { color: hex(BORDER), width: 1 }, rounding: 0.2,
+          line: { color: hex(BORDER), width: 1 },
         });
         slide.addText(`${pt.icon}  ${pt.text}`, {
           x: 1.7, y, w: 10, h: 0.62,
           fontSize: 13, color: hex(TEXT_W), valign: 'middle',
         });
       });
-      slide.addShape('line' as PptxGenJS.ShapeType, {
+      slide.addShape('line' as any, {
         x: 3, y: 6.6, w: 7.3, h: 0, line: { color: hex(BORDER), width: 1 },
       });
       slide.addText(s.cta, {
@@ -354,7 +354,7 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
     addAccentBar(slide, s.color);
 
     // Left panel background
-    slide.addShape('rect' as PptxGenJS.ShapeType, {
+    slide.addShape('rect' as any, {
       x: 0.06, y: 0, w: 6.44, h: '100%',
       fill: { color: hex(CARD_BG) },
     });
@@ -380,7 +380,7 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
     });
 
     // Accent divider
-    slide.addShape('line' as PptxGenJS.ShapeType, {
+    slide.addShape('line' as any, {
       x: 0.3, y: 2.42, w: 6, h: 0,
       line: { color: hex(s.color), width: 1.5, transparency: 60 },
     });
@@ -389,7 +389,7 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
     s.how.forEach((h, i) => {
       const y = 2.6 + i * 1.35;
       // Bullet dot
-      slide.addShape('ellipse' as PptxGenJS.ShapeType, {
+      slide.addShape('ellipse' as any, {
         x: 0.3, y: y + 0.06, w: 0.1, h: 0.1,
         fill: { color: hex(s.color) },
       });
@@ -401,10 +401,10 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
 
     // Right panel — Metrics card
     const mx = 6.8;
-    slide.addShape('rect' as PptxGenJS.ShapeType, {
+    slide.addShape('rect' as any, {
       x: mx, y: 0.3, w: 6.2, h: 3.3,
       fill: { color: hex(CARD_BG) },
-      line: { color: hex(BORDER), width: 1 }, rounding: 0.2,
+      line: { color: hex(BORDER), width: 1 },
     });
     slide.addText('PERFORMANCE INDICATORS', {
       x: mx + 0.3, y: 0.55, w: 5.6, h: 0.3,
@@ -422,15 +422,15 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
         fontSize: 10, color: hex(MUTED), valign: 'middle',
       });
       // Bar track
-      slide.addShape('rect' as PptxGenJS.ShapeType, {
+      slide.addShape('rect' as any, {
         x: mx + 2.6, y: ry + 0.06, w: 2.8, h: 0.16,
-        fill: { color: hex(BORDER) }, rounding: 0.1,
+        fill: { color: hex(BORDER) },
       });
       // Bar fill
       if (pct > 0) {
-        slide.addShape('rect' as PptxGenJS.ShapeType, {
+        slide.addShape('rect' as any, {
           x: mx + 2.6, y: ry + 0.06, w: (2.8 * pct) / 100, h: 0.16,
-          fill: { color: mc }, rounding: 0.1,
+          fill: { color: mc },
         });
       }
       slide.addText(displayVal, {
@@ -441,10 +441,10 @@ export async function generatePlatformPresentationPptx(): Promise<Buffer> {
 
     // Impact card
     const iy = 3.8;
-    slide.addShape('rect' as PptxGenJS.ShapeType, {
+    slide.addShape('rect' as any, {
       x: mx, y: iy, w: 6.2, h: 3.35,
       fill: { color: hex(s.color), transparency: 94 },
-      line: { color: hex(s.color), width: 1, transparency: 70 }, rounding: 0.2,
+      line: { color: hex(s.color), width: 1, transparency: 70 },
     });
     slide.addText('DECISION-MAKING IMPACT', {
       x: mx + 0.3, y: iy + 0.25, w: 5.6, h: 0.28,
