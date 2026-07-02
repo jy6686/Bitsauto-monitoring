@@ -57,29 +57,60 @@ export interface SippyActiveCall {
 
 export interface SippyCDR {
   callId?:          string;
+  iCall?:           string;
+  iCdr?:            string;
   caller?:          string;
   callee?:          string;
-  startTime?:       string;
-  connectTime?:     string;
-  endTime?:         string;
+  callerIn?:        string;
+  calleeIn?:        string;
+  startTime?:       string;   // legacy alias — prefer setupTime
+  setupTime?:       string;   // setup_time / SETUP_TIME (2022+ active calls, 2024+ CDRs)
+  connectTime?:     string;   // connect_time
+  disconnectTime?:  string;   // disconnect_time
+  endTime?:         string;   // legacy alias — prefer disconnectTime
   duration?:        number;
   totalDuration?:   number;
-  billDuration?:    number;
+  billDuration?:    number;   // legacy — prefer billedDuration
+  billedDuration?:  number;   // billed_duration (canonical Sippy field)
+  planDuration?:    number;
+  freeSeconds?:     number;
+  gracePeriod?:     number;
+  interval1?:       number;
+  intervalN?:       number;
   cost?:            number;
   price?:           number;
+  price1?:          number;
+  priceN?:          number;
+  connectFee?:      number;
+  accessibilityCost?: number;
+  postCallSurcharge?: number;
   result?:          string;
   codec?:           string;
   remoteIp?:        string;
-  iAccount?:        string;
-  iCustomer?:       string;
-  iVendor?:         string;
+  userAgent?:       string;   // user_agent
+  protocol?:        string;
+  releaseSource?:   string;
+  country?:         string;
+  areaName?:        string;
+  description?:     string;
+  prefix?:          string;
+  iAccount?:        string | number;  // i_account / I_ACCOUNT
+  iCustomer?:       string | number;  // i_customer / I_CUSTOMER
+  iVendor?:         string | number;  // i_vendor
+  iConnection?:     string | number;  // i_connection / I_CONNECTION
+  iProtocol?:       number;
   clientName?:      string;
   vendorName?:      string;
+  vendor?:          string;
   pdd?:             number;
+  pdd1xx?:          number;   // pdd1xx
+  connProcTime?:    number;   // conn_proc_time
+  delay?:           number;   // delay
   mos?:             number;
   jitter?:          number;
   packetLoss?:      number;
   dispositionSource?: string;
+  q850Code?:        string;
   [key: string]: unknown;
 }
 

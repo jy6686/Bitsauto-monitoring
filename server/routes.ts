@@ -959,9 +959,8 @@ export async function registerRoutes(
         });
         if (!fasResult.isFas || !cdr.callId) continue;
         const resolvedClient = cdr.clientName
-          || cdr.user
-          || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
-          || (cdr.accountId ? `Acct#${cdr.accountId}` : cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
+          || accountNameCache.get(String(cdr.iAccount ?? ''))
+          || (cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
         // Resolve vendor: prefer direct CDR field, then connection cache, then first known vendor
         const resolvedVendor = (() => {
           if (cdr.vendor) return cdr.vendor;
@@ -3615,7 +3614,7 @@ export async function registerRoutes(
         const cli = String(call.caller ?? '');
         const cld = String(call.callee ?? '');
         for (const rule of active) {
-          const pat = String(rule.pattern ?? rule.prefix ?? rule.number ?? '');
+          const pat = String(rule.value ?? '');
           if (!pat) continue;
           const hits = cli.startsWith(pat) || cld.startsWith(pat) || cli === pat || cld === pat;
           if (hits) {
@@ -3626,7 +3625,7 @@ export async function registerRoutes(
               vendor:    call.vendor,
               client:    call.clientName,
               ruleId:    rule.id,
-              ruleLabel: rule.label ?? rule.pattern ?? rule.prefix ?? pat,
+              ruleLabel: rule.reason ?? rule.value ?? pat,
               pattern:   pat,
               flaggedAt: now,
             });
@@ -7427,7 +7426,7 @@ export async function registerRoutes(
     // Customer-leg CDRs: customer (UA) originates INVITE → Sippy.
     // Detect by presence of vendor/connection info on the CDR,
     // OR by the caller being a Sippy internal IP (remoteIp is a known vendor IP).
-    const isVendorLeg = !!(cdr.vendor || cdr.connection || forceVendorLeg);
+    const isVendorLeg = !!(cdr.vendor || cdr.iConnection || forceVendorLeg);
 
     // For vendor-leg: left=Sippy, right=vendor(ua). Directions are flipped.
     // For customer-leg: left=ua(customer), right=Sippy. Standard lr/rl.
@@ -7438,7 +7437,7 @@ export async function registerRoutes(
     const replyTo     = isVendorLeg ? 'Sippy'  : ua;
     const replyDir    = isVendorLeg ? 'lr'     : 'rl';
 
-    const vendorLabel = cdr.vendor || cdr.connection || ua;
+    const vendorLabel = cdr.vendor || cdr.iConnection || ua;
 
     // INVITE
     events.push({ ts: fmtTs(startMs), method: 'INVITE', from: inviteFrom, to: inviteTo, direction: inviteDir as 'lr' | 'rl',
@@ -12400,9 +12399,8 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
         // Resolve client name: prefer clientName from CDR, then cdr.user (raw Sippy field),
         // then accountNameCache by accountId/iAccount (raw Sippy field is accountId, not iAccount)
         const resolvedClient = cdr.clientName
-          || cdr.user
-          || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
-          || (cdr.accountId ? `Acct#${cdr.accountId}` : cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
+          || accountNameCache.get(String(cdr.iAccount ?? ''))
+          || (cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
         // Resolve vendor: prefer CDR field, then connection cache, then first known vendor
         const resolvedVendor = (() => {
           if (cdr.vendor) return cdr.vendor;
@@ -28597,12 +28595,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // GET /api/recommendations — global ranked action queue (sorted by priority asc = rank 1 first)
   app.get('/api/recommendations', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (_req: any, res: any) => {
     try {
+      const { accountState: acctStateTable } = await import('@shared/schema');
       const rows = await db.select({
-        accountId:      accountState.accountId,
-        accountName:    accountState.accountName,
-        recommendation: accountState.recommendation,
-        updatedAt:      accountState.updatedAt,
-      }).from(accountState);
+        accountId:      acctStateTable.accountId,
+        accountName:    acctStateTable.accountName,
+        recommendation: acctStateTable.recommendation,
+        updatedAt:      acctStateTable.updatedAt,
+      }).from(acctStateTable);
       // Filter to accounts that have recommendations, sort by priority
       const ranked = rows
         .filter(r => r.recommendation != null)
@@ -28623,14 +28622,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // GET /api/account-exposure — return current auth exposure scores for all accounts
   app.get('/api/account-exposure', (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next), async (_req: any, res: any) => {
     try {
+      const { accountState: acctStateTable } = await import('@shared/schema');
       const rows = await db.select({
-        accountId:           accountState.accountId,
-        accountName:         accountState.accountName,
-        authExposureScore:   accountState.authExposureScore,
-        exposureRiskLevel:   accountState.exposureRiskLevel,
-        authExposureSignals: accountState.authExposureSignals,
-        updatedAt:           accountState.updatedAt,
-      }).from(accountState).orderBy(accountState.authExposureScore);
+        accountId:           acctStateTable.accountId,
+        accountName:         acctStateTable.accountName,
+        authExposureScore:   acctStateTable.authExposureScore,
+        exposureRiskLevel:   acctStateTable.exposureRiskLevel,
+        authExposureSignals: acctStateTable.authExposureSignals,
+        updatedAt:           acctStateTable.updatedAt,
+      }).from(acctStateTable).orderBy(acctStateTable.authExposureScore);
       res.json(rows.reverse()); // highest exposure first
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -31415,7 +31415,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const id = Number(req.params.id);
       const { reason } = req.body ?? {};
-      await db.update(clientInvoices).set({ status: 'rejected', notes: reason ?? null, updatedAt: new Date() } as any).where(eq(clientInvoices.id, id));
+      const { invoices: invT } = await import('@shared/schema');
+      await db.update(invT).set({ status: 'rejected', notes: reason ?? null, updatedAt: new Date() } as any).where(eq(invT.id, id));
       res.json({ ok: true });
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -31425,7 +31426,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const id = Number(req.params.id);
       const { reference, method } = req.body ?? {};
-      await db.update(clientInvoices).set({ status: 'paid', notes: `Paid via ${method ?? 'manual'} ref:${reference ?? ''}`, updatedAt: new Date() } as any).where(eq(clientInvoices.id, id));
+      const { invoices: invT } = await import('@shared/schema');
+      await db.update(invT).set({ status: 'paid', notes: `Paid via ${method ?? 'manual'} ref:${reference ?? ''}`, updatedAt: new Date() } as any).where(eq(invT.id, id));
       res.json({ ok: true });
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -31435,7 +31437,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const id = Number(req.params.id);
       const { note } = req.body ?? {};
-      await db.update(clientInvoices).set({ status: 'disputed', notes: note ?? null, updatedAt: new Date() } as any).where(eq(clientInvoices.id, id));
+      const { invoices: invT } = await import('@shared/schema');
+      await db.update(invT).set({ status: 'disputed', notes: note ?? null, updatedAt: new Date() } as any).where(eq(invT.id, id));
       res.json({ ok: true });
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -31444,7 +31447,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   app.get('/api/invoices/:id/pdf', async (req: any, res: any) => {
     try {
       const id = Number(req.params.id);
-      const invRows = await db.select().from(clientInvoices).where(eq(clientInvoices.id, id)).limit(1);
+      const { invoices: invT, invoiceLineItems } = await import('@shared/schema');
+      const invRows = await db.select().from(invT).where(eq(invT.id, id)).limit(1);
       if (!invRows.length) return res.status(404).json({ error: 'Not found' });
       const inv = invRows[0] as any;
 
