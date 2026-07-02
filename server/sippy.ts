@@ -3462,6 +3462,7 @@ export interface SippyCDR {
 
   // ── Timing ───────────────────────────────────────────────────────────────
   startTime: string;        // setup_time (Sippy format; available from Sippy 2024)
+  setupTime?: string;       // alias used by active-call XML-RPC / route analytics
   connectTime?: string;     // connect_time (Sippy format)
   disconnectTime?: string;  // disconnect_time (Sippy format)
 

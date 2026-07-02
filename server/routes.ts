@@ -12633,7 +12633,7 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
 
       const recordings = raw.map((c: any) => {
         const ts  = sippy.parseSippyDate(c.startTime)?.getTime() ?? 0;
-        const dur = Number(c.duration ?? c.billDuration ?? 0);
+        const dur = Number(c.duration ?? c.billedDuration ?? 0);
         const codec = (c.codec ?? 'G.711').replace(/['"]/g, '').trim() || 'G.711';
 
         // Estimate file size (bytes): G.729≈1KB/s, Opus≈6KB/s, G.711≈8KB/s
@@ -12748,7 +12748,7 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
         const result = enrichCdr({
           caller: cdr.caller ?? cdr.cli ?? '',
           callee: cdr.callee ?? cdr.cld ?? '',
-          accountId: cdr.accountId ?? cdr.iAccount ?? cdr.i_account ?? null,
+          accountId: cdr.iAccount ?? cdr.iAccount ?? cdr.i_account ?? null,
           sipCode: cdr.sipCode ?? cdr.disconnect_code ?? null,
           pddSecs: cdr.pdd ?? null,
           billSecs: cdr.billSecs ?? cdr.billed_duration ?? null,
@@ -19376,8 +19376,8 @@ let _snapBusy = false;
         const irsfResult = detectIrsf(String(cdr.callee));
         if (!irsfResult.isIrsf) continue;
         const resolvedClient = cdr.clientName || cdr.user
-          || accountNameCache.get(String(cdr.accountId ?? cdr.iAccount ?? ''))
-          || (cdr.accountId ? `Acct#${cdr.accountId}` : 'Unknown');
+          || accountNameCache.get(String(cdr.iAccount ?? cdr.iAccount ?? ''))
+          || (cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
         const resolvedVendor = (() => {
           if (cdr.vendor) return cdr.vendor;
           if (cdr.iConnection) {
@@ -21859,7 +21859,7 @@ let _snapBusy = false;
         const prefix = raw.slice(0, 3) || 'UNK';
         const ex = byDest.get(prefix) ?? { total: 0, answered: 0, durationSum: 0, pddSum: 0, pddCount: 0, cost: 0 };
         ex.total++;
-        const dur = Number(c.duration ?? c.billDuration ?? 0);
+        const dur = Number(c.duration ?? c.billedDuration ?? 0);
         if (dur > 0) { ex.answered++; ex.durationSum += dur; }
         const pddRaw = Number(c.pdd ?? c.pddMs ?? 0);
         if (pddRaw > 0) { ex.pddSum += pddRaw; ex.pddCount++; }
@@ -30385,7 +30385,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         callId:          c.callId ?? c.i_cdr,
         startTime:       c.startTime ?? c.connectTime ?? c.connect_time,
         callee:          c.callee ?? c.cld ?? '',
-        durationSecs:    Number(c.totalDuration ?? c.duration ?? c.billDuration ?? c.billed_duration ?? 0),
+        durationSecs:    Number(c.totalDuration ?? c.duration ?? c.billedDuration ?? c.billed_duration ?? 0),
         sippyActualCost: parseFloat(String(c.cost ?? c.price ?? c.charged_amount ?? '0')) || 0,
         iTariff:         String(iTariff ?? c.iTariff ?? c.i_account ?? ''),
       }));
@@ -30637,7 +30637,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           if (cdrId && existingIds.has(cdrId)) { skippedCount++; continue; }
           const cost        = parseFloat(String(c.cost ?? c.price ?? (c as any).charged_amount ?? '0')) || 0;
           // Use billed duration (what Sippy charged) — note: field is billedDuration, not billDuration
-          const durationSec = Number(c.billedDuration ?? c.billDuration ?? c.duration ?? c.totalDuration ?? 0);
+          const durationSec = Number(c.billedDuration ?? c.billedDuration ?? c.duration ?? c.totalDuration ?? 0);
           const startTime   = String(c.startTime ?? c.connectTime ?? (c as any).connect_time ?? '');
           const callee      = String(c.callee ?? (c as any).cld ?? '');
           const snapshotHash = computeSnapshotHash({
