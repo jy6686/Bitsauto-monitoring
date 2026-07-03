@@ -136,7 +136,7 @@ class AmiGovernanceListener extends EventEmitter {
     if (!this.loggedIn && msg.includes('Asterisk Call Manager')) {
       const c = cfg();
       this.socket?.write(
-        `Action: Login\r\nUsername: ${c.username}\r\nSecret: ${c.secret}\r\nActionID: gov-login\r\n\r\n`
+        `Action: Login\r\nUsername: ${c.username}\r\nSecret: ${c.secret}\r\nEvents: on\r\nActionID: gov-login\r\n\r\n`
       );
       return;
     }
