@@ -51,6 +51,21 @@ const PORTAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 let _pnlFetching = false;
 
 // ── Destination-based rule selection ──────────────────────────────────────────
+/**
+ * Convert a glob-style channel pattern to a RegExp.
+ * Supports shell-style wildcards: * → .* (any chars), ? → . (any single char).
+ * Regex special chars are escaped first so patterns like "SIP/sippy" are safe.
+ * Examples:
+ *   "*SIP/"      → /.*SIP\//i   matches SIP/sippy-..., PJSIP/sippy-...
+ *   "SIP/sippy"  → /SIP\/sippy/i  exact prefix match
+ *   "SIP/"       → /SIP\//i
+ */
+function globToRegex(glob: string): RegExp {
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  const regexStr = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
+  return new RegExp(regexStr, 'i');
+}
+
 // Returns the single most-specific matching rule from a list of channel-matched
 // rules.  Specificity = destinationPrefix.length + callerPrefix.length.
 // A rule with no prefix set is a catch-all and wins only if nothing more specific
@@ -763,7 +778,7 @@ async function reconcileActiveCalls() {
       for (const rule of rules) {
         if (!rule.channelPattern) continue;
         let pattern: RegExp;
-        try { pattern = new RegExp(rule.channelPattern, 'i'); } catch { continue; }
+        try { pattern = globToRegex(rule.channelPattern); } catch { continue; }
 
         const ch1Match = pattern.test(ch1.channel);
         const ch2Match = pattern.test(ch2.channel);
@@ -931,7 +946,7 @@ export function registerCallGovernanceRoutes(app: Express) {
       for (const rule of rules) {
         if (!rule.channelPattern) continue;
         let pattern: RegExp;
-        try { pattern = new RegExp(rule.channelPattern, 'i'); } catch { continue; }
+        try { pattern = globToRegex(rule.channelPattern); } catch { continue; }
 
         const ch1Match = pattern.test(event.channel1);
         const ch2Match = pattern.test(event.channel2);
