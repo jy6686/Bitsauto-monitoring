@@ -54,14 +54,17 @@ let _pnlFetching = false;
 /**
  * Convert a glob-style channel pattern to a RegExp.
  * Supports shell-style wildcards: * → .* (any chars), ? → . (any single char).
- * Regex special chars are escaped first so patterns like "SIP/sippy" are safe.
+ * Regex special chars are escaped EXCEPT ^ and $ which are kept as anchors.
  * Examples:
+ *   "^SIP/"      → /^SIP\//i    matches only channels starting with SIP/ (chan_sip, NOT PJSIP)
  *   "*SIP/"      → /.*SIP\//i   matches SIP/sippy-..., PJSIP/sippy-...
- *   "SIP/sippy"  → /SIP\/sippy/i  exact prefix match
- *   "SIP/"       → /SIP\//i
+ *   "SIP/sippy"  → /SIP\/sippy/i  substring match — matches SIP/sippy-* AND PJSIP/sippy-endpoint-*
+ *   "SIP/"       → /SIP\//i     substring match — matches both SIP/ and PJSIP/ channels
  */
 function globToRegex(glob: string): RegExp {
-  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  // Escape regex special chars but KEEP ^ and $ as anchors so stored patterns
+  // like "^SIP/" work as intended (anchored to start of channel name).
+  const escaped = glob.replace(/[.+${}()|[\]\\]/g, '\\$&');
   const regexStr = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
   return new RegExp(regexStr, 'i');
 }
