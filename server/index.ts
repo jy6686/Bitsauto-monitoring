@@ -263,6 +263,29 @@ app.use((req, res, next) => {
     boot("11 _serverReady=true · startup complete");
   }
 
+
+  // ── Vendor import orphan recovery ─────────────────────────────────────────
+  // Sheets stuck in transient statuses from the previous process are orphaned.
+  // Reset them to 'ready' so they can be retried from the UI.
+  (async () => {
+    try {
+      const { db: _vrDb } = await import('./db');
+      const { sql: _vrSql } = await import('drizzle-orm');
+      const _vrResult = await _vrDb.execute(_vrSql`
+        UPDATE vendor_rate_sheets
+        SET status = 'ready'
+        WHERE status IN ('matching', 'normalizing', 'parsing')
+        RETURNING id, file_name
+      `);
+      if (_vrResult.rows.length > 0) {
+        const names = (_vrResult.rows as any[]).map((r: any) => `sheet#${r.id} "${r.file_name}"`).join(', ');
+        console.log(`[startup] Recovered ${_vrResult.rows.length} orphaned vendor import job(s): ${names}`);
+      }
+    } catch (e: any) {
+      console.error('[startup] Orphan recovery (non-fatal):', e?.message);
+    }
+  })();
+
   // Pre-generate the PPTX at startup and write to the static downloads folder.
   // Vite / the static server serves it directly — bypasses Express routing entirely.
   import('./pptx-generator').then(async ({ generatePlatformPresentationPptx }) => {
