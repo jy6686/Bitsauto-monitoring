@@ -1133,6 +1133,24 @@ export async function registerRoutes(
     }
   })();
 
+  // === PERIODIC SIPPY RE-AUTH (every 5 min) ===
+  // If startup auth failed (e.g. credentials changed after a Sippy restart/disk incident),
+  // this retries silently in the background so the platform auto-recovers once credentials
+  // are updated in Settings without requiring a server restart.
+  setInterval(async () => {
+    try {
+      if (sippy.getSippySessionStatus().connected) return; // already connected
+      const s = await storage.getSettings();
+      const url      = sippyPortalUrl(s);
+      const { username, password } = sippyXmlCreds(s);
+      const result = await smartSippyConnect(url, username, password, s?.portalUsername, s?.portalPassword, s?.adminWebPassword);
+      if (result.success) {
+        console.log('[sippy-reauth] Reconnected:', result.message);
+        refreshAccountCache().catch(() => {});
+        refreshConnectionVendorCache().catch(() => {});
+      }
+    } catch { /* silent */ }
+  }, 5 * 60 * 1000);
 
   // === SIMULATION ENGINE ===
   setInterval(async () => {
@@ -3655,9 +3673,9 @@ export async function registerRoutes(
   }
   const activeCapWarnings = new Map<string, ActiveCapWarning>();
   let capSyncLastRunAt: number | null = null;
-  const LIVE_CALLS_STALE_MS    = 45_000; // stale flag threshold — matches background interval
-  const LIVE_CALLS_CACHE_MAX   = 65_000; // serve from background cache if fresher than 65 s (slightly over 60s job interval)
-  const ZERO_CONFIRM_COUNT     = 2;      // require this many consecutive zero polls to accept 0
+  const LIVE_CALLS_STALE_MS    = 20_000; // stale flag threshold — matches background interval
+  const LIVE_CALLS_CACHE_MAX   = 30_000; // serve from background cache if fresher than 30 s
+  const ZERO_CONFIRM_COUNT     = 8;      // require 8 consecutive zero polls (~2 min) before accepting 0
 
   app.get('/api/sippy/live-calls', async (req: any, res) => {
     // ── Fast path: serve from background-job cache if fresh ──────────────────
@@ -16030,7 +16048,7 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
   // ── Sippy Collector ─────────────────────────────────────────────────────────
   // Single active execution. Slow Sippy cannot spawn overlapping runs.
   // Override interval without redeploy: set SNAPSHOT_INTERVAL_MS secret.
-  const SNAPSHOT_INTERVAL_MS = Number(process.env.SNAPSHOT_INTERVAL_MS) || 45_000;
+  const SNAPSHOT_INTERVAL_MS = Number(process.env.SNAPSHOT_INTERVAL_MS) || 10_000;
   let cachedActiveCallsMeta: { updatedAt: number; durationMs: number; source: string; success: boolean; activeCalls: number } = { updatedAt: 0, durationMs: 0, source: 'none', success: false, activeCalls: 0 };
 let _snapBusy = false;
   let _snapConsecFails = 0;

@@ -471,7 +471,7 @@ function rawPost(
         'Content-Length': Buffer.byteLength(body),
         ...headers,
       },
-      timeout: 12000,
+      timeout: 20000,
     };
     const opts = isHttps ? makeHttpsOpts(parsed, baseOpts) : baseOpts;
 
@@ -512,7 +512,7 @@ function rawGet(
       path: parsed.pathname + parsed.search,
       method: 'GET',
       headers,
-      timeout: 12000,
+      timeout: 20000,
     };
     const opts = isHttps ? makeHttpsOpts(parsed, baseOpts) : baseOpts;
 
@@ -553,7 +553,7 @@ async function sippyPost(
   body: string,
   username: string,
   password: string,
-  timeoutMs = 12000,
+  timeoutMs = 20000,
 ): Promise<{ statusCode: number; body: string }> {
   const parsed  = new URL(url);
   const uri     = parsed.pathname + (parsed.search || '');
@@ -665,6 +665,7 @@ function rawRequest(
   extraHeaders: Record<string, string>,
   jar: CookieJar,
   redirectsLeft = 5,
+  timeoutMs = 20000,
 ): Promise<{ statusCode: number; body: string; cookies: CookieJar; location?: string }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
@@ -683,7 +684,7 @@ function rawRequest(
         ...(body != null ? { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) } : {}),
         ...extraHeaders,
       },
-      timeout: 15000,
+      timeout: timeoutMs,
     };
     const opts = isHttps ? { ...baseOpts, agent: lenientHttpsAgent } : baseOpts;
 
@@ -697,7 +698,7 @@ function rawRequest(
         res.resume();
         const next = new URL(locationHeader, url).toString();
         const nextMethod = (sc === 301 || sc === 302 || sc === 303) ? 'GET' : method;
-        rawRequest(nextMethod, next, nextMethod === 'GET' ? null : body, extraHeaders, newJar, redirectsLeft - 1).then(resolve).catch(reject);
+        rawRequest(nextMethod, next, nextMethod === 'GET' ? null : body, extraHeaders, newJar, redirectsLeft - 1, timeoutMs).then(resolve).catch(reject);
         return;
       }
       let data = '';
@@ -764,6 +765,7 @@ async function portalLogin(
   username: string,
   password: string,
   accountType: 'customer' | 'reseller' | 'admin' = 'customer',
+  timeoutMs = 20000,
 ): Promise<{ success: boolean; cookies: CookieJar; message: string }> {
   const loginUrl = `${base}/main.php`;
 
@@ -786,7 +788,7 @@ async function portalLogin(
       // Use redirectsLeft=0 so we capture the 302 cookie BEFORE following — Sippy sessions
       // are server-side and the cookie is valid immediately on the 302 response.
       // Following the redirect causes the session to appear invalid in the next request.
-      const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
+      const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0, timeoutMs);
 
       // ── Success: Sippy redirects to a portal path on successful login ────────
       // /c1/ = customer/reseller portal (ssp-root)
@@ -870,7 +872,7 @@ async function provisioningLogin(base: string): Promise<CookieJar> {
       login_page: 'all', Login: 'Login',
     });
     try {
-      const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0);
+      const resp = await rawRequest('POST', loginUrl, formData, { 'User-Agent': PORTAL_USER_AGENT }, new Map(), 0, timeoutMs);
       const loc = (resp as any).location as string | undefined;
       const statusCode = resp.statusCode;
       const hasCookies = resp.cookies.size > 0;
@@ -2569,7 +2571,7 @@ export async function testSippyConnection(
   let xmlRpcReachable = false;
 
   try {
-    const resp = await sippyPost(apiUrl, body, username, password);
+    const resp = await sippyPost(apiUrl, body, username, password, 45000);
     const latencyMs = Date.now() - start;
     xmlRpcReachable = true;
 
@@ -2598,7 +2600,7 @@ export async function testSippyConnection(
   // Try all three account types — some Sippy installs only accept 'admin' login via HTTPS.
   const loginPass = webPassword || password;
   for (const acctType of ['customer', 'reseller', 'admin'] as const) {
-    const loginResult = await portalLogin(base, username, loginPass, acctType);
+    const loginResult = await portalLogin(base, username, loginPass, acctType, 45000);
     if (loginResult.success) {
       const latencyMs = Date.now() - start;
       return {

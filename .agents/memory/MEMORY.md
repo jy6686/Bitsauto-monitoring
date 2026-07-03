@@ -1,3 +1,4 @@
+- [Sippy timeout and credential session loss](sippy-timeout-credentials.md) — rawRequest had 15s timeout; Sippy portal takes 16s; off-by-1s caused every restart to fail re-auth. Timeouts bumped to 35-45s; snapshot to 10s.
 - [#339 Consumer Layer scope](governance-339-consumer-scope.md) — first consumers: Bulk Client/Destination thresholds + Exceptional Pricing only; Initial Rate Approval excluded (already FALSE); frozen sprint list.
 - [AMI Bridge CallerIDNum semantics](ami-bridge-callerid-semantics.md) — callerIdNum2=CLD (destination), callerIdNum1=CLI (routing-prefix); never invert using channelA/B identification.
 - [Sippy portal CDR pagination](sippy-portal-cdr-pagination.md) — portal ignores n= offset on some pages; use scrapePortalCDRsAll (login once, dedup+diminishing-returns stop).
