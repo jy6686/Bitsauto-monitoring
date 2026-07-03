@@ -6,7 +6,7 @@ import {
   Activity, Copy, ChevronLeft, ChevronRight, Settings2, ScrollText, Zap, Info,
   Play, Pause, Volume2, Download, X, BarChart2, TrendingDown, Hash,
   PauseCircle, Archive, RotateCcw, ChevronDown, ChevronUp,
-  TrendingUp, Globe2, Timer,
+  TrendingUp, Globe2, Timer, Flame, Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -648,6 +648,7 @@ export default function CallGovernancePage() {
   const [showForm, setShowForm] = useState(false);
   const [editRule, setEditRule] = useState<GovernanceRule | null>(null);
   const [billingPage, setBillingPage] = useState(1);
+  const [checkOnly, setCheckOnly]     = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -1547,15 +1548,100 @@ export default function CallGovernancePage() {
             );
           })()}
 
+          {/* ── Revenue Leak Diagnostic panel (check status) ──────────────── */}
+          {billingQ.data && (() => {
+            const checkRows = billingQ.data.filter(r => r.status === 'check');
+            if (checkRows.length === 0) return null;
+            const extraSec  = checkRows.reduce((s, r) =>
+              s + ((r.customerBilledSec ?? 0) - (r.govSec ?? 0)), 0);
+            const extraMin  = (extraSec / 60).toFixed(1);
+            const avgExtra  = checkRows.length > 0
+              ? Math.round(extraSec / checkRows.length) : 0;
+            return (
+              <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl p-4 space-y-3"
+                data-testid="check-leak-panel">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <Flame className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-200">Revenue Leak Detected — Vendor Kept Billing After Cut</p>
+                      <p className="text-xs text-amber-400/80 mt-0.5">
+                        {checkRows.length} call{checkRows.length !== 1 ? 's' : ''} where the vendor's CDR shows billing far beyond your {checkRows[0]?.capSec ?? 7}s cap.
+                        Avg overage: <span className="text-amber-200 font-mono">{avgExtra}s</span> per call · Total excess: <span className="text-amber-200 font-mono">{extraMin} min</span>
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setCheckOnly(v => !v); setBillingPage(1); }}
+                    data-testid="btn-filter-check"
+                    className={cn(
+                      'flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                      checkOnly
+                        ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
+                        : 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
+                    )}
+                  >
+                    <Filter className="w-3 h-3" />
+                    {checkOnly ? 'Show All' : 'Filter to Check Only'}
+                  </button>
+                </div>
+
+                {/* Root cause + fix */}
+                <div className="bg-amber-950/40 border border-amber-800/40 rounded-lg px-3 py-2.5 space-y-2">
+                  <p className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Root Cause: <span className="font-mono text-amber-200">gov-hangup</span> Asterisk dialplan has <span className="font-mono text-red-300">Wait(3600)</span> before Hangup()
+                  </p>
+                  <p className="text-xs text-amber-400/80">
+                    When the AMI cuts a call, it redirects the vendor SIP leg to the <span className="font-mono text-amber-200">gov-hangup</span> context.
+                    That context waits <span className="font-mono text-amber-200">3600 seconds (1 hour)</span> before sending BYE to the vendor.
+                    The vendor keeps billing for the entire wait duration until Asterisk or a session timer eventually disconnects the leg.
+                  </p>
+                  <div className="flex items-start gap-3 pt-1">
+                    <div className="flex-1">
+                      <p className="text-[10px] text-red-400 font-mono mb-1">CURRENT (broken) — in extensions_custom.conf:</p>
+                      <pre className="text-[10px] text-red-300/80 bg-red-950/30 border border-red-900/30 rounded px-2 py-1.5 leading-relaxed">{`[gov-hangup]
+exten => s,1,Wait(3600)   ← vendor billed for 60 min!
+exten => s,n,Hangup()`}</pre>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] text-emerald-400 font-mono mb-1">FIXED — replace with:</p>
+                      <pre className="text-[10px] text-emerald-300/80 bg-emerald-950/30 border border-emerald-900/30 rounded px-2 py-1.5 leading-relaxed">{`[gov-hangup]
+exten => s,1,Hangup()     ← immediate disconnect`}</pre>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-amber-500/60 pt-1">
+                    On the Asterisk server: edit <span className="font-mono text-amber-400">/etc/asterisk/extensions_custom.conf</span> → remove the Wait(3600) line → run <span className="font-mono text-amber-400">asterisk -rx "dialplan reload"</span>
+                  </p>
+                </div>
+
+                {/* Per-call leak breakdown */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-amber-900/20 rounded-lg px-3 py-2 text-center">
+                    <p className="text-[10px] text-amber-500 mb-0.5">Affected Cuts</p>
+                    <p className="text-lg font-bold text-amber-200" data-testid="check-count">{checkRows.length}</p>
+                  </div>
+                  <div className="bg-amber-900/20 rounded-lg px-3 py-2 text-center">
+                    <p className="text-[10px] text-amber-500 mb-0.5">Excess Vendor Seconds</p>
+                    <p className="text-lg font-bold text-amber-200" data-testid="check-extra-sec">{extraSec.toLocaleString()}s</p>
+                  </div>
+                  <div className="bg-amber-900/20 rounded-lg px-3 py-2 text-center">
+                    <p className="text-[10px] text-amber-500 mb-0.5">Excess Vendor Minutes</p>
+                    <p className="text-lg font-bold text-amber-200" data-testid="check-extra-min">{extraMin} min</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* How it works explainer */}
           <div className="bg-slate-900/40 border border-slate-800 rounded-xl px-4 py-3 flex items-start gap-3">
             <Info className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
             <div className="text-xs text-slate-400 space-y-0.5">
-              <p><span className="text-slate-200 font-medium">How to read this:</span> For each governed cut, we compare what Sippy billed the customer (from CDR cache) vs. vendor cost (from Mera enrichment).</p>
+              <p><span className="text-slate-200 font-medium">How to read this:</span> For each governed cut, we compare what Sippy CDR shows the vendor billed vs. our AMI-measured cut window.</p>
               <p>
-                <span className="text-emerald-400 font-medium">OK</span> = duration within cut window AND margin ≥ 0 &nbsp;·&nbsp;
+                <span className="text-emerald-400 font-medium">OK</span> = vendor CDR within cut window AND margin ≥ 0 &nbsp;·&nbsp;
                 <span className="text-rose-400 font-medium">Loss</span> = vendor cost exceeds customer revenue (negative margin) — investigate routing or rates &nbsp;·&nbsp;
-                <span className="text-amber-400 font-medium">Check</span> = customer billed significantly more seconds than cut window — review in Sippy &nbsp;·&nbsp;
+                <span className="text-amber-400 font-medium">Check</span> = vendor CDR shows billing well beyond your cap — vendor did not disconnect promptly after BYE &nbsp;·&nbsp;
                 <span className="text-slate-400 font-medium">No CDR</span> = CDR not in cache yet (may appear within 5 min)
               </p>
             </div>
@@ -1571,10 +1657,20 @@ export default function CallGovernancePage() {
               <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
                 <span className="text-sm font-medium text-slate-200 flex items-center gap-2">
                   <TrendingDown className="w-4 h-4 text-emerald-400" /> Billing Reconciliation (last 7 days)
+                  {checkOnly && (
+                    <span className="ml-1 px-2 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/25">
+                      ⚠ Check filter active
+                    </span>
+                  )}
                 </span>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-500">{billingQ.data.length} cuts · page {billingPage}/{Math.ceil(billingQ.data.length / BILLING_PAGE_SIZE)}</span>
-                  {billingQ.data.some(r => r.status === 'no_cdr') && (
+                  <span className="text-xs text-slate-500">
+                    {checkOnly
+                      ? `${billingQ.data.filter(r => r.status === 'check').length} check calls`
+                      : `${billingQ.data.length} cuts`
+                    } · page {billingPage}/{Math.ceil((checkOnly ? billingQ.data.filter(r => r.status === 'check') : billingQ.data).length / BILLING_PAGE_SIZE)}
+                  </span>
+                  {billingQ.data.some(r => r.status === 'no_cdr') && !checkOnly && (
                     <button
                       onClick={() => retryCdrMut.mutate(undefined)}
                       disabled={retryCdrMut.isPending}
@@ -1596,8 +1692,8 @@ export default function CallGovernancePage() {
                       <th className="px-4 py-2.5 text-left font-medium">Cut At</th>
                       <th className="px-4 py-2.5 text-right font-medium">Gov Cut</th>
                       <th className="px-4 py-2.5 text-right font-medium">Cut Window</th>
-                      <th className="px-4 py-2.5 text-right font-medium">Customer Billed</th>
-                      <th className="px-4 py-2.5 text-right font-medium" title="Customer Billed − Gov Cut (positive = overbilled beyond cut window)">Δ Overage</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Vendor Billed</th>
+                      <th className="px-4 py-2.5 text-right font-medium" title="Vendor Billed − Gov Cut (positive = vendor overbilled beyond cut window)">Δ Overage</th>
                       <th className="px-4 py-2.5 text-right font-medium">Cust. Cost</th>
                       <th className="px-4 py-2.5 text-right font-medium">Vendor Cost</th>
                       <th className="px-4 py-2.5 text-right font-medium">Margin</th>
@@ -1606,7 +1702,8 @@ export default function CallGovernancePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {billingQ.data.slice((billingPage - 1) * BILLING_PAGE_SIZE, billingPage * BILLING_PAGE_SIZE).map(row => {
+                    {(checkOnly ? billingQ.data.filter(r => r.status === 'check') : billingQ.data)
+                      .slice((billingPage - 1) * BILLING_PAGE_SIZE, billingPage * BILLING_PAGE_SIZE).map(row => {
                       const statusCfg = {
                         ok:     { label: 'OK',      cls: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20' },
                         loss:   { label: 'Loss',    cls: 'bg-rose-500/10   text-rose-300   border border-rose-500/20'   },
