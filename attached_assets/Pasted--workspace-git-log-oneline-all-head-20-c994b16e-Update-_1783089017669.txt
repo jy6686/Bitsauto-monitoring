@@ -1,0 +1,166 @@
+~/workspace$ git log --oneline --all | head -20
+c994b16e Update call logs to show routing to Asterisk
+39b0984a Update call logs to show routing to Asterisk
+3c9b10ea Refine call routing investigation and diagnostic steps
+0bd6241b Refine call routing investigation and diagnostic steps
+a46bee6e Refine call governance rules to support multiple products
+8c14d18f Refine call governance rules to support multiple products
+dad0e6b9 Update documentation to clarify traffic prefix identification
+b56f3ad2 Update documentation to clarify traffic prefix identification
+4d3611be Securely restrict access to the manager interface
+b66f8744 Securely restrict access to the manager interface
+b454b26e Update documentation to clarify ongoing investigation and code changes
+39024985 Update documentation to clarify ongoing investigation and code changes
+964ca0f2 Update dashboard to show accurate refresh times
+bf38c5e3 Update dashboard to show accurate refresh times
+6f528cf5 Correctly match call channel patterns for improved VoIP monitoring
+721dbbcf Correctly match call channel patterns for improved VoIP monitoring
+0e5ca1d2 Update troubleshooting log with call governance analysis
+b30b06a6 Update troubleshooting log with call governance analysis
+50b57503 Published your App
+a5ca94ae Published your App
+~/workspace$ git log --oneline --all -- server/routes/call-governance* server/call-governance* server/services/call-governance* 2>/dev/null | head -10
+~/workspace$ git diff HEAD~5 HEAD -- $(git diff HEAD~5 HEAD --name-only | grep -i govern) 2>/dev/null | head -100
+diff --git a/attached_assets/Pasted--root-reve-otp-systemctl-status-asterisk-no-pager-aster_1783076585950.txt b/attached_assets/Pasted--root-reve-otp-systemctl-status-asterisk-no-pager-aster_1783076585950.txt
+new file mode 100644
+index 00000000..763e9869
+--- /dev/null
++++ b/attached_assets/Pasted--root-reve-otp-systemctl-status-asterisk-no-pager-aster_1783076585950.txt
+@@ -0,0 +1,121 @@
++[root@reve-otp ~]# systemctl status asterisk --no-pager
++● asterisk.service - LSB: Asterisk PBX
++   Loaded: loaded (/etc/rc.d/init.d/asterisk; bad; vendor preset: disabled)
++   Active: failed (Result: protocol) since Thu 2026-07-02 13:14:52 UTC; 21h ago
++     Docs: man:systemd-sysv-generator(8)
++  Process: 10996 ExecStart=/etc/rc.d/init.d/asterisk start (code=exited, status=0/SUCCESS)
++You have new mail in /var/spool/mail/root
++[root@reve-otp ~]# asterisk -rx "core show channels count"
++0 active channels
++0 of 500 max active calls ( 0.00% of capacity)
++17 calls processed
++[root@reve-otp ~]# asterisk -rx "core show calls"
++0 of 500 max active calls ( 0.00% of capacity)
++17 calls processed
++[root@reve-otp ~]# asterisk -rx "pjsip show endpoints"
++
++ Endpoint:  <Endpoint/CID.....................................>  <State.....>  <Channels.>
++    I/OAuth:  <AuthId/UserName...........................................................>
++        Aor:  <Aor............................................>  <MaxContact>
++      Contact:  <Aor/ContactUri..........................> <Hash....> <Status> <RTT(ms)..>
++  Transport:  <TransportId........>  <Type>  <cos>  <tos>  <BindAddress..................>
++   Identify:  <Identify/Endpoint.........................................................>
++        Match:  <criteria.........................>
++    Channel:  <ChannelId......................................>  <State.....>  <Time.....>
++        Exten: <DialedExten...........>  CLCID: <ConnectedLineCID.......>
++==========================================================================================
++
++ Endpoint:  sippy-endpoint                                       Not in use    0 of inf
++        Aor:  sippy-aor                                          0
++      Contact:  sippy-aor/sip:191.101.30.107:5060          951fd13c35 NonQual         nan
++   Identify:  sippy-identify/sippy-endpoint
++        Match: 191.101.30.107/32
++
++
++Objects found: 1
++
++[root@reve-otp ~]# asterisk -rx "pjsip show registrations"
++No objects found.
++
++[root@reve-otp ~]# tail -80 /var/log/asterisk/full
++[2026-07-03 10:05:02] VERBOSE[32329] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:08:48] NOTICE[445] acl.c: Manager User ACL: Rejecting '45.61.188.18' due to a failure to pass ACL '(BASELINE)'
++[2026-07-03 10:08:48] NOTICE[445] manager.c: 45.61.188.18 failed to pass IP ACL as 'Admin'
++[2026-07-03 10:08:48] NOTICE[445] manager.c: 45.61.188.18 failed to authenticate as 'Admin'
++[2026-07-03 10:10:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:10:02] VERBOSE[674] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:15:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:15:01] VERBOSE[1493] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:17:43] NOTICE[1970] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'pa$$word'
++[2026-07-03 10:17:43] NOTICE[1970] manager.c: 45.61.188.18 failed to authenticate as 'pa$$word'
++[2026-07-03 10:20:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:20:02] VERBOSE[2332] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:25:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:25:01] VERBOSE[3140] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:26:41] NOTICE[3419] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'testadmin'
++[2026-07-03 10:26:41] NOTICE[3419] manager.c: 45.61.188.18 failed to authenticate as 'testadmin'
++[2026-07-03 10:30:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:30:01] VERBOSE[3976] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:33:24] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:33:24] VERBOSE[4532] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:33:24] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:33:24] VERBOSE[4534] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:33:24] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:33:24] VERBOSE[4536] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:34:47] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:34:47] VERBOSE[4873] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:34:47] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:34:47] VERBOSE[4875] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:34:47] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:34:47] VERBOSE[4877] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:35:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:35:02] VERBOSE[4953] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:35:34] NOTICE[5070] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'free'
++[2026-07-03 10:35:34] NOTICE[5070] manager.c: 45.61.188.18 failed to authenticate as 'free'
++[2026-07-03 10:36:03] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:36:03] VERBOSE[5233] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:36:03] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:36:03] VERBOSE[5235] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:36:03] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:36:03] VERBOSE[5237] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:40:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:40:02] VERBOSE[6260] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:44:29] NOTICE[7043] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'guest1'
++[2026-07-03 10:44:29] NOTICE[7043] manager.c: 45.61.188.18 failed to authenticate as 'guest1'
++[2026-07-03 10:45:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:45:01] VERBOSE[7131] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:50:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:50:01] VERBOSE[7826] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:53:23] NOTICE[8402] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'a2billing'
++[2026-07-03 10:53:23] NOTICE[8402] manager.c: 45.61.188.18 failed to authenticate as 'a2billing'
++[2026-07-03 10:55:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:55:02] VERBOSE[8639] asterisk.c: Remote UNIX connection disconnected
++[2026-07-03 10:55:31] VERBOSE[9027] asterisk.c: Remote UNIX connection
++[2026-07-03 10:55:31] VERBOSE[8766] asterisk.c: Remote UNIX connection disconnected
+~/workspace$ find . -name "*govern*" -not -path "*/node_modules/*" | sort
+./.agents/memory/asr-acd-metric-governance.md
+./.agents/memory/call-governance-ami.md
+./.agents/memory/finance-governance-modules.md
+./.agents/memory/governance-339-consumer-scope.md
+./.agents/memory/portal-governance-nav.md
+./attached_assets/Pasted-these-prefixes-are-use-only-for-call-governance-not-for_1780940846674.txt
+./attached_assets/Pasted-This-implementation-is-correct-and-follows-the-governan_1779793891430.txt
+./attached_assets/Pasted-This-is-a-good-stopping-point-You-now-have-the-governan_1781886632635.txt
+./attached_assets/Pasted-This-is-now-a-complete-telecom-finance-governance-opera_1779926964441.txt
+./attached_assets/Pasted-This-is-now-a-genuinely-enterprise-grade-telecom-govern_1779926153406.txt
+./attached_assets/Pasted-why-we-are-fosucing-on-Call-governace-CDR-matching-we-h_1781191134434.txt
+./attached_assets/Pasted-Yes-and-from-a-governance-perspective-that-is-actually-_1781976248932.txt
+./Bitsauto-monitoring/.agents/memory/asr-acd-metric-governance.md
+./Bitsauto-monitoring/.agents/memory/call-governance-ami.md
+./Bitsauto-monitoring/.agents/memory/finance-governance-modules.md
+./Bitsauto-monitoring/.agents/memory/portal-governance-nav.md
+./Bitsauto-monitoring/attached_assets/Pasted-these-prefixes-are-use-only-for-call-governance-not-for_1780940846674.txt
+./Bitsauto-monitoring/attached_assets/Pasted-This-implementation-is-correct-and-follows-the-governan_1779793891430.txt
+./Bitsauto-monitoring/attached_assets/Pasted-This-is-now-a-complete-telecom-finance-governance-opera_1779926964441.txt
+./Bitsauto-monitoring/attached_assets/Pasted-This-is-now-a-genuinely-enterprise-grade-telecom-govern_1779926153406.txt
+./Bitsauto-monitoring/attached_assets/Pasted-why-we-are-fosucing-on-Call-governace-CDR-matching-we-h_1781191134434.txt
+./Bitsauto-monitoring/client/src/lib/governance.ts
+./Bitsauto-monitoring/client/src/pages/call-governance.tsx
+./Bitsauto-monitoring/client/src/pages/navigation-governance.tsx
+./Bitsauto-monitoring/migrations/020_portal_governance.sql
+./Bitsauto-monitoring/server/routes-call-governance.ts
+./Bitsauto-monitoring/server/services/asterisk/ami-governance.ts
+./client/src/lib/governance.ts
+./client/src/pages/call-governance.tsx
+./client/src/pages/governance-review.tsx
+./client/src/pages/navigation-governance.tsx
+./.local/tasks/account-governance-fix.md
+./.local/tasks/cap-and-bypass-governance-rule.md
+./.local/tasks/destination-governance-ux.md
+./.local/tasks/governance-analytics-dashboard.md
+./.local/tasks/sippy-configuration-governance.md
+./migrations/020_portal_governance.sql
+./server/routes-call-governance.ts
+./server/routes-governance-review.ts
+./server/seed-governance.ts
+./server/services/asterisk/ami-governance.ts
+~/workspace$ 

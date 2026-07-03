@@ -1,0 +1,34 @@
+[root@reve-otp ~]# # 1. See everything iptables is blocking
+[root@reve-otp ~]# iptables -L INPUT -n --line-numbers | head -50
+Chain INPUT (policy ACCEPT)
+num  target     prot opt source               destination         
+1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:5038
+2    ACCEPT     tcp  --  34.132.235.103       0.0.0.0/0            tcp dpt:5038
+3    ACCEPT     tcp  --  127.0.0.1            0.0.0.0/0            tcp dpt:5038
+4    DROP       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:5038
+5    fail2ban-recidive  all  --  0.0.0.0/0            0.0.0.0/0           
+6    fail2ban-BadBots  tcp  --  0.0.0.0/0            0.0.0.0/0            multiport dports 80,443
+7    fail2ban-FTP  tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:21
+8    fail2ban-apache-auth  tcp  --  0.0.0.0/0            0.0.0.0/0           
+9    fail2ban-SSH  tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:22
+10   fail2ban-PBX-GUI  all  --  0.0.0.0/0            0.0.0.0/0           
+11   fail2ban-SIP  all  --  0.0.0.0/0            0.0.0.0/0           
+12   DROP       all  --  189.50.142.78        0.0.0.0/0           
+13   DROP       all  --  194.113.233.25       0.0.0.0/0           
+14   DROP       all  --  10.157.85.60         0.0.0.0/0           
+15   DROP       all  --  185.213.155.231      0.0.0.0/0           
+[root@reve-otp ~]# 
+[root@reve-otp ~]# # 2. Confirm what's listening on SIP ports
+[root@reve-otp ~]# ss -lunp | grep -E "5060|5160"
+UNCONN     428032 0            *:5060                     *:*                   users:(("asterisk",pid=9011,fd=22))
+UNCONN     0      0            *:5160                     *:*                   users:(("asterisk",pid=9011,fd=31))
+[root@reve-otp ~]# 
+[root@reve-otp ~]# # 3. Watch for live packets from Sippy during a call attempt
+[root@reve-otp ~]# tcpdump -ni any udp port 5060 and host 191.101.30.107 -c 10
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on any, link-type LINUX_SLL (Linux cooked), capture size 262144 bytes
+14:50:21.712233 IP 159.223.32.59.5160 > 191.101.30.107.sip: SIP: OPTIONS sip:191.101.30.107 SIP/2.0
+14:50:21.934449 IP 191.101.30.107.sip > 159.223.32.59.5160: SIP: SIP/2.0 200 OK
+14:51:21.935701 IP 159.223.32.59.5160 > 191.101.30.107.sip: SIP: OPTIONS sip:191.101.30.107 SIP/2.0
+14:51:22.151423 IP 191.101.30.107.sip > 159.223.32.59.5160: SIP: SIP/2.0 200 OK
+

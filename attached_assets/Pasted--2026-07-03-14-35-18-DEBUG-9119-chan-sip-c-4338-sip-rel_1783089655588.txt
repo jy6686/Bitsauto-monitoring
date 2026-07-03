@@ -1,0 +1,279 @@
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:4338 __sip_reliable_xmit: *** SIP TIMER: Initializing retransmit timer on packet: Id  #4
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:3806 __sip_xmit: Trying to put 'OPTIONS sip' onto UDP socket destined for 191.101.30.107:5060
+
+<--- SIP read from UDP:191.101.30.107:5060 --->
+SIP/2.0 200 OK
+Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK0b8ea07d;rport=5160
+To: <sip:191.101.30.107>;tag=0b46.3932b910e897ea30a9b01b796937eefc
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as4739e4c1
+Call-ID: 4021f2b0305d53444b1356db666321e0@159.223.32.59:5160
+CSeq: 102 OPTIONS
+Server: Sippy Softswitch v2024-PRODUCTION.485
+Content-Length: 0
+
+<------------->
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 14]: SIP/2.0 200 OK
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 92]: Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK0b8ea07d;rport=5160
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 66]: To: <sip:191.101.30.107>;tag=0b46.3932b910e897ea30a9b01b796937eefc
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as4739e4c1
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 60]: Call-ID: 4021f2b0305d53444b1356db666321e0@159.223.32.59:5160
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 45]: Server: Sippy Softswitch v2024-PRODUCTION.485
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: Content-Length: 0
+--- (8 headers 0 lines) ---
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:9505 __find_call: = Looking for  Call ID: 4021f2b0305d53444b1356db666321e0@159.223.32.59:5160 (Checking To) --From tag as4739e4c1 --To-tag 0b46.3932b910e897ea30a9b01b796937eefc  
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:4598 __sip_ack: ** SIP TIMER: Cancelling retransmit of packet (reply received) Retransid #4
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:4609 __sip_ack: Stopping retransmission on '4021f2b0305d53444b1356db666321e0@159.223.32.59:5160' of Request 102: Match Found
+[2026-07-03 14:35:18] DEBUG[9119]: chan_sip.c:6678 sip_pvt_dtor: Destroying SIP dialog 4021f2b0305d53444b1356db666321e0@159.223.32.59:5160
+Really destroying SIP dialog '4021f2b0305d53444b1356db666321e0@159.223.32.59:5160' Method: OPTIONS
+[2026-07-03 14:35:19] DEBUG[9564]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 14:35:19] NOTICE[9564]: manager.c:3523 authenticate: 148.240.238.3 tried to authenticate with nonexistent user 'astman'
+[2026-07-03 14:35:19] NOTICE[9564]: manager.c:3560 authenticate: 148.240.238.3 failed to authenticate as 'astman'
+[2026-07-03 14:35:20] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:35:21] DEBUG[9101]: res_pjsip_registrar.c:1278 check_expiration_thread: Woke up at 1783089321  Interval: 30
+[2026-07-03 14:35:21] DEBUG[9101]: res_pjsip_registrar.c:1285 check_expiration_thread: Expiring 0 contacts
+[2026-07-03 14:35:23] DEBUG[4208]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 14:35:24] DEBUG[4423]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 14:35:31] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:35:33] DEBUG[9579]: http.c:1953 httpd_helper_thread: HTTP opening session.  Top level
+[2026-07-03 14:35:33] DEBUG[9579]: http.c:1412 handle_uri: HTTP Request URI is /ws/v1/cluster/apps/new-application 
+[2026-07-03 14:35:33] DEBUG[9579]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [httpstatus] len 10
+[2026-07-03 14:35:33] DEBUG[9579]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [ari] len 3
+[2026-07-03 14:35:33] DEBUG[9579]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [ws] len 2
+[2026-07-03 14:35:33] DEBUG[9579]: http.c:1489 handle_uri: Requested URI [ws/v1/cluster/apps/new-application] has no handler
+[2026-07-03 14:35:33] DEBUG[9579]: http.c:563 ast_http_send: HTTP keeping session open.  status_code:404
+[2026-07-03 14:35:33] DEBUG[9579]: http.c:2010 httpd_helper_thread: HTTP closing session.  Top level
+[2026-07-03 14:35:35] DEBUG[4208]: manager.c:6683 process_message: Running action 'CoreShowChannels'
+reve-otp*CLI> 
+Disconnected from Asterisk server
+Asterisk cleanly ending (0).
+Executing last minute cleanups
+[root@reve-otp ~]# pjsip set logger on
+-bash: pjsip: command not found
+[root@reve-otp ~]# sip set debug on
+-bash: sip: command not found
+[root@reve-otp ~]# core set verbose 10
+-bash: core: command not found
+[root@reve-otp ~]# pjsip set logger on
+-bash: pjsip: command not found
+[root@reve-otp ~]# asterisk -rvvvvv
+Asterisk 18.6.0, Copyright (C) 1999 - 2021, Sangoma Technologies Corporation and others.
+Created by Mark Spencer <markster@digium.com>
+Asterisk comes with ABSOLUTELY NO WARRANTY; type 'core show warranty' for details.
+This is free software, with components licensed under the GNU General Public
+License version 2 and other licenses; you are welcome to redistribute it under
+certain conditions. Type 'core show license' for details.
+=========================================================================
+Connected to Asterisk 18.6.0 currently running on reve-otp (pid = 9011)
+[2026-07-03 14:39:06] DEBUG[10092]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 14:39:06] NOTICE[10092]: manager.c:3523 authenticate: 148.240.238.3 tried to authenticate with nonexistent user 'astman'
+[2026-07-03 14:39:06] NOTICE[10092]: manager.c:3560 authenticate: 148.240.238.3 failed to authenticate as 'astman'
+[2026-07-03 14:39:08] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:39:09] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:39:09] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:39:13] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 3 instead
+reve-otp*CLI> sip set debug on
+reve-otp*CLI> pjsip set logger on
+SIP Debugging re-enabled
+PJSIP Logging enabled
+reve-otp*CLI> core set verbose 10
+Console verbose was 5 and is now 10.
+[2026-07-03 14:39:18] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 3 instead
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9098 __sip_alloc: Allocating new SIP dialog for 5c6dd79c478f5d0c433fb3a91b31ebdd@[::1]:5160 - OPTIONS (No RTP)
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:3573 obproxy_get: OBPROXY: Not applying OBproxy to this call
+[2026-07-03 14:39:19] DEBUG[9119]: acl.c:1047 ast_ouraddrfor: For destination '191.101.30.107', our source address is '159.223.32.59'.
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:3982 ast_sip_ouraddrfor: Setting AST_TRANSPORT_UDP with address 159.223.32.59:5160
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:8887 change_callid_pvt: SIP call-id changed from '5c6dd79c478f5d0c433fb3a91b31ebdd@[::1]:5160' to '5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160'
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:3449 initialize_initreq: Initializing initreq for method OPTIONS - callid 5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 34]: OPTIONS sip:191.101.30.107 SIP/2.0
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 64]: Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK10dda9e5;rport
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 16]: Max-Forwards: 70
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as75672799
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 24]: To: <sip:191.101.30.107>
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 41]: Contact: <sip:Unknown@159.223.32.59:5160>
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 60]: Call-ID: 5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  8 [ 35]: User-Agent: FPBX-16.0.10.40(18.6.0)
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  9 [ 35]: Date: Fri, 03 Jul 2026 14:39:19 GMT
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 10 [ 90]: Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 11 [ 26]: Supported: replaces, timer
+Reliably Transmitting (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK10dda9e5;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as75672799
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Fri, 03 Jul 2026 14:39:19 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:4338 __sip_reliable_xmit: *** SIP TIMER: Initializing retransmit timer on packet: Id  #14
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:3806 __sip_xmit: Trying to put 'OPTIONS sip' onto UDP socket destined for 191.101.30.107:5060
+
+<--- SIP read from UDP:191.101.30.107:5060 --->
+SIP/2.0 200 OK
+Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK10dda9e5;rport=5160
+To: <sip:191.101.30.107>;tag=0b46.82a48608bfa687a9ba979961b8d178b3
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as75672799
+Call-ID: 5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160
+CSeq: 102 OPTIONS
+Server: Sippy Softswitch v2024-PRODUCTION.485
+Content-Length: 0
+
+<------------->
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 14]: SIP/2.0 200 OK
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 92]: Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK10dda9e5;rport=5160
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 66]: To: <sip:191.101.30.107>;tag=0b46.82a48608bfa687a9ba979961b8d178b3
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as75672799
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 60]: Call-ID: 5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 45]: Server: Sippy Softswitch v2024-PRODUCTION.485
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: Content-Length: 0
+--- (8 headers 0 lines) ---
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:9505 __find_call: = Looking for  Call ID: 5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160 (Checking To) --From tag as75672799 --To-tag 0b46.82a48608bfa687a9ba979961b8d178b3  
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:4598 __sip_ack: ** SIP TIMER: Cancelling retransmit of packet (reply received) Retransid #14
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:4609 __sip_ack: Stopping retransmission on '5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160' of Request 102: Match Found
+[2026-07-03 14:39:19] DEBUG[9119]: chan_sip.c:6678 sip_pvt_dtor: Destroying SIP dialog 5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160
+Really destroying SIP dialog '5988a7e3566f270138b62fcd3d3a80f3@159.223.32.59:5160' Method: OPTIONS
+[2026-07-03 14:39:21] DEBUG[9101]: res_pjsip_registrar.c:1278 check_expiration_thread: Woke up at 1783089561  Interval: 30
+[2026-07-03 14:39:21] DEBUG[9101]: res_pjsip_registrar.c:1285 check_expiration_thread: Expiring 0 contacts
+[2026-07-03 14:39:23] DEBUG[4208]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 14:39:23] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:39:24] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:39:26] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:39:28] DEBUG[10122]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 14:39:35] DEBUG[10131]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 14:39:35] NOTICE[10131]: manager.c:3523 authenticate: 148.240.238.3 tried to authenticate with nonexistent user 'astman'
+[2026-07-03 14:39:35] NOTICE[10131]: manager.c:3560 authenticate: 148.240.238.3 failed to authenticate as 'astman'
+[2026-07-03 14:39:35] DEBUG[4208]: manager.c:6683 process_message: Running action 'CoreShowChannels'
+[2026-07-03 14:39:43] DEBUG[4208]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 14:39:51] DEBUG[9101]: res_pjsip_registrar.c:1278 check_expiration_thread: Woke up at 1783089591  Interval: 30
+[2026-07-03 14:39:51] DEBUG[9101]: res_pjsip_registrar.c:1285 check_expiration_thread: Expiring 0 contacts
+[2026-07-03 14:39:54] DEBUG[10151]: http.c:1953 httpd_helper_thread: HTTP opening session.  Top level
+[2026-07-03 14:39:54] DEBUG[10151]: http.c:1412 handle_uri: HTTP Request URI is /ws/v1/cluster/apps/new-application 
+[2026-07-03 14:39:54] DEBUG[10151]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [httpstatus] len 10
+[2026-07-03 14:39:54] DEBUG[10151]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [ari] len 3
+[2026-07-03 14:39:54] DEBUG[10151]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [ws] len 2
+[2026-07-03 14:39:54] DEBUG[10151]: http.c:1489 handle_uri: Requested URI [ws/v1/cluster/apps/new-application] has no handler
+[2026-07-03 14:39:54] DEBUG[10151]: http.c:563 ast_http_send: HTTP keeping session open.  status_code:404
+[2026-07-03 14:39:54] DEBUG[10151]: http.c:2010 httpd_helper_thread: HTTP closing session.  Top level
+[2026-07-03 14:39:56] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:39:56] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:39:57] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:00] DEBUG[10158]: http.c:1953 httpd_helper_thread: HTTP opening session.  Top level
+[2026-07-03 14:40:00] DEBUG[10158]: http.c:1412 handle_uri: HTTP Request URI is /ws/v1/cluster/apps/new-application 
+[2026-07-03 14:40:00] DEBUG[10158]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [httpstatus] len 10
+[2026-07-03 14:40:00] DEBUG[10158]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [ari] len 3
+[2026-07-03 14:40:00] DEBUG[10158]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [ws] len 2
+[2026-07-03 14:40:00] DEBUG[10158]: http.c:1489 handle_uri: Requested URI [ws/v1/cluster/apps/new-application] has no handler
+[2026-07-03 14:40:00] DEBUG[10158]: http.c:563 ast_http_send: HTTP keeping session open.  status_code:404
+[2026-07-03 14:40:00] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:00] DEBUG[10158]: http.c:2010 httpd_helper_thread: HTTP closing session.  Top level
+[2026-07-03 14:40:01] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+    -- Remote UNIX connection
+    -- Remote UNIX connection disconnected
+[2026-07-03 14:40:01] DEBUG[10200]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 14:40:01] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:03] DEBUG[4208]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 14:40:03] DEBUG[10215]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 14:40:03] NOTICE[10215]: manager.c:3523 authenticate: 148.240.238.3 tried to authenticate with nonexistent user 'astman'
+[2026-07-03 14:40:03] NOTICE[10215]: manager.c:3560 authenticate: 148.240.238.3 failed to authenticate as 'astman'
+[2026-07-03 14:40:03] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:06] DEBUG[10227]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 14:40:07] DEBUG[10227]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 14:40:07] DEBUG[10227]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 14:40:07] DEBUG[10227]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 14:40:07] DEBUG[10227]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 14:40:07] DEBUG[10227]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 14:40:07] DEBUG[10227]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 14:40:07] DEBUG[10227]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 14:40:08] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:09] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:13] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:16] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9098 __sip_alloc: Allocating new SIP dialog for 48b4d2d50389bbbe0e3eb7824821bd07@[::1]:5160 - OPTIONS (No RTP)
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:3573 obproxy_get: OBPROXY: Not applying OBproxy to this call
+[2026-07-03 14:40:19] DEBUG[9119]: acl.c:1047 ast_ouraddrfor: For destination '191.101.30.107', our source address is '159.223.32.59'.
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:3982 ast_sip_ouraddrfor: Setting AST_TRANSPORT_UDP with address 159.223.32.59:5160
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:8887 change_callid_pvt: SIP call-id changed from '48b4d2d50389bbbe0e3eb7824821bd07@[::1]:5160' to '00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160'
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:3449 initialize_initreq: Initializing initreq for method OPTIONS - callid 00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 34]: OPTIONS sip:191.101.30.107 SIP/2.0
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 64]: Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK2628ddb2;rport
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 16]: Max-Forwards: 70
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as05d5b065
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 24]: To: <sip:191.101.30.107>
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 41]: Contact: <sip:Unknown@159.223.32.59:5160>
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 60]: Call-ID: 00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  8 [ 35]: User-Agent: FPBX-16.0.10.40(18.6.0)
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  9 [ 35]: Date: Fri, 03 Jul 2026 14:40:19 GMT
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 10 [ 90]: Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 11 [ 26]: Supported: replaces, timer
+Reliably Transmitting (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK2628ddb2;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as05d5b065
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Fri, 03 Jul 2026 14:40:19 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:4338 __sip_reliable_xmit: *** SIP TIMER: Initializing retransmit timer on packet: Id  #11
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:3806 __sip_xmit: Trying to put 'OPTIONS sip' onto UDP socket destined for 191.101.30.107:5060
+
+<--- SIP read from UDP:191.101.30.107:5060 --->
+SIP/2.0 200 OK
+Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK2628ddb2;rport=5160
+To: <sip:191.101.30.107>;tag=0b46.677cc4a95a812d719ddd663e893e05e0
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as05d5b065
+Call-ID: 00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160
+CSeq: 102 OPTIONS
+Server: Sippy Softswitch v2024-PRODUCTION.485
+Content-Length: 0
+
+<------------->
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 14]: SIP/2.0 200 OK
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 92]: Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK2628ddb2;rport=5160
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 66]: To: <sip:191.101.30.107>;tag=0b46.677cc4a95a812d719ddd663e893e05e0
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as05d5b065
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 60]: Call-ID: 00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 45]: Server: Sippy Softswitch v2024-PRODUCTION.485
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: Content-Length: 0
+--- (8 headers 0 lines) ---
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:9505 __find_call: = Looking for  Call ID: 00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160 (Checking To) --From tag as05d5b065 --To-tag 0b46.677cc4a95a812d719ddd663e893e05e0  
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:4598 __sip_ack: ** SIP TIMER: Cancelling retransmit of packet (reply received) Retransid #11
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:4609 __sip_ack: Stopping retransmission on '00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160' of Request 102: Match Found
+[2026-07-03 14:40:19] DEBUG[9119]: chan_sip.c:6678 sip_pvt_dtor: Destroying SIP dialog 00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160
+Really destroying SIP dialog '00d15adf5154fafc3ed2e3e50f96f9f0@159.223.32.59:5160' Method: OPTIONS
+[2026-07-03 14:40:19] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:21] DEBUG[9101]: res_pjsip_registrar.c:1278 check_expiration_thread: Woke up at 1783089621  Interval: 30
+[2026-07-03 14:40:21] DEBUG[9101]: res_pjsip_registrar.c:1285 check_expiration_thread: Expiring 0 contacts
+[2026-07-03 14:40:22] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:22] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:22] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:23] DEBUG[4208]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 14:40:23] DEBUG[10293]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 14:40:24] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:24] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:24] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 14:40:31] DEBUG[10302]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 14:40:31] NOTICE[10302]: manager.c:3523 authenticate: 148.240.238.3 tried to authenticate with nonexistent user 'astman'
+[2026-07-03 14:40:31] NOTICE[10302]: manager.c:3560 authenticate: 148.240.238.3 failed to authenticate as 'astman'
+[2026-07-03 14:40:35] DEBUG[4208]: manager.c:6683 process_message: Running action 'CoreShowChannels'
+[2026-07-03 14:

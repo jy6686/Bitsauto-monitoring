@@ -1,0 +1,163 @@
+This changes the diagnosis significantly. The tcpdump is the strongest evidence we've seen all day.
+
+What is now proven
+✅ Sippy IS sending calls to this Asterisk
+
+This is no longer a hypothesis.
+
+You captured dozens of live INVITEs:
+
+191.101.30.107:5060 -> 159.223.32.59:5060
+INVITE sip:20608801601090570@159.223.32.59
+INVITE sip:20608801876904783@159.223.32.59
+INVITE sip:20608801776318333@159.223.32.59
+...
+
+So we can eliminate:
+
+❌ Wrong IP
+❌ Wrong port
+❌ Wrong route group
+❌ Sippy bypassing Asterisk
+
+Those theories are now disproven.
+
+But here's the critical observation
+
+During the same capture:
+
+tcpdump sees hundreds of INVITEs.
+Asterisk does not create channels.
+Call Governance sees 0 active calls.
+core show channels remains 0.
+
+Those four facts cannot coexist unless Asterisk is receiving the packets but not accepting them into the SIP stack.
+
+The investigation has now moved inside Asterisk.
+
+The next question is:
+
+Why does UDP reach eth0 but chan_sip never processes the INVITE?
+
+There are only a handful of realistic causes left.
+
+1. Check whether chan_sip is actually seeing the packets
+
+Run:
+
+asterisk -rvvvvv
+
+Then at the CLI:
+
+sip set debug on
+
+Now place one test call.
+
+If you see:
+<--- SIP read from UDP:191.101.30.107:5060 --->
+INVITE ...
+
+then chan_sip is receiving it.
+
+If tcpdump sees the INVITE but sip set debug on shows nothing:
+
+the packets are reaching the NIC but not being handled by chan_sip.
+
+That is a huge clue.
+
+2. Check whether PJSIP is consuming the packets
+
+Because your server has BOTH:
+
+chan_sip
+
+and
+
+PJSIP
+
+listening on 5060/5160,
+
+run:
+
+pjsip set logger on
+
+during another test.
+
+If PJSIP logs the INVITE while chan_sip does not,
+
+then the INVITE is entering the wrong SIP stack.
+
+3. Verify bind ports
+
+Inside Asterisk:
+
+sip show settings
+
+Look specifically for:
+
+UDP Bindaddress
+Bind Port
+
+Then:
+
+pjsip show transports
+
+We need to know exactly which module owns:
+
+5060
+5160
+4. Verify identify matching
+
+Because you already showed:
+
+Match: 191.101.30.107/32
+
+run:
+
+pjsip show identifys
+
+to ensure there isn't another identify object matching the same IP.
+
+5. One command I especially want
+
+Run:
+
+asterisk -rx "core set debug 5"
+asterisk -rx "core set verbose 10"
+
+then immediately place a call.
+
+If Asterisk receives an INVITE and silently rejects it, these levels often expose why.
+
+What I no longer believe
+
+Earlier today we considered:
+
+Sippy routing
+Wrong connection
+Wrong vendor
+Wrong port
+Wrong IP
+
+Your tcpdump has effectively ruled those out.
+
+My current probability
+
+Now I'd rank the remaining possibilities as:
+
+Cause	Probability
+chan_sip/PJSIP ownership or packet dispatch issue	45%
+SIP request rejected before dialplan (identify/context/configuration)	35%
+Logger/debug configuration hiding processing	10%
+Call Governance application bug	<5%
+Sippy routing	≈0%
+Most important next test
+
+Don't change any configuration yet.
+
+Run both loggers simultaneously during one test call:
+
+sip set debug on
+pjsip set logger on
+
+Those two commands will tell us which SIP stack (if any) is actually consuming the INVITE. That is the shortest path to the root cause now that we've proven the packets are arriving at the server.
