@@ -293,3 +293,9 @@ id = "ZufsgxScL3u9R_DJGJHgD"
 uri = "file://BitsAuto_project.zip"
 type = "unspecified"
 title = "BitsAuto Project — Full Source Code"
+
+[[outputs]]
+id = "_3XoVog0ba95SyGjcod2T"
+uri = "file://asterisk-recovery-procedure.docx"
+type = "word_document"
+title = "Asterisk Recovery Procedure"
