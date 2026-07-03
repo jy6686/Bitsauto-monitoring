@@ -1,0 +1,106 @@
+his message from Sippy is significant and should be taken seriously.
+
+"During the investigation, I found that the IP 191.101.30.107 is running reports every 3–5 minutes, which is creating a queue of DB queries on the server."
+
+This doesn't necessarily mean your application is "wrong," but it does indicate that one of your components is polling Sippy more aggressively than they recommend.
+
+Based on your platform, 191.101.30.107 is likely your BitsAuto server
+
+From everything we've worked on, BitsAuto has multiple background jobs that query Sippy independently.
+
+Your startup logs show several schedulers:
+
+snapshot-bg
+snapshot
+cdr-cache
+pnl-cache
+tariff-sync
+sip-probe
+vendor-health
+carrier-scoring
+routing-cache
+presence-bootstrap
+balance-alert-engine
+traffic-baseline
+sippy-watcher
+
+Individually these aren't a problem, but together they may be generating many XML-RPC report requests every few minutes.
+
+The biggest suspects
+
+Looking at your logs, the highest-load operations are likely:
+
+1. CDR Cache ⭐⭐⭐⭐⭐
+
+Your logs repeatedly show:
+
+getAccountCDRs → 1000 structs
+getCustomerCDRs
+
+This is one of the heaviest XML-RPC operations because it reads large CDR datasets.
+
+2. P&L Cache ⭐⭐⭐⭐⭐
+
+Your log shows:
+
+[pnl-cache] exportVendorsCDRsMera
+
+That can generate expensive report queries.
+
+3. SIP Probe ⭐⭐⭐⭐
+9 vendors
+20 connections
+
+This is lighter but still repeated.
+
+4. Vendor Balance ⭐⭐⭐
+
+Usually acceptable unless it performs multiple database/report queries per vendor.
+
+I would not simply "increase the interval"
+
+A blanket change from 5 minutes to 30 minutes would reduce load but also make your NOC less responsive.
+
+Instead, I would separate jobs by purpose.
+
+For example:
+
+Job	Suggested interval
+Live calls	15–30 seconds
+Vendor balance	5 minutes
+SIP probe	5 minutes
+Tariff sync	30–60 minutes
+P&L reports	30–60 minutes
+Historical analytics	Hourly
+CDR reconciliation	15–30 minutes (or incremental if supported)
+The most important question
+
+Sippy specifically said:
+
+"running reports every 3–5 minutes"
+
+The word reports is important.
+
+That suggests they're referring to reporting APIs such as:
+
+getAccountCDRs
+getCustomerCDRs
+exportVendorsCDRsMera
+large historical report exports
+
+rather than lightweight status calls like listActiveCalls.
+
+My recommendation
+
+Before changing anything, identify exactly which XML-RPC methods are responsible.
+
+Since you already have wrappers in server/sippy.ts, temporarily add lightweight logging around XML-RPC calls to record:
+
+method name
+execution time
+response size (optional)
+caller (if you can identify the scheduler)
+
+Then collect 10–15 minutes of data. That will tell you which scheduled jobs are generating the most load, allowing you to optimize those specifically instead of slowing down the whole platform.
+
+This approach fits well with your production-first strategy: measure first, then adjust only the expensive schedulers rather than making broad changes that could affect your real-time monitoring.
