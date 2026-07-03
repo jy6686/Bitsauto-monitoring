@@ -996,7 +996,7 @@ export async function registerRoutes(
           if (vendorSettings.length > 0) {
             const since60m = new Date(Date.now() - 60 * 60 * 1000);
             const recentEvents = await storage.getFasEvents(2000);
-            const recent = recentEvents.filter(e => new Date(e.detectedAt) >= since60m);
+            const recent = recentEvents.filter(e => e.detectedAt != null && new Date(e.detectedAt) >= since60m);
             // Group events by vendor
             const byVendor: Record<string, typeof recent> = {};
             for (const e of recent) {
@@ -12553,7 +12553,7 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
       const since = new Date(Date.now() - days * 86400000);
       // Fetch a larger pool of events to compute daily buckets
       const events = await storage.getFasEvents(2000, vendor);
-      const recent = events.filter(e => new Date(e.detectedAt) >= since);
+      const recent = events.filter(e => e.detectedAt != null && new Date(e.detectedAt) >= since);
       // Group by day (UTC date string)
       const byDay: Record<string, number> = {};
       for (let d = 0; d < days; d++) {
@@ -12561,6 +12561,7 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
         byDay[day] = 0;
       }
       for (const e of recent) {
+        if (e.detectedAt == null) continue;
         const day = new Date(e.detectedAt).toISOString().slice(0, 10);
         if (day in byDay) byDay[day]++;
       }
@@ -18663,6 +18664,7 @@ let _snapBusy = false;
         // Hourly buckets for trend chart — bucket by firstSeen truncated to the hour
         const hourly: Record<string, { callCount: number; totalPdd: number; goodCalls: number }> = {};
         for (const c of calls) {
+          if (c.firstSeen == null) continue;
           const d = new Date(c.firstSeen);
           const hour = `${d.toISOString().slice(0, 13)}:00`;
           if (!hourly[hour]) hourly[hour] = { callCount: 0, totalPdd: 0, goodCalls: 0 };
@@ -19375,8 +19377,8 @@ let _snapBusy = false;
         if (!cdr.callee || !cdr.callId) continue;
         const irsfResult = detectIrsf(String(cdr.callee));
         if (!irsfResult.isIrsf) continue;
-        const resolvedClient = cdr.clientName || cdr.user
-          || accountNameCache.get(String(cdr.iAccount ?? cdr.iAccount ?? ''))
+        const resolvedClient = cdr.clientName
+          || accountNameCache.get(String(cdr.iAccount ?? ''))
           || (cdr.iAccount ? `Acct#${cdr.iAccount}` : 'Unknown');
         const resolvedVendor = (() => {
           if (cdr.vendor) return cdr.vendor;
@@ -20733,17 +20735,18 @@ let _snapBusy = false;
           : windowCdrs;
 
         // ── C: KPIs via analytics-engine (single source of truth) ──────────────
-        const kpis       = computeKpis(cdrs as CdrEntry[]);
+        const cdrEntries = cdrs.filter((c): c is NonNullable<typeof c> => c != null) as CdrEntry[];
+        const kpis       = computeKpis(cdrEntries);
         const { totalCalls, answeredCalls: ansCount, asr, acd,
                 pdd: avgPddSec, mos, mosGrade, ner, totalMinutes, totalCost } = kpis;
 
         // Breakout / time-series still need per-CDR predicates (imported from analytics-engine)
-        const rna         = cdrs.filter(isRna);
-        const networkFail = cdrs.filter(isNetFail);
+        const rna         = cdrEntries.filter(isRna);
+        const networkFail = cdrEntries.filter(isNetFail);
 
         // ── Time series ────────────────────────────────────────────────────────
         const bucketMap = new Map<number, { calls: number; answered: number; durationSec: number; cost: number }>();
-        for (const c of cdrs) {
+        for (const c of cdrEntries) {
           const ts  = cdrTs(c); if (!ts) continue;
           const bkt = Math.floor(ts / bucketMs) * bucketMs;
           const row = bucketMap.get(bkt) ?? { calls: 0, answered: 0, durationSec: 0, cost: 0 };
@@ -20765,7 +20768,7 @@ let _snapBusy = false;
 
         // ── Top vendors ────────────────────────────────────────────────────────
         const vendorMap = new Map<string, { calls: number; answered: number; durationSec: number; cost: number }>();
-        for (const c of cdrs) {
+        for (const c of cdrEntries) {
           const name = (c as any).vendor
             || connectionVendorCache.get(String((c as any).iConnection ?? ''))
             || 'Unknown';
@@ -20788,7 +20791,7 @@ let _snapBusy = false;
 
         // ── Top clients ────────────────────────────────────────────────────────
         const clientMap = new Map<string, { calls: number; answered: number; durationSec: number; cost: number }>();
-        for (const c of cdrs) {
+        for (const c of cdrEntries) {
           const acctId = String((c as any).iAccount ?? '');
           const name   = (c as any).clientName
             || accountNameCache.get(acctId)
@@ -20812,7 +20815,7 @@ let _snapBusy = false;
 
         // ── Top destinations (countries) ───────────────────────────────────────
         const destMap = new Map<string, { calls: number; answered: number; durationSec: number }>();
-        for (const c of cdrs) {
+        for (const c of cdrEntries) {
           const country = (c as any).country || 'Unknown';
           const row = destMap.get(country) ?? { calls: 0, answered: 0, durationSec: 0 };
           row.calls++;
@@ -20930,7 +20933,7 @@ let _snapBusy = false;
         if (cdrs.length > 0) {
           // Aggregate CDRs by clientName → revenue
           const clientMap = new Map<string, { calls: number; secs: number; revenue: number }>();
-          for (const c of cdrs) {
+          for (const c of cdrEntries) {
             const name = (c.clientName || 'Unknown').trim();
             const ex   = clientMap.get(name) ?? { calls: 0, secs: 0, revenue: 0 };
             clientMap.set(name, {
@@ -21855,15 +21858,15 @@ let _snapBusy = false;
       // Group by destination prefix (first 3 digits of callee, or country if available)
       const byDest = new Map<string, { total: number; answered: number; durationSum: number; pddSum: number; pddCount: number; cost: number }>();
       for (const c of filtered) {
-        const raw = (c.callee ?? c.cld ?? '').replace(/^\+/, '');
+        const raw = (c.callee ?? '').replace(/^\+/, '');
         const prefix = raw.slice(0, 3) || 'UNK';
         const ex = byDest.get(prefix) ?? { total: 0, answered: 0, durationSum: 0, pddSum: 0, pddCount: 0, cost: 0 };
         ex.total++;
         const dur = Number(c.duration ?? c.billedDuration ?? 0);
         if (dur > 0) { ex.answered++; ex.durationSum += dur; }
-        const pddRaw = Number(c.pdd ?? c.pddMs ?? 0);
+        const pddRaw = Number(c.pdd ?? c.pdd1xx ?? 0);
         if (pddRaw > 0) { ex.pddSum += pddRaw; ex.pddCount++; }
-        ex.cost += Number(c.cost ?? c.vendorCost ?? 0);
+        ex.cost += Number(c.cost ?? (c as any).vendorCost ?? 0);
         byDest.set(prefix, ex);
       }
 
@@ -30635,7 +30638,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         for (const c of toProcess) {
           const cdrId = String(c.callId ?? (c as any).i_cdr ?? '');
           if (cdrId && existingIds.has(cdrId)) { skippedCount++; continue; }
-          const cost        = parseFloat(String(c.cost ?? c.price ?? (c as any).charged_amount ?? '0')) || 0;
+          const cost        = parseFloat(String(c.cost ?? c.price1 ?? (c as any).charged_amount ?? '0')) || 0;
           // Use billed duration (what Sippy charged) — note: field is billedDuration, not billDuration
           const durationSec = Number(c.billedDuration ?? c.billedDuration ?? c.duration ?? c.totalDuration ?? 0);
           const startTime   = String(c.startTime ?? c.connectTime ?? (c as any).connect_time ?? '');
