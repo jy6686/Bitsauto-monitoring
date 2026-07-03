@@ -1,0 +1,121 @@
+[root@reve-otp ~]# systemctl status asterisk --no-pager
+● asterisk.service - LSB: Asterisk PBX
+   Loaded: loaded (/etc/rc.d/init.d/asterisk; bad; vendor preset: disabled)
+   Active: failed (Result: protocol) since Thu 2026-07-02 13:14:52 UTC; 21h ago
+     Docs: man:systemd-sysv-generator(8)
+  Process: 10996 ExecStart=/etc/rc.d/init.d/asterisk start (code=exited, status=0/SUCCESS)
+You have new mail in /var/spool/mail/root
+[root@reve-otp ~]# asterisk -rx "core show channels count"
+0 active channels
+0 of 500 max active calls ( 0.00% of capacity)
+17 calls processed
+[root@reve-otp ~]# asterisk -rx "core show calls"
+0 of 500 max active calls ( 0.00% of capacity)
+17 calls processed
+[root@reve-otp ~]# asterisk -rx "pjsip show endpoints"
+
+ Endpoint:  <Endpoint/CID.....................................>  <State.....>  <Channels.>
+    I/OAuth:  <AuthId/UserName...........................................................>
+        Aor:  <Aor............................................>  <MaxContact>
+      Contact:  <Aor/ContactUri..........................> <Hash....> <Status> <RTT(ms)..>
+  Transport:  <TransportId........>  <Type>  <cos>  <tos>  <BindAddress..................>
+   Identify:  <Identify/Endpoint.........................................................>
+        Match:  <criteria.........................>
+    Channel:  <ChannelId......................................>  <State.....>  <Time.....>
+        Exten: <DialedExten...........>  CLCID: <ConnectedLineCID.......>
+==========================================================================================
+
+ Endpoint:  sippy-endpoint                                       Not in use    0 of inf
+        Aor:  sippy-aor                                          0
+      Contact:  sippy-aor/sip:191.101.30.107:5060          951fd13c35 NonQual         nan
+   Identify:  sippy-identify/sippy-endpoint
+        Match: 191.101.30.107/32
+
+
+Objects found: 1
+
+[root@reve-otp ~]# asterisk -rx "pjsip show registrations"
+No objects found.
+
+[root@reve-otp ~]# tail -80 /var/log/asterisk/full
+[2026-07-03 10:05:02] VERBOSE[32329] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:08:48] NOTICE[445] acl.c: Manager User ACL: Rejecting '45.61.188.18' due to a failure to pass ACL '(BASELINE)'
+[2026-07-03 10:08:48] NOTICE[445] manager.c: 45.61.188.18 failed to pass IP ACL as 'Admin'
+[2026-07-03 10:08:48] NOTICE[445] manager.c: 45.61.188.18 failed to authenticate as 'Admin'
+[2026-07-03 10:10:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:10:02] VERBOSE[674] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:15:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:15:01] VERBOSE[1493] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:17:43] NOTICE[1970] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'pa$$word'
+[2026-07-03 10:17:43] NOTICE[1970] manager.c: 45.61.188.18 failed to authenticate as 'pa$$word'
+[2026-07-03 10:20:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:20:02] VERBOSE[2332] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:25:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:25:01] VERBOSE[3140] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:26:41] NOTICE[3419] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'testadmin'
+[2026-07-03 10:26:41] NOTICE[3419] manager.c: 45.61.188.18 failed to authenticate as 'testadmin'
+[2026-07-03 10:30:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:30:01] VERBOSE[3976] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:33:24] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:33:24] VERBOSE[4532] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:33:24] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:33:24] VERBOSE[4534] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:33:24] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:33:24] VERBOSE[4536] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:34:47] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:34:47] VERBOSE[4873] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:34:47] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:34:47] VERBOSE[4875] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:34:47] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:34:47] VERBOSE[4877] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:35:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:35:02] VERBOSE[4953] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:35:34] NOTICE[5070] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'free'
+[2026-07-03 10:35:34] NOTICE[5070] manager.c: 45.61.188.18 failed to authenticate as 'free'
+[2026-07-03 10:36:03] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:36:03] VERBOSE[5233] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:36:03] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:36:03] VERBOSE[5235] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:36:03] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:36:03] VERBOSE[5237] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:40:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:40:02] VERBOSE[6260] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:44:29] NOTICE[7043] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'guest1'
+[2026-07-03 10:44:29] NOTICE[7043] manager.c: 45.61.188.18 failed to authenticate as 'guest1'
+[2026-07-03 10:45:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:45:01] VERBOSE[7131] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:50:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:50:01] VERBOSE[7826] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:53:23] NOTICE[8402] manager.c: 45.61.188.18 tried to authenticate with nonexistent user 'a2billing'
+[2026-07-03 10:53:23] NOTICE[8402] manager.c: 45.61.188.18 failed to authenticate as 'a2billing'
+[2026-07-03 10:55:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:55:02] VERBOSE[8639] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:55:31] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:55:31] VERBOSE[8766] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:55:31] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:55:31] VERBOSE[8768] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:55:31] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:55:31] VERBOSE[8771] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:56:04] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:56:04] VERBOSE[8853] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:56:04] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:56:04] VERBOSE[8855] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:57:13] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:57:13] VERBOSE[9262] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:57:13] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:57:13] VERBOSE[9265] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:58:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:58:02] VERBOSE[9377] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 10:58:02] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 10:58:02] VERBOSE[9381] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 11:00:01] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 11:00:01] VERBOSE[9705] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 11:01:19] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 11:01:19] VERBOSE[10000] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 11:01:19] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 11:01:19] VERBOSE[10002] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 11:01:19] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 11:01:19] VERBOSE[10004] asterisk.c: Remote UNIX connection disconnected
+[2026-07-03 11:01:19] VERBOSE[9027] asterisk.c: Remote UNIX connection
+[2026-07-03 11:01:19] VERBOSE[10006] asterisk.c: Remote UNIX connection disconnected
+[root@reve-otp ~]# 
