@@ -1258,6 +1258,37 @@ export function registerCallGovernanceRoutes(app: Express) {
     res.json({ connected: amiGovernance.isConnected, activeTimers: activeTimers.size });
   });
 
+  // ── Debug: raw AMI channel list + pattern test ──────────────────────────────
+  app.get('/api/call-governance/debug/bridges', requireAdmin, async (_req: any, res: any) => {
+    try {
+      const channels = await amiGovernance.fetchActiveBridges();
+      const rules = await db.select().from(callGovernanceRules).where(eq(callGovernanceRules.enabled, true));
+      const channelTests = channels.map(ch => ({
+        channel:     ch.channel,
+        bridgeId:    ch.bridgeId,
+        durationSec: ch.durationSec,
+        uniqueId:    ch.uniqueId,
+        ruleMatches: rules
+          .filter(r => r.channelPattern)
+          .map(r => {
+            try {
+              const pattern = globToRegex(r.channelPattern!);
+              return { ruleId: r.id, ruleName: r.ruleName ?? r.connectionName, pattern: r.channelPattern, matches: pattern.test(ch.channel) };
+            } catch { return { ruleId: r.id, ruleName: r.ruleName ?? r.connectionName, pattern: r.channelPattern, matches: false, error: 'invalid' }; }
+          }),
+      }));
+      res.json({
+        totalBridgedChannels: channels.length,
+        amiConnected: amiGovernance.isConnected,
+        activeTimers: activeTimers.size,
+        channels: channelTests,
+        rules: rules.map(r => ({ id: r.id, name: r.ruleName ?? r.connectionName, pattern: r.channelPattern, cap: r.capSec })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── REST: Recording stream (SFTP from Asterisk box) ────────────────────────
   app.get('/api/call-governance/recordings/stream', requireAuth, async (req: any, res: any) => {
     const filePath = req.query.path as string;

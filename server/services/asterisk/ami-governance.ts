@@ -146,6 +146,9 @@ class AmiGovernanceListener extends EventEmitter {
       if (f['response'] === 'Success') {
         this.loggedIn = true;
         console.log('[ami-governance] Logged in — listening for Bridge/Hangup events');
+        // Explicitly subscribe to call events (Bridge, BridgeEnter, Hangup, etc.)
+        // Some Asterisk builds default to restricted event sets without this.
+        this.socket?.write(`Action: Events\r\nEventMask: call\r\nActionID: gov-events\r\n\r\n`);
         // Send a Ping every 20s to keep the connection alive
         if (this.keepaliveTimer) clearInterval(this.keepaliveTimer);
         this.keepaliveTimer = setInterval(() => {
@@ -164,6 +167,15 @@ class AmiGovernanceListener extends EventEmitter {
     // Route frame to any registered raw listeners (used by fetchActiveBridges)
     for (const fn of this.rawFrameListeners) {
       try { fn(f); } catch {}
+    }
+
+    // Log all non-trivial events for diagnostics (throttled to event types we care about)
+    const evtName = f['event'] ?? '';
+    if (evtName && evtName !== 'Hangup' && evtName !== 'VarSet' && evtName !== 'NewExten'
+        && evtName !== 'Newchannel' && evtName !== 'Newstate' && evtName !== 'AgentConnect'
+        && evtName !== 'AgentComplete' && evtName !== 'ExtensionStatus'
+        && evtName !== 'QueueMemberStatus' && evtName !== 'RTCPReceived' && evtName !== 'RTCPSent') {
+      console.log(`[ami-event] ${evtName} ch=${f['channel'] ?? f['channel1'] ?? '-'} bridge=${f['bridgeuniqueid'] ?? f['bridgeid'] ?? '-'}`);
     }
 
     // Bridge event (chan_sip style — both channels in one event)
