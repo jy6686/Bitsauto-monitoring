@@ -174,6 +174,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/graphs",            label: "Graphs",            icon: LineChart, roles: ['admin','management']   },
       { href: "/multi-switch",      label: "Multi-Switch View", icon: Layers,   roles: ['admin','management']   },
       { href: "/server-monitoring", label: "Server Monitor",    icon: Server,   roles: ['admin','management'], hasSubmenu: 'monitoring' },
+      { href: "/server-health",     label: "Server Health",     icon: Server,   roles: ['admin','management'], isNew: true },
       { href: "/sbc-monitor",       label: "SBC Monitor",       icon: Network,  roles: ['admin','management','super_admin','noc_operator','team_lead']    },
       { href: "/network-topology",  label: "Network Topology",  icon: Network,  roles: ['admin','management'], isNew: true },
     ],

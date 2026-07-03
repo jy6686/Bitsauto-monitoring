@@ -324,6 +324,10 @@ app.use((req, res, next) => {
   // Start routing cache background sync (15-min intervals, first sync after 10s)
   startRoutingCacheSync();
 
+  // Asterisk Server Health Poller — SSH metric collection every 60s
+  const { startServerHealthPoller } = await import('./services/asterisk/server-health-poller');
+  startServerHealthPoller();
+
   // GDPR data retention — hourly purge job
   const { initGdprRetention } = await import('./gdpr-retention');
   const { storage: gdprStorage } = await import('./storage');

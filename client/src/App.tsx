@@ -167,6 +167,7 @@ import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
 import NocDashboardPage from "@/pages/noc-dashboard";
+import ServerHealthPage from "@/pages/server-health";
 import NocIncidentsPage from "@/pages/noc-incidents";
 import RouteIntelligencePage from "@/pages/route-intelligence";
 import MfaSetupPage from "@/pages/mfa-setup";
@@ -744,6 +745,9 @@ function Router() {
       </Route>
       <Route path="/noc-dashboard">
         {() => <ProtectedRoute component={NocDashboardPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
+      </Route>
+      <Route path="/server-health">
+        {() => <ProtectedRoute component={ServerHealthPage} requiredRoles={['admin','management']} />}
       </Route>
       <Route path="/noc-incidents">
         {() => <ProtectedRoute component={NocIncidentsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}

@@ -40,3 +40,4 @@
 - [Sippy Rate Push Permissions](sippy-rate-push-permissions.md) — ssp-root (reseller) is portal-blocked from /c1/rates.php; fix = separate sippyRateAdminUser/Pass in settings; probePortalRatesPage verifies access.
 - [Sippy date format for rate activation](sippy-date-format.md) — NEVER use new Date() for datetime-local; pure string replace T→space, no UTC conversion.
 - [Sippy ExtJS upload page](sippy-extjs-upload.md) — /c1/rates_tariff.php uses ExtJS; file input never in static HTML; must POST directly with known field names.
+- [Server Health Poller](server-health-poller.md) — SSH 60s poller → asterisk_server_snapshots; MemoryStick icon absent from lucide-react 0.453.0 (use Gauge); cleanup is preview-first.

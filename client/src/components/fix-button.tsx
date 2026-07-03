@@ -187,12 +187,14 @@ function buildAiSuggestion(issues: DiagIssue[]): string | null {
 
 // ── Fix button action labels ─────────────────────────────────────────────────
 const FIX_ACTION_LABELS: Record<string, string> = {
-  retry_sippy:       "Retry Sippy API",
-  warm_cdr_cache:    "Warm CDR Cache",
-  check_db:          "Test DB Connection",
-  refresh_accounts:  "Refresh Accounts",
-  refresh_ssl_certs: "Re-check SSL Certs Now",
-  refresh_vendors:  "Refresh Vendors",
+  retry_sippy:          "Retry Sippy API",
+  warm_cdr_cache:       "Warm CDR Cache",
+  check_db:             "Test DB Connection",
+  refresh_accounts:     "Refresh Accounts",
+  refresh_ssl_certs:    "Re-check SSL Certs Now",
+  refresh_vendors:      "Refresh Vendors",
+  server_health_poll:   "Poll Server Health Now",
+  server_disk_cleanup:  "Preview Disk Cleanup",
 };
 
 // ── Build a structured AI-ready fix report ───────────────────────────────────

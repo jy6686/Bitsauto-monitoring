@@ -1,0 +1,184 @@
+This is a very significant change. The latest output changes the diagnosis.
+
+What is now confirmed ✅
+1. Asterisk is healthy after the clean restart
+System uptime: 16 seconds
+
+Good.
+
+The previous "stuck since yesterday" state is gone.
+
+2. PJSIP distributors are processing work
+
+Before we were worried they were jammed.
+
+Now:
+
+pjsip/distributor...
+0
+4
+0
+
+This is normal.
+
+The queues are alive.
+
+3. The dialplan is executing
+
+This is the biggest finding.
+
+Executing [20608801935700194@sippy-media-anchor:4]
+
+means an incoming call has reached
+
+sippy-media-anchor
+
+and entered your dialplan.
+
+So:
+
+Sippy
+      ↓
+Asterisk
+      ↓
+PJSIP
+      ↓
+Dialplan
+
+is working again.
+
+4. MixMonitor started
+Begin MixMonitor Recording
+
+That means:
+
+channel created
+bridge progressing
+governance should be able to observe it
+5. Vendor dial started
+Called SIP/sippy/222118801935700194
+
+This is exactly what your dialplan should do.
+
+The interesting part
+
+Your tcpdump showed nothing:
+
+timeout 15 tcpdump ...
+Terminated
+
+but the Asterisk log clearly shows
+
+Executing
+Dial
+MixMonitor
+Called SIP/sippy
+
+That simply means no INVITE happened during those 15 seconds.
+
+It does NOT mean traffic is still broken.
+
+The log proves a call happened.
+
+This changes our problem completely
+
+Yesterday the problem was
+
+no calls reaching Asterisk
+
+Today we have proof that
+
+calls ARE reaching Asterisk
+
+Therefore the remaining issue is inside Call Governance, not SIP transport.
+
+What should happen next
+
+For every call you should see something like
+
+BridgeEnter
+
+BridgeEnter
+
+BridgeCreate
+
+Hangup
+
+If those AMI events never arrive,
+
+then the governance engine cannot populate
+
+Active Calls
+Billing Check
+Governance Dashboard
+
+even though the call itself is working.
+
+I would now verify AMI Bridge events
+
+On the Asterisk server:
+
+asterisk -rvvv
+
+From another terminal:
+
+telnet localhost 5038
+
+Login.
+
+Then:
+
+Action: Events
+EventMask: on
+
+
+Place one test call.
+
+If AMI is healthy you should immediately see
+
+Event: BridgeCreate
+
+Event: BridgeEnter
+
+Event: BridgeEnter
+
+Event: BridgeLeave
+
+Event: Hangup
+My suspicion has shifted
+
+Yesterday I believed this was a SIP transport issue.
+
+After seeing today's output, I no longer think that's the primary problem.
+
+My current assessment is:
+
+Component	Status
+Sippy → Asterisk routing	✅ Working
+PJSIP	✅ Working
+Dialplan	✅ Working
+MixMonitor	✅ Working
+Vendor Dial	✅ Working
+RTP	Likely OK
+AMI Bridge events	⚠️ Needs verification
+BitsAuto governance listener	⚠️ Most likely remaining issue
+One more thing I want to verify
+
+Earlier you mentioned:
+
+"we have to pass all calls, not only OTP calls. This is what we were doing until the issue arrived."
+
+The log you posted is for:
+
+20608801935700194@sippy-media-anchor
+
+which looks like the Asterisk media-anchor path.
+
+Can you answer one question:
+
+Are all production transit calls now appearing in /var/log/asterisk/full, or are you still only seeing OTP/media-anchor calls?
+
+That answer will determine whether we're looking at:
+
+a routing problem (only OTP/media-anchor is using Asterisk), or
+a governance listener problem (all calls reach Asterisk but BitsAuto isn't seeing the bridge events).

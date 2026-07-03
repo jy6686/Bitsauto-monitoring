@@ -9,6 +9,7 @@ import { seedGovernanceData }               from './seed-governance';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
 import { registerCallGovernanceRoutes } from './routes-call-governance';
+import { registerServerHealthRoutes } from './routes-server-health';
 import { registerRateManagerRoutes } from './routes-rate-manager';
 import { registerVendorRatesRoutes } from './routes-vendor-rates';
 import { registerRateNotificationRoutes, createInitialRateJob } from './routes-rate-notifications';
@@ -23109,6 +23110,22 @@ let _snapBusy = false;
           await recordHistory(expired.length || critical.length ? 'failure' : 'success', msg);
           return res.json({ ok: !expired.length && !critical.length, message: msg, durationMs: Date.now() - t0 });
         }
+        case 'server_health_poll': {
+          const { pollServerHealth } = await import('./services/asterisk/server-health-poller');
+          const snap = await pollServerHealth();
+          const msg = snap.sshError
+            ? `SSH poll failed: ${snap.sshError}`
+            : `Server health polled. Disk: ${snap.diskPct ?? '?'}% | MariaDB: ${snap.mariadbRunning ? 'running' : 'DOWN'} | Asterisk: ${snap.asteriskRunning ? 'running' : 'DOWN'}`;
+          await recordHistory(snap.sshError ? 'failure' : 'success', msg);
+          return res.json({ ok: !snap.sshError, message: msg, durationMs: Date.now() - t0 });
+        }
+        case 'server_disk_cleanup': {
+          const { getCleanupPreview } = await import('./services/asterisk/server-health-poller');
+          const preview = await getCleanupPreview();
+          const msg = `Cleanup preview: ~${Math.round(preview.totalReclaimableMb / 1024 * 10) / 10} GB reclaimable from log files. Visit Server Health page to review and execute cleanup.`;
+          await recordHistory('success', msg);
+          return res.json({ ok: true, message: msg, durationMs: Date.now() - t0 });
+        }
         default:
           return res.status(400).json({ ok: false, message: `Unknown action: ${action}` });
       }
@@ -34164,6 +34181,7 @@ ${footer}
   registerValidationRuleRoutes(app);
   registerGovernanceReviewRoutes(app);
   registerCallGovernanceRoutes(app);
+  registerServerHealthRoutes(app);
   (global as any).__bitsautoCdrCache = cdrCache; // expose CDR cache via global for call-governance (survives hot-reload)
   (global as any).__bitsautoPnlCache = pnlCache; // expose P&L CSV cache for vendor cost enrichment in call-governance
 

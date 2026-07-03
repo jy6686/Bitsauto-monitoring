@@ -907,6 +907,51 @@ function LiveClock() {
   );
 }
 
+// ── Server Health Strip ────────────────────────────────────────────────────────
+function ServerHealthStrip() {
+  const { data } = useQuery<{ snapshot: any | null }>({
+    queryKey: ['/api/server-health/current'],
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  const snap = data?.snapshot;
+  if (!snap || snap.sshError) return null;
+
+  const diskCrit = snap.diskPct !== null && snap.diskPct >= 90;
+  const diskWarn = snap.diskPct !== null && snap.diskPct >= 80;
+  const mariaDown = snap.mariadbRunning === false;
+  const asterDown = snap.asteriskRunning === false;
+  const hasAlert = diskCrit || diskWarn || mariaDown || asterDown;
+  if (!hasAlert) return null;
+
+  return (
+    <div className={`flex-shrink-0 border-b px-4 py-1.5 flex items-center gap-3 overflow-x-auto ${
+      diskCrit || mariaDown || asterDown
+        ? 'bg-red-950/30 border-red-800/40'
+        : 'bg-amber-950/30 border-amber-800/40'
+    }`}>
+      <Server className={`h-3.5 w-3.5 shrink-0 ${diskCrit || mariaDown || asterDown ? 'text-red-400' : 'text-amber-400'}`} />
+      <span className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${diskCrit || mariaDown || asterDown ? 'text-red-400' : 'text-amber-400'}`}>
+        Server Alert
+      </span>
+      <div className="flex items-center gap-2 text-[10px] font-mono">
+        {snap.diskPct !== null && snap.diskPct >= 80 && (
+          <span className={`px-1.5 py-0.5 rounded border shrink-0 ${
+            diskCrit ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+          }`}>
+            Disk {snap.diskPct}%
+          </span>
+        )}
+        {mariaDown && <span className="px-1.5 py-0.5 rounded border bg-red-500/20 text-red-300 border-red-500/30 shrink-0">MariaDB DOWN</span>}
+        {asterDown && <span className="px-1.5 py-0.5 rounded border bg-red-500/20 text-red-300 border-red-500/30 shrink-0">Asterisk DOWN</span>}
+      </div>
+      <a href="/server-health" className="ml-auto text-[10px] text-slate-500 hover:text-slate-300 shrink-0 flex items-center gap-1 transition-colors">
+        Fix <ChevronRight className="h-3 w-3" />
+      </a>
+    </div>
+  );
+}
+
 function KpiChip({ label, value, color, pulse, icon: Icon }: {
   label: string; value: string | number; color: string;
   pulse?: "green" | "amber" | "red"; icon?: React.ComponentType<{ className?: string }>;
@@ -1374,6 +1419,9 @@ export default function NocDashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Server Health Strip ── */}
+      <ServerHealthStrip />
 
       {/* ── Low Balance Alert Strip ── */}
       {showLowBalanceStrip && (

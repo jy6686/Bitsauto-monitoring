@@ -1,0 +1,142 @@
+Given your platform and everything we've been through over the past few days, I would choose Option C, but with one important adjustment.
+
+Immediate (today)
+1. Apply logrotate ✅
+
+Yes. I recommend replacing the "truncate every 6 hours" approach with proper log rotation for everything except recordings.
+
+For recordings, keep your current cleanup policy because those are large media files.
+
+For logs, use rotation instead of destroying them.
+
+Example:
+
+cat >/etc/logrotate.d/asterisk-all <<'EOF'
+/var/log/asterisk/*.log
+{
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0640 asterisk asterisk
+}
+EOF
+
+I would remove this cron afterwards:
+
+0 */6 * * * > /var/log/asterisk/fail2ban && > /var/log/asterisk/freepbx.log
+
+because logrotate should manage logs.
+
+Keep the recording cleanup cron.
+
+2. Build monitoring into BitsAuto
+
+This is the bigger win.
+
+You're already running a NOC platform. The Asterisk server should simply become another monitored asset.
+
+I'd add a Server Health widget.
+
+Monitor:
+
+Check	Warning	Critical
+Disk usage	80%	90%
+Memory	85%	95%
+Swap	50%	80%
+Load average	> CPU cores	>2× CPU cores
+MariaDB	Down	Critical
+Asterisk	Down	Critical
+SIP peer Sippy	Unreachable	Critical
+AMI	Disconnected	Critical
+Recording folder growth	abnormal	Critical
+3. Automatic Fix Button
+
+Since you already have a Fix Button, don't just alert.
+
+Offer safe actions such as:
+
+Disk 92%
+
+Possible causes
+
+✓ recordings
+✓ logs
+✓ core dumps
+
+Recommended actions
+
+[Preview cleanup]
+
+Will remove:
+
+• recordings older than 30 min
+• compressed logs older than 14 days
+
+Estimated space recovered:
+12.4 GB
+
+[Execute]
+
+Notice the emphasis on Preview cleanup first. Given your production-first preference, avoid automatic deletion without showing what will happen.
+
+I would NOT auto-restart services
+
+One thing I would not implement is:
+
+systemctl restart asterisk
+systemctl restart mariadb
+
+automatically.
+
+There are situations where an automatic restart can make diagnosis harder or interrupt active traffic.
+
+Instead:
+
+Detect the issue.
+Notify immediately.
+Provide a one-click/manual action if appropriate.
+I would also add historical graphs
+
+Since BitsAuto already has BitsEye, include 30-day trends for:
+
+Disk %
+Free disk GB
+Memory
+Load
+Recording storage
+Log storage
+
+That way you can see:
+
+25 GB
+
+Day 1   38%
+Day 2   46%
+Day 3   61%
+Day 4   78%
+Day 5   91%
+
+Instead of discovering the problem only after the filesystem reaches 100%.
+
+This fits your roadmap
+
+This belongs under:
+
+NOC Dashboard
+AI Ops
+Fix Button
+Infrastructure Monitoring
+
+rather than being a separate feature. It extends capabilities you already have instead of creating another standalone module.
+
+My recommendation
+✅ Replace the log truncation cron with proper logrotate.
+✅ Keep the recording cleanup cron (it's solving a different problem).
+✅ Add a Server Health card to BitsAuto with thresholds, history, and alerts.
+✅ Integrate it with the existing Fix Button using preview-first, operator-approved actions rather than unattended remediation.
+
+That approach strengthens your platform without introducing unnecessary automation risk on a production system.
