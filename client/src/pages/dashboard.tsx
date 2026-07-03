@@ -844,14 +844,18 @@ export default function DashboardPage() {
   });
 
   // ── Last refreshed countdown ──────────────────────────────────────────────
-  // statsUpdatedAt changes on every successful fetch (even if data is identical),
-  // so the timer resets every 20 s — not just when Sippy returns different values.
+  // Track the most-recently-updated of: dashboard-stats OR live-calls.
+  // dashboard-stats can time out (Sippy XML-RPC is slow); live-calls refreshes
+  // every 10-30s reliably. Using Math.max() means whichever query succeeds first
+  // resets the timer — so the "refreshed X ago" display stays accurate even when
+  // one endpoint is temporarily unavailable.
+  const lastAnyUpdate = Math.max(statsUpdatedAt ?? 0, liveCallsUpdatedAt ?? 0);
   const [secsAgo, setSecsAgo] = useState(0);
   useEffect(() => {
     setSecsAgo(0);
     const t = setInterval(() => setSecsAgo(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, [statsUpdatedAt]);
+  }, [lastAnyUpdate]);
 
   if (!stats) return <div className="p-8">Loading dashboard...</div>;
 
