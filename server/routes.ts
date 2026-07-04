@@ -34713,8 +34713,24 @@ ${footer}
   // GET /api/product-registry/destinations  — flat list
   app.get('/api/product-registry/destinations', async (_req, res) => {
     try {
-      const rows = await db.select().from(destinationsView).orderBy(destinationsView.level, destinationsView.sortOrder, destinationsView.name);
-      res.json(rows);
+      const rows = await db.execute(sql`
+        SELECT
+          id,
+          parent_id         AS "parentId",
+          level,
+          name,
+          country_code      AS "countryCode",
+          dial_prefix       AS "dialPrefix",
+          operator_name     AS "operatorName",
+          commercial_status AS "commercialStatus",
+          sort_order        AS "sortOrder",
+          notes,
+          blocked_reason    AS "blockedReason",
+          created_at        AS "createdAt"
+        FROM destinations_v
+        ORDER BY level, sort_order, name
+      `);
+      res.json(rows.rows);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
