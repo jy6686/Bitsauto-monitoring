@@ -34725,8 +34725,7 @@ ${footer}
           commercial_status AS "commercialStatus",
           sort_order        AS "sortOrder",
           notes,
-          blocked_reason    AS "blockedReason",
-          created_at        AS "createdAt"
+          blocked_reason    AS "blockedReason"
         FROM destinations_v
         ORDER BY level, sort_order, name
       `);
