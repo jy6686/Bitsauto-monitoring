@@ -74,7 +74,7 @@ export function VendorSheetUploader() {
   const [busy,      setBusy]      = useState(false);
 
   const { data: vendors   = [] } = useQuery<any[]>({ queryKey: ["/api/vendor-rates/vendors"], staleTime: 5*60_000 });
-  const { data: sheets    = [], refetch: refetchSheets } = useQuery<any[]>({ queryKey: ["/api/vendor-rates/sheets"], staleTime: 30_000 });
+    const { data: sheets    = [], refetch: refetchSheets } = useQuery<any[]>({ queryKey: ["/api/vendor-rates/sheets"], staleTime: 0, refetchInterval: (query: any) => { const rows: any[] = Array.isArray(query.state.data) ? query.state.data : []; const terminal = ["ready","active","failed","error"]; return rows.some((s:any) => !terminal.includes(s.status)) ? 3000 : false; } });
   const { data: savedMaps = [] } = useQuery<any[]>({ queryKey: [`/api/vendor-rates/column-maps/${wVid}`], enabled: !!wVid, staleTime: 60_000 });
 
   const resetWizard = () => {
