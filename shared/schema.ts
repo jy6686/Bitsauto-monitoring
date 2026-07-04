@@ -4344,3 +4344,6 @@ export const vendorRateNormalizedPrefixes = pgTable("vendor_rate_normalized_pref
 export type VendorRateNormalizedPrefix       = typeof vendorRateNormalizedPrefixes.$inferSelect;
 export type InsertVendorRateNormalizedPrefix  = typeof vendorRateNormalizedPrefixes.$inferInsert;
 
+
+// Phase 1 read migration — re-exported from shared/destinations-view.ts
+export { destinationsView } from './destinations-view';

@@ -83,7 +83,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql } from "drizzle-orm";
 const sqlExpr = sql;
@@ -16719,8 +16719,8 @@ let _snapBusy = false;
   // GET /api/global-destinations/export — live DB export as xlsx (using jszip)
   app.get('/api/global-destinations/export', async (_req: any, res: any) => {
     try {
-      const rows = await db.select().from(globalDestinations)
-        .orderBy(globalDestinations.level, globalDestinations.sortOrder, globalDestinations.name);
+      const rows = await db.select().from(destinationsView)
+        .orderBy(destinationsView.level, destinationsView.sortOrder, destinationsView.name);
 
       const esc = (s: any) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
       const colLetter = (ci: number) => ci < 26 ? String.fromCharCode(65+ci) : String.fromCharCode(64+Math.floor(ci/26)) + String.fromCharCode(65+(ci%26));
@@ -34713,7 +34713,7 @@ ${footer}
   // GET /api/product-registry/destinations  — flat list
   app.get('/api/product-registry/destinations', async (_req, res) => {
     try {
-      const rows = await db.select().from(globalDestinations).orderBy(globalDestinations.level, globalDestinations.sortOrder, globalDestinations.name);
+      const rows = await db.select().from(destinationsView).orderBy(destinationsView.level, destinationsView.sortOrder, destinationsView.name);
       res.json(rows);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -34740,7 +34740,7 @@ ${footer}
   app.put('/api/product-registry/destinations/:id', async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
-      const [existing] = await db.select().from(globalDestinations).where(eq(globalDestinations.id, id)).limit(1);
+      const [existing] = await db.select().from(destinationsView).where(eq(destinationsView.id, id)).limit(1);
       if (!existing) return res.status(404).json({ error: 'Not found' });
       const [row] = await db.update(globalDestinations).set(req.body).where(eq(globalDestinations.id, id)).returning();
       await db.insert(productHistory).values({
@@ -34817,9 +34817,9 @@ ${footer}
   // GET /api/product-registry/destinations/approved
   app.get('/api/product-registry/destinations/approved', async (_req, res) => {
     try {
-      const rows = await db.select().from(globalDestinations)
-        .where(eq(globalDestinations.commercialStatus, 'approved'))
-        .orderBy(globalDestinations.level, globalDestinations.sortOrder, globalDestinations.name);
+      const rows = await db.select().from(destinationsView)
+        .where(eq(destinationsView.commercialStatus, 'approved'))
+        .orderBy(destinationsView.level, destinationsView.sortOrder, destinationsView.name);
       res.json(rows);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -34831,7 +34831,7 @@ ${footer}
       const { rows, autoApprove, autoParent } = req.body;
       if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows must be an array' });
 
-      const existing = await db.select().from(globalDestinations);
+      const existing = await db.select().from(destinationsView);
       const existingSet = new Set(existing.map((d: any) => `${(d.name ?? '').toLowerCase()}|${d.dialPrefix ?? ''}`));
       const countryCache = new Map<string, number>();
       const typeCache = new Map<string, number>();
@@ -35125,6 +35125,62 @@ ${footer}
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/destination-catalog/vendor-rates/by-destination/:destId
+  app.get('/api/destination-catalog/vendor-rates/by-destination/:destId', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'destination_manager'], req, res, next), async (req: any, res: any) => {
+    try {
+      const destId = parseInt(req.params.destId, 10);
+      if (isNaN(destId)) return res.status(400).json({ error: 'Invalid destination id' });
+      const rows = await db.execute(sql`
+        SELECT
+          cv.id                                AS vendor_id,
+          cv.name                              AS vendor_name,
+          cv.vendor_prefix,
+          vrnp.normalized_prefix,
+          CAST(vrnp.rate AS double precision)  AS rate,
+          vrnp.currency,
+          vrnp.interval_1,
+          vrnp.interval_n,
+          vrnp.match_status,
+          vrnp.effective_date,
+          vrs.id                               AS sheet_id,
+          vrs.status                           AS sheet_status,
+          vrs.activated_at,
+          vrs.vendor_product,
+          vrs.internal_product_id,
+          vrs.file_name
+        FROM vendor_rate_normalized_prefixes vrnp
+        JOIN vendor_rate_sheets vrs ON vrs.id = vrnp.sheet_id
+        JOIN canonical_vendors  cv  ON cv.id  = vrs.vendor_id
+        WHERE vrnp.destination_id = ${destId}
+          AND vrnp.match_status   = 'matched'
+          AND vrs.status          IN ('active', 'ready')
+        ORDER BY vrnp.rate ASC
+      `);
+      res.json(rows.rows);
+    } catch (err: any) {
+      console.error('[destination-catalog] vendor-rates/by-destination error:', err);
+      res.status(500).json({ error: err?.message ?? 'Internal error' });
+    }
+  });
+
+  // GET /api/destination-catalog/overview/:destId
+  app.get('/api/destination-catalog/overview/:destId', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'destination_manager'], req, res, next), async (req: any, res: any) => {
+    try {
+      const destId = parseInt(req.params.destId, 10);
+      if (isNaN(destId)) return res.status(400).json({ error: 'Invalid destination id' });
+      const rows = await db.execute(sql`
+        SELECT d.id, d.name, d.dial_prefix, d.country_code, d.operator_name,
+               d.commercial_status, d.blocked_reason, d.notes, d.created_at
+        FROM destinations_v d WHERE d.id = ${destId} LIMIT 1
+      `);
+      if (!rows.rows.length) return res.status(404).json({ error: 'Not found' });
+      res.json(rows.rows[0]);
+    } catch (err: any) {
+      console.error('[destination-catalog] overview error:', err);
+      res.status(500).json({ error: err?.message ?? 'Internal error' });
+    }
+  });
+
   // POST /api/destination-catalog/product-rates/:id/reject
   app.post('/api/destination-catalog/product-rates/:id/reject', async (req: any, res: any) => {
     try {
@@ -35395,7 +35451,7 @@ ${footer}
       }).returning();
       // fetch product + destination names for history
       const [prod] = await db.select({ name: productRegistry.name }).from(productRegistry).where(eq(productRegistry.id, productId)).limit(1);
-      const [dest] = await db.select({ name: globalDestinations.name }).from(globalDestinations).where(eq(globalDestinations.id, destinationId)).limit(1);
+      const [dest] = await db.select({ name: destinationsView.name }).from(destinationsView).where(eq(destinationsView.id, destinationId)).limit(1);
       await db.insert(productHistory).values({
         productId, destinationId, eventType: 'destination_assigned',
         description: `${prod?.name ?? productId} assigned to ${dest?.name ?? destinationId}`,
@@ -35428,7 +35484,7 @@ ${footer}
       if (!existing) return res.status(404).json({ error: 'Not found' });
       await db.update(productDestinationAssignments).set({ status: 'inactive' }).where(eq(productDestinationAssignments.id, id));
       const [prod] = await db.select({ name: productRegistry.name }).from(productRegistry).where(eq(productRegistry.id, existing.productId)).limit(1);
-      const [dest] = await db.select({ name: globalDestinations.name }).from(globalDestinations).where(eq(globalDestinations.id, existing.destinationId)).limit(1);
+      const [dest] = await db.select({ name: destinationsView.name }).from(destinationsView).where(eq(destinationsView.id, existing.destinationId)).limit(1);
       await db.insert(productHistory).values({
         productId: existing.productId, destinationId: existing.destinationId,
         eventType: 'destination_removed',
@@ -35560,8 +35616,8 @@ ${footer}
       if (destinations?.length) {
         for (const d of destinations) {
           if (!d.destinationId) continue;
-          const [dest] = await db.select({ commercialStatus: globalDestinations.commercialStatus })
-            .from(globalDestinations).where(eq(globalDestinations.id, d.destinationId)).limit(1);
+          const [dest] = await db.select({ commercialStatus: destinationsView.commercialStatus })
+            .from(destinationsView).where(eq(destinationsView.id, d.destinationId)).limit(1);
           if (!dest || dest.commercialStatus !== 'approved') {
             return res.status(400).json({
               error: `Commercial governance violation: destination "${d.destinationName ?? d.destinationId}" is not commercially approved. Update its status in Product Registry → Destination Catalog first.`
@@ -35656,8 +35712,8 @@ ${footer}
               const rate = parseFloat(d.offerRate ?? '0');
               if (!d.destinationName || rate <= 0) continue;
               // Derive dial prefix from destination name (use numeric prefix from globalDestinations)
-              const [gd] = await db.select({ dialPrefix: globalDestinations.dialPrefix })
-                .from(globalDestinations).where(eq(globalDestinations.id, d.destinationId ?? 0)).limit(1);
+              const [gd] = await db.select({ dialPrefix: destinationsView.dialPrefix })
+                .from(destinationsView).where(eq(destinationsView.id, d.destinationId ?? 0)).limit(1);
               const prefix = gd?.dialPrefix ?? d.destinationName;
               const r = await sippy.setSippyRateEntry(username, password, String(tariffId), { prefix, rate }, portalUrl, {
                 adminUser: (settings as any).apiAdminUsername ?? '',

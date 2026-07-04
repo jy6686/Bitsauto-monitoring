@@ -517,8 +517,11 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
   const estimatedBilledSec = govSec !== null ? govSec + 8 : null;
 
   let cdrStatus = 'no_cdr';
-  if (cdrDuration !== null && estimatedBilledSec !== null) {
-    if (cdrDuration > estimatedBilledSec + 15) {
+  if (matched !== null) {
+    // CDR was found — promote from no_cdr.
+    // 'check' requires a known governance duration (byeSentAt must be set).
+    // 'loss' and 'ok' can be determined from CDR cost alone.
+    if (estimatedBilledSec !== null && cdrDuration !== null && cdrDuration > estimatedBilledSec + 15) {
       cdrStatus = 'check';
     } else if (cdrVendorCost !== null && cdrCost !== null && (cdrCost - cdrVendorCost) < 0) {
       cdrStatus = 'loss';

@@ -449,6 +449,7 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
 
         {/* Billing Settings */}
         {!editing && <BillingSettingsPanel destId={node.id} />}
+        {!editing && <VendorRatesPanel destId={node.id} />}
 
         {/* Approval actions */}
         {!editing && canApprove && (
@@ -586,6 +587,52 @@ function AddForm({ parentNode, onCancel }: { parentNode: Dest | null; onClose: (
       <div className="flex gap-2">
         <Button size="sm" onClick={() => saveMut.mutate(form)} disabled={saveMut.isPending || !form.name} data-testid="btn-save-new-dest">Add Destination</Button>
         <Button size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
+// ── VendorRatesPanel ─────────────────────────────────────────────────────────
+function VendorRatesPanel({ destId }: { destId: number }) {
+  const { data: rates = [], isLoading } = useQuery<any[]>({
+    queryKey: [`/api/destination-catalog/vendor-rates/by-destination/${destId}`],
+  });
+  if (isLoading) return <div className="text-xs text-muted-foreground py-2 px-1">Loading vendor rates…</div>;
+  if (!rates.length) return (
+    <div className="rounded border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+      No matched vendor rates for this destination.
+    </div>
+  );
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Vendor Rates</div>
+      <div className="rounded border border-border overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/40">
+            <tr>
+              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Vendor</th>
+              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Product</th>
+              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground">Rate</th>
+              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Billing</th>
+              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Status</th>
+              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Effective</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rates.map((r: any, i: number) => (
+              <tr key={i} className="hover:bg-muted/20">
+                <td className="px-2 py-1.5 font-medium">{r.vendor_name}</td>
+                <td className="px-2 py-1.5 text-muted-foreground">{r.vendor_product ?? '—'}</td>
+                <td className="px-2 py-1.5 text-right font-mono">{Number(r.rate).toFixed(6)}</td>
+                <td className="px-2 py-1.5 text-center text-muted-foreground">{r.interval_1}/{r.interval_n}</td>
+                <td className="px-2 py-1.5 text-center">
+                  <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold ${r.sheet_status === 'active' ? 'bg-emerald-500/15 text-emerald-400' : r.sheet_status === 'ready' ? 'bg-blue-500/15 text-blue-400' : 'bg-muted text-muted-foreground'}`}>{r.sheet_status}</span>
+                </td>
+                <td className="px-2 py-1.5 text-muted-foreground">{r.effective_date ? new Date(r.effective_date).toLocaleDateString() : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
