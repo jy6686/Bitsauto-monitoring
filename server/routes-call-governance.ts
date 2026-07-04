@@ -1000,6 +1000,40 @@ export function registerCallGovernanceRoutes(app: Express) {
       const recordingPath = `${govRecordingBase}.wav`;
       console.log(`[call-governance] Recording path (bridge-time): ${recordingPath}`);
 
+      // ── Duplicate guard (defence-in-depth) ──────────────────────────────────
+      // The partial unique index (channel_b WHERE status='active') is the hard
+      // DB stop. This pre-check is the graceful path: if AMI reconnects mid-call
+      // and both reconcileActiveCalls and the bridge event fire for the same
+      // channel, we re-arm the timer rather than inserting a second row.
+      const existingActive = await db
+        .select({
+          id:           governedCalls.id,
+          channelA:     governedCalls.channelA,
+          channelB:     governedCalls.channelB,
+          recordingPath: governedCalls.recordingPath,
+        })
+        .from(governedCalls)
+        .where(and(
+          eq(governedCalls.channelB, channelB),
+          eq(governedCalls.status, 'active'),
+        ))
+        .limit(1);
+
+      if (existingActive.length > 0) {
+        const dup = existingActive[0];
+        console.warn(
+          `[call-governance] duplicate bridge for ${channelB} — existing #${dup.id} already active;` +
+          ` re-arming timer if needed and skipping INSERT`,
+        );
+        if (!activeTimers.has(dup.id)) {
+          await scheduleGovernedCallCut(dup as any, capSec);
+        }
+        return;
+      }
+
+      // INSERT with ON CONFLICT DO NOTHING as a final safety net in case a
+      // concurrent insert (e.g. reconcile racing this handler) slips past the
+      // pre-check above. Empty returning() array means conflict was hit.
       const [gc] = await db.insert(governedCalls).values({
         uniqueId:       event.uniqueId1,
         channelA,
@@ -1011,7 +1045,14 @@ export function registerCallGovernanceRoutes(app: Express) {
         capSec,
         status:         'active',
         recordingPath,
-      }).returning();
+      }).onConflictDoNothing().returning();
+
+      if (!gc) {
+        // Conflict was hit after pre-check (concurrent insert race) — safe to exit;
+        // the winning insert's bridge handler will arm the timer.
+        console.warn(`[call-governance] INSERT conflict on channel_b=${channelB} (concurrent race) — skipping`);
+        return;
+      }
 
       // Start recording on the A-leg (client channel) at bridge time —
       // this ensures the .wav file begins exactly when the call is answered.
