@@ -885,24 +885,24 @@ async function reconcileActiveCalls() {
 
 // ── Route registration ─────────────────────────────────────────────────────────
 
-export function registerCallGovernanceRoutes(app: Express) {
-  // ── Idempotent DB migration: partial unique index on active channel_b ────────
-  // Prevents duplicate governed_calls rows when AMI reconnects mid-call.
-  // Runs once at startup; safe to re-run (CREATE UNIQUE INDEX IF NOT EXISTS).
-  // Uses a partial index so completed rows can reuse Asterisk channel IDs.
-  ;(async () => {
-    try {
-      await db.execute(sql`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_governed_calls_channel_b_active_unique
-        ON governed_calls (channel_b)
-        WHERE status = 'active'
-      `);
-      console.log('[call-governance] channel_b partial unique index ensured');
-    } catch (err: any) {
-      console.warn('[call-governance] channel_b index migration warning:', err?.message);
-    }
-  })();
+/**
+ * Idempotent DB migration: ensures the partial unique index on channel_b exists.
+ * Must be awaited by the caller (routes.ts) BEFORE registerCallGovernanceRoutes()
+ * so that DB-level protection is guaranteed before the AMI listener starts.
+ */
+export async function ensureCallGovernanceMigrations(): Promise<void> {
+  // Partial unique index: enforces uniqueness only among in-flight (active) calls.
+  // Completed/cancelled rows freely reuse Asterisk channel IDs — a plain UNIQUE
+  // constraint would break because Asterisk reuses channel IDs across calls.
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_governed_calls_channel_b_active_unique
+    ON governed_calls (channel_b)
+    WHERE status = 'active'
+  `);
+  console.log('[call-governance] channel_b active-unique index ensured');
+}
 
+export function registerCallGovernanceRoutes(app: Express) {
   // Start persistent AMI listener
   amiGovernance.start();
 

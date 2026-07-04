@@ -8,7 +8,7 @@ import { registerGovernanceReviewRoutes }   from './routes-governance-review';
 import { seedGovernanceData }               from './seed-governance';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
-import { registerCallGovernanceRoutes } from './routes-call-governance';
+import { registerCallGovernanceRoutes, ensureCallGovernanceMigrations } from './routes-call-governance';
 import { registerServerHealthRoutes } from './routes-server-health';
 import { registerRateManagerRoutes } from './routes-rate-manager';
 import { registerVendorRatesRoutes } from './routes-vendor-rates';
@@ -34180,6 +34180,7 @@ ${footer}
   registerConfigurationValueRoutes(app);
   registerValidationRuleRoutes(app);
   registerGovernanceReviewRoutes(app);
+  await ensureCallGovernanceMigrations(); // blocking: DB index confirmed before AMI listener starts
   registerCallGovernanceRoutes(app);
   registerServerHealthRoutes(app);
   (global as any).__bitsautoCdrCache = cdrCache; // expose CDR cache via global for call-governance (survives hot-reload)
