@@ -886,6 +886,23 @@ async function reconcileActiveCalls() {
 // ── Route registration ─────────────────────────────────────────────────────────
 
 export function registerCallGovernanceRoutes(app: Express) {
+  // ── Idempotent DB migration: partial unique index on active channel_b ────────
+  // Prevents duplicate governed_calls rows when AMI reconnects mid-call.
+  // Runs once at startup; safe to re-run (CREATE UNIQUE INDEX IF NOT EXISTS).
+  // Uses a partial index so completed rows can reuse Asterisk channel IDs.
+  ;(async () => {
+    try {
+      await db.execute(sql`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_governed_calls_channel_b_active_unique
+        ON governed_calls (channel_b)
+        WHERE status = 'active'
+      `);
+      console.log('[call-governance] channel_b partial unique index ensured');
+    } catch (err: any) {
+      console.warn('[call-governance] channel_b index migration warning:', err?.message);
+    }
+  })();
+
   // Start persistent AMI listener
   amiGovernance.start();
 
@@ -1019,14 +1036,17 @@ export function registerCallGovernanceRoutes(app: Express) {
         ))
         .limit(1);
 
+      // Typed helper so scheduleGovernedCallCut receives exact expected shape
+      type GcMinimal = { id: number; channelA: string | null; channelB: string | null; recordingPath: string | null };
+
       if (existingActive.length > 0) {
-        const dup = existingActive[0];
+        const dup: GcMinimal = existingActive[0];
         console.warn(
           `[call-governance] duplicate bridge for ${channelB} — existing #${dup.id} already active;` +
           ` re-arming timer if needed and skipping INSERT`,
         );
         if (!activeTimers.has(dup.id)) {
-          await scheduleGovernedCallCut(dup as any, capSec);
+          await scheduleGovernedCallCut(dup, capSec);
         }
         return;
       }
@@ -1048,9 +1068,26 @@ export function registerCallGovernanceRoutes(app: Express) {
       }).onConflictDoNothing().returning();
 
       if (!gc) {
-        // Conflict was hit after pre-check (concurrent insert race) — safe to exit;
-        // the winning insert's bridge handler will arm the timer.
-        console.warn(`[call-governance] INSERT conflict on channel_b=${channelB} (concurrent race) — skipping`);
+        // Conflict was hit after pre-check (concurrent insert race).
+        // Fetch the winning row and re-arm its timer if it isn't already tracked.
+        console.warn(`[call-governance] INSERT conflict on channel_b=${channelB} (concurrent race) — fetching winner to re-arm`);
+        const [winner] = await db
+          .select({
+            id:           governedCalls.id,
+            channelA:     governedCalls.channelA,
+            channelB:     governedCalls.channelB,
+            recordingPath: governedCalls.recordingPath,
+          })
+          .from(governedCalls)
+          .where(and(
+            eq(governedCalls.channelB, channelB),
+            eq(governedCalls.status, 'active'),
+          ))
+          .limit(1);
+        if (winner && !activeTimers.has(winner.id)) {
+          const w: GcMinimal = winner;
+          await scheduleGovernedCallCut(w, capSec);
+        }
         return;
       }
 
