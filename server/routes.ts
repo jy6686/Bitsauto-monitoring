@@ -34871,14 +34871,18 @@ ${footer}
         return res.status(400).json({ error: 'Only approved destinations can be unapproved' });
       }
       const changedBy = req.user?.claims?.email ?? req.user?.email ?? req.user?.claims?.sub ?? 'unknown';
-      const [row] = await db.update(globalDestinations)
-        .set({ commercialStatus: 'unapproved', blockedReason: null })
-        .where(eq(globalDestinations.id, id)).returning();
-      await db.execute(sql`
-        INSERT INTO destination_status_history
-          (destination_id, old_status, new_status, reason, notes, changed_by)
-        VALUES (${id}, ${current.commercialStatus}, 'unapproved', ${reason}, ${notes ?? null}, ${changedBy})
-      `);
+      // Atomic: status change + audit insert must both succeed or neither commits
+      const row = await db.transaction(async (tx) => {
+        const [updated] = await tx.update(globalDestinations)
+          .set({ commercialStatus: 'unapproved', blockedReason: null })
+          .where(eq(globalDestinations.id, id)).returning();
+        await tx.execute(sql`
+          INSERT INTO destination_status_history
+            (destination_id, old_status, new_status, reason, notes, changed_by)
+          VALUES (${id}, ${current.commercialStatus}, 'unapproved', ${reason}, ${notes ?? null}, ${changedBy})
+        `);
+        return updated;
+      });
       console.log(`[dest-unapprove] id=${id} by=${changedBy} reason="${reason}"`);
       res.json(row);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -35283,7 +35287,7 @@ ${footer}
 
   // POST /api/destination-catalog/:id/unapprove — canonical path alias (governed unapprove)
   app.post('/api/destination-catalog/:id/unapprove', async (req: any, res: any) => {
-    const VALID_REASONS = [
+    const VALID_REASONS_ALIAS = [
       'Commercial decision', 'Vendor removed', 'Margin issue', 'Quality degradation',
       'Fraud risk', 'Customer request', 'Duplicate destination', 'Incorrect mapping',
       'Testing complete', 'Other',
@@ -35292,7 +35296,7 @@ ${footer}
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ error: 'Invalid destination id' });
       const { reason, notes } = req.body;
-      if (!reason || !VALID_REASONS.includes(reason)) {
+      if (!reason || !VALID_REASONS_ALIAS.includes(reason)) {
         return res.status(400).json({ error: 'A valid reason is required' });
       }
       const [current] = await db.select().from(globalDestinations).where(eq(globalDestinations.id, id));
@@ -35301,14 +35305,18 @@ ${footer}
         return res.status(400).json({ error: 'Only approved destinations can be unapproved' });
       }
       const changedBy = req.user?.claims?.email ?? req.user?.email ?? req.user?.claims?.sub ?? 'unknown';
-      const [row] = await db.update(globalDestinations)
-        .set({ commercialStatus: 'unapproved', blockedReason: null })
-        .where(eq(globalDestinations.id, id)).returning();
-      await db.execute(sql`
-        INSERT INTO destination_status_history
-          (destination_id, old_status, new_status, reason, notes, changed_by)
-        VALUES (${id}, ${current.commercialStatus}, 'unapproved', ${reason}, ${notes ?? null}, ${changedBy})
-      `);
+      // Atomic: status change + audit insert must both succeed or neither commits
+      const row = await db.transaction(async (tx) => {
+        const [updated] = await tx.update(globalDestinations)
+          .set({ commercialStatus: 'unapproved', blockedReason: null })
+          .where(eq(globalDestinations.id, id)).returning();
+        await tx.execute(sql`
+          INSERT INTO destination_status_history
+            (destination_id, old_status, new_status, reason, notes, changed_by)
+          VALUES (${id}, ${current.commercialStatus}, 'unapproved', ${reason}, ${notes ?? null}, ${changedBy})
+        `);
+        return updated;
+      });
       console.log(`[dest-unapprove] id=${id} by=${changedBy} reason="${reason}"`);
       res.json(row);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
