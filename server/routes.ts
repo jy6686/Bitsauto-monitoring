@@ -34183,6 +34183,27 @@ ${footer}
   registerGovernanceReviewRoutes(app);
   await ensureCallGovernanceMigrations(); // blocking: DB index confirmed before AMI listener starts
   await ensureDestinationsSeed();        // no-op if destinations table already has rows
+  // Create destination_status_history table if it doesn't exist yet
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS destination_status_history (
+        id             SERIAL PRIMARY KEY,
+        destination_id INTEGER NOT NULL,
+        old_status     VARCHAR(32) NOT NULL,
+        new_status     VARCHAR(32) NOT NULL,
+        reason         VARCHAR(128) NOT NULL,
+        notes          TEXT,
+        changed_by     VARCHAR(255),
+        changed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_dsh_destination_id ON destination_status_history(destination_id)
+    `);
+    console.log('[dest-status-history] Migration complete');
+  } catch (migErr: any) {
+    console.warn('[dest-status-history] Migration failed (non-fatal):', migErr.message);
+  }
   registerCallGovernanceRoutes(app);
   registerServerHealthRoutes(app);
   (global as any).__bitsautoCdrCache = cdrCache; // expose CDR cache via global for call-governance (survives hot-reload)
@@ -34812,6 +34833,52 @@ ${footer}
         .set({ commercialStatus: status, blockedReason: reason ?? null })
         .where(eq(globalDestinations.id, id)).returning();
       res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/product-registry/destinations/:id/unapprove — governed revert with audit trail
+  const UNAPPROVE_REASONS = [
+    'Commercial decision', 'Vendor removed', 'Margin issue', 'Quality degradation',
+    'Fraud risk', 'Customer request', 'Duplicate destination', 'Incorrect mapping',
+    'Testing complete', 'Other',
+  ];
+  app.post('/api/product-registry/destinations/:id/unapprove', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { reason, notes } = req.body;
+      if (!reason || !UNAPPROVE_REASONS.includes(reason)) {
+        return res.status(400).json({ error: 'A valid reason is required' });
+      }
+      const [current] = await db.select().from(globalDestinations).where(eq(globalDestinations.id, id));
+      if (!current) return res.status(404).json({ error: 'Destination not found' });
+      if (current.commercialStatus !== 'approved') {
+        return res.status(400).json({ error: 'Only approved destinations can be unapproved' });
+      }
+      const changedBy = req.user?.claims?.email ?? req.user?.email ?? req.user?.claims?.sub ?? 'unknown';
+      const [row] = await db.update(globalDestinations)
+        .set({ commercialStatus: 'unapproved', blockedReason: null })
+        .where(eq(globalDestinations.id, id)).returning();
+      await db.execute(sql`
+        INSERT INTO destination_status_history
+          (destination_id, old_status, new_status, reason, notes, changed_by)
+        VALUES (${id}, ${current.commercialStatus}, 'unapproved', ${reason}, ${notes ?? null}, ${changedBy})
+      `);
+      console.log(`[dest-unapprove] id=${id} by=${changedBy} reason="${reason}"`);
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/product-registry/destinations/:id/history — status change audit log
+  app.get('/api/product-registry/destinations/:id/history', async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const result = await db.execute(sql`
+        SELECT id, destination_id, old_status, new_status, reason, notes, changed_by, changed_at
+        FROM destination_status_history
+        WHERE destination_id = ${id}
+        ORDER BY changed_at DESC
+      `);
+      res.json(result.rows);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 

@@ -18,8 +18,11 @@ import {
   TrendingUp, Upload, RefreshCw, AlertTriangle, BarChart2, Phone,
   Edit2, Trash2, CheckCircle2, XCircle, Clock, Layers, MapPin, FileText,
   Flag, Building2, BookOpen, Filter, Download, Link2, FileSpreadsheet,
-  Clipboard, Eye, Loader2, WifiOff, SkipForward,
+  Clipboard, Eye, Loader2, WifiOff, SkipForward, History, MinusCircle,
 } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from "@/components/ui/dialog";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Dest {
@@ -51,6 +54,7 @@ const STATUS_COLORS: Record<string, string> = {
   approved:   "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   blocked:    "bg-rose-500/15    text-rose-400    border-rose-500/30",
   pending:    "bg-amber-500/15   text-amber-400   border-amber-500/30",
+  unapproved: "bg-orange-500/15  text-orange-400  border-orange-500/30",
   testing:    "bg-blue-500/15    text-blue-400    border-blue-500/30",
   deprecated: "bg-slate-500/15   text-slate-400   border-slate-500/30",
   archived:        "bg-zinc-500/15    text-zinc-400    border-zinc-500/30",
@@ -58,7 +62,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 const STATUS_DOT: Record<string, string> = {
   approved: "bg-emerald-400", blocked: "bg-rose-400", pending: "bg-amber-400",
-  testing: "bg-blue-400", deprecated: "bg-slate-500",
+  unapproved: "bg-orange-400", testing: "bg-blue-400", deprecated: "bg-slate-500",
 };
 const LEVEL_LABELS: Record<number, string> = { 1: "Country", 2: "Type", 3: "Operator", 4: "Sub-type" };
 const LEVEL_COLORS: Record<number, string> = {
@@ -203,6 +207,7 @@ function DestTree({ nodes, flatNodes, selectedId, onSelect, onAddRoot }: {
               <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="unapproved">Unapproved</SelectItem>
               <SelectItem value="blocked">Blocked</SelectItem>
               <SelectItem value="testing">Testing</SelectItem>
               <SelectItem value="archived">Archived</SelectItem>
@@ -306,6 +311,17 @@ function ApprovedList({ nodes, onSelect }: { nodes: Dest[]; onSelect: (n: Dest) 
 }
 
 // ── DestDetail (right panel — node selected) ──────────────────────────────────
+const UNAPPROVE_REASONS = [
+  "Commercial decision", "Vendor removed", "Margin issue", "Quality degradation",
+  "Fraud risk", "Customer request", "Duplicate destination", "Incorrect mapping",
+  "Testing complete", "Other",
+];
+
+interface StatusHistoryRow {
+  id: number; destination_id: number; old_status: string; new_status: string;
+  reason: string; notes: string | null; changed_by: string | null; changed_at: string;
+}
+
 function DestDetail({ node, flatNodes, onClose, canApprove }: {
   node: Dest; flatNodes: Dest[]; onClose: () => void; canApprove: boolean;
 }) {
@@ -314,6 +330,10 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Partial<Dest>>({});
   const [blockReason, setBlockReason] = useState("");
+  const [unapproveOpen, setUnapproveOpen] = useState(false);
+  const [unapproveReason, setUnapproveReason] = useState("");
+  const [unapproveNotes, setUnapproveNotes] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const children = flatNodes.filter(n => n.parentId === node.id)
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
@@ -323,6 +343,11 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
   const { data: destRates = [] } = useQuery<DestRateBilling[]>({
     queryKey: [`/api/destination-catalog/product-rates/by-destination/${node.id}`],
   });
+  const { data: statusHistory = [], refetch: refetchHistory } = useQuery<StatusHistoryRow[]>({
+    queryKey: [`/api/product-registry/destinations/${node.id}/history`],
+    enabled: historyOpen,
+  });
+
   const hasName = !!(node.name?.trim());
   const hasRates = destRates.length > 0;
   const hasBilling = destRates.length > 0 && destRates.every((r: DestRateBilling) => r.interval_1 > 0 && r.interval_n > 0);
@@ -349,6 +374,20 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
     onSuccess: () => { invalidate(); toast({ title: "Reverted to pending" }); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
+  const unapproveMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/product-registry/destinations/${node.id}/unapprove`, {
+      reason: unapproveReason, notes: unapproveNotes || undefined,
+    }),
+    onSuccess: () => {
+      invalidate();
+      qc.invalidateQueries({ queryKey: [`/api/product-registry/destinations/${node.id}/history`] });
+      setUnapproveOpen(false);
+      setUnapproveReason("");
+      setUnapproveNotes("");
+      toast({ title: `${node.name} unapproved`, description: `Reason: ${unapproveReason}` });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
   const saveMut = useMutation({
     mutationFn: (data: Partial<Dest>) => apiRequest("PUT", `/api/product-registry/destinations/${node.id}`, data),
     onSuccess: () => { invalidate(); setEditing(false); toast({ title: "Saved" }); },
@@ -367,6 +406,7 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
   );
 
   return (
+    <>
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header */}
       <div className="flex items-start gap-3 p-5 border-b border-border flex-shrink-0">
@@ -485,6 +525,14 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
                   )}
                 </>
               )}
+              {node.commercialStatus === "approved" && (
+                <Button size="sm" variant="outline"
+                  className="gap-1.5 h-8 border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+                  onClick={() => { setUnapproveReason(""); setUnapproveNotes(""); setUnapproveOpen(true); }}
+                  data-testid="btn-unapprove-dest">
+                  <MinusCircle className="w-3.5 h-3.5" />Unapprove
+                </Button>
+              )}
               {node.commercialStatus !== "pending" && (
                 <Button size="sm" variant="outline" className="gap-1.5 h-8"
                   onClick={() => pendingMut.mutate()} disabled={pendingMut.isPending}>
@@ -514,6 +562,51 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
           </div>
         )}
 
+        {/* Status History */}
+        {!editing && (
+          <div>
+            <button
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors w-full text-left"
+              onClick={() => { setHistoryOpen(h => !h); if (!historyOpen) refetchHistory(); }}
+              data-testid="btn-toggle-status-history"
+            >
+              {historyOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              <History className="w-3.5 h-3.5" />
+              Status History
+              {statusHistory.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-muted text-[10px] font-semibold">{statusHistory.length}</span>
+              )}
+            </button>
+            {historyOpen && (
+              <div className="mt-2 space-y-2">
+                {statusHistory.length === 0 ? (
+                  <div className="text-xs text-muted-foreground italic px-1">No status changes recorded.</div>
+                ) : (
+                  statusHistory.map(h => (
+                    <div key={h.id} className="flex gap-2 text-xs border border-border rounded px-3 py-2 bg-muted/20">
+                      <div className="flex-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge status={h.old_status} />
+                          <span className="text-muted-foreground">→</span>
+                          <StatusBadge status={h.new_status} />
+                          <span className="ml-auto text-muted-foreground">{new Date(h.changed_at).toLocaleString()}</span>
+                        </div>
+                        <div className="text-muted-foreground">
+                          <span className="font-medium text-foreground">{h.reason}</span>
+                          {h.notes && <span> — {h.notes}</span>}
+                        </div>
+                        {h.changed_by && (
+                          <div className="text-muted-foreground">by {h.changed_by}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Children */}
         {children.length > 0 && (
           <div>
@@ -534,6 +627,62 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
         )}
       </div>
     </div>
+
+    {/* Unapprove Dialog */}
+    <Dialog open={unapproveOpen} onOpenChange={setUnapproveOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MinusCircle className="w-4 h-4 text-orange-400" />
+            Unapprove Destination
+          </DialogTitle>
+          <DialogDescription>
+            Removing approval from <span className="font-semibold text-foreground">{node.name}</span> will
+            revert its commercial status. A reason is required for the audit trail.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label className="text-sm">Reason <span className="text-rose-400">*</span></Label>
+            <Select value={unapproveReason} onValueChange={setUnapproveReason}>
+              <SelectTrigger className="h-9" data-testid="select-unapprove-reason">
+                <SelectValue placeholder="Select a reason…" />
+              </SelectTrigger>
+              <SelectContent>
+                {UNAPPROVE_REASONS.map(r => (
+                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-sm">Notes <span className="text-muted-foreground">(optional)</span></Label>
+            <Textarea
+              value={unapproveNotes}
+              onChange={e => setUnapproveNotes(e.target.value)}
+              placeholder="Additional context…"
+              rows={3}
+              className="text-sm resize-none"
+              data-testid="textarea-unapprove-notes"
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => setUnapproveOpen(false)} disabled={unapproveMut.isPending}>
+            Cancel
+          </Button>
+          <Button size="sm"
+            className="gap-1.5 bg-orange-600 hover:bg-orange-700 text-white"
+            onClick={() => unapproveMut.mutate()}
+            disabled={!unapproveReason || unapproveMut.isPending}
+            data-testid="btn-confirm-unapprove">
+            {unapproveMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MinusCircle className="w-3.5 h-3.5" />}
+            Confirm Unapprove
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 
