@@ -163,7 +163,7 @@ function DestTree({ nodes, flatNodes, selectedId, onSelect, onAddRoot }: {
   const [statusFilter, setStatusFilter] = useState("all");
   const [expanded, setExpanded] = useState<Set<number>>(() => {
     const s = new Set<number>();
-    flatNodes.filter(n => n.level <= 2).forEach(n => s.add(n.id));
+    flatNodes.filter(n => n.level === 1).forEach(n => s.add(n.id));
     return s;
   });
 
