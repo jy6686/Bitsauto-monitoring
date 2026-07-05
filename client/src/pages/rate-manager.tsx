@@ -4475,7 +4475,7 @@ export default function RateManagerPage() {
   const allDests: DestNode[] = useMemo(() => {
     if (!destsData) return [];
     if (Array.isArray(destsData)) return destsData;
-    return (destsData as any).destinations ?? (destsData as any).items ?? [];
+    return (destsData as any).destinations ?? (destsData as any).items ?? (destsData as any).rows ?? [];
   }, [destsData]);
 
   const isLoading = prodLoading || acctLoading;
