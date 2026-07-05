@@ -34726,7 +34726,7 @@ ${footer}
           sort_order        AS "sortOrder",
           notes,
           blocked_reason    AS "blockedReason"
-        FROM destinations_v
+        FROM destinations
         ORDER BY level, sort_order, name
       `);
       const _dr = Array.isArray(rows) ? rows : ((rows as any).rows ?? []); console.log("[dest] rows:", _dr.length, _dr[0] && JSON.stringify(_dr[0]).substring(0,100)); res.json(_dr);
@@ -35186,7 +35186,7 @@ ${footer}
       const rows = await db.execute(sql`
         SELECT d.id, d.name, d.dial_prefix, d.country_code, d.operator_name,
                d.commercial_status, d.blocked_reason, d.notes, d.created_at
-        FROM destinations_v d WHERE d.id = ${destId} LIMIT 1
+        FROM destinations d WHERE d.id = ${destId} LIMIT 1
       `);
       if (!rows.rows.length) return res.status(404).json({ error: 'Not found' });
       res.json(rows.rows[0]);
