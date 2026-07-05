@@ -344,7 +344,7 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
     queryKey: [`/api/destination-catalog/product-rates/by-destination/${node.id}`],
   });
   const { data: statusHistory = [], refetch: refetchHistory } = useQuery<StatusHistoryRow[]>({
-    queryKey: [`/api/product-registry/destinations/${node.id}/history`],
+    queryKey: [`/api/destination-catalog/${node.id}/history`],
     enabled: historyOpen,
   });
 
@@ -375,12 +375,13 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
   const unapproveMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/product-registry/destinations/${node.id}/unapprove`, {
+    mutationFn: () => apiRequest("POST", `/api/destination-catalog/${node.id}/unapprove`, {
       reason: unapproveReason, notes: unapproveNotes || undefined,
     }),
     onSuccess: () => {
       invalidate();
-      qc.invalidateQueries({ queryKey: [`/api/product-registry/destinations/${node.id}/history`] });
+      qc.invalidateQueries({ queryKey: [`/api/destination-catalog/${node.id}/history`] });
+      qc.invalidateQueries({ queryKey: [`/api/destination-catalog/overview/${node.id}`] });
       setUnapproveOpen(false);
       setUnapproveReason("");
       setUnapproveNotes("");

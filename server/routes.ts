@@ -34188,7 +34188,7 @@ ${footer}
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS destination_status_history (
         id             SERIAL PRIMARY KEY,
-        destination_id INTEGER NOT NULL,
+        destination_id INTEGER NOT NULL REFERENCES global_destinations(id) ON DELETE CASCADE,
         old_status     VARCHAR(32) NOT NULL,
         new_status     VARCHAR(32) NOT NULL,
         reason         VARCHAR(128) NOT NULL,
@@ -34199,6 +34199,22 @@ ${footer}
     `);
     await db.execute(sql`
       CREATE INDEX IF NOT EXISTS idx_dsh_destination_id ON destination_status_history(destination_id)
+    `);
+    // Backfill FK constraint if table was created before this migration ran
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE constraint_type='FOREIGN KEY'
+            AND table_name='destination_status_history'
+            AND constraint_name='destination_status_history_destination_id_fkey'
+        ) THEN
+          ALTER TABLE destination_status_history
+            ADD CONSTRAINT destination_status_history_destination_id_fkey
+            FOREIGN KEY (destination_id) REFERENCES global_destinations(id) ON DELETE CASCADE;
+        END IF;
+      END$$
     `);
     console.log('[dest-status-history] Migration complete');
   } catch (migErr: any) {
@@ -35263,6 +35279,54 @@ ${footer}
       console.error('[destination-catalog] overview error:', err);
       res.status(500).json({ error: err?.message ?? 'Internal error' });
     }
+  });
+
+  // POST /api/destination-catalog/:id/unapprove — canonical path alias (governed unapprove)
+  app.post('/api/destination-catalog/:id/unapprove', async (req: any, res: any) => {
+    const VALID_REASONS = [
+      'Commercial decision', 'Vendor removed', 'Margin issue', 'Quality degradation',
+      'Fraud risk', 'Customer request', 'Duplicate destination', 'Incorrect mapping',
+      'Testing complete', 'Other',
+    ];
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid destination id' });
+      const { reason, notes } = req.body;
+      if (!reason || !VALID_REASONS.includes(reason)) {
+        return res.status(400).json({ error: 'A valid reason is required' });
+      }
+      const [current] = await db.select().from(globalDestinations).where(eq(globalDestinations.id, id));
+      if (!current) return res.status(404).json({ error: 'Destination not found' });
+      if (current.commercialStatus !== 'approved') {
+        return res.status(400).json({ error: 'Only approved destinations can be unapproved' });
+      }
+      const changedBy = req.user?.claims?.email ?? req.user?.email ?? req.user?.claims?.sub ?? 'unknown';
+      const [row] = await db.update(globalDestinations)
+        .set({ commercialStatus: 'unapproved', blockedReason: null })
+        .where(eq(globalDestinations.id, id)).returning();
+      await db.execute(sql`
+        INSERT INTO destination_status_history
+          (destination_id, old_status, new_status, reason, notes, changed_by)
+        VALUES (${id}, ${current.commercialStatus}, 'unapproved', ${reason}, ${notes ?? null}, ${changedBy})
+      `);
+      console.log(`[dest-unapprove] id=${id} by=${changedBy} reason="${reason}"`);
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/destination-catalog/:id/history — canonical path alias (status audit log)
+  app.get('/api/destination-catalog/:id/history', async (req: any, res: any) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid destination id' });
+      const result = await db.execute(sql`
+        SELECT id, destination_id, old_status, new_status, reason, notes, changed_by, changed_at
+        FROM destination_status_history
+        WHERE destination_id = ${id}
+        ORDER BY changed_at DESC
+      `);
+      res.json(result.rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // POST /api/destination-catalog/product-rates/:id/reject
