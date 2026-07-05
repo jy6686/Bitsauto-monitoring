@@ -34729,7 +34729,7 @@ ${footer}
         FROM destinations_v
         ORDER BY level, sort_order, name
       `);
-      res.json(rows.rows);
+      const _dr = Array.isArray(rows) ? rows : ((rows as any).rows ?? []); console.log("[dest] rows:", _dr.length, _dr[0] && JSON.stringify(_dr[0]).substring(0,100)); res.json(_dr);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -35171,7 +35171,7 @@ ${footer}
           AND vrs.status          IN ('active', 'ready')
         ORDER BY vrnp.rate ASC
       `);
-      res.json(rows.rows);
+      const _dr = Array.isArray(rows) ? rows : ((rows as any).rows ?? []); console.log("[dest] rows:", _dr.length, _dr[0] && JSON.stringify(_dr[0]).substring(0,100)); res.json(_dr);
     } catch (err: any) {
       console.error('[destination-catalog] vendor-rates/by-destination error:', err);
       res.status(500).json({ error: err?.message ?? 'Internal error' });
@@ -35264,7 +35264,7 @@ ${footer}
         WHERE destination_id = ${destId}
         ORDER BY created_at DESC
       `);
-      return res.json(rows.rows);
+      const _dr = Array.isArray(rows) ? rows : ((rows as any).rows ?? []); console.log("[dest] rows:", _dr.length, _dr[0] && JSON.stringify(_dr[0]).substring(0,100)); return res.json(_dr);
     } catch (e: any) { return res.status(500).json({ error: e.message }); }
   });
 
