@@ -67,10 +67,19 @@ const LEVEL_COLORS: Record<number, string> = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function buildTree(nodes: Dest[], parentId: number | null = null): TreeNode[] {
-  return nodes
-    .filter(n => (n.parentId ?? null) === parentId)
-    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name))
-    .map(n => ({ ...n, children: buildTree(nodes, n.id) }));
+  const childMap = new Map<number | null, Dest[]>();
+  for (const n of nodes) {
+    const key = n.parentId ?? null;
+    let bucket = childMap.get(key);
+    if (!bucket) { bucket = []; childMap.set(key, bucket); }
+    bucket.push(n);
+  }
+  const recurse = (pid: number | null): TreeNode[] => {
+    const children = childMap.get(pid) ?? [];
+    children.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
+    return children.map(n => ({ ...n, children: recurse(n.id) }));
+  };
+  return recurse(parentId);
 }
 function hasMatch(node: TreeNode, q: string): boolean {
   if (!q) return true;
