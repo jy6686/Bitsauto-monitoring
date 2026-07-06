@@ -830,16 +830,19 @@ export default function DashboardPage() {
   const { data: topVendors } = useQuery<{ entities: Array<{ name: string; active: number; connected: number; connectRate: number; idle?: boolean }> }>({
     queryKey: ['/api/bitseye/live-slice', 'vendor'],
     queryFn: () => fetch('/api/bitseye/live-slice?groupBy=vendor').then(r => r.json()),
+    enabled: !!topClients,
     refetchInterval: 45_000, staleTime: 30_000,
   });
   const { data: topDests } = useQuery<{ entities: Array<{ name: string; active: number; connected: number; connectRate: number; idle?: boolean }> }>({
     queryKey: ['/api/bitseye/live-slice', 'destination'],
     queryFn: () => fetch('/api/bitseye/live-slice?groupBy=destination').then(r => r.json()),
+    enabled: !!topClients,
     refetchInterval: 45_000, staleTime: 30_000,
   });
   const { data: topCountries } = useQuery<{ entities: Array<{ name: string; active: number; connected: number; connectRate: number; idle?: boolean }> }>({
     queryKey: ['/api/bitseye/live-slice', 'country'],
     queryFn: () => fetch('/api/bitseye/live-slice?groupBy=country').then(r => r.json()),
+    enabled: !!topClients,
     refetchInterval: 45_000, staleTime: 30_000,
   });
 
