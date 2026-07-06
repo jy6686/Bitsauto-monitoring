@@ -14,4 +14,4 @@ vite.config.ts.*
 *.xlsx
 *.pdf
 client/public/downloads/
-attached_assets/generated_videos/
+attached_assets/generated_videos/attached_assets/
