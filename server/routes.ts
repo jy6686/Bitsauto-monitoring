@@ -35321,7 +35321,10 @@ ${footer}
       });
       console.log(`[dest-unapprove] id=${id} by=${changedBy} reason="${reason}"`);
       res.json(row);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) {
+      console.error("[UNAPPROVE-ERROR]", e);
+      res.status(500).json({ error: e?.message ?? "Unknown error", detail: String(e) });
+    }
   });
 
   // GET /api/destination-catalog/:id/history — canonical path alias (status audit log)
