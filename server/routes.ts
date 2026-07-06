@@ -35300,6 +35300,8 @@ ${footer}
         return res.status(400).json({ error: 'A valid reason is required' });
       }
       const [current] = await db.select().from(globalDestinations).where(eq(globalDestinations.id, id));
+      const _chk = await db.execute(sql`SELECT id, commercial_status FROM global_destinations WHERE id = ${id}`);
+      console.log('[UNAPPROVE-DC]', { id, typeof_id: typeof id, drizzle: current ?? null, raw: _chk.rows });
       if (!current) return res.status(404).json({ error: 'Destination not found' });
       if (current.commercialStatus !== 'approved') {
         return res.status(400).json({ error: 'Only approved destinations can be unapproved' });
